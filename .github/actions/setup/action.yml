@@ -1,0 +1,24 @@
+name: Setup code base
+description: "Setup the repo"
+inputs:
+  GO_LIB_TOKEN:
+    description: "GO_LIB_TOKEN"
+runs:
+  using: composite
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        cache: true
+        go-version-file: ./go.mod
+    - name: Install tools
+      shell: bash
+      run: |
+        npm install -g @openapitools/openapi-generator-cli
+    - name: Create compilable code
+      shell: bash
+      run: |
+        git config --global url."https://${{ inputs.GO_LIB_TOKEN }}:x-oauth-basic@github.com".insteadOf "https://github.com"
+        go env -w GOPRIVATE=github.com/appcd-dev/go-lib,github.com/appcd-dev/cce
+        export PATH=$PATH:$(go env GOPATH)/bin:$PATH:$HOME/.local/bin
+        make setup

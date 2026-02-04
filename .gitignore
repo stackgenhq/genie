@@ -1,1 +1,10 @@
 vendor
+**/*fakes/fake*.go
+iac
+**/*.test
+.env
+bin
+coverage.out
+testreports
+genie_output
+**/*/.terraform

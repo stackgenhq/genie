@@ -1,0 +1,11 @@
+[architect]
+google_search_api_key = "toml-key"
+
+[ops]
+max_pages = 8
+enable_verification = true
+
+[secops.severity_thresholds]
+high = 0
+medium = 30
+low = 10

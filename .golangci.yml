@@ -1,0 +1,18 @@
+version: "2"
+
+run:
+  modules-download-mode: mod
+
+linters:
+  # Defines a set of rules to ignore issues.
+  # NOTE: It does not skip the analysis, and so does not ignore "typecheck" errors.
+  exclusions:
+    rules:
+      # Exclude all lint errors in test files
+      - path: _test\.go
+        linters:
+          - errcheck
+          - staticcheck
+          - ineffassign
+          - govet
+          - unused

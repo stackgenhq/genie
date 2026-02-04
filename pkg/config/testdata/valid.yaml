@@ -1,0 +1,10 @@
+architect:
+  google_search_api_key: "yaml-key"
+ops:
+  max_pages: 10
+  enable_verification: false
+secops:
+  severity_thresholds:
+    high: 1
+    medium: 20
+    low: 5

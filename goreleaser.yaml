@@ -1,0 +1,122 @@
+version: 2
+
+release:
+  prerelease: auto
+  draft: false
+
+git:
+  tag_sort: -version:creatordate
+  ignore_tags:
+    - "*-rc.*"
+
+env:
+  - CGO_ENABLED=0
+
+builds:
+  - id: linux-build
+    binary: genie
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - ppc64le
+      - s390x
+    mod_timestamp: &build-timestamp '{{.CommitTimestamp}}'
+    ldflags: &build-ldflags |
+      -w
+      -s
+      -extldflags '-static'
+      -X github.com/appcd-dev/go-lib/constants.Version={{.Version}}
+      -X github.com/appcd-dev/go-lib/constants.BuildDate={{.Date}}
+      -X github.com/appcd-dev/go-lib/featureflag.Key={{.Env.FF_UNLEASH_API_KEY}}
+      -X github.com/appcd-dev/genie/pkg/tracing.LangfusePublicKey={{.Env.LANGFUSE_PUBLIC_KEY}}
+      -X github.com/appcd-dev/genie/pkg/tracing.LangfuseSecretKey={{.Env.LANGFUSE_SECRET_KEY}}
+  - id: darwin-build
+    binary: genie
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: *build-timestamp
+    ldflags: *build-ldflags
+    hooks:
+      post:
+        - cmd: quill sign "{{ .Path }}" --ad-hoc={{ .IsSnapshot }} -vv
+          env:
+            - QUILL_LOG_FILE=/tmp/quill-{{ .Target }}.log
+
+  - id: windows-build
+    binary: genie
+    goos:
+      - windows
+    goarch:
+      - amd64
+    mod_timestamp: *build-timestamp
+    ldflags: *build-ldflags
+
+archives:
+  - id: linux-archives
+    ids:
+      - linux-build
+
+  # note: the signing process is depending on tar.gz archives. If this format changes then .github/scripts/apple-signing/*.sh will need to be adjusted
+  - id: darwin-archives
+    ids:
+      - darwin-build
+
+  - id: windows-archives
+    ids:
+      - windows-build
+    format: zip
+
+blobs:
+  - provider: s3
+    bucket: appcd-public-releases
+    directory: binaries/genie/{{ .Tag }}
+    region: us-east-2
+    ids:
+      - darwin-archives
+      - linux-archives
+      - windows-archives
+
+nfpms:
+  - license: "Apache 2.0"
+    maintainer: "StackGen, Inc"
+    homepage: &website "https://stackgen.com/"
+    description: &description "Generative Infrastructure from Code"
+    formats:
+      - rpm
+      - deb
+
+brews:
+  - name: genie
+    repository:
+      owner: stackgenhq
+      name: homebrew-stackgen
+      token: "{{.Env.BREW_TOKEN}}"
+    ids:
+      - darwin-archives
+      - linux-archives
+    homepage: *website
+    description: *description
+    license: "Apache License 2.0"
+    url_template: &url_template "https://releases.stackgen.com/binaries/stackgen-cli/{{ .Tag }}/{{ .ArtifactName }}"
+    commit_author:
+      name: stackgen-bot
+      email: bot@stackgen.com
+
+scoops:
+  - name: genie
+    repository:
+      owner: stackgenhq
+      name: homebrew-stackgen
+      token: "{{.Env.BREW_TOKEN}}"
+    homepage: *website
+    description: *description
+    license: "Apache License 2.0"
+    url_template: *url_template
+    commit_author:
+      name: stackgen-bot
+      email: bot@stackgen.com

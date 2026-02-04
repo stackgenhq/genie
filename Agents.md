@@ -1234,12 +1234,12 @@ Use `gh` CLI to fetch PR review comments and threads:
 
 ```bash
 # Get all PR comments (includes review comments)
-gh api repos/appcd-dev/stackgen-slo-app/pulls/<PR_NUMBER>/comments
+gh api repos/appcd-dev/stackgen-genie/pulls/<PR_NUMBER>/comments
 
 # Get review threads with resolution status using GraphQL
 gh api graphql -f query='
   query { 
-    repository(owner: "appcd-dev", name: "stackgen-slo-app") {
+    repository(owner: "appcd-dev", name: "stackgen-genie") {
       pullRequest(number: <PR_NUMBER>) {
         reviewThreads(first: 50) {
           nodes {
@@ -1271,7 +1271,7 @@ After addressing a review comment with code changes:
 
 ```bash
 # Add a reply to the review thread before resolving
-gh api repos/appcd-dev/stackgen-slo-app/pulls/<PR_NUMBER>/comments/<COMMENT_ID>/replies \
+gh api repos/appcd-dev/stackgen-genie/pulls/<PR_NUMBER>/comments/<COMMENT_ID>/replies \
   -f body="Fixed in commit \`<COMMIT_SHA>\`.
 
 **What:** Added console.warn for debugging in getStorageValue.
@@ -1281,7 +1281,7 @@ gh api repos/appcd-dev/stackgen-slo-app/pulls/<PR_NUMBER>/comments/<COMMENT_ID>/
 For comments that are **not addressed**, still add a reply explaining why:
 
 ```bash
-gh api repos/appcd-dev/stackgen-slo-app/pulls/<PR_NUMBER>/comments/<COMMENT_ID>/replies \
+gh api repos/appcd-dev/stackgen-genie/pulls/<PR_NUMBER>/comments/<COMMENT_ID>/replies \
   -f body="Not addressed in this PR.
 
 **Why:** This is a larger architectural refactor that would be better suited for a separate PR. The current implementation works correctly."
@@ -1306,7 +1306,7 @@ The `<COMMENT_ID>` is the numeric `id` from the PR comments API (e.g., `27331618
 After addressing review comments, add a summary comment to the PR:
 
 ```bash
-gh pr comment <PR_NUMBER> --repo appcd-dev/stackgen-slo-app --body "Addressed review comments:
+gh pr comment <PR_NUMBER> --repo appcd-dev/stackgen-genie --body "Addressed review comments:
 
 1. **Issue description** - Brief explanation of the fix (commit: \`<SHA>\`)
 2. **Another issue** - Brief explanation of the fix (commit: \`<SHA>\`)

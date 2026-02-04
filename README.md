@@ -1,5 +1,7 @@
 # 🧞 genie (by Stackgen)
 
+Generative Engine for Natural Intent Execution
+
 > **"Your intent is my command. YOU get a stack! YOU get a stack!"**
 
 `genie` is the world’s first **Agentic IaC CLI**, powered by [Stackgen](https://stackgen.com). We’re moving beyond the era of manual configuration and into the era of **Intent-to-Infrastructure**.
@@ -48,9 +50,41 @@ genie grant
 
 ## 🛠 Commands
 
-| Command | Action | The "Vibe" |
-| --- | --- | --- |
 | `genie` or `genie grant` | Interactive Intent-to-Infrastructure wizard. | "Your wish is my command." |
+
+---
+
+## ⚙️ Configuration
+
+`genie` supports configuration via **YAML** or **TOML** files. You can customize the behavior of the Architect, Operations (IaC generation), and Security checks.
+
+By default, `genie` looks for `.genie.yaml`, `.genie.yml`, `genie.yaml`, or `genie.yml` in the current directory, and then falling back to `$HOME/.genie.yaml`.
+
+You can also specify a config file explicitly:
+
+```bash
+genie grant --config /path/to/my-config.toml
+```
+
+### Environment Variables
+
+Configuration values matching the pattern `${VAR_NAME}` will be automatically expanded from the environment variables.
+
+### Example Configuration
+
+Check out [config.toml.example](./config.toml.example) for a full example of available options.
+
+```toml
+[architect]
+google_search_api_key = "your-key"
+
+[ops]
+max_pages = 5
+enable_verification = true
+
+[secops.severity_thresholds]
+medium = 10
+```
 
 ---
 

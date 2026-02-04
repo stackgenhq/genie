@@ -3,18 +3,30 @@ package analyzer
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
+	"github.com/appcd-dev/cce/pkg/analyzer"
+	"github.com/appcd-dev/cce/pkg/analyzer/analyzercommon"
+	"github.com/appcd-dev/cce/pkg/cce"
+	"github.com/appcd-dev/cce/pkg/models"
+	"github.com/appcd-dev/cce/pkg/resourcemapper"
 	"github.com/appcd-dev/go-lib/encodeutils"
-	libmcp "github.com/appcd-dev/go-lib/mcp"
+	"github.com/appcd-dev/go-lib/logger"
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/sks/cce/pkg/analyzer"
-	"github.com/sks/cce/pkg/analyzer/analyzercommon"
-	"github.com/sks/cce/pkg/models"
-	"github.com/sks/cce/pkg/resourcemapper"
+	"golang.org/x/sync/errgroup"
 )
 
+type AnalysisInput struct {
+	Path     string
+	Language cce.Language
+}
+
+//go:generate go tool counterfeiter -generate
+
+//counterfeiter:generate . Analyzer
 type Analyzer interface {
-	Analyze(ctx context.Context, input analyzercommon.AnalysisInput) (MappedResources, error)
+	Analyze(ctx context.Context, input AnalysisInput) (MappedResources, error)
 }
 
 var _ Analyzer = (*treeSitterBasedAnalyzer)(nil)
@@ -24,7 +36,64 @@ type MappedResource struct {
 	MethodCall     models.MethodCall     `json:"method_call"`
 }
 
+func (m MappedResource) String() string {
+	var sb strings.Builder
+
+	// Main resource information
+	sb.WriteString(fmt.Sprintf("%s resource %s referenced in method %s\n",
+		m.MappedResource.Provider,
+		m.MappedResource.Resource,
+		m.MethodCall.Name))
+
+	// File location
+	sb.WriteString(fmt.Sprintf("  Location: %s:%d:%d\n",
+		m.MethodCall.FilePath,
+		m.MethodCall.Line,
+		m.MethodCall.Column))
+
+	// Parent function context
+	if m.MethodCall.ParentFunction != "" {
+		contextType := m.MethodCall.ParentContext
+		if contextType == "" {
+			contextType = "function"
+		}
+		sb.WriteString(fmt.Sprintf("  Inside %s: %s\n", contextType, m.MethodCall.ParentFunction))
+	}
+
+	// Code snippet for context
+	if m.MethodCall.CodeSnippet != "" {
+		sb.WriteString("  Code context:\n")
+		// Indent each line of the code snippet
+		lines := strings.Split(m.MethodCall.CodeSnippet, "\n")
+		for _, line := range lines {
+			sb.WriteString("    ")
+			sb.WriteString(line)
+			sb.WriteString("\n")
+		}
+	}
+
+	return sb.String()
+}
+
 type MappedResources []MappedResource
+
+type GroupdResources map[string]MappedResources
+
+func (m MappedResources) GroupByProvider() GroupdResources {
+	groupedResources := make(GroupdResources)
+	for _, resource := range m {
+		groupedResources[resource.MappedResource.Provider] = append(groupedResources[resource.MappedResource.Provider], resource)
+	}
+	return groupedResources
+}
+
+func (m MappedResources) GroupByResources() GroupdResources {
+	groupedResources := make(GroupdResources)
+	for _, resource := range m {
+		groupedResources[resource.MappedResource.Resource] = append(groupedResources[resource.MappedResource.Resource], resource)
+	}
+	return groupedResources
+}
 
 func New() (Analyzer, error) {
 	resourceMapper, err := resourcemapper.NewInBuildMapping()
@@ -39,47 +108,48 @@ type treeSitterBasedAnalyzer struct {
 	resourceMapper resourcemapper.Mapper
 }
 
-func (a treeSitterBasedAnalyzer) Analyze(ctx context.Context, input analyzercommon.AnalysisInput) (MappedResources, error) {
-	scanResult, err := a.analyzer.AnalyzeV2(ctx, input)
+func (a treeSitterBasedAnalyzer) Analyze(ctx context.Context, input AnalysisInput) (MappedResources, error) {
+	logr := logger.GetLogger(ctx).With("fn", "treeSitterBasedAnalyzer.Analyze")
+	logr.Info("Analyzing folder", "folder", input.Path)
+	scanResult := make(chan models.MethodCall)
+	defer func(startTime time.Time) {
+		logr.Info("analysis completed", "duration", time.Since(startTime).String())
+	}(time.Now())
+	result := MappedResources{}
+	errGoup, ctx := errgroup.WithContext(ctx)
+	errGoup.Go(func() error {
+		return a.analyzer.AnalyzeV3(ctx, input.Path, scanResult)
+	})
+	errGoup.Go(func() error {
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case methodCall, ok := <-scanResult:
+				if !ok {
+					return nil
+				}
+				logr.Debug("method call", "methodCall", methodCall)
+				mappedResource, err := a.resourceMapper.Map(ctx, resourcemapper.MappingRequest{
+					MethodName: methodCall.Name,
+					Language:   methodCall.Language,
+				})
+				if err != nil {
+					logr.Debug("could not map the method call", "methodCall", methodCall, "error", err)
+					continue
+				}
+				result = append(result, MappedResource{
+					MappedResource: mappedResource,
+					MethodCall:     methodCall,
+				})
+			}
+		}
+	})
+	err := errGoup.Wait()
 	if err != nil {
 		return nil, fmt.Errorf("failed to analyze the folder: %w", err)
 	}
-	result := MappedResources{}
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-			methodCall, ok := <-scanResult.Channel
-			if !ok {
-				return result, nil
-			}
-			mappedResource, err := a.resourceMapper.Map(ctx, resourcemapper.MappingRequest{
-				MethodName: methodCall.Name,
-				Language:   input.Language,
-			})
-			if err != nil {
-				return nil, fmt.Errorf("failed to map method call: %w", err)
-			}
-			result = append(result, MappedResource{
-				MappedResource: mappedResource,
-				MethodCall:     methodCall,
-			})
-		}
-	}
-}
-
-func (a treeSitterBasedAnalyzer) Tools(ctx context.Context) []libmcp.ToolDefinition {
-	return []libmcp.ToolDefinition{
-		{
-			Tool: mcp.Tool{
-				Name:           "code-analyzer",
-				Description:    `Analyzes the given source code to extract method calls`,
-				RawInputSchema: encodeutils.MustToJSON(ctx, libmcp.GetSchema(&analyzercommon.AnalysisInput{})),
-			},
-			Handler: a.analyze,
-		},
-	}
+	return result, nil
 }
 
 func (a treeSitterBasedAnalyzer) analyze(ctx context.Context, req mcp.CallToolRequest) (_ *mcp.CallToolResult, err error) {
@@ -94,7 +164,7 @@ func (a treeSitterBasedAnalyzer) analyze(ctx context.Context, req mcp.CallToolRe
 		return nil, err
 	}
 	result := &mcp.CallToolResult{
-		Content: make([]mcp.Content, 0, len(analysisResponse.MethodCalls)),
+		Content: make([]mcp.Content, len(analysisResponse.MethodCalls)),
 	}
 	for i := range analysisResponse.MethodCalls {
 		result.Content[i] = mcp.NewTextContent(string(encodeutils.MustToJSON(ctx, analysisResponse.MethodCalls[i])))

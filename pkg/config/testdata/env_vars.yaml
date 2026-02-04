@@ -1,0 +1,2 @@
+architect:
+  google_search_api_key: "${TEST_API_KEY}"

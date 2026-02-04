@@ -1,0 +1,29 @@
+# Genie Configuration Example
+
+[model_config]
+# Configuration for the model provider
+# provider = "openai" # or "vertexai", "anthropic"
+# model = "gpt-4"
+
+[architect]
+# Google Search API Key for the Architect agent
+google_search_api_key = "your-google-search-api-key"
+google_search_cx = "your-custom-search-engine-id"
+page_size = 5
+
+[ops]
+# Maximum number of pages to process
+max_pages = 5
+# Enable verification steps after IaC generation
+enable_verification = true
+# Maximum number of verification retries
+max_verification_runs = 3
+
+[secops]
+scanner = "snyk" # or "trivy"
+
+[secops.severity_thresholds]
+# Security violation thresholds. If violations exceed these counts, the check fails.
+high = 0
+medium = 42
+low = -1 # -1 means unlimited

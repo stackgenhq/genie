@@ -1,0 +1,75 @@
+name: Go Test
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-24.04-med
+    timeout-minutes: 10
+    steps:
+      - name: Check out code into the Go module directory
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Setup Repo
+        uses: ./.github/actions/setup
+        with:
+          GO_LIB_TOKEN: ${{ secrets.GO_LIB_TOKEN }}
+      - name: fail on git diff
+        run: |
+          make fmt/fix
+          if ! git diff --exit-code; then
+            echo "Fix the git diff"
+            exit 1
+          fi
+      - name: Run tests
+        shell: bash
+        run: |
+          make test
+      - name: check test coverage
+        id: coverage
+        uses: vladopajic/go-test-coverage@v2
+        with:
+          profile: coverage.out
+          local-prefix: stackgen-cli
+          threshold-file: 0 
+          threshold-package: 0
+          threshold-total: 50
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v5
+        with:
+          version: latest
+          args: --timeout=2m
+          install-mode: binary
+      - name: Add coverage info to PR
+        uses: thollander/actions-comment-pull-request@v2
+        if: github.event_name == 'pull_request'
+        with:
+          message: |
+            Test coverage: ${{ steps.coverage.outputs.total-coverage }}%
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Trivy vulnerability scanner in repo mode
+        uses: aquasecurity/trivy-action@master
+        env:
+          # https://github.com/aquasecurity/trivy-action/issues/389#issuecomment-2399206418
+          # to get around ratelimiting issue
+          TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db:2
+          TRIVY_JAVA_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-java-db:1
+        with:
+          scan-type: 'fs'
+          ignore-unfixed: true
+          format: 'table'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: 1

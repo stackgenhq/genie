@@ -1,0 +1,121 @@
+package tftools
+
+import (
+	"context"
+	"fmt"
+	"os/exec"
+
+	"github.com/hashicorp/terraform-exec/tfexec"
+	tfjson "github.com/hashicorp/terraform-json"
+)
+
+// tfExecValidator validates Terraform/OpenTofu configurations using terraform/tofu validate
+type tfExecValidator struct{}
+
+// tfExecValidatorOutput represents the output of Terraform validation
+type tfExecValidatorOutput struct {
+	IsValid  bool     `json:"is_valid"`
+	Errors   []string `json:"errors,omitempty"`
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// Validate runs terraform/tofu validate on the given directory
+func (v *tfExecValidator) validate(ctx context.Context, req TFValidatorInput) (tfExecValidatorOutput, error) {
+	if req.IACPath == "" {
+		return tfExecValidatorOutput{}, fmt.Errorf("iac_directory is required")
+	}
+
+	// Detect which binary to use (tofu or terraform)
+	execPath, isTerraform, err := v.detectBinary()
+	if err != nil {
+		return tfExecValidatorOutput{}, err
+	}
+
+	// Create terraform-exec instance
+	tf, err := tfexec.NewTerraform(req.IACPath, execPath)
+	if err != nil {
+		return tfExecValidatorOutput{}, fmt.Errorf("failed to create terraform executor: %w", err)
+	}
+
+	// Run terraform init (required before validate)
+	err = tf.Init(ctx, tfexec.Upgrade(false))
+	if err != nil {
+		return tfExecValidatorOutput{
+			IsValid: false,
+			Errors:  []string{fmt.Sprintf("terraform init failed: %v", err)},
+		}, nil
+	}
+
+	// Run terraform validate
+	validateOutput, err := tf.Validate(ctx)
+	if err != nil {
+		// Validation failed - parse the error
+		return tfExecValidatorOutput{
+			IsValid: false,
+			Errors:  []string{fmt.Sprintf("validation failed: %v", err)},
+		}, nil
+	}
+
+	// Parse validation output
+	result := tfExecValidatorOutput{
+		IsValid: validateOutput.Valid,
+	}
+
+	// Collect errors
+	for _, diag := range validateOutput.Diagnostics {
+		switch diag.Severity {
+		case "error":
+			errMsg := v.formatDiagnostic(diag, isTerraform)
+			result.Errors = append(result.Errors, errMsg)
+		case "warning":
+			warnMsg := v.formatDiagnostic(diag, isTerraform)
+			result.Warnings = append(result.Warnings, warnMsg)
+		}
+	}
+
+	if !result.IsValid {
+		result.Errors = append([]string{
+			fmt.Sprintf("✗ Validation failed with %d error(s)", len(result.Errors)),
+		}, result.Errors...)
+	}
+
+	return result, nil
+}
+
+// detectBinary detects whether to use tofu or terraform
+func (v *tfExecValidator) detectBinary() (string, bool, error) {
+	// Try tofu first (OpenTofu)
+	if path, err := exec.LookPath("tofu"); err == nil {
+		return path, false, nil
+	}
+
+	// Fall back to terraform
+	if path, err := exec.LookPath("terraform"); err == nil {
+		return path, true, nil
+	}
+
+	return "", false, fmt.Errorf("neither 'tofu' nor 'terraform' binary found in PATH")
+}
+
+// formatDiagnostic formats a diagnostic message for display
+func (v *tfExecValidator) formatDiagnostic(diag tfjson.Diagnostic, isTerraform bool) string {
+	binary := "tofu"
+	if isTerraform {
+		binary = "terraform"
+	}
+
+	msg := fmt.Sprintf("[%s] %s", binary, diag.Summary)
+
+	if diag.Detail != "" {
+		msg += fmt.Sprintf(": %s", diag.Detail)
+	}
+
+	if diag.Range != nil {
+		msg += fmt.Sprintf(" (at %s:%d:%d)",
+			diag.Range.Filename,
+			diag.Range.Start.Line,
+			diag.Range.Start.Column)
+	}
+
+	return msg
+}
