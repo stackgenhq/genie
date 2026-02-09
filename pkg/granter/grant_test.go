@@ -192,41 +192,6 @@ var _ = Describe("Granter", func() {
 				}, nil)
 			})
 
-			It("should create cce_analysis.ndjson file", func() {
-				fakeArchitect.DesignReturns(generator.DesignCloudResponse{
-					Notes: []string{"Architect note"},
-				}, nil)
-
-				fakeIACWriter.CreateIACReturns(generator.IACResponse{
-					IACCodePath: outputDir,
-					Notes:       []string{"IaC note"},
-				}, nil)
-
-				req := granter.GrantRequest{
-					CodeDir:  tempDir,
-					SaveTo:   outputDir,
-					Language: cce.LanguageGO,
-				}
-
-				resp, err := g.Generate(ctx, req)
-				Expect(err).ToNot(HaveOccurred())
-
-				// Verify cce_analysis.ndjson was created
-				analysisFile := filepath.Join(outputDir, "cce_analysis.ndjson")
-				_, err = os.Stat(analysisFile)
-				Expect(err).ToNot(HaveOccurred())
-				data, err := os.ReadFile(analysisFile)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(string(data)).To(Equal(`{"mapped_resource":{"Provider":"aws","Resource":"s3_bucket","Operation":""},"method_call":{"FilePath":"","Name":"create_bucket","Language":0,"Arguments":null,"Signature":"","Line":0,"Column":0,"CodeSnippet":"","ParentFunction":"","ParentContext":""}}
-{"mapped_resource":{"Provider":"aws","Resource":"s3_bucket","Operation":""},"method_call":{"FilePath":"","Name":"list_buckets","Language":0,"Arguments":null,"Signature":"","Line":0,"Column":0,"CodeSnippet":"","ParentFunction":"","ParentContext":""}}
-`))
-
-				// Verify response
-				Expect(resp.AnalysisOutput).To(HaveLen(2))
-				Expect(resp.Notes).To(ContainElement("Architect note"))
-				Expect(resp.Notes).To(ContainElement("IaC note"))
-			})
-
 			It("should call analyzer with correct input", func() {
 				fakeArchitect.DesignReturns(generator.DesignCloudResponse{}, nil)
 				fakeIACWriter.CreateIACReturns(generator.IACResponse{}, nil)
@@ -245,6 +210,7 @@ var _ = Describe("Granter", func() {
 				_, input := fakeAnalyzer.AnalyzeArgsForCall(0)
 				Expect(input.Path).To(Equal(tempDir))
 				Expect(input.Language).To(Equal(cce.LanguageGO))
+				Expect(input.SaveCCEJSONTo).To(Equal(filepath.Join(outputDir, "cce_analysis.ndjson")))
 			})
 		})
 
@@ -699,35 +665,6 @@ func main() {
 				// This should not block or panic
 				_, err = g.Generate(ctx, req)
 				Expect(err).ToNot(HaveOccurred())
-			})
-		})
-
-		Context("when analyzeRepo fails to create file", func() {
-			It("should return error", func() {
-				// Create a directory where we can't write to simulate os.Create error
-				// But we can't easily change permissions in a portable way or root might override.
-				// Alternatively, use a file as a directory path for Create.
-
-				saveTo := filepath.Join(tempDir, "file_as_dir")
-				err := os.WriteFile(saveTo, []byte("data"), 0644)
-				Expect(err).ToNot(HaveOccurred())
-
-				// SaveTo is a file, so os.Create(filepath.Join(SaveTo, ...)) should fail
-				// because it treats the file as a directory component
-				// Actually Join just creates path string. os.Create calls open.
-				// If SaveTo is a file, SaveTo/cce_analysis.ndjson attempts to treat file as dir.
-
-				req := granter.GrantRequest{
-					CodeDir:  tempDir,
-					Language: cce.LanguageGO,
-					SaveTo:   saveTo,
-				}
-
-				fakeAnalyzer.AnalyzeReturns(analyzer.MappedResources{{}}, nil)
-
-				_, err = g.Generate(ctx, req)
-				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(ContainSubstring("error creating the cce analysis ndjson file"))
 			})
 		})
 	})

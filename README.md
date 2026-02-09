@@ -84,7 +84,45 @@ enable_verification = true
 
 [secops.severity_thresholds]
 medium = 10
+
+# Skills: Enable reusable agent capabilities
+skills_roots = ["./skills"]  # Paths to skills directories
 ```
+
+### Skills System
+
+`genie` supports a skills system based on the [agentskills.io specification](https://agentskills.io/specification). Skills are reusable, self-contained capabilities that agents can discover, load, and execute.
+
+**Quick Start:**
+
+1. Create a skills directory:
+   ```bash
+   mkdir -p skills/my-skill
+   ```
+
+2. Add a `SKILL.md` file with YAML frontmatter:
+   ```markdown
+   ---
+   name: my-skill
+   description: What this skill does
+   ---
+   
+   # My Skill
+   
+   Detailed instructions...
+   ```
+
+3. Configure in `genie.toml`:
+   ```toml
+   skills_roots = ["./skills"]
+   ```
+   
+   Or use environment variable:
+   ```bash
+   export SKILLS_ROOT=./skills
+   ```
+
+**Learn More:** See [docs/skills.md](./docs/skills.md) for complete documentation, examples, and best practices.
 
 ---
 

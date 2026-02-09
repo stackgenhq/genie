@@ -1,4 +1,4 @@
-package generator
+package analyzer
 
 import (
 	_ "embed"
@@ -6,7 +6,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/analyzer"
 	"gopkg.in/yaml.v3"
 )
 
@@ -85,7 +84,15 @@ func getServiceFamily(resourceName string) string {
 }
 
 // ResourceCategories maps categories to their resources
-type ResourceCategories map[ResourceCategory]analyzer.MappedResources
+type ResourceCategories map[ResourceCategory]MappedResources
+
+func (r ResourceCategories) len() int {
+	count := 0
+	for _, resources := range r {
+		count += len(resources)
+	}
+	return count
+}
 
 func (r ResourceCategories) Keys() []string {
 	result := make([]string, 0, len(r))
@@ -164,7 +171,7 @@ func getResourceCategorizer() *resourceCategorizer {
 }
 
 // categorizeResources groups resources by their architectural tier
-func (c *resourceCategorizer) categorizeResources(resources analyzer.MappedResources) ResourceCategories {
+func (c *resourceCategorizer) categorizeResources(resources MappedResources) ResourceCategories {
 	categories := make(ResourceCategories)
 
 	for _, resource := range resources {
@@ -338,12 +345,12 @@ func (categories ResourceCategories) inferDataFlow() string {
 }
 
 // buildComponentSummary creates a concise summary of resources in a category (legacy, uses default options)
-func buildComponentSummary(category ResourceCategory, resources analyzer.MappedResources) string {
+func buildComponentSummary(category ResourceCategory, resources MappedResources) string {
 	return buildCompactComponentSummary(category, resources, DefaultPromptOptions())
 }
 
 // buildCompactComponentSummary creates a token-optimized summary of resources in a category
-func buildCompactComponentSummary(category ResourceCategory, resources analyzer.MappedResources, opts PromptOptions) string {
+func buildCompactComponentSummary(category ResourceCategory, resources MappedResources, opts PromptOptions) string {
 	var summary strings.Builder
 
 	summary.WriteString(fmt.Sprintf("### %s Components\n\n", category))
@@ -403,7 +410,7 @@ func buildCompactComponentSummary(category ResourceCategory, resources analyzer.
 }
 
 // getCategoryResourceNames returns a concatenated string of all resource names in a category
-func getCategoryResourceNames(resources analyzer.MappedResources) string {
+func getCategoryResourceNames(resources MappedResources) string {
 	var names []string
 	for _, resource := range resources {
 		names = append(names, resource.MappedResource.Resource)

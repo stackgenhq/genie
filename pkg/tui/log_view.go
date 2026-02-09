@@ -16,6 +16,7 @@ type LogView struct {
 	ready    bool
 	height   int
 	width    int
+	hasFocus bool
 }
 
 // NewLogView creates a new LogView instance.
@@ -39,17 +40,26 @@ func (m LogView) Update(msg tea.Msg) (LogView, tea.Cmd) {
 	return m, cmd
 }
 
+// SetFocus sets the focus state of the log view.
+func (m *LogView) SetFocus(focused bool) {
+	m.hasFocus = focused
+}
+
 // SetDimensions sets the dimensions of the log view.
 func (m *LogView) SetDimensions(width, height int) {
 	m.width = width
 	m.height = height
 
-	m.viewport.Width = width
-	m.viewport.Height = height
+	// Account for title line and panel borders
+	viewportHeight := height - 3 // -1 for title, -2 for panel borders
+	if viewportHeight < 3 {
+		viewportHeight = 3
+	}
+
+	m.viewport.Width = width - 2 // Account for scrollbar
+	m.viewport.Height = viewportHeight
 	m.ready = true
 
-	// Re-render content with new width if needed, or just let View handle it?
-	// Viewport needs content set.
 	m.updateViewportContent()
 }
 
@@ -100,9 +110,17 @@ func (m LogView) View() string {
 		)
 	}
 
-	return m.styles.Panel.
+	// Use focused or unfocused border style
+	var panelStyle lipgloss.Style
+	if m.hasFocus {
+		panelStyle = m.styles.FocusedBorder
+	} else {
+		panelStyle = m.styles.DimBorder
+	}
+
+	return panelStyle.
 		Width(m.width).
-		Height(m.height).
+		MaxHeight(m.height).
 		Render(
 			m.styles.PanelTitle.Render("📋 System Logs") + "\n" +
 				logContent,

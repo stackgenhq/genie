@@ -12,6 +12,7 @@ type FocusArea int
 
 const (
 	FocusChat FocusArea = iota
+	FocusLogs
 )
 
 // ModelState holds the dynamic state of the application.
@@ -135,16 +136,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			return m, tea.Batch(nudgeCmd, resetCmd)
 
+		case "tab":
+			// Toggle focus between chat and logs in completed state
+			if m.state.Completed {
+				if m.focus == FocusChat {
+					m.focus = FocusLogs
+					m.chatView.SetFocus(false)
+					m.logView.SetFocus(true)
+				} else {
+					m.focus = FocusChat
+					m.chatView.SetFocus(true)
+					m.logView.SetFocus(false)
+				}
+				return m, nil
+			}
+			// Ignore tab key when state is not completed to avoid unintended propagation
+			return m, nil
 		}
 
 		// Pass keys to active component
 		if m.state.Completed {
 			var cmd tea.Cmd
-			switch m.focus {
-			case FocusChat:
+			switch msg.Type {
+			case tea.KeyPgUp, tea.KeyPgDown, tea.KeyUp, tea.KeyDown:
+				// Route scroll keys to focused pane
+				if m.focus == FocusLogs {
+					m.logView, cmd = m.logView.Update(msg)
+				} else {
+					m.chatView, cmd = m.chatView.Update(msg)
+				}
+				return m, cmd
+			default:
+				// Other keys go to chat (for typing)
 				m.chatView, cmd = m.chatView.Update(msg)
+				return m, cmd
 			}
-			return m, cmd
 		}
 
 		// Map global navigation keys to specific components

@@ -108,8 +108,6 @@ var _ = Describe("RegistryTools", func() {
 			decl := enhanced.Declaration()
 
 			Expect(decl.Name).To(Equal("mock_tool"))
-			Expect(decl.Description).To(ContainSubstring("A mock tool"))
-			Expect(decl.Description).To(ContainSubstring("Note: This tool queries the Terraform Registry"))
 		})
 
 		It("should call underlying tool successfully", func() {

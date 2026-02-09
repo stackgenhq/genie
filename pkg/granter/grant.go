@@ -12,7 +12,6 @@ import (
 	"github.com/appcd-dev/genie/pkg/analyzer"
 	"github.com/appcd-dev/genie/pkg/iacgen/generator"
 	"github.com/appcd-dev/genie/pkg/tui"
-	"github.com/appcd-dev/go-lib/encodeutils"
 	"github.com/appcd-dev/go-lib/logger"
 )
 
@@ -189,24 +188,16 @@ func (g Granter) analyzeRepo(ctx context.Context, req GrantRequest) (mappedResou
 	logr.Debug("Analyzing the code directory", "codeDir", req.CodeDir)
 	// create cce_analysis.ndjson file in the req.SaveTo directory
 	analysisOutput, err := g.analyzer.Analyze(ctx, analyzer.AnalysisInput{
-		Path:     req.CodeDir,
-		Language: req.language(),
+		Path:          req.CodeDir,
+		Language:      req.language(),
+		SaveCCEJSONTo: filepath.Join(req.SaveTo, "cce_analysis.ndjson"),
 	})
 	if err != nil {
 		return analysisOutput, err
 	}
 	logr.Info("I know what you have. Let me design your infrastructure", "outputCount", len(analysisOutput))
-	cceNDJSON, err := os.Create(filepath.Join(req.SaveTo, "cce_analysis.ndjson"))
 	if err != nil {
 		return analysisOutput, fmt.Errorf("error creating the cce analysis ndjson file: %w", err)
-	}
-	defer func() { _ = cceNDJSON.Close() }()
-	for i := range analysisOutput {
-		//
-		_, err = fmt.Fprintf(cceNDJSON, "%s\n", encodeutils.MustToJSON(ctx, analysisOutput[i]))
-		if err != nil {
-			return analysisOutput, fmt.Errorf("error writing the analysis output: %w", err)
-		}
 	}
 	return analysisOutput, err
 }

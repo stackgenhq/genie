@@ -1,11 +1,10 @@
-package generator
+package analyzer
 
 import (
 	"fmt"
 	"strings"
 
 	"github.com/appcd-dev/cce/pkg/models"
-	"github.com/appcd-dev/genie/pkg/analyzer"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -33,7 +32,7 @@ var _ = Describe("ResourceCategorizer", func() {
 		})
 
 		It("should correctly categorize mapped resources", func() {
-			resources := analyzer.MappedResources{
+			resources := MappedResources{
 				{
 					MappedResource: models.MappedResource{Resource: "aws_s3_bucket"},
 				},
@@ -53,7 +52,7 @@ var _ = Describe("ResourceCategorizer", func() {
 
 		It("should handle unknown resources by keyword matching", func() {
 			// assuming 'queue' is a keyword for Messaging
-			resources := analyzer.MappedResources{
+			resources := MappedResources{
 				{
 					MappedResource: models.MappedResource{Resource: "custom_queue_service"},
 				},
@@ -64,7 +63,7 @@ var _ = Describe("ResourceCategorizer", func() {
 		})
 
 		It("should categorize unknown resources as CategoryOther", func() {
-			resources := analyzer.MappedResources{
+			resources := MappedResources{
 				{
 					MappedResource: models.MappedResource{Resource: "unknown_widget"},
 				},
@@ -78,8 +77,8 @@ var _ = Describe("ResourceCategorizer", func() {
 	Describe("inferWorkflow", func() {
 		It("should detect event-driven pattern", func() {
 			categories := ResourceCategories{
-				CategoryMessaging: analyzer.MappedResources{{}},
-				CategoryCompute:   analyzer.MappedResources{{}},
+				CategoryMessaging: MappedResources{{}},
+				CategoryCompute:   MappedResources{{}},
 			}
 			workflow := categories.inferWorkflow()
 			Expect(workflow).To(ContainSubstring("Event-Driven Architecture Pattern Detected"))
@@ -87,8 +86,8 @@ var _ = Describe("ResourceCategorizer", func() {
 
 		It("should detect AI/ML pipeline pattern", func() {
 			categories := ResourceCategories{
-				CategoryAIML:    analyzer.MappedResources{{}},
-				CategoryStorage: analyzer.MappedResources{{}},
+				CategoryAIML:    MappedResources{{}},
+				CategoryStorage: MappedResources{{}},
 			}
 			workflow := categories.inferWorkflow()
 			Expect(workflow).To(ContainSubstring("AI/ML Pipeline Pattern Detected"))
@@ -96,9 +95,9 @@ var _ = Describe("ResourceCategorizer", func() {
 
 		It("should detect API backend pattern", func() {
 			categories := ResourceCategories{
-				CategoryNetworking: analyzer.MappedResources{{}},
-				CategoryCompute:    analyzer.MappedResources{{}},
-				CategoryDatabase:   analyzer.MappedResources{{}},
+				CategoryNetworking: MappedResources{{}},
+				CategoryCompute:    MappedResources{{}},
+				CategoryDatabase:   MappedResources{{}},
 			}
 			workflow := categories.inferWorkflow()
 			Expect(workflow).To(ContainSubstring("API Backend Pattern Detected"))
@@ -106,10 +105,10 @@ var _ = Describe("ResourceCategorizer", func() {
 
 		It("should detect stream processing pattern", func() {
 			categories := ResourceCategories{
-				CategoryMessaging: analyzer.MappedResources{
+				CategoryMessaging: MappedResources{
 					{MappedResource: models.MappedResource{Resource: "aws_kinesis_stream"}},
 				},
-				CategoryCompute: analyzer.MappedResources{{}},
+				CategoryCompute: MappedResources{{}},
 			}
 			workflow := categories.inferWorkflow()
 			Expect(workflow).To(ContainSubstring("Stream Processing Pattern Detected"))
@@ -117,9 +116,9 @@ var _ = Describe("ResourceCategorizer", func() {
 
 		It("should infer data flow for storage-aiml-messaging", func() {
 			categories := ResourceCategories{
-				CategoryStorage:   analyzer.MappedResources{{}},
-				CategoryAIML:      analyzer.MappedResources{{}},
-				CategoryMessaging: analyzer.MappedResources{{}},
+				CategoryStorage:   MappedResources{{}},
+				CategoryAIML:      MappedResources{{}},
+				CategoryMessaging: MappedResources{{}},
 			}
 			workflow := categories.inferWorkflow()
 			Expect(workflow).To(ContainSubstring("Likely Data Flow"))
@@ -128,9 +127,9 @@ var _ = Describe("ResourceCategorizer", func() {
 
 		It("should infer data flow for networking-compute-db", func() {
 			categories := ResourceCategories{
-				CategoryNetworking: analyzer.MappedResources{{}},
-				CategoryCompute:    analyzer.MappedResources{{}},
-				CategoryDatabase:   analyzer.MappedResources{{}},
+				CategoryNetworking: MappedResources{{}},
+				CategoryCompute:    MappedResources{{}},
+				CategoryDatabase:   MappedResources{{}},
 			}
 			workflow := categories.inferWorkflow()
 			Expect(workflow).To(ContainSubstring("Likely Data Flow"))
@@ -139,7 +138,7 @@ var _ = Describe("ResourceCategorizer", func() {
 
 		It("should fallback to custom pattern if no match", func() {
 			categories := ResourceCategories{
-				CategoryOther: analyzer.MappedResources{{}},
+				CategoryOther: MappedResources{{}},
 			}
 			workflow := categories.inferWorkflow()
 			Expect(workflow).To(ContainSubstring("Custom Architecture Pattern"))
@@ -148,7 +147,7 @@ var _ = Describe("ResourceCategorizer", func() {
 
 	Describe("buildComponentSummary", func() {
 		It("should generate compact summary without file locations by default", func() {
-			resources := analyzer.MappedResources{
+			resources := MappedResources{
 				{
 					MappedResource: models.MappedResource{Resource: "aws_s3_bucket"},
 					MethodCall: models.MethodCall{
@@ -177,7 +176,7 @@ var _ = Describe("ResourceCategorizer", func() {
 		})
 
 		It("should aggregate resources by service family", func() {
-			resources := analyzer.MappedResources{
+			resources := MappedResources{
 				{MappedResource: models.MappedResource{Resource: "s3"}},
 				{MappedResource: models.MappedResource{Resource: "s3control"}},
 				{MappedResource: models.MappedResource{Resource: "s3outposts"}},
@@ -193,10 +192,10 @@ var _ = Describe("ResourceCategorizer", func() {
 		})
 
 		It("should limit to top N resources when configured", func() {
-			resources := analyzer.MappedResources{}
+			resources := MappedResources{}
 			// Create 15 different resources
 			for i := 0; i < 15; i++ {
-				resources = append(resources, analyzer.MappedResource{
+				resources = append(resources, MappedResource{
 					MappedResource: models.MappedResource{Resource: fmt.Sprintf("resource_%02d", i)},
 				})
 			}
@@ -211,7 +210,7 @@ var _ = Describe("ResourceCategorizer", func() {
 		})
 
 		It("should sort resources by usage count descending", func() {
-			resources := analyzer.MappedResources{
+			resources := MappedResources{
 				{MappedResource: models.MappedResource{Resource: "low_usage"}},
 				{MappedResource: models.MappedResource{Resource: "high_usage"}},
 				{MappedResource: models.MappedResource{Resource: "high_usage"}},
@@ -231,8 +230,8 @@ var _ = Describe("ResourceCategorizer", func() {
 	Describe("Helper Methods", func() {
 		It("should return categories keys", func() {
 			categories := ResourceCategories{
-				CategoryStorage: analyzer.MappedResources{{}},
-				CategoryCompute: analyzer.MappedResources{{}},
+				CategoryStorage: MappedResources{{}},
+				CategoryCompute: MappedResources{{}},
 			}
 			keys := categories.Keys()
 			Expect(keys).To(HaveLen(2))
@@ -241,7 +240,7 @@ var _ = Describe("ResourceCategorizer", func() {
 		})
 
 		It("should get category resource names", func() {
-			resources := analyzer.MappedResources{
+			resources := MappedResources{
 				{MappedResource: models.MappedResource{Resource: "res1"}},
 				{MappedResource: models.MappedResource{Resource: "res2"}},
 			}

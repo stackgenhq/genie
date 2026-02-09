@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/appcd-dev/go-lib/encodeutils"
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 	"golang.org/x/sync/errgroup"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
@@ -57,6 +60,41 @@ type tfValidationResult struct {
 type TFValidator struct {
 }
 
+func (t TFValidator) Tool() server.ServerTool {
+	return server.ServerTool{
+		Tool: mcp.NewTool("validate_iac",
+			mcp.WithDescription("Validates Terraform/OpenTofu configurations"),
+			mcp.WithString("iac_path",
+				mcp.Required(),
+				mcp.Description("Absolute path to the directory containing Terraform/OpenTofu .tf files"),
+			),
+		),
+		Handler: t.validateToolCall,
+	}
+}
+
+func (t TFValidator) validateToolCall(ctx context.Context, request mcp.CallToolRequest) (_ *mcp.CallToolResult, err error) {
+	input := TFValidatorInput{}
+	missingFields := make([]string, 0, 2)
+	input.IACPath, err = request.RequireString("iac_path")
+	if err != nil {
+		missingFields = append(missingFields, "iac_path")
+	}
+
+	if len(missingFields) > 0 {
+		return nil, fmt.Errorf("missing required fields: %v", missingFields)
+	}
+	result, err := t.validate(ctx, input)
+	if err != nil {
+		return nil, fmt.Errorf("validation failed: %w", err)
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			mcp.NewTextContent(string(encodeutils.MustToJSON(ctx, result))),
+		},
+	}, nil
+}
+
 func (t TFValidator) Declaration() *tool.Declaration {
 	return &tool.Declaration{
 		Name:        "validate_iac",
@@ -79,18 +117,24 @@ func (t TFValidator) Call(ctx context.Context, jsonArgs []byte) (_ any, err erro
 	if err := json.Unmarshal(jsonArgs, &input); err != nil {
 		return nil, err
 	}
+	return t.validate(ctx, input)
+}
+
+func (t TFValidator) validate(ctx context.Context, input TFValidatorInput) (_ tfValidationResult, err error) {
 	if input.IACPath == "" {
-		return nil, fmt.Errorf("iac_path cannot be empty")
+		return tfValidationResult{}, fmt.Errorf("iac_path cannot be empty")
 	}
 	input.IACPath, err = filepath.Abs(input.IACPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get absolute path: %w", err)
+		return tfValidationResult{}, fmt.Errorf("failed to get absolute path: %w", err)
 	}
 	result := tfValidationResult{}
 	errGroup, ctx := errgroup.WithContext(ctx)
 	errGroup.Go(func() (err error) {
 		execValidator := tfExecValidator{}
-		result.TFExecResult, err = execValidator.validate(ctx, input)
+		if _, _, err = execValidator.detectBinary(); err == nil {
+			result.TFExecResult, err = execValidator.validate(ctx, input)
+		}
 		return err
 	})
 	errGroup.Go(func() (err error) {

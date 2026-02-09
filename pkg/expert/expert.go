@@ -46,6 +46,8 @@ type Request struct {
 	EventChannel chan<- interface{}
 	// Process each choices as they are generated
 	ChoiceProcessor func(choices ...model.Choice) `json:"-"`
+	// TaskType to use
+	TaskType modelprovider.TaskType
 
 	Mode ExpertConfig
 }
@@ -57,9 +59,9 @@ func (r Request) mode() []llmagent.Option {
 			Stream:      true,
 		}),
 		llmagent.WithEnableParallelTools(true), // Enable parallel tool execution for better performance
-
+		llmagent.WithAddCurrentTime(true),      // Automatically inject current time into prompts
 		// Token optimization: Prevent runaway costs with iteration limits
-		llmagent.WithMaxLLMCalls(15),
+		llmagent.WithMaxLLMCalls(40),
 		llmagent.WithMaxToolIterations(12),
 		// Token optimization: Only include current request context, not full history (50-70% savings)
 		llmagent.WithMessageFilterMode(llmagent.IsolatedRequest),
@@ -99,15 +101,17 @@ type Expert interface {
 
 type expert struct {
 	bio           ExpertBio
-	messages      []model.Message
 	modelProvider modelprovider.ModelProvider
 	eventAdapter  *tui.EventAdapter
 }
 
 func (e *expert) getRunner(ctx context.Context, req Request) (runner.Runner, error) {
 	logr := logger.GetLogger(ctx).With("fn", "expert.getRunner", "agent", e.bio.Name)
+	if req.TaskType == "" {
+		req.TaskType = modelprovider.TaskPlanning
+	}
 
-	modelInstance, err := e.modelProvider.GetModel(ctx, modelprovider.TaskPlanning)
+	modelInstance, err := e.modelProvider.GetModel(ctx, req.TaskType)
 	if err != nil {
 		return nil, fmt.Errorf("could not get a model to perform planning: %w", err)
 	}
@@ -115,7 +119,7 @@ func (e *expert) getRunner(ctx context.Context, req Request) (runner.Runner, err
 	// Debug: Log model information
 	logr.Debug("model selected for expert",
 		"model_name", modelInstance.Info().Name,
-		"task_type", modelprovider.TaskPlanning,
+		"task_type", req.TaskType,
 	)
 
 	wrappedTools := make([]tool.Tool, len(e.bio.Tools)+len(req.AdditionalTools))
@@ -169,27 +173,21 @@ func (e *expert) Do(ctx context.Context, req Request) (Response, error) {
 	}
 	defer func() { _ = runner.Close() }()
 
-	e.messages = append(e.messages, model.Message{
-		Role:    model.RoleUser,
-		Content: req.Message,
-	})
 	defer func(startTime time.Time) {
 		logr.Info("Expert.Do", "duration", time.Since(startTime).String())
 	}(time.Now())
 	logr.Debug("expert is working on the request", "msg", req.Message)
 
-	firstMessage := req.Message
-	if len(e.messages) > 1 {
-		firstMessage = e.messages[0].Content
-	}
+	// Generate a deterministic session ID from the message content
+	sessionID := uuid.NewSHA1(uuid.Nil, []byte(req.Message)).String()
 
 	event, err := runner.Run(ctx,
 		osutils.Getenv("USER", "anonymous"),
-		uuid.NewSHA1(uuid.Nil, []byte(firstMessage)).String(),
+		sessionID,
 		model.NewUserMessage(req.Message),
 	)
 	if err != nil {
-		return Response{}, fmt.Errorf("failed to run the expert: %w", err)
+		return HandleExpertError(err)
 	}
 	response := Response{}
 	for event := range event {
@@ -241,15 +239,27 @@ func (w *ToolWrapper) Call(ctx context.Context, jsonArgs []byte) (any, error) {
 	} else {
 		return nil, fmt.Errorf("tool is not callable")
 	}
+
+	// Token optimization: Truncate large tool responses to prevent context explosion
+	// Large outputs (like generated Terraform files) can bloat context in subsequent LLM calls
+	const maxToolResultSize = 2000
 	responseStr := fmt.Sprintf("%v", output)
+	truncated := false
+	if len(responseStr) > maxToolResultSize {
+		end := maxToolResultSize
+		// To avoid corrupting a multi-byte character, find the last rune boundary.
+		for end > 0 && (responseStr[end]&0xC0) == 0x80 { // is a continuation byte
+			end--
+		}
+		responseStr = responseStr[:end] + "\n... [truncated - full output saved to file]"
+		truncated = true
+	}
+
 	// Log tool result
 	if err != nil {
 		logr.Error("tool call failed", "error", err)
 	} else {
-		if len(responseStr) > 500 {
-			responseStr = responseStr[:500] + "... (truncated)"
-		}
-		logr.Debug("tool call completed", "response_length", len(responseStr))
+		logr.Debug("tool call completed", "response_length", len(responseStr), "truncated", truncated)
 	}
 
 	// Emit tool response event

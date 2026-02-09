@@ -4,8 +4,8 @@ go 1.25.6
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/appcd-dev/cce v0.0.0-20260202234201-80b882eefb91
-	github.com/appcd-dev/go-lib v0.0.0-20251202015905-8e468229e33b
+	github.com/appcd-dev/cce v0.0.0-20260207174211-c71e7c610f78
+	github.com/appcd-dev/go-lib v0.0.0-20260206184306-9509ecaeaa2f
 	github.com/aquasecurity/trivy v0.56.2
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -17,15 +17,17 @@ require (
 	github.com/hashicorp/terraform-json v0.27.2
 	github.com/hashicorp/terraform-mcp-server v0.4.0
 	github.com/mark3labs/mcp-go v0.43.2
-	github.com/onsi/ginkgo/v2 v2.27.2
+	github.com/onsi/ginkgo/v2 v2.27.5
 	github.com/onsi/gomega v1.38.2
 	github.com/sirupsen/logrus v1.9.4
 	github.com/snyk/policy-engine v0.32.1
 	github.com/spf13/afero v1.15.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sync v0.19.0
+	google.golang.org/genai v1.44.0
 	gopkg.in/yaml.v3 v3.0.1
 	trpc.group/trpc-go/trpc-agent-go v1.5.0
+	trpc.group/trpc-go/trpc-agent-go/model/anthropic v1.5.0
 	trpc.group/trpc-go/trpc-agent-go/model/gemini v1.5.1-0.20260204045534-50145514e381
 	trpc.group/trpc-go/trpc-agent-go/tool/google v1.5.0
 )
@@ -51,6 +53,7 @@ require (
 	github.com/agnivade/levenshtein v1.2.1 // indirect
 	github.com/alecthomas/chroma v0.10.0 // indirect
 	github.com/alecthomas/chroma/v2 v2.14.0 // indirect
+	github.com/anthropics/anthropic-sdk-go v1.19.0 // indirect
 	github.com/apparentlymart/go-cidr v1.1.0 // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
 	github.com/apparentlymart/go-versions v1.0.1 // indirect
@@ -116,6 +119,7 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
+	github.com/go-test/deep v1.0.8 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/google/flatbuffers v25.12.19+incompatible // indirect
@@ -244,7 +248,6 @@ require (
 	golang.org/x/tools v0.41.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240716161551-93cc26a95ae9 // indirect
 	google.golang.org/api v0.260.0 // indirect
-	google.golang.org/genai v1.44.0 // indirect
 	google.golang.org/genproto v0.0.0-20260128011058-8636f8732409 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260202165425-ce8ad4cf556b // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260203192932-546029d2fa20 // indirect

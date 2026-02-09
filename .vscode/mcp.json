@@ -1,0 +1,14 @@
+{
+    "servers": {
+        "genie": {
+            "command": "go",
+            "args": [
+                "run",
+                "-mod=mod",
+                "./main.go",
+                "mcp"
+            ],
+            "env": {}
+        }
+    }
+}

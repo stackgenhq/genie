@@ -156,7 +156,7 @@ var _ = Describe("Architect", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				llmArchitect := architect.(llmBasedArchitect)
-				err = llmArchitect.generateReadme(ctx, filePath, []string{"note"}, nil)
+				err = llmArchitect.generateReadme(ctx, filePath, DesignCloudResponse{Notes: []string{"note"}})
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("failed to create directory"))
 			})
@@ -165,7 +165,7 @@ var _ = Describe("Architect", func() {
 				fakeExpert.DoReturns(expert.Response{}, fmt.Errorf("expert error"))
 
 				llmArchitect := architect.(llmBasedArchitect)
-				err := llmArchitect.generateReadme(ctx, tempDir, []string{"note"}, nil)
+				err := llmArchitect.generateReadme(ctx, tempDir, DesignCloudResponse{Notes: []string{"note"}})
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("failed to generate README"))
 			})
@@ -187,7 +187,7 @@ var _ = Describe("Architect", func() {
 				}, nil)
 
 				llmArchitect := architect.(llmBasedArchitect)
-				err = llmArchitect.generateReadme(ctx, tempDir, []string{"note"}, nil)
+				err = llmArchitect.generateReadme(ctx, tempDir, DesignCloudResponse{Notes: []string{"note"}})
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("failed to write README.md"))
 			})

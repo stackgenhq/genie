@@ -22,6 +22,9 @@ import (
 //go:embed prompts/ops_persona.txt
 var opsPersonaPrompt string
 
+//go:embed prompts/ops_task.txt
+var opsTaskTemplate string
+
 // IACRequest represents a request to generate Infrastructure as Code
 type IACRequest struct {
 	// ArchitectureRequirement contains the architecture notes from the architect
@@ -133,7 +136,7 @@ func (w *llmBasedIACWriter) CreateIAC(ctx context.Context, requirement IACReques
 	fileToolsList := fileToolSet.Tools(ctx)
 	// Build the prompt for Terraform code generation with module-first approach
 	logr.Debug("Building module-first prompt")
-	prompt := buildModuleFirstPrompt(requirement, w.cfg)
+	prompt := buildModuleFirstPrompt(ctx, requirement, w.cfg)
 	logr.Info("Prompt built", "promptLength", len(prompt))
 
 	// Generate Terraform code using the expert with available tools
@@ -143,6 +146,8 @@ func (w *llmBasedIACWriter) CreateIAC(ctx context.Context, requirement IACReques
 		Message:         prompt,
 		AdditionalTools: fileToolsList,
 		EventChannel:    requirement.EventChan,
+		TaskType:        modelprovider.TaskToolCalling,
+		Mode:            expert.HighPerformanceConfig(),
 	})
 	if err != nil {
 		logr.Error("Expert failed to generate Terraform code", "error", err)
@@ -153,6 +158,11 @@ func (w *llmBasedIACWriter) CreateIAC(ctx context.Context, requirement IACReques
 
 	// Collect the generated code and notes from all choices
 	var notes []string
+	if len(result.Choices) > 0 {
+		for _, choice := range result.Choices {
+			notes = append(notes, choice.Message.Content)
+		}
+	}
 	notes = append(notes, "Terraform code generated using module-first approach")
 	notes = append(notes, fmt.Sprintf("Files written to: %s", requirement.OutputFolder))
 
@@ -245,64 +255,34 @@ func getPreApprovedModulesSection() string {
 
 // buildModuleFirstPrompt creates a detailed prompt emphasizing module-first approach
 // with cost optimizations to reduce token usage and tool calls.
-func buildModuleFirstPrompt(requirement IACRequest, cfg OpsConfig) string {
-	var prompt strings.Builder
+// Uses template with variable injection for better maintainability and Langfuse integration.
+func buildModuleFirstPrompt(ctx context.Context, requirement IACRequest, cfg OpsConfig) string {
+	// Get template from Langfuse or fall back to embedded default
+	template := langfuse.GetPrompt(ctx, "genie_ops_task", opsTaskTemplate)
 
-	prompt.WriteString("**OBJECTIVE:** Generate complete, working Terraform code files.\n\n")
-
-	prompt.WriteString("**SUCCESS CRITERIA:**\n")
-	prompt.WriteString("✅ All `.tf` files written via `save_file`\n")
-
+	// Build verification-related sections based on config
+	var verificationCriteria, verificationWorkflow, validationSection string
 	if cfg.EnableVerification {
-		prompt.WriteString("✅ `iac-validator` passes\n")
-		prompt.WriteString("✅ `terraform-validate` passes\n")
-		prompt.WriteString("✅ `check_iac_policy` passes\n\n")
-	} else {
-		prompt.WriteString("\n")
+		verificationCriteria = "✅ `iac-validator` passes\n✅ `terraform-validate` passes\n✅ `check_iac_policy` passes"
+		verificationWorkflow = fmt.Sprintf("4. Validate with all three tools\n5. Fix and re-validate if needed (Max %d runs)", cfg.MaxVerificationRuns)
+		validationSection = fmt.Sprintf("**VALIDATION:**\n- `validate_iac`: iac_path='%s'\n- `check_iac_policy`: iac_path='%s'", requirement.OutputFolder, requirement.OutputFolder)
 	}
 
+	// Build output folder section
+	var outputFolderSection string
 	if requirement.OutputFolder != "" {
-		prompt.WriteString(fmt.Sprintf("**Output Folder:** %s\n", requirement.OutputFolder))
-		prompt.WriteString("Use ONLY relative filenames with `save_file` (e.g., 'main.tf').\n\n")
+		outputFolderSection = fmt.Sprintf("**Output Folder:** %s\nUse ONLY relative filenames with `save_file` (e.g., 'main.tf').", requirement.OutputFolder)
 	}
 
-	// Pre-approved modules section - biggest cost saver
-	prompt.WriteString("**PRE-APPROVED MODULES (USE DIRECTLY - DO NOT SEARCH OR FETCH DETAILS):**\n")
-	prompt.WriteString(getPreApprovedModulesSection())
-	prompt.WriteString("\nFor these modules, use the source/version directly. Do NOT call `search_modules` or `get_module_details`.\n\n")
+	// Replace template variables
+	replacer := strings.NewReplacer(
+		"{verification_criteria}", verificationCriteria,
+		"{output_folder_section}", outputFolderSection,
+		"{pre_approved_modules}", getPreApprovedModulesSection(),
+		"{architecture_requirements}", strings.Join(requirement.ArchitectureRequirement, "\n"),
+		"{verification_workflow}", verificationWorkflow,
+		"{validation_section}", validationSection,
+	)
 
-	prompt.WriteString("**Architecture Requirements:**\n")
-	prompt.WriteString(strings.Join(requirement.ArchitectureRequirement, "\n"))
-	prompt.WriteString("\n\n")
-
-	// Simplified workflow
-	prompt.WriteString("**WORKFLOW:**\n")
-	prompt.WriteString("1. Use pre-approved modules directly (skip search/details)\n")
-	prompt.WriteString("2. Only search for modules NOT in pre-approved list\n")
-	prompt.WriteString("3. Write ALL files in ONE batch using `save_file`\n")
-
-	if cfg.EnableVerification {
-		prompt.WriteString("4. Validate with all three tools\n")
-		prompt.WriteString(fmt.Sprintf("5. Fix and re-validate if needed (Max %d runs)\n\n", cfg.MaxVerificationRuns))
-	} else {
-		prompt.WriteString("\n")
-	}
-
-	// Strict cost constraints
-	prompt.WriteString("**STRICT CONSTRAINTS (MANDATORY):**\n")
-	prompt.WriteString("- Complete in **5 tool calls or fewer**\n")
-	prompt.WriteString("- **NEVER** call `get_module_details` for pre-approved modules\n")
-	prompt.WriteString("- Write ALL files in a SINGLE batch operation\n")
-	prompt.WriteString("- Do NOT make redundant searches\n\n")
-
-	// Validation paths
-	if cfg.EnableVerification {
-		prompt.WriteString("**VALIDATION:**\n")
-		prompt.WriteString(fmt.Sprintf("- `validate_iac`: iac_file_path='%s'\n", requirement.OutputFolder))
-		prompt.WriteString(fmt.Sprintf("- `check_iac_policy`: iac_source='%s'\n\n", requirement.OutputFolder))
-	}
-
-	prompt.WriteString("**BEGIN NOW:** Generate and write ALL Terraform files immediately using pre-approved modules.\n")
-
-	return prompt.String()
+	return replacer.Replace(template)
 }

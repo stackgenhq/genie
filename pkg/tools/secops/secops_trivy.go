@@ -20,7 +20,7 @@ type TrivyScanner interface {
 }
 
 // NewTrivyPolicyChecker creates a new policy checker using Trivy.
-func newTrivyPolicyChecker(ctx context.Context, ops SecOpsConfig) (TrivyPolicyChecker, error) {
+func newTrivyPolicyChecker(ops SecOpsConfig) (TrivyPolicyChecker, error) {
 	return TrivyPolicyChecker{
 		cfg:     ops,
 		scanner: terraform.New(),
@@ -39,12 +39,12 @@ func (p TrivyPolicyChecker) Declaration() *tool.Declaration {
 		InputSchema: &tool.Schema{
 			Type: "object",
 			Properties: map[string]*tool.Schema{
-				"iac_source": {
+				"iac_path": {
 					Type:        "string",
 					Description: "Absolute path to the directory containing Terraform/OpenTofu .tf files to check",
 				},
 			},
-			Required: []string{"iac_source"},
+			Required: []string{"iac_path"},
 		},
 	}
 }

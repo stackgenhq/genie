@@ -65,12 +65,6 @@ type enhancedTool struct {
 
 func (e *enhancedTool) Declaration() *tool.Declaration {
 	decl := e.baseTool.Declaration()
-
-	// Enhance description to mention registry support
-	if decl.Description != "" {
-		decl.Description = fmt.Sprintf("%s\n\nNote: This tool queries the Terraform Registry. Future versions will support OpenTofu registry as a fallback to avoid rate limits.", decl.Description)
-	}
-
 	// Override limit default if configured and tool is search_modules
 	if e.toolName == "search_modules" && e.limit > 0 && decl.InputSchema != nil {
 		if prop, ok := decl.InputSchema.Properties["limit"]; ok {

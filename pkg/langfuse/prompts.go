@@ -85,7 +85,7 @@ type promptResponse struct {
 }
 
 func (c *client) getAllPromptNames(ctx context.Context) ([]string, error) {
-	url := fmt.Sprintf("%s/api/public/v2/prompts", LangfuseHost)
+	url := fmt.Sprintf("%s/api/public/v2/prompts", langfuseHost())
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -158,7 +158,7 @@ func (c *client) getAllPrompts(ctx context.Context) (remotePrompts, error) {
 
 // getPromptByName fetches the latest version of a prompt by its name
 func (c *client) getPromptByName(ctx context.Context, name string) (string, error) {
-	url := fmt.Sprintf("%s/api/public/v2/prompts/%s", LangfuseHost, name)
+	url := fmt.Sprintf("%s/api/public/v2/prompts/%s", langfuseHost(), name)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err

@@ -31,6 +31,9 @@ type ChatView struct {
 	// isStreaming tracks whether we are currently streaming a Genie response
 	// This ensures delta chunks are appended to a Genie message, not a user message
 	isStreaming bool
+	// initialized tracks whether SetDimensions has been called
+	// This prevents rendering before proper dimensions are set, which can cause crashes
+	initialized bool
 }
 
 func NewChatView(styles Styles, inputChan chan<- string) ChatView {
@@ -62,20 +65,8 @@ func NewChatView(styles Styles, inputChan chan<- string) ChatView {
 		renderer:  r,
 	}
 
-	// Add Welcome Banner and Message
-	welcomeMsg := `
-# 🧞 Genie
-### Your Intent is My Command
-
-Welcome to **Genie Chat Mode**! 
-I can help you understand and modify your generated infrastructure code.
-
-**Try asking me:**
-*   _"Explain the IAM roles created"_
-*   _"Why did you choose this architecture?"_
-*   _"Add a new S3 bucket"_
-`
-	cv.AddMessage("Genie", welcomeMsg)
+	// Welcome message will be added when SetDimensions is first called
+	// to avoid rendering issues before proper dimensions are set
 
 	return cv
 }
@@ -111,7 +102,26 @@ func (m *ChatView) SetDimensions(width, height int) {
 		glamour.WithStandardStyle("ascii"),
 		glamour.WithWordWrap(bubbleWidth),
 	)
-	m.updateViewport()
+
+	// Add welcome message on first initialization
+	if !m.initialized {
+		m.initialized = true
+		welcomeMsg := `
+# 🧞 Genie
+### Your Intent is My Command
+
+Welcome to **Genie Chat Mode**! 
+I can help you understand and modify your generated infrastructure code.
+
+**Try asking me:**
+*   _"Explain the IAM roles created"_
+*   _"Why did you choose this architecture?"_
+*   _"Add a new S3 bucket"_
+`
+		m.AddMessage("Genie", welcomeMsg)
+	} else {
+		m.updateViewport()
+	}
 }
 
 func (m *ChatView) SetFocus(focused bool) {
@@ -137,9 +147,13 @@ func (m ChatView) Update(msg tea.Msg) (ChatView, tea.Cmd) {
 	if m.hasFocus {
 		m.textarea, tiCmd = m.textarea.Update(msg)
 	}
-	m.viewport, vpCmd = m.viewport.Update(msg)
 
 	switch msg := msg.(type) {
+	case AgentChatMessage:
+		// Handle chat messages (e.g., Ctrl+C nudge notification)
+		m.AddMessage(msg.Sender, msg.Message)
+		return m, tiCmd
+
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyEnter:
@@ -167,6 +181,9 @@ func (m ChatView) Update(msg tea.Msg) (ChatView, tea.Cmd) {
 			// Immediate feedback
 			m.isLoading = true
 			m.updateViewport()
+		case tea.KeyPgUp, tea.KeyPgDown, tea.KeyUp, tea.KeyDown:
+			// Only allow viewport scrolling for explicit navigation keys
+			m.viewport, vpCmd = m.viewport.Update(msg)
 		}
 	}
 
@@ -219,6 +236,11 @@ func cleanContent(text string) string {
 }
 
 func (m *ChatView) updateViewport() {
+	// Guard against rendering before initialization
+	if !m.initialized || m.viewport.Width <= 0 {
+		return
+	}
+
 	var renderedChunks []string
 
 	// Max width for bubbles

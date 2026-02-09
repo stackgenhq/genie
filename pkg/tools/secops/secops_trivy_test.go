@@ -41,7 +41,6 @@ var _ = Describe("TrivyPolicyChecker", func() {
 	)
 
 	BeforeEach(func() {
-		ctx = context.Background()
 		cfg = SecOpsConfig{
 			Scanner: "trivy",
 			SeverityThresholds: SeverityThresholds{
@@ -53,7 +52,7 @@ var _ = Describe("TrivyPolicyChecker", func() {
 
 		// Initialize with real constructor but swap scanner
 		var err error
-		checker, err = newTrivyPolicyChecker(ctx, cfg)
+		checker, err = newTrivyPolicyChecker(cfg)
 		Expect(err).NotTo(HaveOccurred())
 
 		mock = &mockScanner{}
@@ -65,7 +64,7 @@ var _ = Describe("TrivyPolicyChecker", func() {
 			decl := checker.Declaration()
 			Expect(decl.Name).To(Equal("check_iac_policy"))
 			Expect(decl.Description).To(ContainSubstring("Trivy"))
-			Expect(decl.InputSchema.Required).To(ContainElement("iac_source"))
+			Expect(decl.InputSchema.Required).To(ContainElement("iac_path"))
 		})
 	})
 

@@ -196,6 +196,89 @@ var _ = Describe("ModelProvider", func() {
 				Expect(cfg.Providers[0].Provider).To(Equal("openai"))
 				Expect(cfg.Providers[1].Provider).To(Equal("gemini"))
 			})
+
+			Context("when only ANTHROPIC_API_KEY is set", func() {
+				BeforeEach(func() {
+					os.Unsetenv("OPENAI_API_KEY")
+					os.Unsetenv("GEMINI_API_KEY")
+					os.Unsetenv("GOOGLE_API_KEY")
+					os.Setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
+					os.Unsetenv("ANTHROPIC_MODEL")
+				})
+
+				AfterEach(func() {
+					os.Unsetenv("ANTHROPIC_API_KEY")
+				})
+
+				It("should return a config with Anthropic provider using default model", func() {
+					cfg := modelprovider.DefaultModelConfig()
+					Expect(cfg.Providers).To(HaveLen(1))
+					Expect(cfg.Providers[0].Provider).To(Equal("anthropic"))
+					Expect(cfg.Providers[0].ModelName).To(Equal("claude-3-5-sonnet-20241022"))
+					Expect(cfg.Providers[0].Variant).To(Equal("default"))
+					Expect(cfg.Providers[0].GoodForTask).To(Equal(modelprovider.TaskPlanning))
+				})
+			})
+
+			Context("when ANTHROPIC_API_KEY and ANTHROPIC_MODEL are set", func() {
+				BeforeEach(func() {
+					os.Unsetenv("OPENAI_API_KEY")
+					os.Unsetenv("GEMINI_API_KEY")
+					os.Unsetenv("GOOGLE_API_KEY")
+					os.Setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
+					os.Setenv("ANTHROPIC_MODEL", "claude-3-opus-20240229")
+				})
+
+				AfterEach(func() {
+					os.Unsetenv("ANTHROPIC_API_KEY")
+					os.Unsetenv("ANTHROPIC_MODEL")
+				})
+
+				It("should return a config with Anthropic provider using custom model", func() {
+					cfg := modelprovider.DefaultModelConfig()
+					Expect(cfg.Providers).To(HaveLen(1))
+					Expect(cfg.Providers[0].Provider).To(Equal("anthropic"))
+					Expect(cfg.Providers[0].ModelName).To(Equal("claude-3-opus-20240229"))
+				})
+			})
+
+			Context("when all three API keys are set", func() {
+				BeforeEach(func() {
+					os.Setenv("OPENAI_API_KEY", "test-openai-key")
+					os.Setenv("GEMINI_API_KEY", "test-gemini-key")
+					os.Setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
+					os.Unsetenv("OPENAI_MODEL")
+					os.Unsetenv("GOOGLE_MODEL")
+					os.Unsetenv("ANTHROPIC_MODEL")
+				})
+
+				AfterEach(func() {
+					os.Unsetenv("OPENAI_API_KEY")
+					os.Unsetenv("GEMINI_API_KEY")
+					os.Unsetenv("ANTHROPIC_API_KEY")
+				})
+
+				It("should return a config with all three providers", func() {
+					cfg := modelprovider.DefaultModelConfig()
+					Expect(cfg.Providers).To(HaveLen(3))
+
+					// First provider should be OpenAI
+					Expect(cfg.Providers[0].Provider).To(Equal("openai"))
+					Expect(cfg.Providers[0].ModelName).To(Equal("gpt-5.2"))
+					Expect(cfg.Providers[0].GoodForTask).To(Equal(modelprovider.TaskEfficiency))
+
+					// Second provider should be Gemini
+					Expect(cfg.Providers[1].Provider).To(Equal("gemini"))
+					Expect(cfg.Providers[1].ModelName).To(Equal("gemini-3-pro-preview"))
+					Expect(cfg.Providers[1].GoodForTask).To(Equal(modelprovider.TaskToolCalling))
+
+					// Third provider should be Anthropic
+					Expect(cfg.Providers[2].Provider).To(Equal("anthropic"))
+					Expect(cfg.Providers[2].ModelName).To(Equal("claude-3-5-sonnet-20241022"))
+					Expect(cfg.Providers[2].GoodForTask).To(Equal(modelprovider.TaskPlanning))
+				})
+			})
+
 		})
 	})
 
@@ -281,6 +364,29 @@ var _ = Describe("ModelProvider", func() {
 					Expect(model).NotTo(BeNil())
 				}
 			})
+
+			Context("when initialized with Anthropic provider", func() {
+				BeforeEach(func() {
+					cfg := modelprovider.ModelConfig{
+						Providers: modelprovider.ProviderConfigs{
+							{
+								Provider:    "anthropic",
+								ModelName:   "claude-3-5-sonnet-20241022",
+								Variant:     "default",
+								GoodForTask: modelprovider.TaskPlanning,
+							},
+						},
+					}
+					provider = cfg.NewEnvBasedModelProvider()
+				})
+
+				It("should return an Anthropic model", func() {
+					model, err := provider.GetModel(ctx, modelprovider.TaskPlanning)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(model).NotTo(BeNil())
+				})
+			})
+
 		})
 
 		Context("when initialized with unknown provider", func() {

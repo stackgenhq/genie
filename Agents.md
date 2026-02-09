@@ -4,6 +4,7 @@ This document outlines the mandatory coding standards and guidelines that must b
 
 ## Table of Contents
 
+- [Build Instructions](#build-instructions)
 - [Golang Coding Standards](#golang-coding-standards)
 - [Domain Driven Design](#domain-driven-design)
 - [Code Quality Standards](#code-quality-standards)
@@ -15,6 +16,33 @@ This document outlines the mandatory coding standards and guidelines that must b
 - [GitHub Pull Request Workflow](#github-pull-request-workflow)
   - [Addressing Review Comments](#1-addressing-review-comments-mandatory)
 - [Reference Examples](#reference-examples)
+
+## Build Instructions
+
+### Handling Tree-Sitter Dependencies
+
+**When building or testing code that depends on tree-sitter packages, use the `-mod=mod` flag.**
+
+#### Rules
+
+- **Tree-Sitter Compilation**: For any `go build`, `go test`, or `go run` commands that involve tree-sitter dependencies, add the `-mod=mod` flag
+- **Example Commands**:
+  - `go build -mod=mod ./...`
+  - `go test -mod=mod ./...`
+  - `go run -mod=mod ./examples/skills_example.go`
+
+#### Why This Is Needed
+
+The tree-sitter Go bindings require C source files that are not always available in vendored dependencies. The `-mod=mod` flag ensures Go uses the module cache where these files are properly available.
+
+#### Common Error Without Flag
+
+```
+fatal error: '../../src/parser.c' file not found
+fatal error: 'tree_sitter/api.h' file not found
+```
+
+If you see these errors, add `-mod=mod` to your build command.
 
 ## Golang Coding Standards
 

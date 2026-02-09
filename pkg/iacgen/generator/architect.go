@@ -1,8 +1,10 @@
 package generator
 
 import (
+	"bufio"
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,7 +17,10 @@ import (
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/langfuse"
 	"github.com/appcd-dev/go-lib/logger"
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 	"golang.org/x/sync/errgroup"
+	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/google/search"
 )
@@ -26,6 +31,7 @@ var architectPersonaPrompt string
 //counterfeiter:generate . Architect
 type Architect interface {
 	Design(ctx context.Context, req DesignCloudRequest) (DesignCloudResponse, error)
+	Tool() server.ServerTool
 }
 
 type DesignCloudRequest struct {
@@ -77,10 +83,6 @@ func NewLLMBasedArchitect(ctx context.Context, modelProvider modelprovider.Model
 		return nil, err
 	}
 
-	// Eagerly initialize the resource categorizer to avoid lazy initialization overhead
-	// This loads and parses the YAML guide once during architect creation
-	_ = getResourceCategorizer()
-
 	return llmBasedArchitect{
 		expert: expert,
 	}, nil
@@ -90,15 +92,89 @@ type llmBasedArchitect struct {
 	expert expert.Expert
 }
 
+func (a llmBasedArchitect) Tool() server.ServerTool {
+	return server.ServerTool{
+		Tool: mcp.NewTool("generate_architecture",
+			mcp.WithDescription("Generates architectural insights and design patterns based on code analysis (CCE)."),
+			mcp.WithString("cce_file_path",
+				mcp.Required(),
+				mcp.Description("Absolute path to the CCE analysis result file (NDJSON)"),
+			),
+			mcp.WithString("save_to",
+				mcp.Required(),
+				mcp.Description("Absolute path to the directory where architecture notes will be saved"),
+			),
+		),
+		Handler: a.toolCall,
+	}
+}
+
+func (a llmBasedArchitect) toolCall(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	cceFilePath, err := req.RequireString("cce_file_path")
+	if err != nil {
+		return nil, err
+	}
+	saveTo, err := req.RequireString("save_to")
+	if err != nil {
+		return nil, err
+	}
+
+	designReq := DesignCloudRequest{
+		SaveTo: saveTo,
+	}
+	designReq.MethodCalls, err = a.mappedResources(ctx, cceFilePath)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := a.Design(ctx, designReq)
+	if err != nil {
+		return nil, err
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			mcp.NewTextContent(strings.Join(resp.Notes, "\n\n")),
+		},
+	}, nil
+}
+
+func (llmBasedArchitect) mappedResources(ctx context.Context, cceNDJSONFilePath string) (analyzer.MappedResources, error) {
+	file, err := os.Open(cceNDJSONFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open CCE file: %w", err)
+	}
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			logger.GetLogger(ctx).Warn("failed to close CCE file", "error", closeErr)
+		}
+	}()
+
+	var methodCalls analyzer.MappedResources
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		var resource analyzer.MappedResource
+		if err := json.Unmarshal(scanner.Bytes(), &resource); err != nil {
+			logger.GetLogger(ctx).Warn("failed to unmarshal CCE resource, skipping line", "error", err)
+			continue // Skip invalid lines
+		}
+		methodCalls = append(methodCalls, resource)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading CCE file: %w", err)
+	}
+	return methodCalls, nil
+}
+
 func (a llmBasedArchitect) Design(ctx context.Context, req DesignCloudRequest) (DesignCloudResponse, error) {
 	logr := logger.GetLogger(ctx).With("fn", "llmBasedArchitect.Design")
 	logr.Info("creating architecture design")
 	defer func(startTime time.Time) {
 		logr.Info("architecture design phase complete", "duration", time.Since(startTime).String())
 	}(time.Now())
-	providerResources := req.MethodCalls.GroupByProvider()
-	logr.Info("Provider resources", "cloudProviderCount", len(providerResources))
-	if len(providerResources) == 0 {
+	cloudBasedPrompts := req.MethodCalls.Summarize(ctx)
+	if len(cloudBasedPrompts) == 0 {
 		return DesignCloudResponse{
 			Notes: []string{
 				"There are no resources to generate IAC for.",
@@ -106,16 +182,16 @@ func (a llmBasedArchitect) Design(ctx context.Context, req DesignCloudRequest) (
 		}, nil
 	}
 	multiCloudNotes := sync.Map{}
-	errGroup, ctx := errgroup.WithContext(ctx)
-	for cloudProvider, resource := range providerResources {
+	errGroup, gctx := errgroup.WithContext(ctx)
+	for _, cloudBasedPrompt := range cloudBasedPrompts {
 		errGroup.Go(func() error {
-			logr.Info("Generating architecture design for cloud provider", "cloudProvider", cloudProvider, "identifiedResources", len(resource))
-			notes, err := a.generateArchitecture(ctx, cloudProvider, resource, req.EventChan)
+			logr.Info("Generating architecture design for cloud provider", "cloudProvider", cloudBasedPrompt.CloudProvider, "identifiedResources", len(cloudBasedPrompt.Prompt))
+			notes, err := a.generateArchitecture(gctx, cloudBasedPrompt, req.EventChan)
 			if err != nil {
 				return err
 			}
-			logr.Info("architecture design phase complete", "cloudProvider", cloudProvider)
-			multiCloudNotes.Store(cloudProvider, notes)
+			logr.Info("architecture design phase complete", "cloudProvider", cloudBasedPrompt.CloudProvider)
+			multiCloudNotes.Store(cloudBasedPrompt.CloudProvider, notes)
 			return nil
 		})
 	}
@@ -133,15 +209,10 @@ func (a llmBasedArchitect) Design(ctx context.Context, req DesignCloudRequest) (
 	}
 
 	// Generate README.md after notes are completed
-	if false {
-		if req.SaveTo != "" {
-			logr.Info("Generating README.md", "saveTo", req.SaveTo)
-			if err := a.generateReadme(context.WithoutCancel(ctx), req.SaveTo, result.Notes, providerResources); err != nil {
-				logr.Error("Failed to generate README.md", "error", err)
-			}
-		}
+	logr.Info("Generating README.md", "saveTo", req.SaveTo)
+	if err := a.generateReadme(ctx, req.SaveTo, result); err != nil {
+		logr.Error("Failed to generate README.md", "error", err)
 	}
-
 	return result, nil
 }
 
@@ -151,25 +222,12 @@ func (a llmBasedArchitect) saveNotes(ctx context.Context, saveTo string, notes [
 	return os.WriteFile(filepath.Join(saveTo, "Architecture.md"), []byte(strings.Join(notes, "\n")), 0644)
 }
 
-func (a llmBasedArchitect) generateArchitecture(ctx context.Context, cloudProvider string, resources analyzer.MappedResources, eventChan chan<- interface{}) (string, error) {
+func (a llmBasedArchitect) generateArchitecture(ctx context.Context, cloudInfraDetails analyzer.CloudBasedPrompt, eventChan chan<- interface{}) (string, error) {
 	// Get the resource categorizer instance
-	categorizer := getResourceCategorizer()
-	logr := logger.GetLogger(ctx).With("fn", "llmBasedArchitect.generateArchitecture")
-
-	// Categorize resources by architectural tier
-	categories := categorizer.categorizeResources(resources)
-	logr.Info("Categorized resources", "categories", categories.Keys())
-
-	// Infer workflow patterns
-	workflow := categories.inferWorkflow()
-
-	// Build structured prompt
-	prompt := buildStructuredPrompt(cloudProvider, categories, workflow)
-	logr.Info("Let me think about this")
-
 	result, err := a.expert.Do(ctx, expert.Request{
-		Message:      prompt,
+		Message:      cloudInfraDetails.Prompt,
 		EventChannel: eventChan,
+		TaskType:     modelprovider.TaskNovelReasoning,
 		Mode:         expert.CostOptimizedConfig(),
 	})
 	if err != nil {
@@ -182,77 +240,9 @@ func (a llmBasedArchitect) generateArchitecture(ctx context.Context, cloudProvid
 	return notes.String(), nil
 }
 
-// buildStructuredPrompt creates a context-rich prompt following the "Perfect Prompt" pattern
-func buildStructuredPrompt(cloudProvider string, categories ResourceCategories, workflow string) string {
-	var prompt strings.Builder
-
-	// Role and Project Summary
-	prompt.WriteString("**Role:** Senior Cloud Architect\n\n")
-	prompt.WriteString(fmt.Sprintf("**Cloud Provider:** %s\n\n", cloudProvider))
-	prompt.WriteString("**Project Summary:**\n")
-	prompt.WriteString(fmt.Sprintf("I am analyzing a codebase that uses %d distinct architectural components across %d categories.\n\n",
-		getTotalResourceCount(categories), len(categories)))
-
-	// Components Identified
-	prompt.WriteString("**Components Identified:**\n\n")
-	for category, resources := range categories {
-		if len(resources) > 0 {
-			prompt.WriteString(buildComponentSummary(category, resources))
-		}
-	}
-
-	// Inferred Workflow
-	prompt.WriteString("**Inferred Workflow:**\n\n")
-	prompt.WriteString(workflow)
-	prompt.WriteString("\n")
-
-	// The Ask
-	prompt.WriteString("**Architecture Recommendations Needed:**\n\n")
-	prompt.WriteString("1. **Architecture Pattern**: What is the best architectural pattern for this system?\n")
-	prompt.WriteString("   - Should this be Event-Driven, Microservices, Serverless, or a hybrid?\n")
-	prompt.WriteString("   - Justify your recommendation based on the components detected.\n\n")
-
-	prompt.WriteString("2. **Component Integration**: How should these components interact?\n")
-	prompt.WriteString("   - Describe the data flow between services\n")
-	prompt.WriteString("   - Recommend synchronous vs. asynchronous communication patterns\n")
-	prompt.WriteString("   - Suggest error handling and retry strategies\n\n")
-
-	prompt.WriteString("3. **Deployment Topology**: What is the optimal deployment approach?\n")
-	prompt.WriteString("   - Serverless, Containerized (ECS/EKS), or Traditional (EC2)?\n")
-	prompt.WriteString("   - Multi-AZ/Multi-Region considerations\n")
-	prompt.WriteString("   - Network topology (VPC, subnets, security groups)\n\n")
-
-	prompt.WriteString("4. **Security & IAM**: What are the critical security considerations?\n")
-	prompt.WriteString("   - Minimum IAM permissions needed for each component\n")
-	prompt.WriteString("   - Encryption requirements (at-rest and in-transit)\n")
-	prompt.WriteString("   - Network isolation and access control\n\n")
-
-	prompt.WriteString("5. **Operational Excellence**: How should this system be monitored and maintained?\n")
-	prompt.WriteString("   - Logging and monitoring strategy\n")
-	prompt.WriteString("   - Auto-scaling policies\n")
-	prompt.WriteString("   - Disaster recovery and backup approach\n\n")
-
-	prompt.WriteString("6. **Cost Optimization**: What are the cost considerations?\n")
-	prompt.WriteString("   - Estimated cost drivers\n")
-	prompt.WriteString("   - Recommendations for cost optimization\n\n")
-
-	prompt.WriteString("Please provide a comprehensive architectural recommendation addressing all these points.\n")
-
-	return prompt.String()
-}
-
-// getTotalResourceCount returns the total number of resources across all categories
-func getTotalResourceCount(categories ResourceCategories) int {
-	count := 0
-	for _, resources := range categories {
-		count += len(resources)
-	}
-	return count
-}
-
 // generateReadme creates a comprehensive README.md file in the SaveTo directory using LLM
 // The README is designed to be technically sound, context-aware, and understandable by junior developers
-func (a llmBasedArchitect) generateReadme(ctx context.Context, saveTo string, notes []string, providerResources map[string]analyzer.MappedResources) error {
+func (a llmBasedArchitect) generateReadme(ctx context.Context, saveTo string, response DesignCloudResponse) error {
 	logr := logger.GetLogger(ctx).With("fn", "llmBasedArchitect.generateReadme")
 
 	// Ensure the directory exists
@@ -261,21 +251,22 @@ func (a llmBasedArchitect) generateReadme(ctx context.Context, saveTo string, no
 	}
 
 	// Build a prompt for the LLM to generate a context-aware README
-	prompt := buildReadmePrompt(notes, providerResources)
+	prompt := buildReadmePrompt(response.Notes)
 
 	// Use the expert to generate the README content
 	logr.Info("Generating README.md using LLM", "saveTo", saveTo)
-	result, err := a.expert.Do(ctx, expert.Request{
-		Message: prompt,
+	var readmeContent strings.Builder
+	_, err := a.expert.Do(ctx, expert.Request{
+		Message:  prompt,
+		TaskType: modelprovider.TaskPlanning,
+		ChoiceProcessor: func(choices ...model.Choice) {
+			for _, choice := range choices {
+				readmeContent.WriteString(choice.Message.Content)
+			}
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to generate README content: %w", err)
-	}
-
-	// Collect the generated README content from all choices
-	var readmeContent strings.Builder
-	for i := range result.Choices {
-		readmeContent.WriteString(result.Choices[i].Message.Content)
 	}
 
 	// Write README to file
@@ -289,7 +280,7 @@ func (a llmBasedArchitect) generateReadme(ctx context.Context, saveTo string, no
 }
 
 // buildReadmePrompt creates a prompt for generating a context-aware README
-func buildReadmePrompt(notes []string, providerResources map[string]analyzer.MappedResources) string {
+func buildReadmePrompt(notes []string) string {
 	var prompt strings.Builder
 
 	prompt.WriteString("**Task:** Generate a comprehensive README.md for Infrastructure as Code\n\n")
@@ -303,27 +294,6 @@ func buildReadmePrompt(notes []string, providerResources map[string]analyzer.Map
 	prompt.WriteString("- Easy to understand for junior developers\n")
 	prompt.WriteString("- Specific to the actual architecture (not generic)\n")
 	prompt.WriteString("- Actionable with clear deployment instructions\n\n")
-
-	// Include cloud provider information
-	prompt.WriteString("**Cloud Providers and Resources:**\n\n")
-	if len(providerResources) > 0 {
-		for provider, resources := range providerResources {
-			prompt.WriteString(fmt.Sprintf("- **%s**: %d resources identified\n", provider, len(resources)))
-			// Include a sample of resource types for context
-			resourceTypes := make(map[string]int)
-			for _, resource := range resources {
-				resourceTypes[resource.MappedResource.Resource]++
-			}
-			prompt.WriteString("  Resource types: ")
-			types := []string{}
-			for resType := range resourceTypes {
-				types = append(types, resType)
-			}
-			prompt.WriteString(strings.Join(types, ", "))
-			prompt.WriteString("\n")
-		}
-		prompt.WriteString("\n")
-	}
 
 	// Include architecture recommendations
 	prompt.WriteString("**Architecture Recommendations:**\n\n")

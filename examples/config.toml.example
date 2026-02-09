@@ -1,0 +1,25 @@
+# Example Configuration with Remote Skills
+
+# Using skills roots (supports single or multiple paths)
+skills_roots = [
+  "./skills",                                                    # Local skills directory
+  "https://example.com/skills-repo/developer-skills",          # Remote developer skills
+  "https://example.com/skills-repo/devops-skills",             # Remote devops skills
+]
+
+# Environment variable alternative
+# export SKILLS_ROOT=./skills
+
+# Remote Skills Caching
+# Remote skills are automatically cached by trpc-agent-go in:
+# - $SKILLS_CACHE_DIR (if set)
+# - Or default cache directory
+
+# Example: Load skills from GitHub raw content
+# skills_roots = [
+#   "./local-skills",
+#   "https://raw.githubusercontent.com/your-org/skills/main/skills",
+# ]
+
+[model_config]
+# ... other configuration ...

@@ -18,8 +18,8 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
-func newSnykPolicyChecker(ctx context.Context, ops SecOpsConfig) (tool.Tool, error) {
-	checker := SnykPolicyChecker{
+func newSnykPolicyChecker(ctx context.Context, ops SecOpsConfig) (snykPolicyChecker, error) {
+	checker := snykPolicyChecker{
 		cfg: ops,
 	}
 	var err error
@@ -27,29 +27,29 @@ func newSnykPolicyChecker(ctx context.Context, ops SecOpsConfig) (tool.Tool, err
 	return checker, err
 }
 
-type SnykPolicyChecker struct {
+type snykPolicyChecker struct {
 	bundleFile string
 	cfg        SecOpsConfig
 }
 
-func (p SnykPolicyChecker) Declaration() *tool.Declaration {
+func (p snykPolicyChecker) Declaration() *tool.Declaration {
 	return &tool.Declaration{
 		Name:        "check_iac_policy",
 		Description: "Check Terraform/OpenTofu code against security policies to identify compliance violations",
 		InputSchema: &tool.Schema{
 			Type: "object",
 			Properties: map[string]*tool.Schema{
-				"iac_source": {
+				"iac_path": {
 					Type:        "string",
 					Description: "Absolute path to the directory containing Terraform/OpenTofu .tf files to check",
 				},
 			},
-			Required: []string{"iac_source"},
+			Required: []string{"iac_path"},
 		},
 	}
 }
 
-func (p SnykPolicyChecker) Call(ctx context.Context, jsonArgs []byte) (any, error) {
+func (p snykPolicyChecker) Call(ctx context.Context, jsonArgs []byte) (any, error) {
 	var req PolicyCheckRequest
 	if err := json.Unmarshal(jsonArgs, &req); err != nil {
 		return nil, err
@@ -57,7 +57,7 @@ func (p SnykPolicyChecker) Call(ctx context.Context, jsonArgs []byte) (any, erro
 	return p.CheckPolicy(ctx, req)
 }
 
-func (p SnykPolicyChecker) downloadSyncPolicyBundle(ctx context.Context) (string, error) {
+func (p snykPolicyChecker) downloadSyncPolicyBundle(ctx context.Context) (string, error) {
 	// from https://downloads.snyk.io/cli/iac/rules/versions.json
 	snykBundleURL := "https://static.snyk.io/cli/iac/rules/v0.31.9/bundle.tar.gz"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, snykBundleURL, nil)
@@ -94,7 +94,7 @@ func (p SnykPolicyChecker) downloadSyncPolicyBundle(ctx context.Context) (string
 	return policyBundleFile.Name(), nil
 }
 
-func (p SnykPolicyChecker) CheckPolicy(ctx context.Context, req PolicyCheckRequest) (PolicyCheckResponse, error) {
+func (p snykPolicyChecker) CheckPolicy(ctx context.Context, req PolicyCheckRequest) (PolicyCheckResponse, error) {
 	tmpDir, err := os.MkdirTemp("", "iac-policy-check")
 	if err != nil {
 		return PolicyCheckResponse{}, fmt.Errorf("failed to create temp dir: %w", err)
@@ -141,7 +141,7 @@ func (p SnykPolicyChecker) CheckPolicy(ctx context.Context, req PolicyCheckReque
 	// 5. Add source locations to results (populates Resources[].Location[] with file paths)
 	postprocess.AddSourceLocs(results, loader)
 
-	violations := NewViolations(results.Results)
+	violations := newViolations(results.Results)
 
 	compliant := violations.isCompliant(p.cfg.SeverityThresholds)
 

@@ -10,9 +10,9 @@ import (
 	"os"
 	"path/filepath"
 
+	cceanalyzer "github.com/appcd-dev/cce/pkg/analyzer"
 	"github.com/appcd-dev/genie/pkg/analyzer"
 	"github.com/appcd-dev/genie/pkg/codeowner"
-	"github.com/appcd-dev/genie/pkg/config"
 	"github.com/appcd-dev/genie/pkg/granter"
 	"github.com/appcd-dev/genie/pkg/iacgen/generator"
 	"github.com/appcd-dev/genie/pkg/tui"
@@ -22,8 +22,11 @@ import (
 )
 
 type grantCmdOption struct {
-	CodeDir string
-	SaveTo  string
+	SaveTo     string
+	EnableChat bool
+
+	// MapperFile is the path to a YAML file that contains additional definitions for the analyzer.
+	MapperFile string
 }
 
 func (g grantCmdOption) validate() error {
@@ -58,9 +61,7 @@ infrastructure code using Stackgen's agentic intelligence.
 
 Examples:
   genie grant`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return g.run(cmd.Context())
-		},
+		RunE: g.run,
 	}
 	cwd, err := filepath.Abs(osutils.Getwd())
 	if err != nil {
@@ -68,14 +69,17 @@ Examples:
 	}
 
 	// Bind flags to the grant command options
-	cmd.Flags().StringVar(&g.opts.CodeDir, "code-dir", cwd, "code directory")
+	cmd.Flags().StringVar(&g.rootOpts.codeDir, "code-dir", cwd, "code directory")
 	cmd.Flags().StringVar(&g.opts.SaveTo, "save-to", filepath.Join(cwd, "genie_output"), "save to")
+	cmd.Flags().BoolVar(&g.opts.EnableChat, "enable-chat", false, "enable chat")
+	cmd.Flags().StringVar(&g.opts.MapperFile, "mapper-file", "", "Additional def yaml that contains method and resource mapping rules")
 
 	return cmd, nil
 }
 
 // run executes the grant command logic
-func (g *grantCmd) run(ctx context.Context) error {
+func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
 	var err error
 	err = g.opts.validate()
 	if err != nil {
@@ -83,13 +87,12 @@ func (g *grantCmd) run(ctx context.Context) error {
 	}
 
 	// Initialize Services
-	cfgFile := g.rootOpts.cfgFilePath()
-	genieCfg, err := config.LoadGenieConfig(cfgFile)
+	genieCfg, err := g.rootOpts.genieCfg()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	codeAnalyzer, err := analyzer.New()
+	codeAnalyzer, err := analyzer.New(ctx, g.opts.MapperFile, cceanalyzer.New())
 	if err != nil {
 		return err
 	}
@@ -107,6 +110,13 @@ func (g *grantCmd) run(ctx context.Context) error {
 	}
 
 	g.granterSvc = granter.New(codeAnalyzer, llmBasedArchitect, iacWriter)
+	if !g.opts.EnableChat {
+		_, err := g.granterSvc.Generate(ctx, granter.GrantRequest{
+			CodeDir: g.rootOpts.codeDir,
+			SaveTo:  g.opts.SaveTo,
+		})
+		return err
+	}
 	g.codeOwner, err = codeowner.NewcodeOwner(ctx, modelProvider)
 	if err != nil {
 		return err
@@ -114,47 +124,52 @@ func (g *grantCmd) run(ctx context.Context) error {
 
 	// Use TUI for interactive feedback during infrastructure generation
 	// The granter will emit events through the event channel
-	return tui.RunGrantWithTUI(ctx, func(ctx context.Context, eventChan chan<- interface{}, userMessages <-chan string) error {
-		logger.SetLogHandler(tui.SetupTUILogger(eventChan, slog.LevelDebug))
-		// Run the granter workflow - it will emit events for progress
-		_, err := g.granterSvc.Generate(ctx, granter.GrantRequest{
-			CodeDir:   g.opts.CodeDir,
-			SaveTo:    g.opts.SaveTo,
-			EventChan: eventChan,
-		})
+	return tui.RunGrantWithTUI(ctx, g.grantWithTUI)
+}
 
-		if err != nil {
-			// Emit error event
-			tui.EmitError(eventChan, err, "during infrastructure generation")
-			return err
-		}
+func (g *grantCmd) grantWithTUI(ctx context.Context, eventChan chan<- interface{}, userMessages <-chan string) error {
+	logger.SetLogHandler(tui.SetupTUILogger(eventChan, slog.LevelDebug))
+	// Run the granter workflow - it will emit events for progress
+	_, err := g.granterSvc.Generate(ctx, granter.GrantRequest{
+		CodeDir:   g.rootOpts.codeDir,
+		SaveTo:    g.opts.SaveTo,
+		EventChan: eventChan,
+	})
 
-		// Emit completion event
-		tui.EmitCompletion(eventChan, true, fmt.Sprintf("🧞 Your infrastructure is ready at %s", g.opts.SaveTo), g.opts.SaveTo)
+	if err != nil {
+		// Emit error event
+		tui.EmitError(eventChan, err, "during infrastructure generation")
+		return err
+	}
 
-		// Chat Loop
-		for {
-			select {
-			case input, ok := <-userMessages:
-				if !ok {
-					return nil
-				}
-				// Process input with ChatExpert
-				outputChan := make(chan string)
-				go func() {
-					_ = g.codeOwner.Chat(ctx, codeowner.CodeQuestion{
-						Question:  input,
-						OutputDir: g.opts.SaveTo,
-						EventChan: eventChan,
-					}, outputChan)
-				}()
-				for response := range outputChan {
-					tui.EmitAgentMessage(eventChan, "Genie", response)
-				}
+	// Emit completion event
+	tui.EmitCompletion(eventChan, true, fmt.Sprintf("🧞 Your infrastructure is ready at %s", g.opts.SaveTo), g.opts.SaveTo)
 
-			case <-ctx.Done():
+	// Chat Loop
+	for {
+		select {
+		case input, ok := <-userMessages:
+			if !ok {
 				return nil
 			}
+			// Process input with ChatExpert
+			outputChan := make(chan string)
+			go func() {
+				defer close(outputChan)
+				if err := g.codeOwner.Chat(ctx, codeowner.CodeQuestion{
+					Question:  input,
+					OutputDir: g.opts.SaveTo,
+					EventChan: eventChan,
+				}, outputChan); err != nil {
+					tui.EmitError(eventChan, err, "while processing chat message")
+				}
+			}()
+			for response := range outputChan {
+				tui.EmitAgentMessage(eventChan, "Genie", response)
+			}
+
+		case <-ctx.Done():
+			return nil
 		}
-	})
+	}
 }

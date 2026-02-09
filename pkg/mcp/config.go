@@ -1,0 +1,181 @@
+package mcp
+
+import (
+	"fmt"
+	"time"
+)
+
+// MCPConfig represents the top-level MCP configuration for multiple server connections.
+// This configuration enables Genie to connect to MCP servers via different transports
+// (stdio, HTTP, SSE) and manage tool discovery and execution.
+type MCPConfig struct {
+	// Servers is a list of MCP server configurations
+	Servers []MCPServerConfig `yaml:"servers" toml:"servers"`
+}
+
+// MCPServerConfig represents configuration for a single MCP server connection.
+// It supports multiple transport types and provides fine-grained control over
+// connection behavior, tool filtering, and error handling.
+type MCPServerConfig struct {
+	// Name is a unique identifier for this server configuration
+	Name string `yaml:"name" toml:"name"`
+
+	// Transport specifies the connection type: "stdio", "streamable_http", or "sse"
+	Transport string `yaml:"transport" toml:"transport"`
+
+	// ServerURL is the HTTP/SSE server URL (required for streamable_http and sse transports)
+	ServerURL string `yaml:"server_url,omitempty" toml:"server_url,omitempty"`
+
+	// Command is the executable command (required for stdio transport)
+	Command string `yaml:"command,omitempty" toml:"command,omitempty"`
+
+	// Args are the command arguments (optional for stdio transport)
+	Args []string `yaml:"args,omitempty" toml:"args,omitempty"`
+
+	// Timeout is the connection timeout duration (default: 10s)
+	Timeout time.Duration `yaml:"timeout,omitempty" toml:"timeout,omitempty"`
+
+	// Headers are custom HTTP headers (optional for HTTP/SSE transports)
+	Headers map[string]string `yaml:"headers,omitempty" toml:"headers,omitempty"`
+
+	// IncludeTools is a list of tool names to include (whitelist)
+	// If specified, only these tools will be available
+	IncludeTools []string `yaml:"include_tools,omitempty" toml:"include_tools,omitempty"`
+
+	// ExcludeTools is a list of tool names to exclude (blacklist)
+	// If specified, these tools will be filtered out
+	ExcludeTools []string `yaml:"exclude_tools,omitempty" toml:"exclude_tools,omitempty"`
+
+	// SessionReconnect enables automatic session reconnection with max retry attempts
+	// Set to 0 to disable session reconnection
+	SessionReconnect int `yaml:"session_reconnect,omitempty" toml:"session_reconnect,omitempty"`
+
+	// Retry configuration for MCP operations
+	Retry *RetryConfig `yaml:"retry,omitempty" toml:"retry,omitempty"`
+}
+
+// RetryConfig represents retry configuration for MCP operations.
+// This matches the retry configuration pattern from trpc-agent-go.
+type RetryConfig struct {
+	// MaxRetries is the maximum number of retry attempts (range: 0-10, default: 2)
+	MaxRetries int `yaml:"max_retries,omitempty" toml:"max_retries,omitempty"`
+
+	// InitialBackoff is the initial delay before first retry (range: 1ms-30s, default: 500ms)
+	InitialBackoff time.Duration `yaml:"initial_backoff,omitempty" toml:"initial_backoff,omitempty"`
+
+	// BackoffFactor is the exponential backoff multiplier (range: 1.0-10.0, default: 2.0)
+	BackoffFactor float64 `yaml:"backoff_factor,omitempty" toml:"backoff_factor,omitempty"`
+
+	// MaxBackoff is the maximum delay cap (range: up to 5 minutes, default: 8s)
+	MaxBackoff time.Duration `yaml:"max_backoff,omitempty" toml:"max_backoff,omitempty"`
+}
+
+// Validate validates the MCP configuration and returns an error if invalid.
+// This ensures that all required fields are present and values are within acceptable ranges.
+func (c *MCPConfig) Validate() error {
+	if len(c.Servers) == 0 {
+		return nil // Empty config is valid
+	}
+
+	serverNames := make(map[string]bool)
+	for i, server := range c.Servers {
+		if err := server.Validate(); err != nil {
+			return fmt.Errorf("server[%d] validation failed: %w", i, err)
+		}
+
+		if serverNames[server.Name] {
+			return fmt.Errorf("duplicate server name: %s", server.Name)
+		}
+		serverNames[server.Name] = true
+	}
+
+	return nil
+}
+
+// Validate validates a single MCP server configuration.
+// It checks that required fields are present based on transport type and
+// that values are within acceptable ranges.
+func (s *MCPServerConfig) Validate() error {
+	if s.Name == "" {
+		return fmt.Errorf("server name is required")
+	}
+
+	if s.Transport == "" {
+		return fmt.Errorf("transport is required")
+	}
+
+	switch s.Transport {
+	case "stdio":
+		if s.Command == "" {
+			return fmt.Errorf("command is required for stdio transport")
+		}
+	case "streamable_http", "sse":
+		if s.ServerURL == "" {
+			return fmt.Errorf("server_url is required for %s transport", s.Transport)
+		}
+	default:
+		return fmt.Errorf("invalid transport: %s (must be stdio, streamable_http, or sse)", s.Transport)
+	}
+
+	if s.Retry != nil {
+		if err := s.Retry.Validate(); err != nil {
+			return fmt.Errorf("retry config validation failed: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// Validate validates retry configuration.
+// It ensures that retry parameters are within acceptable ranges.
+func (r *RetryConfig) Validate() error {
+	if r.MaxRetries < 0 || r.MaxRetries > 10 {
+		return fmt.Errorf("max_retries must be between 0 and 10, got %d", r.MaxRetries)
+	}
+
+	if r.InitialBackoff < 0 || r.InitialBackoff > 30*time.Second {
+		return fmt.Errorf("initial_backoff must be between 0 and 30s, got %v", r.InitialBackoff)
+	}
+
+	if r.BackoffFactor < 1.0 || r.BackoffFactor > 10.0 {
+		return fmt.Errorf("backoff_factor must be between 1.0 and 10.0, got %f", r.BackoffFactor)
+	}
+
+	if r.MaxBackoff < 0 || r.MaxBackoff > 5*time.Minute {
+		return fmt.Errorf("max_backoff must be between 0 and 5m, got %v", r.MaxBackoff)
+	}
+
+	return nil
+}
+
+// SetDefaults sets default values for the MCP configuration.
+// This ensures that optional fields have sensible defaults when not specified.
+func (s *MCPServerConfig) SetDefaults() {
+	if s.Timeout == 0 {
+		s.Timeout = 10 * time.Second
+	}
+
+	if s.Retry != nil {
+		s.Retry.SetDefaults()
+	}
+}
+
+// SetDefaults sets default values for retry configuration.
+// This matches the default retry behavior from trpc-agent-go.
+func (r *RetryConfig) SetDefaults() {
+	if r.MaxRetries == 0 {
+		r.MaxRetries = 2
+	}
+
+	if r.InitialBackoff == 0 {
+		r.InitialBackoff = 500 * time.Millisecond
+	}
+
+	if r.BackoffFactor == 0 {
+		r.BackoffFactor = 2.0
+	}
+
+	if r.MaxBackoff == 0 {
+		r.MaxBackoff = 8 * time.Second
+	}
+}

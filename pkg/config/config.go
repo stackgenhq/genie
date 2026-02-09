@@ -9,6 +9,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/iacgen/generator"
+	"github.com/appcd-dev/genie/pkg/mcp"
 	"github.com/appcd-dev/genie/pkg/tools/secops"
 	"gopkg.in/yaml.v3"
 )
@@ -18,6 +19,8 @@ type GenieConfig struct {
 	Architect   generator.ArchitectConfig `yaml:"architect" toml:"architect"`
 	Ops         generator.OpsConfig       `yaml:"ops" toml:"ops"`
 	SecOps      secops.SecOpsConfig       `yaml:"secops" toml:"secops"`
+	SkillsRoots []string                  `yaml:"skills_roots" toml:"skills_roots"` // Supports multiple roots including HTTPS URLs
+	MCP         mcp.MCPConfig             `yaml:"mcp" toml:"mcp"`
 }
 
 func LoadGenieConfig(path string) (GenieConfig, error) {
@@ -39,6 +42,10 @@ func LoadGenieConfig(path string) (GenieConfig, error) {
 	}
 
 	if path == "" {
+		// If no config file, check for SKILLS_ROOT environment variable
+		if skillsRoot := os.Getenv("SKILLS_ROOT"); skillsRoot != "" {
+			cfg.SkillsRoots = []string{skillsRoot}
+		}
 		return cfg, nil
 	}
 
@@ -65,5 +72,13 @@ func LoadGenieConfig(path string) (GenieConfig, error) {
 	default:
 		return GenieConfig{}, fmt.Errorf("unsupported config file extension: %s", ext)
 	}
+
+	// If skills roots not set in config, check environment variable
+	if len(cfg.SkillsRoots) == 0 {
+		if skillsRoot := os.Getenv("SKILLS_ROOT"); skillsRoot != "" {
+			cfg.SkillsRoots = []string{skillsRoot}
+		}
+	}
+
 	return cfg, nil
 }

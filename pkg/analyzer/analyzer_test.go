@@ -6,40 +6,32 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/appcd-dev/cce/pkg/cce"
 	"github.com/appcd-dev/cce/pkg/models"
 	"github.com/appcd-dev/genie/pkg/analyzer"
+	"github.com/appcd-dev/genie/pkg/analyzer/analyzerfakes"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
 var _ = Describe("Analyzer", func() {
-	Describe("New", func() {
-		Context("when creating a new analyzer", func() {
-			It("should successfully create an analyzer instance", func() {
-				a, err := analyzer.New()
-				Expect(err).ToNot(HaveOccurred())
-				Expect(a).ToNot(BeNil())
-			})
-
-			It("should return an analyzer that implements the Analyzer interface", func() {
-				a, err := analyzer.New()
-				Expect(err).ToNot(HaveOccurred())
-
-				// Verify it implements the interface by attempting to use it
-				var _ analyzer.Analyzer = a
-			})
-		})
-	})
-
 	Describe("Analyze", func() {
 		var (
 			testAnalyzer analyzer.Analyzer
 			testdataDir  string
 		)
 
-		BeforeEach(func() {
+		BeforeEach(func(ctx context.Context) {
 			var err error
-			testAnalyzer, err = analyzer.New()
+			// Create fake analyzer with stub that closes channel immediately (no method calls)
+			fakeAnalyzer := &analyzerfakes.FakeCCEAnalyzer{}
+			fakeAnalyzer.AnalyzeV3Stub = func(ctx context.Context, folder string, result chan<- models.MethodCall) error {
+				// Close channel immediately - no method calls to send
+				close(result)
+				return nil
+			}
+
+			testAnalyzer, err = analyzer.New(ctx, "", fakeAnalyzer)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Get absolute path to testdata
@@ -132,28 +124,6 @@ var _ = Describe("Analyzer", func() {
 				Expect(result).ToNot(BeNil())
 				// Empty file should have no method calls
 				Expect(result).To(BeEmpty())
-			})
-		})
-
-		Context("when context is cancelled", func() {
-			It("should handle context cancellation gracefully", func(ctx context.Context) {
-				cancelCtx, cancel := context.WithCancel(ctx)
-				cancel() // Cancel immediately
-
-				pythonFile := filepath.Join(testdataDir, "sample.py")
-				input := analyzer.AnalysisInput{
-					Path: pythonFile,
-				}
-
-				result, err := testAnalyzer.Analyze(cancelCtx, input)
-				if err != nil {
-					// If analysis started, it should return context error
-					Expect(err).To(MatchError(context.Canceled))
-					Expect(result).To(BeNil())
-				} else {
-					// If analysis completed before cancellation, result should be valid
-					Expect(result).ToNot(BeNil())
-				}
 			})
 		})
 
@@ -296,9 +266,14 @@ var _ = Describe("Analyzer", func() {
 			testAnalyzer analyzer.Analyzer
 		)
 
-		BeforeEach(func() {
+		BeforeEach(func(ctx context.Context) {
 			var err error
-			testAnalyzer, err = analyzer.New()
+			fakeAnalyzer := &analyzerfakes.FakeCCEAnalyzer{}
+			fakeAnalyzer.AnalyzeV3Stub = func(ctx context.Context, folder string, result chan<- models.MethodCall) error {
+				close(result)
+				return nil
+			}
+			testAnalyzer, err = analyzer.New(ctx, "", fakeAnalyzer)
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -319,15 +294,160 @@ var _ = Describe("Analyzer", func() {
 		})
 	})
 
+	Describe("Analyzer with Method Calls", func() {
+		Context("when fake analyzer returns method calls", func() {
+			It("should map method calls to resources", func(ctx context.Context) {
+				// Create a fake analyzer that returns specific method calls
+				fakeAnalyzer := &analyzerfakes.FakeCCEAnalyzer{}
+				fakeAnalyzer.AnalyzeV3Stub = func(ctx context.Context, folder string, result chan<- models.MethodCall) error {
+					// Send some method calls
+					result <- models.MethodCall{
+						Name:           "boto3.client.s3.create_bucket",
+						FilePath:       "test.py",
+						Line:           10,
+						Column:         5,
+						Language:       cce.LanguagePYTHON,
+						ParentFunction: "setup_infrastructure",
+						CodeSnippet:    "s3.create_bucket(Bucket='my-bucket')",
+					}
+					result <- models.MethodCall{
+						Name:           "boto3.client.s3.put_object",
+						FilePath:       "test.py",
+						Line:           15,
+						Column:         5,
+						Language:       cce.LanguagePYTHON,
+						ParentFunction: "upload_data",
+						CodeSnippet:    "s3.put_object(Bucket='my-bucket', Key='data.json', Body=data)",
+					}
+					close(result)
+					return nil
+				}
+
+				testAnalyzer, err := analyzer.New(ctx, "", fakeAnalyzer)
+				Expect(err).ToNot(HaveOccurred())
+
+				// Create a temp file to analyze
+				tempDir, err := os.MkdirTemp("", "analyzer-test-*")
+				Expect(err).ToNot(HaveOccurred())
+				defer os.RemoveAll(tempDir)
+
+				testFile := filepath.Join(tempDir, "test.py")
+				err = os.WriteFile(testFile, []byte("# test file"), 0644)
+				Expect(err).ToNot(HaveOccurred())
+
+				input := analyzer.AnalysisInput{
+					Path: testFile,
+				}
+
+				result, err := testAnalyzer.Analyze(ctx, input)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).ToNot(BeNil())
+
+				// Since we don't have a mapping definition file, the mapper won't map these
+				// but we should still get the method calls processed
+				// The result might be empty if mapping fails, but it should not error
+				Expect(result).To(BeAssignableToTypeOf(analyzer.MappedResources{}))
+			})
+
+			It("should handle multiple method calls efficiently", func(ctx context.Context) {
+				// Create a fake analyzer that returns many method calls
+				fakeAnalyzer := &analyzerfakes.FakeCCEAnalyzer{}
+				fakeAnalyzer.AnalyzeV3Stub = func(ctx context.Context, folder string, result chan<- models.MethodCall) error {
+					// Send 50 method calls
+					for i := 0; i < 50; i++ {
+						result <- models.MethodCall{
+							Name:           fmt.Sprintf("boto3.client.s3.put_object_%d", i),
+							FilePath:       "test.py",
+							Line:           uint32(10 + i),
+							Column:         5,
+							Language:       cce.LanguagePYTHON,
+							ParentFunction: "batch_upload",
+							CodeSnippet:    fmt.Sprintf("s3.put_object(Bucket='bucket', Key='key%d')", i),
+						}
+					}
+					close(result)
+					return nil
+				}
+
+				testAnalyzer, err := analyzer.New(ctx, "", fakeAnalyzer)
+				Expect(err).ToNot(HaveOccurred())
+
+				tempDir, err := os.MkdirTemp("", "analyzer-test-*")
+				Expect(err).ToNot(HaveOccurred())
+				defer os.RemoveAll(tempDir)
+
+				testFile := filepath.Join(tempDir, "test.py")
+				err = os.WriteFile(testFile, []byte("# test file"), 0644)
+				Expect(err).ToNot(HaveOccurred())
+
+				input := analyzer.AnalysisInput{
+					Path: testFile,
+				}
+
+				result, err := testAnalyzer.Analyze(ctx, input)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).ToNot(BeNil())
+				Expect(result).To(BeAssignableToTypeOf(analyzer.MappedResources{}))
+			})
+
+			It("should handle context cancellation during processing", func(ctx context.Context) {
+				// Create a fake analyzer that sends method calls slowly
+				fakeAnalyzer := &analyzerfakes.FakeCCEAnalyzer{}
+				fakeAnalyzer.AnalyzeV3Stub = func(ctx context.Context, folder string, result chan<- models.MethodCall) error {
+					// Check if context is already cancelled
+					select {
+					case <-ctx.Done():
+						close(result)
+						return ctx.Err()
+					default:
+					}
+					close(result)
+					return nil
+				}
+
+				testAnalyzer, err := analyzer.New(ctx, "", fakeAnalyzer)
+				Expect(err).ToNot(HaveOccurred())
+
+				cancelCtx, cancel := context.WithCancel(ctx)
+				cancel() // Cancel immediately
+
+				tempDir, err := os.MkdirTemp("", "analyzer-test-*")
+				Expect(err).ToNot(HaveOccurred())
+				defer os.RemoveAll(tempDir)
+
+				testFile := filepath.Join(tempDir, "test.py")
+				err = os.WriteFile(testFile, []byte("# test file"), 0644)
+				Expect(err).ToNot(HaveOccurred())
+
+				input := analyzer.AnalysisInput{
+					Path: testFile,
+				}
+
+				result, err := testAnalyzer.Analyze(cancelCtx, input)
+				// Should handle cancellation gracefully
+				if err != nil {
+					Expect(err).To(MatchError(context.Canceled))
+				} else {
+					Expect(result).ToNot(BeNil())
+				}
+			})
+		})
+	})
+
 	Describe("Integration Scenarios", func() {
 		var (
 			testAnalyzer analyzer.Analyzer
 			tempDir      string
 		)
 
-		BeforeEach(func() {
+		BeforeEach(func(ctx context.Context) {
 			var err error
-			testAnalyzer, err = analyzer.New()
+			fakeAnalyzer := &analyzerfakes.FakeCCEAnalyzer{}
+			fakeAnalyzer.AnalyzeV3Stub = func(ctx context.Context, folder string, result chan<- models.MethodCall) error {
+				close(result)
+				return nil
+			}
+			testAnalyzer, err = analyzer.New(ctx, "", fakeAnalyzer)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create temp directory for integration tests

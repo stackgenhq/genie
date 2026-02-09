@@ -27,3 +27,62 @@ scanner = "snyk" # or "trivy"
 high = 0
 medium = 42
 low = -1 # -1 means unlimited
+
+# Skills configuration
+# List of directories containing skill definitions
+# Skills are reusable capabilities that agents can discover and execute
+# See https://agentskills.io for the skill specification
+skills_roots = ["./skills"]  # or absolute paths like "/path/to/skills1", "/path/to/skills2"
+
+# MCP (Model Context Protocol) Configuration
+# Configure MCP servers to extend Genie with additional tools and capabilities
+# Supports stdio, streamable_http, and sse transports
+
+# Example 1: Stdio transport (local MCP server)
+[[mcp.servers]]
+name = "local-tools"
+transport = "stdio"
+command = "go"
+args = ["run", "./mcp-server/main.go"]
+timeout = "10s"
+include_tools = ["echo", "add"]  # Optional: whitelist specific tools
+# exclude_tools = ["dangerous_tool"]  # Optional: blacklist specific tools
+session_reconnect = 3  # Optional: enable session reconnection with max 3 attempts
+
+# Example 2: HTTP streaming transport with headers
+[[mcp.servers]]
+name = "terraform-registry"
+transport = "streamable_http"
+server_url = "http://localhost:3000/mcp"
+timeout = "10s"
+
+[mcp.servers.headers]
+User-Agent = "genie/1.0"
+Authorization = "Bearer your-token-here"
+
+# Optional: Tool filtering
+include_tools = ["search_modules", "get_module", "list_providers"]
+
+# Optional: Retry configuration
+[mcp.servers.retry]
+max_retries = 3
+initial_backoff = "500ms"
+backoff_factor = 2.0
+max_backoff = "8s"
+
+# Example 3: SSE transport with session reconnection
+# [[mcp.servers]]
+# name = "sse-server"
+# transport = "sse"
+# server_url = "http://localhost:8080/sse"
+# timeout = "10s"
+# session_reconnect = 5  # Automatic recovery when server restarts
+# 
+# [mcp.servers.headers]
+# User-Agent = "genie/1.0"
+# 
+# [mcp.servers.retry]
+# max_retries = 5
+# initial_backoff = "1s"
+# backoff_factor = 1.5
+# max_backoff = "15s"

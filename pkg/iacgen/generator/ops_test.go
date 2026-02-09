@@ -171,9 +171,13 @@ var _ = Describe("Cost Optimization", func() {
 	})
 
 	Describe("buildModuleFirstPrompt", func() {
-		var req IACRequest
+		var (
+			ctx context.Context
+			req IACRequest
+		)
 
 		BeforeEach(func() {
+			ctx = context.Background()
 			req = IACRequest{
 				ArchitectureRequirement: []string{"Build a VPC with S3 bucket"},
 				OutputFolder:            "/tmp/terraform",
@@ -181,7 +185,7 @@ var _ = Describe("Cost Optimization", func() {
 		})
 
 		It("should contain pre-approved modules section", func() {
-			prompt := buildModuleFirstPrompt(req, OpsConfig{EnableVerification: true})
+			prompt := buildModuleFirstPrompt(ctx, req, OpsConfig{EnableVerification: true})
 
 			Expect(prompt).To(ContainSubstring("PRE-APPROVED MODULES"))
 			Expect(prompt).To(ContainSubstring("DO NOT SEARCH OR FETCH DETAILS"))
@@ -189,7 +193,7 @@ var _ = Describe("Cost Optimization", func() {
 		})
 
 		It("should contain strict tool constraints", func() {
-			prompt := buildModuleFirstPrompt(req, OpsConfig{EnableVerification: true})
+			prompt := buildModuleFirstPrompt(ctx, req, OpsConfig{EnableVerification: true})
 
 			Expect(prompt).To(ContainSubstring("STRICT CONSTRAINTS"))
 			Expect(prompt).To(ContainSubstring("5 tool calls or fewer"))
@@ -198,20 +202,20 @@ var _ = Describe("Cost Optimization", func() {
 		})
 
 		It("should include output folder in prompt", func() {
-			prompt := buildModuleFirstPrompt(req, OpsConfig{EnableVerification: true})
+			prompt := buildModuleFirstPrompt(ctx, req, OpsConfig{EnableVerification: true})
 
 			Expect(prompt).To(ContainSubstring("/tmp/terraform"))
 			Expect(prompt).To(ContainSubstring("Output Folder"))
 		})
 
 		It("should include architecture requirements", func() {
-			prompt := buildModuleFirstPrompt(req, OpsConfig{EnableVerification: true})
+			prompt := buildModuleFirstPrompt(ctx, req, OpsConfig{EnableVerification: true})
 
 			Expect(prompt).To(ContainSubstring("Build a VPC with S3 bucket"))
 		})
 
 		It("should contain validation section when enabled", func() {
-			prompt := buildModuleFirstPrompt(req, OpsConfig{EnableVerification: true})
+			prompt := buildModuleFirstPrompt(ctx, req, OpsConfig{EnableVerification: true})
 
 			Expect(prompt).To(ContainSubstring("VALIDATION"))
 			Expect(prompt).To(ContainSubstring("iac-validator"))
@@ -221,7 +225,7 @@ var _ = Describe("Cost Optimization", func() {
 		})
 
 		It("should NOT contain validation section when disabled", func() {
-			prompt := buildModuleFirstPrompt(req, OpsConfig{EnableVerification: false})
+			prompt := buildModuleFirstPrompt(ctx, req, OpsConfig{EnableVerification: false})
 
 			Expect(prompt).ToNot(ContainSubstring("iac-validator"))
 			Expect(prompt).ToNot(ContainSubstring("terraform-validate"))
@@ -231,7 +235,7 @@ var _ = Describe("Cost Optimization", func() {
 
 		It("should handle empty output folder gracefully", func() {
 			req.OutputFolder = ""
-			prompt := buildModuleFirstPrompt(req, OpsConfig{EnableVerification: true})
+			prompt := buildModuleFirstPrompt(ctx, req, OpsConfig{EnableVerification: true})
 
 			// Should not panic and still have core content
 			Expect(prompt).To(ContainSubstring("OBJECTIVE"))
@@ -244,7 +248,7 @@ var _ = Describe("Cost Optimization", func() {
 				"Add S3 bucket",
 				"Configure SQS queue",
 			}
-			prompt := buildModuleFirstPrompt(req, OpsConfig{EnableVerification: true})
+			prompt := buildModuleFirstPrompt(ctx, req, OpsConfig{EnableVerification: true})
 
 			Expect(prompt).To(ContainSubstring("Build a VPC"))
 			Expect(prompt).To(ContainSubstring("Add S3 bucket"))

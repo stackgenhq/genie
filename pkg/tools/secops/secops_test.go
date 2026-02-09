@@ -1,7 +1,6 @@
-package secops_test
+package secops
 
 import (
-	"github.com/appcd-dev/genie/pkg/tools/secops"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -13,7 +12,7 @@ var _ = Describe("Policy Violation Extraction", func() {
 		Context("when there are no results", func() {
 			It("should return empty violations", func() {
 				results := []models.Result{}
-				violations := secops.NewViolations(results)
+				violations := newViolations(results)
 				Expect(violations).To(BeEmpty())
 			})
 		})
@@ -36,7 +35,7 @@ var _ = Describe("Policy Violation Extraction", func() {
 						},
 					},
 				}
-				violations := secops.NewViolations(results)
+				violations := newViolations(results)
 				Expect(violations).To(BeEmpty())
 			})
 		})
@@ -61,7 +60,7 @@ var _ = Describe("Policy Violation Extraction", func() {
 						},
 					},
 				}
-				violations := secops.NewViolations(results)
+				violations := newViolations(results)
 				Expect(violations).To(BeEmpty())
 			})
 		})
@@ -87,7 +86,7 @@ var _ = Describe("Policy Violation Extraction", func() {
 					},
 				}
 
-				violations := secops.NewViolations(results)
+				violations := newViolations(results)
 				Expect(violations).To(HaveLen(1))
 				Expect(violations[0].PolicyName).To(Equal("Managed disk should have encryption enabled"))
 				Expect(violations[0].Description).To(Equal("Disk encryption not enabled"))
@@ -126,7 +125,7 @@ var _ = Describe("Policy Violation Extraction", func() {
 					},
 				}
 
-				violations := secops.NewViolations(results)
+				violations := newViolations(results)
 				Expect(violations).To(HaveLen(1))
 				Expect(violations[0].FilePath).To(Equal("/path/to/modules/vmss/main.tf"))
 			})
@@ -157,7 +156,7 @@ var _ = Describe("Policy Violation Extraction", func() {
 					},
 				}
 
-				violations := secops.NewViolations(results)
+				violations := newViolations(results)
 				Expect(violations).To(HaveLen(1), "should deduplicate identical violations")
 			})
 
@@ -185,7 +184,7 @@ var _ = Describe("Policy Violation Extraction", func() {
 					},
 				}
 
-				violations := secops.NewViolations(results)
+				violations := newViolations(results)
 				Expect(violations).To(HaveLen(2), "should keep violations from different files")
 			})
 		})
@@ -221,7 +220,7 @@ var _ = Describe("Policy Violation Extraction", func() {
 					},
 				}
 
-				violations := secops.NewViolations(results)
+				violations := newViolations(results)
 				Expect(violations).To(HaveLen(2))
 
 				policyNames := []string{violations[0].PolicyName, violations[1].PolicyName}
@@ -257,7 +256,7 @@ var _ = Describe("Policy Violation Extraction", func() {
 					},
 				}
 
-				violations := secops.NewViolations(results)
+				violations := newViolations(results)
 				Expect(violations).To(HaveLen(1))
 				Expect(violations[0].Description).To(Equal("Disk encryption not enabled"))
 			})
@@ -268,11 +267,11 @@ var _ = Describe("Policy Violation Extraction", func() {
 var _ = Describe("SnykPolicyChecker", func() {
 	Describe("Declaration", func() {
 		It("should return correct tool declaration", func() {
-			checker := secops.SnykPolicyChecker{}
+			checker := snykPolicyChecker{}
 			decl := checker.Declaration()
 			Expect(decl.Name).To(Equal("check_iac_policy"))
 			Expect(decl.Description).To(ContainSubstring("security policies"))
-			Expect(decl.InputSchema.Required).To(ContainElement("iac_source"))
+			Expect(decl.InputSchema.Required).To(ContainElement("iac_path"))
 		})
 	})
 })
@@ -280,7 +279,7 @@ var _ = Describe("SnykPolicyChecker", func() {
 var _ = Describe("PolicyViolation", func() {
 	Describe("String", func() {
 		It("should format the violation correctly", func() {
-			v := secops.PolicyViolation{
+			v := PolicyViolation{
 				PolicyName:  "Test Policy",
 				Description: "Something is wrong",
 			}

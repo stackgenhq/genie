@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/appcd-dev/genie/pkg/config"
 	"github.com/appcd-dev/genie/pkg/langfuse"
 	"github.com/appcd-dev/go-lib/constants"
 	"github.com/appcd-dev/go-lib/logger"
@@ -23,6 +24,7 @@ import (
 type rootCmdOption struct {
 	cfgFile  string
 	logLevel string
+	codeDir  string
 }
 
 func (r rootCmdOption) level() slog.Level {
@@ -77,10 +79,7 @@ Infrastructure is hard. Being a Genie is easy.`,
 			}
 			return r.init(cmd.Context())
 		},
-		// if no subcommand is provided, use grant as the default
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return grantCmd.run(cmd.Context())
-		},
+		RunE: grantCmd.run,
 	}
 
 	// Add subcommands
@@ -89,22 +88,33 @@ Infrastructure is hard. Being a Genie is easy.`,
 		return nil, err
 	}
 	rootCmd.AddCommand(grantCobraCmd)
+	rootCmd.AddCommand(newMCPCommand(&r.opts))
+	rootCmd.AddCommand(newVersionCommand(&r.opts))
+	rootCmd.AddCommand(newAnalyzeCommand(&r.opts).command())
 	// Global flags
 	rootCmd.PersistentFlags().StringVar(&r.opts.cfgFile, "config", "", "config file (default is $HOME/.genie.yaml; repo .genie.yaml preferred)")
 	rootCmd.PersistentFlags().StringVar(&r.opts.logLevel, "log-level", "warn", "log level (debug, info, warn, error)")
 
 	// Grant command flags (also available at root level for convenience)
-	rootCmd.PersistentFlags().StringVar(&grantCmd.opts.CodeDir, "code-dir", cwd, "code directory")
+	rootCmd.PersistentFlags().StringVar(&r.opts.codeDir, "code-dir", cwd, "code directory")
 	rootCmd.PersistentFlags().StringVar(&grantCmd.opts.SaveTo, "save-to", filepath.Join(cwd, "genie_output"), "save to")
 
 	return rootCmd, nil
+}
+
+func (opts rootCmdOption) genieCfg() (config.GenieConfig, error) {
+	genieCfg, err := config.LoadGenieConfig(opts.cfgFilePath())
+	if err != nil {
+		return config.GenieConfig{}, err
+	}
+	return genieCfg, nil
 }
 
 func (opts rootCmdOption) cfgFilePath() string {
 	if opts.cfgFile != "" {
 		return opts.cfgFile
 	}
-	candidates := []string{".genie.yaml", ".genie.yml", "genie.yaml", "genie.yml"}
+	candidates := []string{".genie.yaml", ".genie.yml", "genie.yaml", "genie.yml", ".genie.toml", "genie.toml"}
 	if cwd, err := os.Getwd(); err == nil {
 		for _, c := range candidates {
 			p := filepath.Join(cwd, c)

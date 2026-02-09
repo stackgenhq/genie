@@ -3,33 +3,41 @@ package analyzer
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/appcd-dev/cce/pkg/analyzer"
-	"github.com/appcd-dev/cce/pkg/analyzer/analyzercommon"
 	"github.com/appcd-dev/cce/pkg/cce"
 	"github.com/appcd-dev/cce/pkg/models"
 	"github.com/appcd-dev/cce/pkg/resourcemapper"
 	"github.com/appcd-dev/go-lib/encodeutils"
 	"github.com/appcd-dev/go-lib/logger"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 	"golang.org/x/sync/errgroup"
 )
 
 type AnalysisInput struct {
 	Path     string
 	Language cce.Language
+
+	// SaveCCEJSONTo is the path to save the CCE JSON to
+	SaveCCEJSONTo string
 }
 
 //go:generate go tool counterfeiter -generate
 
+//counterfeiter:generate  --fake-name FakeCCEAnalyzer github.com/appcd-dev/cce/pkg/analyzer.Analyzer
+
 //counterfeiter:generate . Analyzer
 type Analyzer interface {
 	Analyze(ctx context.Context, input AnalysisInput) (MappedResources, error)
+	Tool() server.ServerTool
 }
 
-var _ Analyzer = (*treeSitterBasedAnalyzer)(nil)
+var _ Analyzer = (*TreeSitterBasedAnalyzer)(nil)
 
 type MappedResource struct {
 	MappedResource models.MappedResource `json:"mapped_resource"`
@@ -95,79 +103,134 @@ func (m MappedResources) GroupByResources() GroupdResources {
 	return groupedResources
 }
 
-func New() (Analyzer, error) {
-	resourceMapper, err := resourcemapper.NewInBuildMapping()
-	return treeSitterBasedAnalyzer{
-		analyzer:       analyzer.New(),
+func New(ctx context.Context, mappingDefinitionFile string, cceAnalyzer analyzer.Analyzer) (Analyzer, error) {
+	resourceMapper, err := resourcemapper.NewFileBasedMapper(ctx, mappingDefinitionFile)
+	return TreeSitterBasedAnalyzer{
+		analyzer:       cceAnalyzer,
 		resourceMapper: resourceMapper,
 	}, err
 }
 
-type treeSitterBasedAnalyzer struct {
+type TreeSitterBasedAnalyzer struct {
 	analyzer       analyzer.Analyzer
 	resourceMapper resourcemapper.Mapper
 }
 
-func (a treeSitterBasedAnalyzer) Analyze(ctx context.Context, input AnalysisInput) (MappedResources, error) {
-	logr := logger.GetLogger(ctx).With("fn", "treeSitterBasedAnalyzer.Analyze")
+func (a TreeSitterBasedAnalyzer) Tool() server.ServerTool {
+	return server.ServerTool{
+		Tool: mcp.NewTool("analyze_infrastructure",
+			mcp.WithDescription("Analyzes source code to identify and extract cloud infrastructure resource usages (like S3 buckets, Lambda functions) and their context."),
+			mcp.WithString("path",
+				mcp.Required(),
+				mcp.Description("Absolute path to the source code directory to be analyzed"),
+			),
+			mcp.WithString("save_to",
+				mcp.Required(),
+				mcp.Description("Absolute path to a directory where the analysis results (CCE JSON) will be saved. The directory must exist"),
+			),
+		),
+		Handler: a.analyzeToolCall,
+	}
+}
+
+func (a TreeSitterBasedAnalyzer) analyzeToolCall(ctx context.Context, request mcp.CallToolRequest) (_ *mcp.CallToolResult, err error) {
+	input := AnalysisInput{}
+	missingFields := make([]string, 0, 2)
+	input.Path, err = request.RequireString("path")
+	if err != nil {
+		missingFields = append(missingFields, "path")
+	}
+
+	input.SaveCCEJSONTo, err = request.RequireString("save_to")
+	if err != nil {
+		missingFields = append(missingFields, "save_to")
+	}
+
+	if len(missingFields) > 0 {
+		return nil, fmt.Errorf("missing required fields: %v", missingFields)
+	}
+
+	cceNDJSONFile := filepath.Join(input.SaveCCEJSONTo, "cce_analysis.ndjson")
+	analysisOutput, err := a.Analyze(ctx, AnalysisInput{
+		Path:          input.Path,
+		SaveCCEJSONTo: cceNDJSONFile,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("analysis failed: %w", err)
+	}
+
+	content := []mcp.Content{
+		mcp.NewTextContent(fmt.Sprintf("Code context analysis JSON is saved to %s", cceNDJSONFile)),
+	}
+
+	for _, cloudBasedPrompt := range analysisOutput.Summarize(ctx) {
+		content = append(content, mcp.NewTextContent(fmt.Sprintf("for cloud %s\n%s", cloudBasedPrompt.CloudProvider, string(encodeutils.MustToJSON(ctx, cloudBasedPrompt)))))
+	}
+
+	// return the result as JSON
+	return &mcp.CallToolResult{
+		Content: content,
+	}, nil
+}
+
+func (a TreeSitterBasedAnalyzer) Analyze(ctx context.Context, input AnalysisInput) (result MappedResources, err error) {
+	result = make(MappedResources, 0)
+	logr := logger.GetLogger(ctx).With("fn", "TreeSitterBasedAnalyzer.Analyze")
 	logr.Info("Analyzing folder", "folder", input.Path)
+
+	// Verify that the path exists
+	_, err = os.Stat(input.Path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to access analysis path: %w", err)
+	}
+
 	scanResult := make(chan models.MethodCall)
 	defer func(startTime time.Time) {
 		logr.Info("analysis completed", "duration", time.Since(startTime).String())
 	}(time.Now())
-	result := MappedResources{}
-	errGoup, ctx := errgroup.WithContext(ctx)
-	errGoup.Go(func() error {
-		return a.analyzer.AnalyzeV3(ctx, input.Path, scanResult)
-	})
-	errGoup.Go(func() error {
-		for {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case methodCall, ok := <-scanResult:
-				if !ok {
-					return nil
-				}
-				logr.Debug("method call", "methodCall", methodCall)
-				mappedResource, err := a.resourceMapper.Map(ctx, resourcemapper.MappingRequest{
-					MethodName: methodCall.Name,
-					Language:   methodCall.Language,
-				})
-				if err != nil {
-					logr.Debug("could not map the method call", "methodCall", methodCall, "error", err)
-					continue
-				}
-				result = append(result, MappedResource{
-					MappedResource: mappedResource,
-					MethodCall:     methodCall,
-				})
-			}
+	var writer *os.File
+	if input.SaveCCEJSONTo != "" {
+		writer, err = os.Create(input.SaveCCEJSONTo)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create output file: %w", err)
 		}
+		defer func() {
+			if closeErr := writer.Close(); closeErr != nil {
+				logr.Warn("failed to close output file", "error", closeErr)
+			}
+		}()
+	}
+	errGoup, ectx := errgroup.WithContext(ctx)
+	errGoup.Go(func() error {
+		return a.analyzer.AnalyzeV3(ectx, input.Path, scanResult)
 	})
-	err := errGoup.Wait()
+	errGoup.Go(func() error {
+		for methodCall := range scanResult {
+			logr.Debug("method call", "methodCall", methodCall)
+			mappedResource, err := a.resourceMapper.Map(ectx, resourcemapper.MappingRequest{
+				MethodName: methodCall.Name,
+				Language:   methodCall.Language,
+			})
+			if err != nil {
+				logr.Debug("could not map the method call", "methodCall", methodCall, "error", err)
+				continue
+			}
+			resource := MappedResource{
+				MappedResource: mappedResource,
+				MethodCall:     methodCall,
+			}
+			if writer != nil {
+				// ndjson file
+				jsonBytes := encodeutils.MustToJSON(ectx, resource)
+				_, _ = fmt.Fprintf(writer, "%s\n", jsonBytes)
+			}
+			result = append(result, resource)
+		}
+		return nil
+	})
+	err = errGoup.Wait()
 	if err != nil {
 		return nil, fmt.Errorf("failed to analyze the folder: %w", err)
-	}
-	return result, nil
-}
-
-func (a treeSitterBasedAnalyzer) analyze(ctx context.Context, req mcp.CallToolRequest) (_ *mcp.CallToolResult, err error) {
-	var input analyzercommon.AnalysisInput
-	err = encodeutils.Convert(req.Params, &input)
-	if err != nil {
-		return nil, err
-	}
-
-	analysisResponse, err := a.analyzer.Analyze(ctx, input)
-	if err != nil {
-		return nil, err
-	}
-	result := &mcp.CallToolResult{
-		Content: make([]mcp.Content, len(analysisResponse.MethodCalls)),
-	}
-	for i := range analysisResponse.MethodCalls {
-		result.Content[i] = mcp.NewTextContent(string(encodeutils.MustToJSON(ctx, analysisResponse.MethodCalls[i])))
 	}
 	return result, nil
 }

@@ -3,12 +3,11 @@ package codeowner
 import (
 	"context"
 	_ "embed"
-	"fmt"
 	"strings"
-	"time"
 
 	"github.com/appcd-dev/genie/pkg/expert"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
+	"github.com/appcd-dev/genie/pkg/langfuse"
 	"github.com/appcd-dev/go-lib/logger"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/tool/file"
@@ -40,7 +39,7 @@ type codeOwner struct {
 func NewcodeOwner(ctx context.Context, modelProvider modelprovider.ModelProvider) (CodeOwner, error) {
 	// Define Persona
 	expertBio := expert.ExpertBio{
-		Personality: fmt.Sprintf("%s\nCurrent time is %s", persona, time.Now().String()),
+		Personality: langfuse.GetPrompt(ctx, "genie_codeowner_persona", persona),
 		Name:        "code-owner",
 		Description: "Code Owner that knows the in and out about the codebase",
 	}
@@ -68,6 +67,7 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 	expertRequest := expert.Request{
 		Message:      req.Question,
 		EventChannel: req.EventChan,
+		TaskType:     modelprovider.TaskToolCalling,
 		ChoiceProcessor: func(choices ...model.Choice) {
 			for i := range choices {
 				if len(strings.TrimSpace(choices[i].Message.Content)) != 0 {

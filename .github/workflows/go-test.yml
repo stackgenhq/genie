@@ -40,7 +40,7 @@ jobs:
           threshold-package: 0
           threshold-total: 50
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v5
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
           args: --timeout=2m

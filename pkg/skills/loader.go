@@ -1,0 +1,98 @@
+package skills
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/appcd-dev/genie/pkg/config"
+	"github.com/appcd-dev/go-lib/logger"
+	"trpc.group/trpc-go/trpc-agent-go/skill"
+	"trpc.group/trpc-go/trpc-agent-go/tool"
+)
+
+// LoadSkillsFromConfig loads skills from the configuration.
+// This function exists to initialize the skills system based on the Genie configuration.
+// Without this function, we could not load skills from the config file.
+// It supports multiple skills roots including local paths and remote HTTPS URLs.
+func LoadSkillsFromConfig(ctx context.Context, cfg config.GenieConfig) ([]tool.Tool, error) {
+	logr := logger.GetLogger(ctx).With("fn", "LoadSkillsFromConfig")
+
+	// Get all skills roots
+	roots := cfg.SkillsRoots
+
+	// If no skills roots configured, return empty tools list
+	if len(roots) == 0 {
+		logr.Debug("no skills roots configured, skills disabled")
+		return nil, nil
+	}
+
+	// Process and validate each root
+	var validRoots []string
+	for _, root := range roots {
+		// Expand environment variables
+		expandedRoot := os.ExpandEnv(root)
+
+		// Check if it's a remote HTTPS URL
+		if strings.HasPrefix(expandedRoot, "https://") || strings.HasPrefix(expandedRoot, "http://") {
+			logr.Info("adding remote skills root", "url", expandedRoot)
+			validRoots = append(validRoots, expandedRoot)
+			continue
+		}
+
+		// For local paths, resolve to absolute path and validate
+		absPath, err := filepath.Abs(expandedRoot)
+		if err != nil {
+			logr.Warn("failed to resolve skills path, skipping", "path", expandedRoot, "error", err)
+			continue
+		}
+
+		// Check if directory exists
+		info, err := os.Stat(absPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				logr.Warn("skills directory does not exist, skipping", "path", absPath)
+				continue
+			}
+			logr.Warn("failed to stat skills directory, skipping", "path", absPath, "error", err)
+			continue
+		}
+		if !info.IsDir() {
+			logr.Warn("skills path is not a directory, skipping", "path", absPath)
+			continue
+		}
+
+		logr.Info("adding local skills root", "path", absPath)
+		validRoots = append(validRoots, absPath)
+	}
+
+	if len(validRoots) == 0 {
+		logr.Warn("no valid skills roots found, skills disabled")
+		return nil, nil
+	}
+
+	// Create skill repository using trpc-agent-go/skill package with multiple roots
+	repo, err := skill.NewFSRepository(validRoots...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create skills repository: %w", err)
+	}
+
+	// Log discovered skills
+	summaries := repo.Summaries()
+	logr.Info("skills loaded", "count", len(summaries), "roots", len(validRoots))
+	for _, s := range summaries {
+		logr.Debug("discovered skill", "name", s.Name, "description", s.Description)
+	}
+
+	// Create executor with workspace in temp directory
+	workDir := filepath.Join(os.TempDir(), "genie-skills")
+	executor := NewLocalExecutor(workDir)
+
+	// Create and return skill tools
+	tools := CreateAllSkillTools(repo, executor)
+	logr.Info("skill tools created", "count", len(tools))
+
+	return tools, nil
+}
