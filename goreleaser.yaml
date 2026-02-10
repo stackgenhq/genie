@@ -9,9 +9,6 @@ git:
   ignore_tags:
     - "*-rc.*"
 
-env:
-  - CGO_ENABLED=0
-
 builds:
   - id: linux-build
     binary: genie
@@ -22,6 +19,36 @@ builds:
       - arm64
       - ppc64le
       - s390x
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -mod=mod
+      - -trimpath
+    overrides:
+      - goos: linux
+        goarch: amd64
+        env:
+          - CGO_ENABLED=1
+          - CC=x86_64-linux-gnu-gcc
+          - CXX=x86_64-linux-gnu-g++
+      - goos: linux
+        goarch: arm64
+        env:
+          - CGO_ENABLED=1
+          - CC=aarch64-linux-gnu-gcc
+          - CXX=aarch64-linux-gnu-g++
+      - goos: linux
+        goarch: ppc64le
+        env:
+          - CGO_ENABLED=1
+          - CC=powerpc64le-linux-gnu-gcc
+          - CXX=powerpc64le-linux-gnu-g++
+      - goos: linux
+        goarch: s390x
+        env:
+          - CGO_ENABLED=1
+          - CC=s390x-linux-gnu-gcc
+          - CXX=s390x-linux-gnu-g++
     mod_timestamp: &build-timestamp '{{.CommitTimestamp}}'
     ldflags: &build-ldflags |
       -w
@@ -39,8 +66,33 @@ builds:
     goarch:
       - amd64
       - arm64
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -mod=mod
+      - -trimpath
+    overrides:
+      - goos: darwin
+        goarch: amd64
+        env:
+          - CGO_ENABLED=1
+          - CC=o64-clang
+          - CXX=o64-clang++
+      - goos: darwin
+        goarch: arm64
+        env:
+          - CGO_ENABLED=1
+          - CC=oa64-clang
+          - CXX=oa64-clang++
     mod_timestamp: *build-timestamp
-    ldflags: *build-ldflags
+    ldflags: |
+      -w
+      -s
+      -X github.com/appcd-dev/go-lib/constants.Version={{.Version}}
+      -X github.com/appcd-dev/go-lib/constants.BuildDate={{.Date}}
+      -X github.com/appcd-dev/go-lib/featureflag.Key={{.Env.FF_UNLEASH_API_KEY}}
+      -X github.com/appcd-dev/genie/pkg/tracing.LangfusePublicKey={{.Env.LANGFUSE_PUBLIC_KEY}}
+      -X github.com/appcd-dev/genie/pkg/tracing.LangfuseSecretKey={{.Env.LANGFUSE_SECRET_KEY}}
     hooks:
       post:
         - cmd: quill sign "{{ .Path }}" --ad-hoc={{ .IsSnapshot }} -vv
@@ -53,6 +105,13 @@ builds:
       - windows
     goarch:
       - amd64
+    env:
+      - CGO_ENABLED=1
+      - CC=x86_64-w64-mingw32-gcc
+      - CXX=x86_64-w64-mingw32-g++
+    flags:
+      - -mod=mod
+      - -trimpath
     mod_timestamp: *build-timestamp
     ldflags: *build-ldflags
 
@@ -102,7 +161,7 @@ brews:
     homepage: *website
     description: *description
     license: "Apache License 2.0"
-    url_template: &url_template "https://releases.stackgen.com/binaries/stackgen-cli/{{ .Tag }}/{{ .ArtifactName }}"
+    url_template: &url_template "https://releases.stackgen.com/binaries/genie/{{ .Tag }}/{{ .ArtifactName }}"
     commit_author:
       name: stackgen-bot
       email: bot@stackgen.com

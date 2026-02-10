@@ -11,10 +11,6 @@ runs:
       with:
         cache: true
         go-version-file: ./go.mod
-    - name: Install tools
-      shell: bash
-      run: |
-        npm install -g @openapitools/openapi-generator-cli
     - name: Create compilable code
       shell: bash
       run: |

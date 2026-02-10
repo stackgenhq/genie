@@ -34,7 +34,6 @@ endif
 deps:
 	@which -a goimports > /dev/null || go install golang.org/x/tools/cmd/goimports@latest
 	@which -a golangci-lint > /dev/null || go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
-	@which -a gh > /dev/null || brew install gh
 
 
 # ------------------------------ build commands ------------------------------

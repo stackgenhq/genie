@@ -16,12 +16,25 @@ env:
 
 jobs:
   goreleaser:
-    runs-on: ubuntu-22.04
+    runs-on: arm-runner-v2
+    container:
+      image: goreleaser/goreleaser-cross:latest
+    env:
+      GOPRIVATE: "github.com/appcd-dev/go-lib,github.com/appcd-dev/cce"
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            /root/go/pkg/mod
+            /root/.cache/go-build
+          key: go-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            go-${{ runner.arch }}-
       - name: Setup Repo
         uses: ./.github/actions/setup
         with:
@@ -30,18 +43,17 @@ jobs:
         run: |
           curl -sSfL https://raw.githubusercontent.com/anchore/quill/main/install.sh | sh -s -- -b /usr/local/bin
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           audience: sts.amazonaws.com
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
+      - name: Configure Git for private repos
+        run: |
+          git config --global url."https://${{ secrets.GO_LIB_TOKEN }}:x-oauth-basic@github.com".insteadOf "https://github.com"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
         if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref, '-rc.')
-        with:
-          distribution: goreleaser
-          version: latest
-          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           QUILL_SIGN_P12: ${{ secrets.QUILL_SIGN_P12 }}
@@ -50,13 +62,9 @@ jobs:
           FF_UNLEASH_API_KEY: ${{ secrets.FF_UNLEASH_API_KEY }}
           LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
           LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+        run: goreleaser release --clean
       - name: Run GoReleaser (on rc tag)
-        uses: goreleaser/goreleaser-action@v6
         if: startsWith(github.ref, 'refs/tags/') && contains(github.ref, '-rc.')
-        with:
-          distribution: goreleaser
-          version: latest
-          args: release --clean --config ./goreleaser-main.yaml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           QUILL_SIGN_P12: ${{ secrets.QUILL_SIGN_P12 }}
@@ -65,3 +73,4 @@ jobs:
           FF_UNLEASH_API_KEY: ${{ secrets.FF_UNLEASH_API_KEY }}
           LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
           LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+        run: goreleaser release --clean --config ./goreleaser-main.yaml
