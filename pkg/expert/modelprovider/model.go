@@ -40,7 +40,7 @@ func DefaultModelConfig() ModelConfig {
 	if os.Getenv("ANTHROPIC_API_KEY") != "" {
 		result.Providers = append(result.Providers, ProviderConfig{
 			Provider:    "anthropic",
-			ModelName:   osutils.Getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022"),
+			ModelName:   osutils.Getenv("ANTHROPIC_MODEL", "claude-opus-4-5-20251101"),
 			Variant:     "default",
 			GoodForTask: TaskPlanning,
 		})

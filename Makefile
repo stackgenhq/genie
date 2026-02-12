@@ -83,10 +83,10 @@ test/unit: ## Run unit tests
 # ------------------------------ lint commands ------------------------------
 
 lint: deps ## Run linter
-	golangci-lint run -v $(ARGS) --new-from-rev=origin/master; \
+	golangci-lint run -v $(ARGS);
 
 lint/fix:
-	golangci-lint run -v $(ARGS) --new-from-rev=origin/master --fix
+	golangci-lint run -v $(ARGS) --fix
 
 fmt: deps
 	@if [ -n "$$(go fmt ./...)" ]; then \

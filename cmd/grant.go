@@ -110,17 +110,25 @@ func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
 	}
 
 	g.granterSvc = granter.New(codeAnalyzer, llmBasedArchitect, iacWriter)
-	if !g.opts.EnableChat {
-		_, err := g.granterSvc.Generate(ctx, granter.GrantRequest{
-			CodeDir: g.rootOpts.codeDir,
-			SaveTo:  g.opts.SaveTo,
-		})
-		return err
-	}
-	g.codeOwner, err = codeowner.NewcodeOwner(ctx, modelProvider)
+	_, err = g.granterSvc.Generate(ctx, granter.GrantRequest{
+		CodeDir: g.rootOpts.codeDir,
+		SaveTo:  g.opts.SaveTo,
+	})
 	if err != nil {
 		return err
 	}
+	if !g.opts.EnableChat {
+		return nil
+	}
+	g.codeOwner, err = codeowner.NewcodeOwner(ctx, modelProvider, g.opts.SaveTo, codeowner.ToolDeps{})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := g.codeOwner.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to close code owner: %v\n", closeErr)
+		}
+	}()
 
 	// Use TUI for interactive feedback during infrastructure generation
 	// The granter will emit events through the event channel

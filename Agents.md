@@ -1445,3 +1445,54 @@ If you have questions about these standards or encounter issues implementing the
 1. Review the reference examples linked in this document
 2. Check the actual implementation files in the repository
 3. Open an issue or discussion for clarification
+
+### 7. Configuration Management (MANDATORY)
+
+**Configuration structs MUST be defined in the package that uses them, but loading and aggregation is centralized.**
+
+#### Rules
+
+- **Co-located Config Structs**: Define the configuration struct for a component in the same package as the component (e.g., `pkg/tools/websearch/config.go` or inside `websearch.go`).
+- **Aggregated in `pkg/config`**: The centralized `pkg/config` package imports these component packages and aggregates their config structs into the main `GenieConfig`.
+- **No `os.Getenv` in Components**: Components must NOT read environment variables directly. They receive their configuration via dependency injection (constructors).
+- **Centralized Loading**: `os.Getenv` and file loading logic resides *only* in `pkg/config` (or the application entry point). `pkg/config` populates the component config structs with defaults and environment variables.
+
+#### Benefits
+
+- **Modularity**: Components define their own configuration requirements.
+- **Decoupling**: Components don't depend on a central `config` package (avoids circular dependencies).
+- **Testability**: Components can be tested with struct literals without setting env vars.
+- **Discoverability**: The main `GenieConfig` still provides a view of all application configuration.
+
+#### Example
+
+**Correct:**
+
+```go
+// pkg/tools/mytool/tool.go
+package mytool
+
+type Config struct {
+    APIKey string `yaml:"api_key" toml:"api_key"`
+}
+
+func NewTool(cfg Config) *Tool {
+    return &Tool{key: cfg.APIKey}
+}
+
+// pkg/config/config.go
+package config
+
+import "github.com/appcd-dev/genie/pkg/tools/mytool"
+
+type GenieConfig struct {
+    MyTool mytool.Config `yaml:"my_tool" toml:"my_tool"`
+}
+
+func LoadConfig() GenieConfig {
+    // Load from file...
+    // Apply defaults/env vars
+    cfg.MyTool.APIKey = os.Getenv("MY_TOOL_API_KEY")
+    return cfg
+}
+```

@@ -24,6 +24,14 @@ type AgentStreamChunkMsg struct {
 	Delta bool
 }
 
+// AgentReasoningMsg contains a chunk of streaming reasoning/thought content from the LLM.
+type AgentReasoningMsg struct {
+	// Content is the text content to append
+	Content string
+	// Delta indicates if this is a delta update (append) or full content (replace)
+	Delta bool
+}
+
 // AgentToolCallMsg indicates a tool is being called by the agent.
 // This message triggers the display of tool call information in the UI.
 type AgentToolCallMsg struct {

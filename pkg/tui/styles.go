@@ -5,34 +5,41 @@ import "github.com/charmbracelet/lipgloss"
 // Styles contains all the styling for the TUI components.
 // This centralizes all visual styling using Lip Gloss.
 type Styles struct {
-	Header         lipgloss.Style
-	Content        lipgloss.Style
-	Footer         lipgloss.Style
-	Error          lipgloss.Style
-	Success        lipgloss.Style
-	Thinking       lipgloss.Style
-	StageComplete  lipgloss.Style
-	StageCurrent   lipgloss.Style
-	StagePending   lipgloss.Style
-	ToolName       lipgloss.Style
-	ToolPending    lipgloss.Style
-	ToolComplete   lipgloss.Style
-	ToolError      lipgloss.Style
-	ToolResponse   lipgloss.Style
-	Panel          lipgloss.Style
-	PanelTitle     lipgloss.Style
-	FocusedBorder  lipgloss.Style
-	DimBorder      lipgloss.Style
-	FocusedTitle   lipgloss.Style
-	DimTitle       lipgloss.Style
-	LogDebug       lipgloss.Style
-	LogInfo        lipgloss.Style
-	LogWarn        lipgloss.Style
-	LogError       lipgloss.Style
-	Scrollbar      lipgloss.Style
-	ScrollbarThumb lipgloss.Style
-	UserBubble     lipgloss.Style
-	AiBubble       lipgloss.Style
+	Header          lipgloss.Style
+	Content         lipgloss.Style
+	Footer          lipgloss.Style
+	Error           lipgloss.Style
+	Success         lipgloss.Style
+	Thinking        lipgloss.Style
+	StageComplete   lipgloss.Style
+	StageCurrent    lipgloss.Style
+	StagePending    lipgloss.Style
+	ToolName        lipgloss.Style
+	ToolPending     lipgloss.Style
+	ToolComplete    lipgloss.Style
+	ToolError       lipgloss.Style
+	ToolResponse    lipgloss.Style
+	Panel           lipgloss.Style
+	PanelTitle      lipgloss.Style
+	FocusedBorder   lipgloss.Style
+	DimBorder       lipgloss.Style
+	FocusedTitle    lipgloss.Style
+	DimTitle        lipgloss.Style
+	LogDebug        lipgloss.Style
+	LogInfo         lipgloss.Style
+	LogWarn         lipgloss.Style
+	LogError        lipgloss.Style
+	Scrollbar       lipgloss.Style
+	ScrollbarThumb  lipgloss.Style
+	UserBubble      lipgloss.Style
+	AiBubble        lipgloss.Style
+	ToolCard        lipgloss.Style
+	ToolCardIcon    lipgloss.Style
+	SystemBubble    lipgloss.Style
+	ReasoningBubble lipgloss.Style
+	DiffAdd         lipgloss.Style
+	DiffRemove      lipgloss.Style
+	ErrorBubble     lipgloss.Style
 }
 
 // DefaultStyles returns the default styling for the TUI.
@@ -188,5 +195,46 @@ func DefaultStyles() Styles {
 			MarginBottom(1).
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(mutedColor),
+
+		ToolCard: lipgloss.NewStyle().
+			Foreground(textColor).
+			Padding(0, 2).
+			MarginBottom(1).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(accentColor),
+
+		ToolCardIcon: lipgloss.NewStyle().
+			Foreground(accentColor).
+			Bold(true),
+
+		SystemBubble: lipgloss.NewStyle().
+			Foreground(accentColor).
+			Padding(1, 2).
+			MarginBottom(1).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(accentColor),
+
+		ReasoningBubble: lipgloss.NewStyle().
+			Foreground(mutedColor).
+			Italic(true).
+			Padding(1, 2).
+			MarginRight(4).
+			MarginBottom(1).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(mutedColor),
+
+		DiffAdd: lipgloss.NewStyle().
+			Foreground(successColor),
+
+		DiffRemove: lipgloss.NewStyle().
+			Foreground(errorColor),
+
+		ErrorBubble: lipgloss.NewStyle().
+			Foreground(errorColor).
+			Bold(true).
+			Padding(1, 2).
+			MarginBottom(1).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(errorColor),
 	}
 }

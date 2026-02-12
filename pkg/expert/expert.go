@@ -2,10 +2,12 @@ package expert
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
+	rtmemory "github.com/appcd-dev/genie/pkg/reactree/memory"
 	"github.com/appcd-dev/genie/pkg/tui"
 	"github.com/appcd-dev/go-lib/constants"
 	"github.com/appcd-dev/go-lib/logger"
@@ -50,6 +52,11 @@ type Request struct {
 	TaskType modelprovider.TaskType
 
 	Mode ExpertConfig
+
+	// WorkingMemory is an optional shared memory used to cache file-read tool results.
+	// When set, ToolWrapper will automatically cache results from read_file, list_file,
+	// and read_multiple_files, preventing redundant reads within the same session.
+	WorkingMemory *rtmemory.WorkingMemory
 }
 
 func (r Request) mode() []llmagent.Option {
@@ -62,7 +69,7 @@ func (r Request) mode() []llmagent.Option {
 		llmagent.WithAddCurrentTime(true),      // Automatically inject current time into prompts
 		// Token optimization: Prevent runaway costs with iteration limits
 		llmagent.WithMaxLLMCalls(40),
-		llmagent.WithMaxToolIterations(12),
+		llmagent.WithMaxToolIterations(30),
 		// Token optimization: Only include current request context, not full history (50-70% savings)
 		llmagent.WithMessageFilterMode(llmagent.IsolatedRequest),
 		// Token optimization: Limit history messages to reduce context size (20-30% savings)
@@ -103,6 +110,11 @@ type expert struct {
 	bio           ExpertBio
 	modelProvider modelprovider.ModelProvider
 	eventAdapter  *tui.EventAdapter
+
+	// runner is persisted across Do() calls so the in-memory session service
+	// retains conversation history for multi-turn chat.
+	runner    runner.Runner
+	sessionID string
 }
 
 func (e *expert) getRunner(ctx context.Context, req Request) (runner.Runner, error) {
@@ -119,15 +131,16 @@ func (e *expert) getRunner(ctx context.Context, req Request) (runner.Runner, err
 	// Debug: Log model information
 	logr.Debug("model selected for expert",
 		"model_name", modelInstance.Info().Name,
-		"task_type", req.TaskType,
 	)
 
-	wrappedTools := make([]tool.Tool, len(e.bio.Tools)+len(req.AdditionalTools))
-	for i, t := range append(e.bio.Tools, req.AdditionalTools...) {
-		wrappedTools[i] = &ToolWrapper{
-			Tool:      t,
-			EventChan: req.EventChannel,
-		}
+	// Combine tools and wrap them
+	var wrappedTools []tool.Tool
+	for _, t := range append(e.bio.Tools, req.AdditionalTools...) {
+		wrappedTools = append(wrappedTools, &ToolWrapper{
+			Tool:          t,
+			EventChan:     req.EventChannel,
+			WorkingMemory: req.WorkingMemory,
+		})
 	}
 
 	// Debug: Log tool definitions being sent
@@ -167,23 +180,26 @@ func (e *expert) getRunner(ctx context.Context, req Request) (runner.Runner, err
 
 func (e *expert) Do(ctx context.Context, req Request) (Response, error) {
 	logr := logger.GetLogger(ctx).With("fn", "Expert.Do", "agent", e.bio.Name)
-	runner, err := e.getRunner(ctx, req)
-	if err != nil {
-		return Response{}, fmt.Errorf("could not create a runner for the expert: %w", err)
+
+	// Lazily create the runner on first call and reuse it for subsequent calls.
+	// This keeps the in-memory session service alive, preserving chat history.
+	if e.runner == nil {
+		r, err := e.getRunner(ctx, req)
+		if err != nil {
+			return Response{}, fmt.Errorf("could not create a runner for the expert: %w", err)
+		}
+		e.runner = r
+		e.sessionID = uuid.NewString() // stable session ID for the lifetime of this expert
 	}
-	defer func() { _ = runner.Close() }()
 
 	defer func(startTime time.Time) {
 		logr.Info("Expert.Do", "duration", time.Since(startTime).String())
 	}(time.Now())
 	logr.Debug("expert is working on the request", "msg", req.Message)
 
-	// Generate a deterministic session ID from the message content
-	sessionID := uuid.NewSHA1(uuid.Nil, []byte(req.Message)).String()
-
-	event, err := runner.Run(ctx,
+	event, err := e.runner.Run(ctx,
 		osutils.Getenv("USER", "anonymous"),
-		sessionID,
+		e.sessionID,
 		model.NewUserMessage(req.Message),
 	)
 	if err != nil {
@@ -216,9 +232,12 @@ func (e *expert) emitEventToTUI(event *event.Event, eventChan chan<- interface{}
 }
 
 // ToolWrapper wraps a tool to emit events when it's called.
+// When WorkingMemory is set, it also caches results from file-read tools
+// (read_file, list_file, read_multiple_files) to prevent redundant reads.
 type ToolWrapper struct {
 	tool.Tool
-	EventChan chan<- interface{}
+	EventChan     chan<- interface{}
+	WorkingMemory *rtmemory.WorkingMemory
 }
 
 func (w *ToolWrapper) Call(ctx context.Context, jsonArgs []byte) (any, error) {
@@ -230,6 +249,20 @@ func (w *ToolWrapper) Call(ctx context.Context, jsonArgs []byte) (any, error) {
 		logr.Debug("tool call completed", "tool", w.Tool.Declaration().Name, "duration", time.Since(startTime).String())
 	}(time.Now())
 
+	toolName := w.Tool.Declaration().Name
+
+	// Cache check: return cached result for file-read tools if available.
+	if cached, ok := w.checkFileCache(logr, toolName, jsonArgs); ok {
+		// Emit event even for cache hits so the TUI stays informed
+		if w.EventChan != nil {
+			w.EventChan <- tui.AgentToolResponseMsg{
+				ToolName: toolName,
+				Response: fmt.Sprintf("%v", cached),
+			}
+		}
+		return cached, nil
+	}
+
 	// Execute the underlying tool
 	var output any
 	var err error
@@ -238,6 +271,11 @@ func (w *ToolWrapper) Call(ctx context.Context, jsonArgs []byte) (any, error) {
 		output, err = ct.Call(ctx, jsonArgs)
 	} else {
 		return nil, fmt.Errorf("tool is not callable")
+	}
+
+	// Cache store: persist successful file-read results before truncation.
+	if err == nil {
+		w.storeFileCache(logr, toolName, jsonArgs, output)
 	}
 
 	// Token optimization: Truncate large tool responses to prevent context explosion
@@ -265,11 +303,86 @@ func (w *ToolWrapper) Call(ctx context.Context, jsonArgs []byte) (any, error) {
 	// Emit tool response event
 	if w.EventChan != nil {
 		w.EventChan <- tui.AgentToolResponseMsg{
-			ToolName: w.Tool.Declaration().Name,
+			ToolName: toolName,
 			Response: responseStr,
 			Error:    err,
 		}
 	}
 
 	return output, err
+}
+
+// cacheableFileTools is the set of tool names whose results are cached in WorkingMemory.
+var cacheableFileTools = map[string]bool{
+	"read_file":           true,
+	"list_file":           true,
+	"read_multiple_files": true,
+}
+
+// fileCacheKey builds a WorkingMemory key from the tool name and its arguments.
+// For read_file it uses "tool:read_file:<file_name>", for list_file "tool:list_file:<path>".
+func fileCacheKey(toolName string, jsonArgs []byte) (string, bool) {
+	if !cacheableFileTools[toolName] {
+		return "", false
+	}
+
+	var args map[string]any
+	if err := json.Unmarshal(jsonArgs, &args); err != nil {
+		return "", false
+	}
+
+	// Build a unique key from the tool name + primary identifier
+	switch toolName {
+	case "read_file":
+		if fn, ok := args["file_name"].(string); ok {
+			return fmt.Sprintf("tool:read_file:%s", fn), true
+		}
+	case "list_file":
+		path, _ := args["path"].(string)
+		return fmt.Sprintf("tool:list_file:%s", path), true
+	case "read_multiple_files":
+		// Use the full args JSON as key since patterns can vary
+		return fmt.Sprintf("tool:read_multiple_files:%s", string(jsonArgs)), true
+	}
+
+	return "", false
+}
+
+// checkFileCache returns a cached tool result if one exists in WorkingMemory.
+func (w *ToolWrapper) checkFileCache(logr interface {
+	Debug(msg string, keysAndValues ...any)
+}, toolName string, jsonArgs []byte) (any, bool) {
+	if w.WorkingMemory == nil {
+		return nil, false
+	}
+
+	key, ok := fileCacheKey(toolName, jsonArgs)
+	if !ok {
+		return nil, false
+	}
+
+	if cached, found := w.WorkingMemory.Recall(key); found {
+		logr.Debug("file cache hit — skipping redundant tool call", "key", key)
+		return cached, true
+	}
+
+	return nil, false
+}
+
+// storeFileCache persists a successful file-read tool result into WorkingMemory.
+func (w *ToolWrapper) storeFileCache(logr interface {
+	Debug(msg string, keysAndValues ...any)
+}, toolName string, jsonArgs []byte, output any) {
+	if w.WorkingMemory == nil {
+		return
+	}
+
+	key, ok := fileCacheKey(toolName, jsonArgs)
+	if !ok {
+		return
+	}
+
+	// Store the full (un-truncated) result in working memory.
+	w.WorkingMemory.Store(key, fmt.Sprintf("%v", output))
+	logr.Debug("file result cached in working memory", "key", key)
 }

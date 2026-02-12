@@ -27,7 +27,7 @@ func HandleExpertError(err error) (Response, error) {
 		return Response{
 			Choices: []model.Choice{
 				{
-					Message: model.NewAssistantMessage("I stopped because I reached the maximum number of tool iterations I am allowed to make. I may have partially completed the task, but I could not finish it entirely."),
+					Message: model.NewAssistantMessage("I have run into my limits (max tool iterations). Do you want me to keep trying? (Reply 'yes' to continue)"),
 				},
 			},
 		}, nil

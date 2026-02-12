@@ -137,20 +137,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(nudgeCmd, resetCmd)
 
 		case "tab":
-			// Toggle focus between chat and logs in completed state
-			if m.state.Completed {
-				if m.focus == FocusChat {
-					m.focus = FocusLogs
+			// Toggle focus between content pane and logs in any state
+			if m.focus == FocusChat {
+				m.focus = FocusLogs
+				if m.state.Completed {
 					m.chatView.SetFocus(false)
-					m.logView.SetFocus(true)
-				} else {
-					m.focus = FocusChat
-					m.chatView.SetFocus(true)
-					m.logView.SetFocus(false)
 				}
-				return m, nil
+				m.logView.SetFocus(true)
+			} else {
+				m.focus = FocusChat
+				if m.state.Completed {
+					m.chatView.SetFocus(true)
+				}
+				m.logView.SetFocus(false)
 			}
-			// Ignore tab key when state is not completed to avoid unintended propagation
 			return m, nil
 		}
 
@@ -173,21 +173,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Map global navigation keys to specific components
-		switch msg.String() {
-		case "k", "ctrl+u":
-			// Log scrolling
-			var cmd tea.Cmd
-			m.logView, cmd = m.logView.Update(msg)
-			cmds = append(cmds, cmd)
-		case "j", "ctrl+d":
-			// Log scrolling
-			var cmd tea.Cmd
-			m.logView, cmd = m.logView.Update(msg)
+		// Route scroll keys to the focused pane
+		var cmd tea.Cmd
+		switch msg.Type {
+		case tea.KeyPgUp, tea.KeyPgDown, tea.KeyUp, tea.KeyDown:
+			if m.focus == FocusLogs {
+				m.logView, cmd = m.logView.Update(msg)
+			} else {
+				m.agentView, cmd = m.agentView.Update(msg)
+			}
 			cmds = append(cmds, cmd)
 		default:
-			// Default to agent view scrolling
-			var cmd tea.Cmd
 			m.agentView, cmd = m.agentView.Update(msg)
 			cmds = append(cmds, cmd)
 		}
@@ -198,19 +194,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case AgentChatMessage:
-		var cmd tea.Cmd
-		m.chatView, cmd = m.chatView.Update(msg)
-		return m, cmd
+		// Route the message to the appropriate view so it's actually displayed.
+		// Previously, this only kept the event loop alive without rendering.
+		m.activeView().HandleStreamChunk(AgentStreamChunkMsg{Content: msg.Message})
+		return m, waitForEvent(m.eventChan)
 
 	case AgentThinkingMsg:
-		if m.state.Completed {
-			m.chatView.SetLoading(true)
-		} else {
-			m.agentView.isThinking = true
-			m.agentView.thinkingMsg = msg.Message
-			m.agentView.agentName = msg.AgentName
-			m.agentView.updateViewport()
-		}
+		m.activeView().HandleThinking(msg)
+		return m, waitForEvent(m.eventChan)
+
+	case AgentReasoningMsg:
+		m.activeView().HandleReasoning(msg)
 		return m, waitForEvent(m.eventChan)
 
 	case TypingTickMsg:
@@ -222,37 +216,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case AgentStreamChunkMsg:
-		if m.state.Completed {
-			m.chatView.SetLoading(false)
-			if !msg.Delta {
-				m.chatView.AddMessage("Genie", msg.Content)
-			} else {
-				m.chatView.AppendToLastMessage(msg.Content)
-			}
-		} else {
-			var cmd tea.Cmd
-			m.agentView, cmd = m.agentView.Update(msg)
+		if cmd := m.activeView().HandleStreamChunk(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-		// Always continue listening for more events
 		cmds = append(cmds, waitForEvent(m.eventChan))
 		return m, tea.Batch(cmds...)
 
 	case AgentToolCallMsg:
-		if m.state.Completed {
-			m.chatView.AddMessage("Genie", "🔧 Calling "+msg.ToolName)
-		} else {
-			var cmd tea.Cmd
-			m.agentView, cmd = m.agentView.Update(msg)
+		if cmd := m.activeView().HandleToolCall(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 		cmds = append(cmds, waitForEvent(m.eventChan))
 		return m, tea.Batch(cmds...)
 
 	case AgentToolResponseMsg:
-		if !m.state.Completed {
-			m.agentView, _ = m.agentView.Update(msg)
-		}
+		m.activeView().HandleToolResponse(msg)
 		return m, waitForEvent(m.eventChan)
 
 	case StageProgressMsg:
@@ -280,11 +258,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case AgentErrorMsg:
-		m.state.Err = msg.Error
-		m.state.ErrorContext = msg.Context
 		m.agentView.isThinking = false
 		m.chatView.SetLoading(false)
-		return m, nil
+
+		errText := msg.Error.Error()
+		m.activeView().HandleError(msg.Context, errText)
+
+		// Also emit the error to the log panel for visibility
+		errDisplay := "❌ Error"
+		if msg.Context != "" {
+			errDisplay += " (" + msg.Context + ")"
+		}
+		errDisplay += ": " + errText
+		logCmd := func() tea.Msg {
+			return LogMsg{Level: LogError, Message: errDisplay, Source: "agent"}
+		}
+		return m, tea.Batch(logCmd, waitForEvent(m.eventChan))
 
 	case LogMsg:
 		entry := LogEntry{
@@ -356,33 +345,19 @@ func (m *Model) layoutComponents() {
 	progressHeight := 2
 	footerHeight := 2
 
-	// Better logic:
-	// Logs get 1/3 of remaining space or min 5 lines
-	// Content/AgentView gets the rest
-
 	availableHeight := m.height - headerHeight - progressHeight - footerHeight
-	logHeight := availableHeight / 3
-	if logHeight < 5 {
-		logHeight = 5
-	}
-
-	agentViewHeight := availableHeight - logHeight
-	if agentViewHeight < 5 {
-		agentViewHeight = 5
-		// Steal from logs if really crunched
-		logHeight = availableHeight - agentViewHeight
-	}
-
-	// If completed, 2-column layout: chat (75%) + logs (25%)
+	// If completed, 2-column layout: chat (50%) + logs (50%)
 	if m.state.Completed {
 		chatWidth := int(float64(m.width) * 0.5)
 		logWidth := m.width - chatWidth
 		m.chatView.SetDimensions(chatWidth, availableHeight)
 		m.logView.SetDimensions(logWidth-4, availableHeight) // -4 for borders
 	} else {
-		// Normal mode: split between agent view and logs vertically
-		m.logView.SetDimensions(m.width-4, logHeight) // -4 for borders
-		m.agentView.SetDimensions(m.width, agentViewHeight)
+		// Normal mode: 2-column layout — agent (left 65%) + logs (right 35%)
+		agentWidth := int(float64(m.width) * 0.65)
+		logWidth := m.width - agentWidth
+		m.agentView.SetDimensions(agentWidth, availableHeight)
+		m.logView.SetDimensions(logWidth-4, availableHeight) // -4 for borders
 	}
 }
 
@@ -404,11 +379,7 @@ func (m Model) View() string {
 	}
 
 	// Main Content Area
-	if m.state.Err != nil {
-		sections = append(sections, m.renderError())
-		// Show logs even on error for debugging
-		sections = append(sections, m.logView.View())
-	} else if m.state.Completed {
+	if m.state.Completed {
 		sections = append(sections, m.renderCompletion())
 		// 2-column layout: chat on left (75%), logs on right (25%)
 		chatAndLogs := lipgloss.JoinHorizontal(lipgloss.Top,
@@ -417,9 +388,12 @@ func (m Model) View() string {
 		)
 		sections = append(sections, chatAndLogs)
 	} else {
-		sections = append(sections, m.agentView.View())
-		// Logs only shown if not completed
-		sections = append(sections, m.logView.View())
+		// 2-column layout: agent on left, logs on right
+		agentAndLogs := lipgloss.JoinHorizontal(lipgloss.Top,
+			m.agentView.View(),
+			m.logView.View(),
+		)
+		sections = append(sections, agentAndLogs)
 	}
 
 	// Footer
@@ -464,16 +438,6 @@ func (m Model) renderProgress() string {
 	return lipgloss.JoinHorizontal(lipgloss.Left, parts...)
 }
 
-// renderError renders the error state.
-func (m Model) renderError() string {
-	errMsg := "❌ Error"
-	if m.state.ErrorContext != "" {
-		errMsg += " (" + m.state.ErrorContext + ")"
-	}
-	errMsg += ": " + m.state.Err.Error()
-	return m.styles.Error.Render(errMsg)
-}
-
 // renderCompletion renders the completion state.
 func (m Model) renderCompletion() string {
 	if m.state.Success {
@@ -492,9 +456,9 @@ func (m Model) renderFooter() string {
 	help := "Press Ctrl+C to cancel"
 
 	if m.state.Completed {
-		help += " • Enter: Send"
+		help += " • Enter: Send • Tab: switch pane • /help for commands"
 	} else {
-		help += " • PgUp/PgDn/Space/b to scroll content • Shift+j/k for logs"
+		help += " • Tab: switch pane • ↑↓/PgUp/PgDn: scroll focused pane"
 	}
 
 	return m.styles.Footer.Render(help)

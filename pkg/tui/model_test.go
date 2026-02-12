@@ -21,7 +21,7 @@ var _ = Describe("TUI Model State Transitions", func() {
 
 		// Initialize dimensions to ensure views render content instead of "Initializing..."
 		By("Setting initial window size")
-		updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 160, Height: 40})
+		updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
 		model = updatedModel.(Model)
 	})
 
@@ -129,16 +129,20 @@ var _ = Describe("TUI Model State Transitions", func() {
 	})
 
 	Describe("System Errors", func() {
-		It("displays global errors", func() {
+		It("displays errors as inline bubble messages without freezing", func() {
 			By("Receiving an AgentErrorMsg")
 			errMsg := AgentErrorMsg{
 				Error:   errors.New("connection refused"),
 				Context: "connecting to LLM",
 			}
-			updatedModel, _ := model.Update(errMsg)
+			updatedModel, cmd := model.Update(errMsg)
 			model = updatedModel.(Model)
 
+			By("Verifying error appears in the agent view as a bubble message")
 			Expect(model.View()).To(ContainSubstring("❌ Error (connecting to LLM): connection refused"))
+
+			By("Verifying the event loop stays alive (command is not nil)")
+			Expect(cmd).ToNot(BeNil())
 		})
 	})
 

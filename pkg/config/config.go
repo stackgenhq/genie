@@ -10,17 +10,21 @@ import (
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/iacgen/generator"
 	"github.com/appcd-dev/genie/pkg/mcp"
+	"github.com/appcd-dev/genie/pkg/memory/vector"
 	"github.com/appcd-dev/genie/pkg/tools/secops"
+	"github.com/appcd-dev/genie/pkg/tools/websearch"
 	"gopkg.in/yaml.v3"
 )
 
 type GenieConfig struct {
-	ModelConfig modelprovider.ModelConfig `yaml:"model_config" toml:"model_config"`
-	Architect   generator.ArchitectConfig `yaml:"architect" toml:"architect"`
-	Ops         generator.OpsConfig       `yaml:"ops" toml:"ops"`
-	SecOps      secops.SecOpsConfig       `yaml:"secops" toml:"secops"`
-	SkillsRoots []string                  `yaml:"skills_roots" toml:"skills_roots"` // Supports multiple roots including HTTPS URLs
-	MCP         mcp.MCPConfig             `yaml:"mcp" toml:"mcp"`
+	ModelConfig  modelprovider.ModelConfig `yaml:"model_config" toml:"model_config"`
+	Architect    generator.ArchitectConfig `yaml:"architect" toml:"architect"`
+	Ops          generator.OpsConfig       `yaml:"ops" toml:"ops"`
+	SecOps       secops.SecOpsConfig       `yaml:"secops" toml:"secops"`
+	SkillsRoots  []string                  `yaml:"skills_roots" toml:"skills_roots"` // Supports multiple roots including HTTPS URLs
+	MCP          mcp.MCPConfig             `yaml:"mcp" toml:"mcp"`
+	WebSearch    websearch.Config          `yaml:"web_search" toml:"web_search"`
+	VectorMemory vector.Config             `yaml:"vector_memory" toml:"vector_memory"`
 }
 
 func LoadGenieConfig(path string) (GenieConfig, error) {
@@ -39,6 +43,19 @@ func LoadGenieConfig(path string) (GenieConfig, error) {
 				Low:    -1, // Unlimited
 			},
 		},
+		WebSearch: websearch.Config{
+			GoogleAPIKey: os.Getenv("GOOGLE_API_KEY"),
+			GoogleCX:     os.Getenv("GOOGLE_CSE_ID"),
+		},
+		VectorMemory: vector.Config{
+			EmbeddingProvider: "dummy", // Default
+			APIKey:            os.Getenv("OPENAI_API_KEY"),
+		},
+	}
+
+	// Override VectorMemory provider default if env vars present
+	if cfg.VectorMemory.APIKey != "" {
+		cfg.VectorMemory.EmbeddingProvider = "openai"
 	}
 
 	if path == "" {
@@ -72,6 +89,19 @@ func LoadGenieConfig(path string) (GenieConfig, error) {
 	default:
 		return GenieConfig{}, fmt.Errorf("unsupported config file extension: %s", ext)
 	}
+
+	// Final checks to ensure env vars override loaded config if empty in config but present in env?
+	// The `os.ExpandEnv` above handles ${VAR} inside the config file.
+	// But `LoadGenieConfig` logic usually means "Config File > Defaults".
+	// Defaults are populated from Env Vars in the initialization above.
+	// If a config file is loaded, `yaml.Unmarshal` overwrites fields.
+	// If the config file does NOT specify them, the defaults (from Env) remain thanks to zero value check?
+	// No, `Unmarshal` starts with the struct `cfg`.
+	// If a field is missing in YAML, it keeps the existing value in `cfg`.
+	// So:
+	// 1. cfg init with env vars
+	// 2. Unmarshal applies file values over it
+	// Result: Config File > Env Vars. This is correct precedence.
 
 	// If skills roots not set in config, check environment variable
 	if len(cfg.SkillsRoots) == 0 {

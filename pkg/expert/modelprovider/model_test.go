@@ -13,16 +13,20 @@ import (
 var _ = Describe("ModelProvider", func() {
 	Describe("DefaultModelConfig", func() {
 		var (
-			originalOpenAIKey   string
-			originalGeminiKey   string
-			originalGoogleKey   string
-			originalOpenAIModel string
-			originalGoogleModel string
-			hasOpenAIKey        bool
-			hasGeminiKey        bool
-			hasGoogleKey        bool
-			hasOpenAIModel      bool
-			hasGoogleModel      bool
+			originalOpenAIKey      string
+			originalGeminiKey      string
+			originalGoogleKey      string
+			originalOpenAIModel    string
+			originalGoogleModel    string
+			originalAnthropicKey   string
+			originalAnthropicModel string
+			hasOpenAIKey           bool
+			hasGeminiKey           bool
+			hasGoogleKey           bool
+			hasOpenAIModel         bool
+			hasGoogleModel         bool
+			hasAnthropicKey        bool
+			hasAnthropicModel      bool
 		)
 
 		BeforeEach(func() {
@@ -32,6 +36,12 @@ var _ = Describe("ModelProvider", func() {
 			originalGoogleKey, hasGoogleKey = os.LookupEnv("GOOGLE_API_KEY")
 			originalOpenAIModel, hasOpenAIModel = os.LookupEnv("OPENAI_MODEL")
 			originalGoogleModel, hasGoogleModel = os.LookupEnv("GOOGLE_MODEL")
+			originalAnthropicKey, hasAnthropicKey = os.LookupEnv("ANTHROPIC_API_KEY")
+			originalAnthropicModel, hasAnthropicModel = os.LookupEnv("ANTHROPIC_MODEL")
+
+			// Unset all API keys to ensure test isolation
+			os.Unsetenv("ANTHROPIC_API_KEY")
+			os.Unsetenv("ANTHROPIC_MODEL")
 		})
 
 		AfterEach(func() {
@@ -60,6 +70,16 @@ var _ = Describe("ModelProvider", func() {
 				os.Setenv("GOOGLE_MODEL", originalGoogleModel)
 			} else {
 				os.Unsetenv("GOOGLE_MODEL")
+			}
+			if hasAnthropicKey {
+				os.Setenv("ANTHROPIC_API_KEY", originalAnthropicKey)
+			} else {
+				os.Unsetenv("ANTHROPIC_API_KEY")
+			}
+			if hasAnthropicModel {
+				os.Setenv("ANTHROPIC_MODEL", originalAnthropicModel)
+			} else {
+				os.Unsetenv("ANTHROPIC_MODEL")
 			}
 		})
 
@@ -214,7 +234,7 @@ var _ = Describe("ModelProvider", func() {
 					cfg := modelprovider.DefaultModelConfig()
 					Expect(cfg.Providers).To(HaveLen(1))
 					Expect(cfg.Providers[0].Provider).To(Equal("anthropic"))
-					Expect(cfg.Providers[0].ModelName).To(Equal("claude-3-5-sonnet-20241022"))
+					Expect(cfg.Providers[0].ModelName).To(Equal("claude-opus-4-5-20251101"))
 					Expect(cfg.Providers[0].Variant).To(Equal("default"))
 					Expect(cfg.Providers[0].GoodForTask).To(Equal(modelprovider.TaskPlanning))
 				})
@@ -274,7 +294,7 @@ var _ = Describe("ModelProvider", func() {
 
 					// Third provider should be Anthropic
 					Expect(cfg.Providers[2].Provider).To(Equal("anthropic"))
-					Expect(cfg.Providers[2].ModelName).To(Equal("claude-3-5-sonnet-20241022"))
+					Expect(cfg.Providers[2].ModelName).To(Equal("claude-opus-4-5-20251101"))
 					Expect(cfg.Providers[2].GoodForTask).To(Equal(modelprovider.TaskPlanning))
 				})
 			})
@@ -371,7 +391,7 @@ var _ = Describe("ModelProvider", func() {
 						Providers: modelprovider.ProviderConfigs{
 							{
 								Provider:    "anthropic",
-								ModelName:   "claude-3-5-sonnet-20241022",
+								ModelName:   "claude-opus-4-5-20251101",
 								Variant:     "default",
 								GoodForTask: modelprovider.TaskPlanning,
 							},

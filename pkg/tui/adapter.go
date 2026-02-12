@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"trpc.group/trpc-go/trpc-agent-go/event"
@@ -36,6 +37,16 @@ func (EventAdapter) ConvertEvent(evt *event.Event) []tea.Msg {
 
 	// Check for API-level errors in the response first
 	if evt.Error != nil {
+		// Special handling for max tool iterations to provide a user-friendly prompt
+		if strings.Contains(evt.Error.Message, "max tool iterations") {
+			return []tea.Msg{
+				AgentChatMessage{
+					Sender:  "Genie",
+					Message: "I have run into my limits (max tool iterations). Do you want me to keep trying? (Reply 'yes' to continue)",
+				},
+			}
+		}
+
 		errMsg := buildErrorMessage(evt.Error)
 		messages = append(messages, AgentErrorMsg{
 			Error:   fmt.Errorf("%s", errMsg),
@@ -46,15 +57,34 @@ func (EventAdapter) ConvertEvent(evt *event.Event) []tea.Msg {
 
 	// Process each choice in the event
 	for _, choice := range evt.Choices {
-		// Handle streaming content
-		if choice.Message.Content != "" {
+		// Handle tool responses (result of a tool execution)
+		// These events have ToolID set on the message, indicating which tool call they respond to.
+		// Must be checked before content handling to avoid emitting tool output as chat text.
+		if choice.Message.ToolID != "" {
+			messages = append(messages, AgentToolResponseMsg{
+				ToolCallID: choice.Message.ToolID,
+				Response:   choice.Message.Content,
+			})
+			continue // Don't also emit this as a stream chunk
+		}
+
+		// Handle reasoning content
+		if choice.Message.ReasoningContent != "" {
+			messages = append(messages, AgentReasoningMsg{
+				Content: choice.Message.ReasoningContent,
+				Delta:   true, // Streaming events are always deltas
+			})
+		}
+
+		// Handle streaming content (skip for tool call events which have their own rendering)
+		if choice.Message.Content != "" && len(choice.Message.ToolCalls) == 0 {
 			messages = append(messages, AgentStreamChunkMsg{
 				Content: choice.Message.Content,
 				Delta:   true, // Streaming events are always deltas
 			})
 		}
 
-		// Handle tool calls
+		// Handle tool calls (LLM requesting a tool invocation)
 		if len(choice.Message.ToolCalls) > 0 {
 			for _, toolCall := range choice.Message.ToolCalls {
 				// FunctionDefinitionParam.Arguments is []byte containing JSON

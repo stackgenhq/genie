@@ -22,7 +22,7 @@ var _ = Describe("HandleExpertError", func() {
 
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.Choices).To(HaveLen(1))
-		Expect(resp.Choices[0].Message.Content).To(ContainSubstring("I stopped because I reached the maximum number of tool iterations"))
+		Expect(resp.Choices[0].Message.Content).To(ContainSubstring("I have run into my limits (max tool iterations). Do you want me to keep trying? (Reply 'yes' to continue)"))
 	})
 
 	It("should return original error for other errors", func() {

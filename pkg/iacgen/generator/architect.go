@@ -28,6 +28,9 @@ import (
 //go:embed prompts/architect_persona.txt
 var architectPersonaPrompt string
 
+//go:embed prompts/readme_task.txt
+var readmeTaskPrompt string
+
 //counterfeiter:generate . Architect
 type Architect interface {
 	Design(ctx context.Context, req DesignCloudRequest) (DesignCloudResponse, error)
@@ -208,10 +211,10 @@ func (a llmBasedArchitect) Design(ctx context.Context, req DesignCloudRequest) (
 		logr.Warn("error saving the architect notes", "error", err)
 	}
 
-	// Generate README.md after notes are completed
+	// Generate README.md after notes are completed (synchronous to prevent data loss on early exit)
 	logr.Info("Generating README.md", "saveTo", req.SaveTo)
-	if err := a.generateReadme(ctx, req.SaveTo, result); err != nil {
-		logr.Error("Failed to generate README.md", "error", err)
+	if readmeErr := a.generateReadme(ctx, req.SaveTo, result); readmeErr != nil {
+		logr.Warn("Failed to generate README.md", "error", readmeErr)
 	}
 	return result, nil
 }
@@ -251,7 +254,7 @@ func (a llmBasedArchitect) generateReadme(ctx context.Context, saveTo string, re
 	}
 
 	// Build a prompt for the LLM to generate a context-aware README
-	prompt := buildReadmePrompt(response.Notes)
+	prompt := langfuse.GetPrompt(ctx, "architect_readme", buildReadmePrompt(response.Notes))
 
 	// Use the expert to generate the README content
 	logr.Info("Generating README.md using LLM", "saveTo", saveTo)
@@ -279,105 +282,20 @@ func (a llmBasedArchitect) generateReadme(ctx context.Context, saveTo string, re
 	return nil
 }
 
-// buildReadmePrompt creates a prompt for generating a context-aware README
+// buildReadmePrompt creates a prompt for generating a context-aware README.
+// It uses the embedded readmeTaskPrompt template and injects architecture notes and a timestamp.
+// Without this function, the README generation would lack architecture-specific context.
 func buildReadmePrompt(notes []string) string {
-	var prompt strings.Builder
-
-	prompt.WriteString("**Task:** Generate a comprehensive README.md for Infrastructure as Code\n\n")
-
-	prompt.WriteString("**Role:** You are a senior DevOps engineer creating documentation for a junior developer.\n\n")
-
-	prompt.WriteString("**Context:**\n")
-	prompt.WriteString("Infrastructure as Code has been generated based on architectural analysis. ")
-	prompt.WriteString("Create a README.md that explains this infrastructure in a way that is:\n")
-	prompt.WriteString("- Technically accurate and sound\n")
-	prompt.WriteString("- Easy to understand for junior developers\n")
-	prompt.WriteString("- Specific to the actual architecture (not generic)\n")
-	prompt.WriteString("- Actionable with clear deployment instructions\n\n")
-
-	// Include architecture recommendations
-	prompt.WriteString("**Architecture Recommendations:**\n\n")
+	var recs strings.Builder
 	for i, note := range notes {
-		prompt.WriteString(fmt.Sprintf("### Cloud Provider %d:\n", i+1))
-		prompt.WriteString(note)
-		prompt.WriteString("\n\n")
+		recs.WriteString(fmt.Sprintf("### Cloud Provider %d:\n", i+1))
+		recs.WriteString(note)
+		recs.WriteString("\n\n")
 	}
 
-	// Instructions for README structure
-	prompt.WriteString("**README Structure Requirements:**\n\n")
-	prompt.WriteString("Generate a complete README.md in markdown format with these sections:\n\n")
-
-	prompt.WriteString("1. **Header and Overview**\n")
-	prompt.WriteString("   - Title: \"Infrastructure as Code - Architecture Documentation\"\n")
-	prompt.WriteString("   - Include generation timestamp\n")
-	prompt.WriteString("   - Brief overview of what this infrastructure does (based on the architecture notes)\n\n")
-
-	prompt.WriteString("2. **Architecture Summary**\n")
-	prompt.WriteString("   - Summarize the key architectural decisions from the notes above\n")
-	prompt.WriteString("   - Explain the architecture pattern being used (e.g., microservices, serverless, etc.)\n")
-	prompt.WriteString("   - Describe how components interact (based on the actual resources identified)\n\n")
-
-	prompt.WriteString("3. **Cloud Providers**\n")
-	prompt.WriteString("   - List the cloud providers being used\n")
-	prompt.WriteString("   - Explain what resources are deployed on each provider\n\n")
-
-	prompt.WriteString("4. **Key Components**\n")
-	prompt.WriteString("   - List and explain the main infrastructure components (based on actual resource types)\n")
-	prompt.WriteString("   - For each component, explain its purpose in this specific architecture\n\n")
-
-	prompt.WriteString("5. **Prerequisites**\n")
-	prompt.WriteString("   - Terraform/OpenTofu installation (version 1.0+)\n")
-	prompt.WriteString("   - Cloud provider credentials (specific to the providers being used)\n")
-	prompt.WriteString("   - Required permissions (be specific based on the resources)\n\n")
-
-	prompt.WriteString("6. **Deployment Instructions**\n")
-	prompt.WriteString("   - Step-by-step guide to deploy this specific infrastructure\n")
-	prompt.WriteString("   - Include terraform init, plan, apply commands\n")
-	prompt.WriteString("   - Mention any provider-specific setup needed\n\n")
-
-	prompt.WriteString("7. **File Structure**\n")
-	prompt.WriteString("   - Explain the standard Terraform file organization\n")
-	prompt.WriteString("   - main.tf, variables.tf, outputs.tf, versions.tf, etc.\n\n")
-
-	prompt.WriteString("8. **Understanding the Code (For Junior Developers)**\n")
-	prompt.WriteString("   - Explain key Terraform/IaC concepts with examples from THIS architecture\n")
-	prompt.WriteString("   - Resources, Variables, Modules, Outputs\n")
-	prompt.WriteString("   - Use actual resource types from the architecture when giving examples\n\n")
-
-	prompt.WriteString("9. **Configuration**\n")
-	prompt.WriteString("   - Explain what variables can be customized\n")
-	prompt.WriteString("   - Provide guidance on common configuration scenarios\n\n")
-
-	prompt.WriteString("10. **Security Considerations**\n")
-	prompt.WriteString("    - Based on the architecture notes, highlight security best practices\n")
-	prompt.WriteString("    - IAM permissions, encryption, network isolation, etc.\n\n")
-
-	prompt.WriteString("11. **Operational Best Practices**\n")
-	prompt.WriteString("    - Version control, state management, workspace usage\n")
-	prompt.WriteString("    - Monitoring and logging recommendations\n\n")
-
-	prompt.WriteString("12. **Troubleshooting**\n")
-	prompt.WriteString("    - Common issues specific to this architecture\n")
-	prompt.WriteString("    - Provider-specific troubleshooting tips\n\n")
-
-	prompt.WriteString("13. **Cleanup**\n")
-	prompt.WriteString("    - How to destroy resources\n")
-	prompt.WriteString("    - Warnings about data loss\n\n")
-
-	prompt.WriteString("14. **Additional Resources**\n")
-	prompt.WriteString("    - Links to Terraform documentation\n")
-	prompt.WriteString("    - Cloud provider documentation\n")
-	prompt.WriteString("    - Relevant module documentation\n\n")
-
-	prompt.WriteString("**Important Guidelines:**\n")
-	prompt.WriteString("- Write in clear, professional markdown\n")
-	prompt.WriteString("- Use code blocks with proper syntax highlighting (```hcl, ```bash)\n")
-	prompt.WriteString("- Reference ACTUAL components from the architecture, not generic examples\n")
-	prompt.WriteString("- Explain WHY things are done, not just HOW\n")
-	prompt.WriteString("- Make it educational for junior developers while remaining technically accurate\n")
-	prompt.WriteString("- Include the current timestamp: " + time.Now().Format("2006-01-02 15:04:05 MST") + "\n\n")
-
-	prompt.WriteString("Generate the complete README.md content now.\n")
-
-	return prompt.String()
+	r := strings.NewReplacer(
+		"{architecture_recommendations}", recs.String(),
+		"{timestamp}", time.Now().Format("2006-01-02 15:04:05 MST"),
+	)
+	return r.Replace(readmeTaskPrompt)
 }

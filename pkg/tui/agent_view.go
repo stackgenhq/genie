@@ -12,8 +12,10 @@ import (
 
 // AgentView handles the visualization of the agent's execution.
 type AgentView struct {
-	// fullContent holds all received content (target state)
-	fullContent strings.Builder
+	// fullContent holds all received content (target state).
+	// This is a pointer to avoid strings.Builder copy-by-value panics when
+	// AgentView is copied as part of the Bubble Tea MVU value-receiver pattern.
+	fullContent *strings.Builder
 	// displayedLen tracks how many characters are currently shown (for typing animation)
 	displayedLen int
 	// charsPerTick controls typing speed (characters revealed per tick)
@@ -36,6 +38,7 @@ func NewAgentView(styles Styles) AgentView {
 		viewport:        viewport.New(0, 0),
 		selectedToolIdx: -1,
 		charsPerTick:    3, // Characters to reveal per animation tick
+		fullContent:     &strings.Builder{},
 	}
 }
 
@@ -47,6 +50,11 @@ func (m AgentView) Init() tea.Cmd {
 // Update handles messages for the agent view.
 func (m AgentView) Update(msg tea.Msg) (AgentView, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
+
 	case AgentThinkingMsg:
 		m.isThinking = true
 		m.thinkingMsg = msg.Message
@@ -143,4 +151,57 @@ func typingTickCmd() tea.Cmd {
 	return tea.Tick(15*time.Millisecond, func(t time.Time) tea.Msg {
 		return TypingTickMsg{}
 	})
+}
+
+// --- contentView interface implementation ---
+
+// HandleThinking updates the agent view to show a thinking/processing indicator.
+// This sets the agent name, thinking message, and refreshes the viewport.
+func (m *AgentView) HandleThinking(msg AgentThinkingMsg) {
+	m.isThinking = true
+	m.thinkingMsg = msg.Message
+	m.agentName = msg.AgentName
+	m.updateViewport()
+}
+
+// HandleReasoning is a no-op for the agent view.
+// Reasoning content is only shown in the ChatView during post-completion chat mode.
+func (m *AgentView) HandleReasoning(_ AgentReasoningMsg) {}
+
+// HandleStreamChunk processes a streaming text chunk, updating the displayed content
+// and starting the typing animation.
+func (m *AgentView) HandleStreamChunk(msg AgentStreamChunkMsg) tea.Cmd {
+	if msg.Delta {
+		m.fullContent.WriteString(msg.Content)
+	} else {
+		m.fullContent.Reset()
+		m.displayedLen = 0
+		m.fullContent.WriteString(msg.Content)
+	}
+	m.isThinking = false
+	return typingTickCmd()
+}
+
+// HandleToolCall is a no-op for the agent view.
+// During pre-completion, tool calls are not rendered as cards in the agent view.
+func (m *AgentView) HandleToolCall(_ AgentToolCallMsg) tea.Cmd {
+	return nil
+}
+
+// HandleToolResponse is a no-op for the agent view.
+// During pre-completion, tool responses are not rendered in the agent view.
+func (m *AgentView) HandleToolResponse(_ AgentToolResponseMsg) {}
+
+// HandleError displays an error message inline in the agent content area.
+// The error is appended to the streaming content so it appears below any
+// existing output rather than replacing the whole screen.
+func (m *AgentView) HandleError(context, errMsg string) {
+	errDisplay := "❌ Error"
+	if context != "" {
+		errDisplay += " (" + context + ")"
+	}
+	errDisplay += ": " + errMsg
+	m.fullContent.WriteString("\n\n" + errDisplay)
+	m.displayedLen = m.fullContent.Len()
+	m.updateViewport()
 }

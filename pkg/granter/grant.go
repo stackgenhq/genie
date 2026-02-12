@@ -146,7 +146,7 @@ func (g Granter) Generate(ctx context.Context, req GrantRequest) (response Grant
 	logr.Info("Terraform files in output folder", "tfFiles", tfFiles, "count", len(tfFiles))
 
 	response.Notes = append(response.Notes, iacResponse.Notes...)
-	logr.Info("IAC Files generated", "notes", iacResponse.Notes, "location", iacResponse.IACCodePath)
+	logr.Info("IAC Files generated", "location", iacResponse.IACCodePath)
 	return response, nil
 }
 
@@ -196,8 +196,5 @@ func (g Granter) analyzeRepo(ctx context.Context, req GrantRequest) (mappedResou
 		return analysisOutput, err
 	}
 	logr.Info("I know what you have. Let me design your infrastructure", "outputCount", len(analysisOutput))
-	if err != nil {
-		return analysisOutput, fmt.Errorf("error creating the cce analysis ndjson file: %w", err)
-	}
 	return analysisOutput, err
 }

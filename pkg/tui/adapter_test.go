@@ -174,5 +174,51 @@ var _ = Describe("EventAdapter", func() {
 				Expect(errMsg.Context).To(Equal("length_exceeded"))
 			})
 		})
+
+		Context("with tool response", func() {
+			It("should convert to AgentToolResponseMsg", func() {
+				evt := &event.Event{
+					Response: &model.Response{
+						Choices: []model.Choice{
+							{
+								Message: model.Message{
+									Role:    "tool",
+									ToolID:  "call_123",
+									Content: "file contents here",
+								},
+							},
+						},
+					},
+				}
+
+				msgs := adapter.ConvertEvent(evt)
+				Expect(msgs).To(HaveLen(1))
+				Expect(msgs[0]).To(BeAssignableToTypeOf(AgentToolResponseMsg{}))
+				toolResp := msgs[0].(AgentToolResponseMsg)
+				Expect(toolResp.ToolCallID).To(Equal("call_123"))
+				Expect(toolResp.Response).To(Equal("file contents here"))
+			})
+
+			It("should not also emit content as a stream chunk", func() {
+				evt := &event.Event{
+					Response: &model.Response{
+						Choices: []model.Choice{
+							{
+								Message: model.Message{
+									Role:    "tool",
+									ToolID:  "call_456",
+									Content: "tool output",
+								},
+							},
+						},
+					},
+				}
+
+				msgs := adapter.ConvertEvent(evt)
+				// Should only have AgentToolResponseMsg, not AgentStreamChunkMsg
+				Expect(msgs).To(HaveLen(1))
+				Expect(msgs[0]).To(BeAssignableToTypeOf(AgentToolResponseMsg{}))
+			})
+		})
 	})
 })
