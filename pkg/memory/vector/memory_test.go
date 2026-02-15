@@ -26,7 +26,7 @@ var _ = Describe("Vector Store", func() {
 			cfg := vector.Config{
 				EmbeddingProvider: "dummy",
 			}
-			store, err = vector.NewStore(ctx, cfg)
+			store, err = cfg.NewStore(ctx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(store).NotTo(BeNil())
 		})
@@ -65,14 +65,14 @@ var _ = Describe("Vector Store", func() {
 				PersistenceDir:    tmpDir,
 				EmbeddingProvider: "dummy",
 			}
-			store1, err := vector.NewStore(ctx, cfg)
+			store1, err := cfg.NewStore(ctx)
 			Expect(err).NotTo(HaveOccurred())
 
 			err = store1.Add(ctx, "persist-1", "Go is great", map[string]string{"lang": "go"})
 			Expect(err).NotTo(HaveOccurred())
 
 			// Create store 2 from the same directory — should restore.
-			store2, err := vector.NewStore(ctx, cfg)
+			store2, err := cfg.NewStore(ctx)
 			Expect(err).NotTo(HaveOccurred())
 
 			results, err := store2.Search(ctx, "Go is great", 1)

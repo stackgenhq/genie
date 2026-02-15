@@ -60,4 +60,10 @@ const (
 	// Cost leaders: Grok 4.1 ($0.20), Gemini 3 Flash ($0.50)
 	// Use this for: High-volume processing, cost-sensitive operations, real-time applications
 	TaskEfficiency TaskType = "efficiency"
+
+	// TaskFrontDesk represents lightweight classification and triage tasks.
+	// These use smaller, faster models (e.g. Gemini 3 Flash) for quick request
+	// categorization before routing to heavier reasoning pipelines.
+	// Use this for: Request classification, intent detection, simple responses
+	TaskFrontDesk TaskType = "frontdesk"
 )

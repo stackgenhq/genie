@@ -19,6 +19,7 @@ var _ = Describe("Prompts", func() {
 			origHost   string
 			origPublic string
 			origSecret string
+			origEnable bool
 		)
 
 		BeforeEach(func() {
@@ -26,10 +27,12 @@ var _ = Describe("Prompts", func() {
 			origHost = LangfuseHost
 			origPublic = LangfusePublicKey
 			origSecret = LangfuseSecretKey
+			origEnable = EnablePrompts
 
-			// Default setup: valid keys
+			// Default setup: valid keys and enabled
 			LangfusePublicKey = "pk"
 			LangfuseSecretKey = "sk"
+			EnablePrompts = true
 		})
 
 		AfterEach(func() {
@@ -40,6 +43,7 @@ var _ = Describe("Prompts", func() {
 			LangfuseHost = origHost
 			LangfusePublicKey = origPublic
 			LangfuseSecretKey = origSecret
+			EnablePrompts = origEnable
 		})
 
 		Context("when keys are missing", func() {
@@ -54,6 +58,17 @@ var _ = Describe("Prompts", func() {
 
 			It("returns default value when secret key is empty", func() {
 				LangfuseSecretKey = ""
+				c = &client{
+					httpClient: http.DefaultClient,
+				}
+				p := c.GetPrompt(context.Background(), "test-prompt", "default value")
+				Expect(p).To(Equal("default value"))
+			})
+		})
+
+		Context("when prompts are disabled", func() {
+			It("returns default value", func() {
+				EnablePrompts = false
 				c = &client{
 					httpClient: http.DefaultClient,
 				}

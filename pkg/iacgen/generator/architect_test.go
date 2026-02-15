@@ -8,6 +8,7 @@ import (
 
 	"github.com/appcd-dev/cce/pkg/models"
 	"github.com/appcd-dev/genie/pkg/analyzer"
+	"github.com/appcd-dev/genie/pkg/audit/auditfakes"
 	"github.com/appcd-dev/genie/pkg/expert"
 	"github.com/appcd-dev/genie/pkg/expert/expertfakes"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider/modelproviderfakes"
@@ -23,9 +24,11 @@ var _ = Describe("Architect", func() {
 		fakeExpert        *expertfakes.FakeExpert
 		tempDir           string
 		architect         Architect
+		fakeAuditor       *auditfakes.FakeAuditor
 	)
 
 	BeforeEach(func() {
+		fakeAuditor = &auditfakes.FakeAuditor{}
 		ctx = context.Background()
 		var err error
 		tempDir, err = os.MkdirTemp("", "architect-test-*")
@@ -53,7 +56,7 @@ var _ = Describe("Architect", func() {
 		It("should return an error if model provider fails", func() {
 			fakeModelProvider.GetModelReturns(nil, fmt.Errorf("provider error"))
 
-			_, err := NewLLMBasedArchitect(ctx, fakeModelProvider, ArchitectConfig{})
+			_, err := NewLLMBasedArchitect(ctx, fakeModelProvider, fakeAuditor)
 			// expertBio.ToExpert -> modelProvider.GetModel (via getRunner check? actually ToExpert doesn't call GetModel immediately)
 			// Wait, ToExpert just stores the provider.
 			// Looking at ToExpert in expert.go:
@@ -71,7 +74,7 @@ var _ = Describe("Architect", func() {
 
 		It("should initialize successfully", func() {
 			fakeModelProvider.GetModelReturns(nil, nil)
-			arch, err := NewLLMBasedArchitect(ctx, fakeModelProvider, ArchitectConfig{})
+			arch, err := NewLLMBasedArchitect(ctx, fakeModelProvider, fakeAuditor)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(arch).ToNot(BeNil())
 		})

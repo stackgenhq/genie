@@ -9,9 +9,9 @@ import (
 
 	"github.com/appcd-dev/cce/pkg/cce"
 	"github.com/appcd-dev/cce/pkg/dirutils"
+	"github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/analyzer"
 	"github.com/appcd-dev/genie/pkg/iacgen/generator"
-	"github.com/appcd-dev/genie/pkg/tui"
 	"github.com/appcd-dev/go-lib/logger"
 )
 
@@ -87,8 +87,8 @@ func (g Granter) Generate(ctx context.Context, req GrantRequest) (response Grant
 	}
 
 	// Emit stage progress: Analyzing (stage 0 of 3)
-	emitStageProgress(req.EventChan, "Probing", 0, 3)
-	emitThinking(req.EventChan, "Code Prober", "Scanning your codebase...")
+	agui.EmitStageProgress(req.EventChan, "Probing", 0, 3)
+	agui.EmitThinking(req.EventChan, "Code Prober", "Scanning your codebase...")
 
 	response.AnalysisOutput, err = g.analyzeRepo(ctx, req)
 	if err != nil {
@@ -96,7 +96,7 @@ func (g Granter) Generate(ctx context.Context, req GrantRequest) (response Grant
 	}
 
 	// Emit stage progress: Architecting (stage 1 of 3)
-	emitStageProgress(req.EventChan, "Ideating", 1, 3)
+	agui.EmitStageProgress(req.EventChan, "Ideating", 1, 3)
 
 	// Emit analysis statistics
 	providerCounts := make(map[string]int)
@@ -106,7 +106,7 @@ func (g Granter) Generate(ctx context.Context, req GrantRequest) (response Grant
 		resourceCounts[res.MappedResource.Resource]++
 	}
 
-	emitThinking(req.EventChan, "Architect", "Designing your infrastructure...")
+	agui.EmitThinking(req.EventChan, "Architect", "Designing your infrastructure...")
 
 	architectResponse, err := g.architect.Design(ctx, generator.DesignCloudRequest{
 		MethodCalls: response.AnalysisOutput,
@@ -120,10 +120,10 @@ func (g Granter) Generate(ctx context.Context, req GrantRequest) (response Grant
 	response.Notes = append(response.Notes, architectResponse.Notes...)
 
 	// Emit stage progress: Building (stage 2 of 3)
-	emitStageProgress(req.EventChan, "Building", 2, 3)
-	emitThinking(req.EventChan, "IAC Writer", "Creating infrastructure code...")
+	agui.EmitStageProgress(req.EventChan, "Building", 2, 3)
+	agui.EmitThinking(req.EventChan, "IAC Writer", "Creating infrastructure code...")
 
-	logr.Info("Calling IaC writer", "architectNotes", architectResponse.Notes, "outputFolder", req.SaveTo)
+	logr.Info("Calling IaC writer", "outputFolder", req.SaveTo)
 	iacResponse, err := g.iacWriter.CreateIAC(ctx, generator.IACRequest{
 		ArchitectureRequirement: architectResponse.Notes,
 		OutputFolder:            req.SaveTo,
@@ -136,7 +136,10 @@ func (g Granter) Generate(ctx context.Context, req GrantRequest) (response Grant
 	logr.Info("IaC writer completed", "iacCodePath", iacResponse.IACCodePath, "notesCount", len(iacResponse.Notes))
 
 	// Check if files were actually created
-	files, _ := os.ReadDir(req.SaveTo)
+	files, readErr := os.ReadDir(req.SaveTo)
+	if readErr != nil {
+		logr.Warn("failed to read output directory", "path", req.SaveTo, "error", readErr)
+	}
 	tfFiles := []string{}
 	for _, f := range files {
 		if strings.HasSuffix(f.Name(), ".tf") {
@@ -148,39 +151,6 @@ func (g Granter) Generate(ctx context.Context, req GrantRequest) (response Grant
 	response.Notes = append(response.Notes, iacResponse.Notes...)
 	logr.Info("IAC Files generated", "location", iacResponse.IACCodePath)
 	return response, nil
-}
-
-// emitStageProgress emits a stage progress event to the event channel if it's provided
-func emitStageProgress(eventChan chan<- interface{}, stage string, stageIndex, totalStages int) {
-	if eventChan == nil {
-		return
-	}
-	progress := float64(stageIndex) / float64(totalStages)
-	select {
-	case eventChan <- tui.StageProgressMsg{
-		Stage:       stage,
-		Progress:    progress,
-		StageIndex:  stageIndex,
-		TotalStages: totalStages,
-	}:
-	default:
-		// Channel full, skip
-	}
-}
-
-// emitThinking emits a thinking event to the event channel if it's provided
-func emitThinking(eventChan chan<- interface{}, agentName, message string) {
-	if eventChan == nil {
-		return
-	}
-	select {
-	case eventChan <- tui.AgentThinkingMsg{
-		AgentName: agentName,
-		Message:   message,
-	}:
-	default:
-		// Channel full, skip
-	}
 }
 
 func (g Granter) analyzeRepo(ctx context.Context, req GrantRequest) (mappedResource analyzer.MappedResources, err error) {

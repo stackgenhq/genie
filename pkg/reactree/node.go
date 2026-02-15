@@ -52,6 +52,21 @@ const (
 	StateKeyOutput = "reactree_output"
 	// StateKeyWorkingMemory stores shared observations across nodes.
 	StateKeyWorkingMemory = "reactree_working_memory"
+	// StateKeyTaskCompleted indicates the agent finished without making any
+	// tool calls. When true, the task was fully answered in this stage and
+	// subsequent stages can be skipped to save cost and latency.
+	StateKeyTaskCompleted = "reactree_task_completed"
+	// StateKeyPreviousStageOutput carries the output from the previous stage
+	// so subsequent stages can see what was already accomplished and avoid
+	// redundant work (e.g. repeating the same web search).
+	StateKeyPreviousStageOutput = "reactree_previous_stage_output"
+	// StateKeyIterationContext carries the accumulated output from all prior
+	// iterations in the adaptive loop. This replaces staged previousStageOutput
+	// with a rolling context window.
+	StateKeyIterationContext = "reactree_iteration_context"
+	// StateKeyIterationCount tracks the current iteration number in the
+	// adaptive loop (0-indexed).
+	StateKeyIterationCount = "reactree_iteration_count"
 )
 
 // NewReAcTreeSchema creates a graph.StateSchema with the fields used by
@@ -76,5 +91,25 @@ func NewReAcTreeSchema() *graph.StateSchema {
 			Type:    reflect.TypeOf(map[string]any{}),
 			Reducer: graph.MergeReducer,
 			Default: func() any { return map[string]any{} },
+		}).
+		AddField(StateKeyTaskCompleted, graph.StateField{
+			Type:    reflect.TypeOf(false),
+			Reducer: graph.DefaultReducer,
+			Default: func() any { return false },
+		}).
+		AddField(StateKeyPreviousStageOutput, graph.StateField{
+			Type:    reflect.TypeOf(""),
+			Reducer: graph.DefaultReducer,
+			Default: func() any { return "" },
+		}).
+		AddField(StateKeyIterationContext, graph.StateField{
+			Type:    reflect.TypeOf(""),
+			Reducer: graph.DefaultReducer,
+			Default: func() any { return "" },
+		}).
+		AddField(StateKeyIterationCount, graph.StateField{
+			Type:    reflect.TypeOf(0),
+			Reducer: graph.DefaultReducer,
+			Default: func() any { return 0 },
 		})
 }

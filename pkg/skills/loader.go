@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/appcd-dev/genie/pkg/config"
 	"github.com/appcd-dev/go-lib/logger"
 	"trpc.group/trpc-go/trpc-agent-go/skill"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
@@ -17,11 +16,8 @@ import (
 // This function exists to initialize the skills system based on the Genie configuration.
 // Without this function, we could not load skills from the config file.
 // It supports multiple skills roots including local paths and remote HTTPS URLs.
-func LoadSkillsFromConfig(ctx context.Context, cfg config.GenieConfig) ([]tool.Tool, error) {
+func LoadSkillsFromConfig(ctx context.Context, roots ...string) ([]tool.Tool, error) {
 	logr := logger.GetLogger(ctx).With("fn", "LoadSkillsFromConfig")
-
-	// Get all skills roots
-	roots := cfg.SkillsRoots
 
 	// If no skills roots configured, return empty tools list
 	if len(roots) == 0 {

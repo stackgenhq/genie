@@ -79,7 +79,7 @@ func DefaultEpisodicMemoryConfig() EpisodicMemoryConfig {
 
 // NewServiceEpisodicMemory creates an EpisodicMemory backed by memory.Service.
 // Episodes are stored as JSON-serialized content and searched by goal text.
-func (cfg EpisodicMemoryConfig) NewServiceEpisodicMemory() EpisodicMemory {
+func (cfg EpisodicMemoryConfig) NewEpisodicMemory() EpisodicMemory {
 	return &serviceEpisodicMemory{
 		svc: cfg.Service,
 		userKey: memory.UserKey{

@@ -6,7 +6,9 @@ import (
 	"strings"
 
 	"github.com/appcd-dev/genie/pkg/expert"
+	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/reactree/memory"
+	"github.com/appcd-dev/genie/pkg/toolwrap"
 	"github.com/appcd-dev/go-lib/logger"
 	"trpc.group/trpc-go/trpc-agent-go/graph"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
@@ -21,6 +23,12 @@ type AgentNodeConfig struct {
 	MaxDecisions  int
 	EventChan     chan<- interface{}
 	Tools         []tool.Tool
+	// TaskType selects the model for this node via ModelProvider.GetModel().
+	// If empty, defaults to TaskPlanning.
+	TaskType modelprovider.TaskType
+
+	// SenderContext identifies the user/channel for this request.
+	SenderContext string
 }
 
 // NewAgentNodeFunc creates a graph.NodeFunc that wraps an expert.Expert call.
@@ -48,8 +56,15 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 			goal = stateGoal
 		}
 
-		// Build prompt enriched with memory
-		prompt := buildAgentPrompt(ctx, goal, wm, ep)
+		// Read previous stage output so this stage knows what was already done.
+		prevOutput, _ := graph.GetStateValue[string](state, StateKeyPreviousStageOutput)
+
+		// Read adaptive-loop iteration context (accumulated output from prior iterations).
+		iterationCtx, _ := graph.GetStateValue[string](state, StateKeyIterationContext)
+		iterationCount, _ := graph.GetStateValue[int](state, StateKeyIterationCount)
+
+		// Build prompt enriched with memory and previous stage context
+		prompt := buildAgentPrompt(ctx, goal, wm, ep, prevOutput, iterationCtx, iterationCount)
 
 		logr.Debug("agent node calling expert", "prompt_length", len(prompt))
 
@@ -58,6 +73,8 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 			EventChannel:    cfg.EventChan,
 			AdditionalTools: cfg.Tools,
 			WorkingMemory:   wm,
+			TaskType:        cfg.TaskType,
+			SenderContext:   cfg.SenderContext,
 		})
 		if err != nil {
 			logr.Error("agent node expert call failed", "error", err)
@@ -67,40 +84,86 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 			}, nil // Return state update, not error, so graph can continue
 		}
 
-		// Collect response text
+		// Collect response text and count tool calls to detect early completion.
 		var responseText strings.Builder
+		toolCallCount := 0
 		for _, choice := range resp.Choices {
 			responseText.WriteString(choice.Message.Content)
+			toolCallCount += len(choice.Message.ToolCalls)
 		}
 		output := responseText.String()
 
-		// Store in episodic memory
-		ep.Store(ctx, memory.Episode{
-			Goal:       goal,
-			Trajectory: output,
-			Status:     memory.EpisodeSuccess,
-		})
+		// Only store successful episodes in episodic memory.
+		// Skip error-like responses that would poison future context.
+		if !looksLikeError(output) {
+			ep.Store(ctx, memory.Episode{
+				Goal:       goal,
+				Trajectory: output,
+				Status:     memory.EpisodeSuccess,
+			})
+		} else {
+			logr.Warn("skipping episodic memory storage for error-like output", "output_prefix", toolwrap.TruncateForAudit(output, 100))
+		}
 
-		logr.Debug("agent node completed", "output_length", len(output))
+		// If zero tool calls were made, the agent concluded with just text.
+		// Mark the task as completed so the stage router can skip remaining stages.
+		taskCompleted := toolCallCount == 0
+		logr.Debug("agent node completed",
+			"output_length", len(output),
+			"tool_call_count", toolCallCount,
+			"task_completed", taskCompleted,
+		)
 
 		return graph.State{
-			StateKeyNodeStatus: Success,
-			StateKeyOutput:     output,
+			StateKeyNodeStatus:    Success,
+			StateKeyOutput:        output,
+			StateKeyTaskCompleted: taskCompleted,
 		}, nil
 	}
 }
 
 // buildAgentPrompt constructs the prompt for the expert, incorporating
-// working memory context and any relevant episodic memories.
-func buildAgentPrompt(ctx context.Context, goal string, wm *memory.WorkingMemory, ep memory.EpisodicMemory) string {
+// working memory context, episodic memories, previous stage output, and
+// adaptive-loop iteration context.
+func buildAgentPrompt(ctx context.Context, goal string, wm *memory.WorkingMemory, ep memory.EpisodicMemory, previousStageOutput string, iterationContext string, iterationCount int) string {
 	var sb strings.Builder
+
+	// Include adaptive-loop iteration context (accumulated output from prior iterations).
+	// This takes priority over previousStageOutput when both are present.
+	if iterationContext != "" {
+		sb.WriteString(fmt.Sprintf("## Progress So Far (iteration %d)\n", iterationCount))
+		sb.WriteString("The following was already accomplished in prior iterations. " +
+			"DO NOT repeat this work. Continue where you left off.\n\n")
+		const maxIterCtx = 4000
+		if len(iterationContext) > maxIterCtx {
+			// Keep the tail (most recent work) rather than the head
+			sb.WriteString("... (earlier output truncated)\n")
+			sb.WriteString(iterationContext[len(iterationContext)-maxIterCtx:])
+		} else {
+			sb.WriteString(iterationContext)
+		}
+		sb.WriteString("\n\n")
+	} else if previousStageOutput != "" {
+		// Fallback for multi-stage mode (backward compatibility)
+		sb.WriteString("## Previous Stage Output\n")
+		sb.WriteString("The following was already accomplished in the previous stage. " +
+			"DO NOT repeat this work. Build upon it instead.\n\n")
+		const maxPrevOutput = 2000
+		if len(previousStageOutput) > maxPrevOutput {
+			sb.WriteString(previousStageOutput[:maxPrevOutput])
+			sb.WriteString("\n... (truncated)\n")
+		} else {
+			sb.WriteString(previousStageOutput)
+		}
+		sb.WriteString("\n\n")
+	}
 
 	// Include working memory context if available (capped to prevent prompt bloat)
 	snapshot := wm.Snapshot()
 	if len(snapshot) > 0 {
 		sb.WriteString("## Working Memory (shared observations)\n")
-		const maxSnapshotSize = 4000
-		const maxEntrySize = 500
+		const maxSnapshotSize = 2000
+		const maxEntrySize = 300
 		snapshotLen := 0
 		for k, v := range snapshot {
 			vs := fmt.Sprintf("%v", v)
@@ -120,7 +183,7 @@ func buildAgentPrompt(ctx context.Context, goal string, wm *memory.WorkingMemory
 	}
 
 	// Include episodic memory (past similar experiences)
-	episodes := ep.Retrieve(ctx, goal, 3)
+	episodes := ep.Retrieve(ctx, goal, 2)
 	if len(episodes) > 0 {
 		sb.WriteString("## Relevant Past Experiences\n")
 		for _, ep := range episodes {

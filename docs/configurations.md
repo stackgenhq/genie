@@ -6,16 +6,6 @@ Genie supports configuration via YAML and TOML files. This document details all 
 
 The configuration file is structured into sections corresponding to different components of Genie.
 
-### `architect`
-
-Configuration for the Architect agent, which designs the infrastructure.
-
-| Key | Type | Description |
-|---|---|---|
-| `google_search_api_key` | string | "" | API Key for Google Custom Search, used by the architect for research. |
-| `google_search_cx` | string | "" | Custom Search Engine ID for Google Search. |
-| `page_size` | int | `5` | Number of search results to fetch per query. |
-
 ### `ops`
 
 Configuration for the Operations (IaC Generator) agent.
@@ -62,6 +52,6 @@ You can use environment variables in your configuration file using the `${VAR_NA
 Example:
 
 ```yaml
-architect:
-  google_search_api_key: "${GOOGLE_API_KEY}"
+ops:
+  max_pages: ${MAX_PAGES}
 ```

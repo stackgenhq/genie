@@ -1,2 +1,2 @@
-architect:
-  google_search_api_key: "${TEST_API_KEY}"
+ops:
+  max_pages: ${TEST_MAX_PAGES}

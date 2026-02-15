@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentation — Genie by Stackgen</title>
+    <meta name="description"
+        content="Genie documentation: configuration reference, how-to guides, and frequently asked questions.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
+                    colors: { navy: '#09152B', purple: { 50: '#f3eaff', 100: '#e0d4f7', 500: '#8247E7', 600: '#6d28d9', 900: '#2E004F' } }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="css/custom.css">
+    <style>
+        /* Master-detail layout (config section) */
+        .cfg-sidebar {
+            min-height: 520px;
+        }
+
+        .cfg-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            border: 1px solid transparent;
+        }
+
+        .cfg-item:hover {
+            background: #faf8ff;
+        }
+
+        .cfg-item.active {
+            background: linear-gradient(135deg, rgba(130, 71, 231, 0.06) 0%, rgba(130, 71, 231, 0.02) 100%);
+            border-color: rgba(130, 71, 231, 0.2);
+        }
+
+        .cfg-item.active .cfg-item-name {
+            color: #6d28d9;
+        }
+
+        .cfg-item-icon {
+            font-size: 1.25rem;
+            flex-shrink: 0;
+            width: 2rem;
+            text-align: center;
+        }
+
+        .cfg-item-name {
+            font-weight: 600;
+            font-size: 0.8125rem;
+            color: #374151;
+        }
+
+        .cfg-item-desc {
+            font-size: 0.6875rem;
+            color: #9ca3af;
+            line-height: 1.3;
+        }
+
+        .cfg-detail-panel {
+            display: none;
+            animation: fadeIn 0.25s ease-out;
+        }
+
+        .cfg-detail-panel.active {
+            display: block;
+        }
+
+        .detail-header {
+            margin-bottom: 1rem;
+        }
+
+        .detail-header h3 {
+            font-size: 1.125rem;
+            font-weight: 700;
+            color: #09152B;
+        }
+
+        .detail-header p {
+            font-size: 0.8125rem;
+            color: #6b7280;
+            margin-top: 0.25rem;
+        }
+
+        .detail-sub {
+            font-size: 0.6875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #9ca3af;
+            margin: 1rem 0 0.5rem;
+        }
+    </style>
+</head>
+
+<body class="font-sans text-navy bg-white antialiased overflow-x-hidden">
+
+    <!-- Nav -->
+    <div id="nav-container"></div>
+
+    <!-- Glow -->
+    <div class="glow-blob glow-purple" style="width:500px;height:500px;top:-100px;left:-200px;"></div>
+    <div class="glow-blob glow-blue" style="width:400px;height:400px;top:800px;right:-100px;"></div>
+
+    <!-- Content rendered from data/docs.yml -->
+    <div id="docs-content">
+        <!-- Loading state -->
+        <div class="text-center py-32 text-gray-400">
+            <div
+                class="inline-block animate-spin rounded-full h-8 w-8 border-2 border-gray-300 border-t-purple-500 mb-4">
+            </div>
+            <p>Loading documentation…</p>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div id="footer-container"></div>
+
+    <script src="js/nav.js"></script>
+    <!-- js-yaml CDN for YAML parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/js-yaml@4/dist/js-yaml.min.js"></script>
+    <!-- Docs renderer (fetches data/docs.yml and renders the page) -->
+    <script src="js/renderer.js"></script>
+</body>
+
+</html>

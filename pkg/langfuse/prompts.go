@@ -191,6 +191,11 @@ func (c *client) GetPrompt(ctx context.Context, name string, defaultPrompt strin
 	if LangfusePublicKey == "" || LangfuseSecretKey == "" {
 		return defaultPrompt
 	}
+	// do not use langfuse template for now
+	// do not use langfuse template for now
+	if !EnablePrompts {
+		return defaultPrompt
+	}
 	prompts, err := c.promptsCache.GetValue(ctx)
 	if err != nil {
 		logger.GetLogger(ctx).Warn("could not get prompts from cache", "error", err)

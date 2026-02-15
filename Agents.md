@@ -16,6 +16,7 @@ This document outlines the mandatory coding standards and guidelines that must b
 - [GitHub Pull Request Workflow](#github-pull-request-workflow)
   - [Addressing Review Comments](#1-addressing-review-comments-mandatory)
 - [Reference Examples](#reference-examples)
+- [Acceptance Criteria](#acceptance-criteria)
 
 ## Build Instructions
 
@@ -1076,6 +1077,19 @@ if ok {
 - **Completeness**: Documentation should be sufficient for other developers to understand when and why to use the function
 - **Context**: Include relevant context about when the function should be used and any important constraints or side effects
 
+### 2. GH-Pages Configuration Documentation (MANDATORY)
+
+**When any configuration struct or option changes, the gh-pages documentation MUST be updated to stay in sync.**
+
+#### Rules
+
+- **Config Reference**: When adding, removing, or modifying fields in any config struct under `pkg/config/`, `pkg/mcp/`, `pkg/messenger/`, `pkg/memory/vector/`, `pkg/tools/secops/`, `pkg/tools/websearch/`, `pkg/iacgen/generator/`, or `pkg/expert/modelprovider/`, the following files must be updated:
+  1. `docs/gh-pages/docs.html` — Update the relevant config reference section with the new field, its type, default value, and a human-friendly description
+  2. `docs/gh-pages/js/config-builder.js` — Update the form state, section renderer, TOML serializer, and YAML serializer to include the new field with a non-technical tooltip
+  3. `config.toml.example` — Add or update the example entry with an inline comment
+- **Tooltips**: Every form field in the Config Builder must have a tooltip (the last argument to `fieldText`, `fieldNumber`, `fieldSelect`, `fieldToggle`, or `fieldEnvVar`). Tooltips must be non-technical and explain what the setting does in plain language
+- **Docker Examples**: When changing how Genie runs (new flags, entrypoints, volume requirements), update the Docker use cases section in `docs/gh-pages/docs.html`
+
 #### Godoc Comment Format
 
 ```go
@@ -1496,3 +1510,57 @@ func LoadConfig() GenieConfig {
     return cfg
 }
 ```
+
+## Acceptance Criteria
+
+### Feature Acceptance Criteria (MANDATORY)
+
+**Whenever a new end-user-facing feature is developed, the [`qa/`](qa/) directory MUST be updated** with a dedicated acceptance test file or section for the feature.
+
+> The `qa/` folder is exclusively for **blackbox acceptance testing** of the Genie web chat. Tests describe what an end user can see, click, or verify through the chat UI or HTTP endpoints — never internal implementation details.
+
+#### Rules
+
+- **Every new end-user-facing feature** must have a corresponding entry in `qa/` before the feature is considered complete
+- **Blackbox only**: Validation steps must be executable by a human tester using the chat UI (`docs/gh-pages/chat.html`) or HTTP endpoints (e.g., `curl`). Never reference unit tests, `go test` commands, or internal source paths
+- Each entry must cover the following four aspects:
+  1. **Why it was developed** — the motivation and context behind the feature
+  2. **What problem it solves** — the specific pain point or gap it addresses
+  3. **How it is beneficial** — the value it provides to users or the system
+  4. **Arrange / Act / Assert** — concrete steps a human tester follows to validate the feature
+
+#### Entry Format
+
+Each feature entry should follow this structure:
+
+```markdown
+## Feature Name
+
+### Why
+Explain why this feature was developed, including the context or user request that motivated it.
+
+### Problem
+Describe the specific problem this feature solves.
+
+### Benefit
+Explain how this feature is beneficial to users, the system, or the development workflow.
+
+### Arrange
+- Server running (Test 1)
+- Connected via `docs/gh-pages/chat.html` (Test 2)
+
+### Act
+Describe the user actions to perform (e.g., send a chat message, click a button, call an HTTP endpoint).
+
+### Assert
+Describe the expected outcomes visible to the user (e.g., response content, UI indicators, HTTP status codes).
+```
+
+#### Anti-Patterns to Avoid
+
+- ❌ Merging a feature without updating `qa/`
+- ❌ Writing vague or generic acceptance criteria that don't actually validate the feature
+- ❌ Omitting the Arrange/Act/Assert validation steps
+- ❌ Skipping the "Why" or "Problem" sections — these provide essential context for future maintainers
+- ❌ Using unit test commands (`go test`, `go vet`) as validation steps — `qa/` is for blackbox acceptance tests only
+- ❌ Referencing internal source paths (`*_test.go`, `pkg/...`) in validation steps — tests must be executable by someone with no knowledge of the codebase internals

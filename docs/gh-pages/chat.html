@@ -1,0 +1,1725 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat — Genie by Stackgen</title>
+    <meta name="description"
+        content="Chat with Genie directly from your browser. Powered by AG-UI protocol for real-time streaming.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
+                    colors: { navy: '#09152B', purple: { 50: '#f3eaff', 100: '#e0d4f7', 500: '#8247E7', 600: '#6d28d9', 900: '#2E004F' } }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="css/custom.css">
+    <style>
+        /* ── Chat-specific styles ── */
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 4rem);
+            max-width: 56rem;
+            margin: 0 auto;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1.5rem;
+            scroll-behavior: smooth;
+        }
+
+        .chat-bubble {
+            max-width: 85%;
+            padding: 0.875rem 1.25rem;
+            border-radius: 1.25rem;
+            font-size: 0.9375rem;
+            line-height: 1.65;
+            animation: bubbleIn 0.3s ease-out;
+            position: relative;
+        }
+
+        @keyframes bubbleIn {
+            from {
+                opacity: 0;
+                transform: translateY(8px) scale(0.97);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        .chat-bubble.user {
+            background: linear-gradient(135deg, #8247E7 0%, #6d28d9 100%);
+            color: #fff;
+            margin-left: auto;
+            border-bottom-right-radius: 0.375rem;
+        }
+
+        .chat-bubble.assistant {
+            background: #f8f7ff;
+            border: 1px solid #e8e0f7;
+            color: #1e1b2e;
+            margin-right: auto;
+            border-bottom-left-radius: 0.375rem;
+        }
+
+        .chat-bubble.assistant pre {
+            background: #0f172a;
+            color: #e2e8f0;
+            border-radius: 0.5rem;
+            padding: 0.75rem 1rem;
+            margin: 0.5rem 0;
+            overflow-x: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8125rem;
+            line-height: 1.6;
+        }
+
+        .chat-bubble.assistant code {
+            background: rgba(130, 71, 231, 0.08);
+            padding: 0.125rem 0.375rem;
+            border-radius: 0.25rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8125rem;
+            color: #6d28d9;
+        }
+
+        .chat-bubble.assistant pre code {
+            background: transparent;
+            color: inherit;
+            padding: 0;
+        }
+
+        .chat-bubble.system {
+            background: #fef3cd;
+            border: 1px solid #fde68a;
+            color: #92400e;
+            margin: 0 auto;
+            max-width: 70%;
+            text-align: center;
+            font-size: 0.8125rem;
+            border-radius: 0.75rem;
+        }
+
+        .chat-bubble.error {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #991b1b;
+            margin: 0 auto;
+            max-width: 70%;
+            text-align: center;
+            font-size: 0.8125rem;
+            border-radius: 0.75rem;
+        }
+
+        .chat-input-area {
+            border-top: 1px solid #f3f4f6;
+            padding: 1rem 1.5rem;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(12px);
+        }
+
+        .chat-input-wrapper {
+            display: flex;
+            align-items: flex-end;
+            gap: 0.75rem;
+            background: #fff;
+            border: 2px solid #e5e7eb;
+            border-radius: 1.25rem;
+            padding: 0.375rem 0.375rem 0.375rem 1rem;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .chat-input-wrapper:focus-within {
+            border-color: #8247E7;
+            box-shadow: 0 0 0 4px rgba(130, 71, 231, 0.1);
+        }
+
+        .chat-input-wrapper textarea {
+            flex: 1;
+            border: none;
+            outline: none;
+            resize: none;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.9375rem;
+            color: #09152B;
+            background: transparent;
+            max-height: 120px;
+            min-height: 24px;
+            line-height: 1.5;
+            padding: 0.375rem 0;
+        }
+
+        .chat-input-wrapper textarea::placeholder {
+            color: #9ca3af;
+        }
+
+        .chat-send-btn {
+            width: 2.5rem;
+            height: 2.5rem;
+            border-radius: 0.875rem;
+            border: none;
+            background: linear-gradient(135deg, #8247E7 0%, #6d28d9 100%);
+            color: #fff;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+        }
+
+        .chat-send-btn:hover:not(:disabled) {
+            background: linear-gradient(135deg, #5b8def 0%, #8b5cf6 100%);
+            transform: scale(1.05);
+        }
+
+        .chat-send-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .chat-stop-btn {
+            display: none;
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            cursor: pointer;
+            transition: all 0.2s;
+            flex-shrink: 0;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .chat-stop-btn:hover {
+            background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+            transform: scale(1.05);
+        }
+
+        .chat-stop-btn.visible {
+            display: inline-flex;
+        }
+
+        /* Tool call card — collapsible */
+        .tool-card {
+            background: #f0f9ff;
+            border: 1px solid #bae6fd;
+            border-radius: 0.75rem;
+            margin: 0.5rem 0;
+            font-size: 0.8125rem;
+            overflow: hidden;
+        }
+
+        .tool-card summary {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            cursor: pointer;
+            list-style: none;
+            user-select: none;
+            transition: background 0.15s ease;
+        }
+
+        .tool-card summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .tool-card summary:hover {
+            background: #e0f2fe;
+        }
+
+        .tool-card .tool-label {
+            font-weight: 500;
+            color: #0369a1;
+            font-size: 0.8125rem;
+            flex: 1;
+        }
+
+        .tool-card .tool-status {
+            font-size: 0.6875rem;
+            padding: 0.125rem 0.5rem;
+            border-radius: 9999px;
+            font-weight: 600;
+        }
+
+        .tool-card .tool-status.running {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .tool-card .tool-status.done {
+            background: #dcfce7;
+            color: #16a34a;
+        }
+
+        .tool-card .tool-chevron {
+            transition: transform 0.2s ease;
+            color: #94a3b8;
+            font-size: 0.625rem;
+        }
+
+        .tool-card[open] .tool-chevron {
+            transform: rotate(90deg);
+        }
+
+        .tool-card .tool-body {
+            padding: 0 0.75rem 0.5rem;
+            border-top: 1px solid #e0f2fe;
+        }
+
+
+        .tool-card .tool-result {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6875rem;
+            color: #334155;
+            background: #f8fafc;
+            border-radius: 0.375rem;
+            padding: 0.5rem;
+            margin-top: 0.375rem;
+            max-height: 8rem;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+
+
+        /* Approval card (HITL) */
+        .approval-card {
+            background: #fffbeb;
+            border: 1px solid #f59e0b;
+            border-radius: 0.75rem;
+            padding: 0.75rem 1rem;
+            margin: 0.5rem 0;
+            font-size: 0.8125rem;
+        }
+
+        .approval-card .approval-header {
+            font-weight: 600;
+            color: #b45309;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .approval-card .approval-args {
+            color: #78716c;
+            font-size: 0.6875rem;
+            font-family: 'JetBrains Mono', monospace;
+            max-height: 4rem;
+            overflow: auto;
+            margin-bottom: 0.5rem;
+            word-break: break-all;
+        }
+
+        .approval-card .approval-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .approval-card .approval-actions button {
+            padding: 0.25rem 0.75rem;
+            border-radius: 0.375rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid;
+            transition: all 0.15s ease;
+        }
+
+        .approval-card .btn-approve {
+            background: #dcfce7;
+            color: #16a34a;
+            border-color: #86efac;
+        }
+
+        .approval-card .btn-approve:hover {
+            background: #bbf7d0;
+        }
+
+        .approval-card .btn-reject {
+            background: #fef2f2;
+            color: #dc2626;
+            border-color: #fecaca;
+        }
+
+        .approval-card .btn-reject:hover {
+            background: #fecaca;
+        }
+
+        .approval-card .approval-resolved {
+            font-weight: 600;
+            font-size: 0.75rem;
+        }
+
+        /* Thinking indicator */
+        .thinking-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1.25rem;
+            color: #8247E7;
+            font-size: 0.8125rem;
+            font-weight: 500;
+        }
+
+        .thinking-dots {
+            display: inline-flex;
+            gap: 3px;
+        }
+
+        .thinking-dots span {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #8247E7;
+            animation: dotPulse 1.4s infinite ease-in-out both;
+        }
+
+        .thinking-dots span:nth-child(1) {
+            animation-delay: -0.32s;
+        }
+
+        .thinking-dots span:nth-child(2) {
+            animation-delay: -0.16s;
+        }
+
+        .thinking-dots span:nth-child(3) {
+            animation-delay: 0s;
+        }
+
+        @keyframes dotPulse {
+
+            0%,
+            80%,
+            100% {
+                transform: scale(0.4);
+                opacity: 0.4;
+            }
+
+            40% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        /* Connection badge */
+        .connection-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            font-size: 0.6875rem;
+            font-weight: 500;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            border: 1px solid;
+        }
+
+        .connection-badge.connected {
+            color: #16a34a;
+            background: #f0fdf4;
+            border-color: #bbf7d0;
+        }
+
+        .connection-badge.disconnected {
+            color: #dc2626;
+            background: #fef2f2;
+            border-color: #fecaca;
+        }
+
+        .connection-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+
+        .connection-badge.connected .connection-dot {
+            background: #16a34a;
+            box-shadow: 0 0 6px rgba(22, 163, 74, 0.5);
+        }
+
+        .connection-badge.disconnected .connection-dot {
+            background: #dc2626;
+        }
+
+        /* Empty state */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            min-height: 400px;
+            text-align: center;
+            color: #9ca3af;
+        }
+
+        .empty-state .genie-icon {
+            font-size: 4rem;
+            margin-bottom: 1.5rem;
+            animation: float 3s ease-in-out infinite;
+        }
+
+        @keyframes float {
+
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(-8px);
+            }
+        }
+
+        /* ── History Sidebar ── */
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.2);
+            z-index: 40;
+        }
+
+        .sidebar-overlay.open {
+            display: block;
+        }
+
+        .history-sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 300px;
+            background: #fff;
+            border-right: 1px solid #e5e7eb;
+            z-index: 50;
+            transform: translateX(-100%);
+            transition: transform 0.25s ease;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .history-sidebar.open {
+            transform: translateX(0);
+        }
+
+        .sidebar-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem 1rem 0.75rem;
+            border-bottom: 1px solid #f3f4f6;
+        }
+
+        .sidebar-header h2 {
+            font-size: 0.9375rem;
+            font-weight: 600;
+            color: #111827;
+        }
+
+        .sidebar-new-btn {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 0.5rem;
+            border: 1px solid #e5e7eb;
+            background: #fff;
+            color: #6b7280;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .sidebar-new-btn:hover {
+            background: #f9fafb;
+            color: #111827;
+        }
+
+        .sidebar-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0.5rem;
+        }
+
+        .sidebar-server-group {
+            margin-bottom: 0.5rem;
+        }
+
+        .sidebar-server-label {
+            font-size: 0.6875rem;
+            font-weight: 600;
+            color: #9ca3af;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 0.375rem 0.5rem;
+        }
+
+        .sidebar-conv {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0.5rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: background 0.12s ease;
+        }
+
+        .sidebar-conv:hover {
+            background: #f3f4f6;
+        }
+
+        .sidebar-conv.active {
+            background: #ede9fe;
+        }
+
+        .sidebar-conv-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .sidebar-conv-title {
+            font-size: 0.8125rem;
+            font-weight: 500;
+            color: #111827;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .sidebar-conv-time {
+            font-size: 0.6875rem;
+            color: #9ca3af;
+        }
+
+        .sidebar-conv-delete {
+            opacity: 0;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 0.75rem;
+            color: #9ca3af;
+            padding: 0.25rem;
+            border-radius: 0.25rem;
+            transition: all 0.12s ease;
+        }
+
+        .sidebar-conv:hover .sidebar-conv-delete {
+            opacity: 1;
+        }
+
+        .sidebar-conv-delete:hover {
+            color: #ef4444;
+            background: #fef2f2;
+        }
+
+        .sidebar-empty {
+            text-align: center;
+            color: #9ca3af;
+            font-size: 0.8125rem;
+            padding: 2rem 1rem;
+        }
+
+        .sidebar-toggle {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 0.375rem;
+            border-radius: 0.5rem;
+            color: #6b7280;
+            transition: all 0.12s ease;
+        }
+
+        .sidebar-toggle:hover {
+            background: #f3f4f6;
+            color: #111827;
+        }
+    </style>
+</head>
+
+<body class="font-sans text-navy bg-white antialiased overflow-x-hidden">
+
+    <!-- History Sidebar -->
+    <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+    <aside class="history-sidebar" id="history-sidebar">
+        <div class="sidebar-header">
+            <h2>Chat History</h2>
+            <button class="sidebar-new-btn" onclick="startNewChat()">+ New Chat</button>
+        </div>
+        <div class="sidebar-list" id="sidebar-list">
+            <div class="sidebar-empty">No conversations yet</div>
+        </div>
+    </aside>
+
+    <!-- Nav -->
+    <div id="nav-container"></div>
+
+    <main class="pt-16">
+        <div class="chat-container">
+
+            <!-- Chat Header -->
+            <div
+                class="flex items-center justify-between px-6 py-3 border-b border-gray-100 bg-white/80 backdrop-blur-sm">
+                <div class="flex items-center gap-3">
+                    <button class="sidebar-toggle" onclick="toggleSidebar()" title="Chat history">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round">
+                            <line x1="3" y1="6" x2="21" y2="6" />
+                            <line x1="3" y1="12" x2="21" y2="12" />
+                            <line x1="3" y1="18" x2="21" y2="18" />
+                        </svg>
+                    </button>
+                    <div
+                        class="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-500 to-purple-900 flex items-center justify-center text-lg">
+                        🧞
+                    </div>
+                    <div>
+                        <h1 class="text-sm font-semibold text-gray-900">Genie Chat</h1>
+                        <p class="text-xs text-gray-400">AG-UI HTTP/SSE • Powered by Stackgen</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button id="btn-summarize" onclick="summarizeChat()" class="btn-secondary text-xs"
+                        title="Summarize conversation" disabled>
+                        📝 Summarize
+                    </button>
+                    <button id="btn-export" onclick="exportChat()" class="btn-secondary text-xs"
+                        title="Export conversation" disabled>
+                        ⬇️ Export
+                    </button>
+                    <button id="btn-new-chat" onclick="startNewChat()" class="btn-secondary text-xs"
+                        title="Start new chat" disabled>
+                        ➕ New Chat
+                    </button>
+                    <div id="connection-badge" class="connection-badge disconnected">
+                        <span class="connection-dot"></span>
+                        <span id="connection-label">Not connected</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Messages Area -->
+            <div id="chat-messages" class="chat-messages">
+                <div id="empty-state" class="empty-state">
+                    <div class="genie-icon">🧞</div>
+                    <h2 class="text-xl font-semibold text-gray-700 mb-2">Chat with Genie</h2>
+                    <p class="text-sm text-gray-400 max-w-md leading-relaxed mb-6">
+                        Connect to a running Genie daemon and start chatting.
+                        Genie will think, plan, use tools, and stream responses in real-time.
+                    </p>
+                    <div class="flex flex-col items-center gap-3">
+                        <div class="flex items-center gap-2">
+                            <label for="endpoint-input" class="text-xs font-medium text-gray-500">Server URL</label>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input id="endpoint-input" type="text" value="http://localhost:8080"
+                                class="form-input text-sm text-center" style="width: 280px; border-radius: 0.75rem;"
+                                placeholder="http://localhost:8080">
+                            <button id="connect-btn" onclick="connectToServer()" class="btn-primary text-sm"
+                                style="border-radius: 0.75rem; padding: 0.5rem 1.25rem;">
+                                Connect
+                            </button>
+                        </div>
+                        <p class="text-xs text-gray-400 mt-1">
+                            Start genie with <code
+                                class="text-purple-500 bg-purple-50 px-1.5 py-0.5 rounded text-xs font-mono">genie grant --http-port 8080 --enable-cors</code>
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="chat-input-area">
+                <div class="chat-input-wrapper">
+                    <textarea id="chat-input" rows="1" placeholder="Ask Genie anything..."
+                        onkeydown="handleKeyDown(event)" oninput="autoResize(this)" disabled></textarea>
+                    <button id="send-btn" class="chat-send-btn" onclick="sendMessage()" disabled>
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 19V5m0 0l-7 7m7-7l7 7" />
+                        </svg>
+                    </button>
+                    <button id="stop-btn" class="chat-stop-btn" onclick="stopStreaming()" title="Stop generating">
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                            <rect x="2" y="2" width="10" height="10" rx="1" />
+                        </svg>
+                    </button>
+                </div>
+                <p class="text-xs text-gray-400 text-center mt-2">
+                    Press <kbd
+                        class="px-1.5 py-0.5 bg-gray-100 border border-gray-200 rounded text-xs font-mono">Enter</kbd>
+                    to send,
+                    <kbd
+                        class="px-1.5 py-0.5 bg-gray-100 border border-gray-200 rounded text-xs font-mono">Shift+Enter</kbd>
+                    for new line
+                </p>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <div id="footer-container"></div>
+
+    <script src="js/nav.js"></script>
+    <script>
+        // ── IndexedDB Persistence Layer ──
+        class GenieDB {
+            constructor() {
+                this.dbName = 'genie-chat';
+                this.version = 1;
+                this.db = null;
+            }
+
+            open() {
+                return new Promise((resolve, reject) => {
+                    const req = indexedDB.open(this.dbName, this.version);
+                    req.onupgradeneeded = (e) => {
+                        const db = e.target.result;
+                        if (!db.objectStoreNames.contains('conversations')) {
+                            const store = db.createObjectStore('conversations', { keyPath: 'threadId' });
+                            store.createIndex('serverUrl', 'serverUrl', { unique: false });
+                            store.createIndex('updatedAt', 'updatedAt', { unique: false });
+                        }
+                    };
+                    req.onsuccess = (e) => { this.db = e.target.result; resolve(this.db); };
+                    req.onerror = (e) => reject(e.target.error);
+                });
+            }
+
+            async saveConversation(conv) {
+                if (!this.db) await this.open();
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction('conversations', 'readwrite');
+                    tx.objectStore('conversations').put(conv);
+                    tx.oncomplete = () => resolve();
+                    tx.onerror = (e) => reject(e.target.error);
+                });
+            }
+
+            async getConversations(serverUrlFilter) {
+                if (!this.db) await this.open();
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction('conversations', 'readonly');
+                    const store = tx.objectStore('conversations');
+                    const req = store.getAll();
+                    req.onsuccess = () => {
+                        let results = req.result || [];
+                        if (serverUrlFilter) {
+                            results = results.filter(c => c.serverUrl === serverUrlFilter);
+                        }
+                        results.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+                        resolve(results);
+                    };
+                    req.onerror = (e) => reject(e.target.error);
+                });
+            }
+
+            async getAllConversations() {
+                if (!this.db) await this.open();
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction('conversations', 'readonly');
+                    const req = tx.objectStore('conversations').getAll();
+                    req.onsuccess = () => {
+                        const results = req.result || [];
+                        results.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+                        resolve(results);
+                    };
+                    req.onerror = (e) => reject(e.target.error);
+                });
+            }
+
+            async getConversation(threadId) {
+                if (!this.db) await this.open();
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction('conversations', 'readonly');
+                    const req = tx.objectStore('conversations').get(threadId);
+                    req.onsuccess = () => resolve(req.result || null);
+                    req.onerror = (e) => reject(e.target.error);
+                });
+            }
+
+            async deleteConversation(threadId) {
+                if (!this.db) await this.open();
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction('conversations', 'readwrite');
+                    tx.objectStore('conversations').delete(threadId);
+                    tx.oncomplete = () => resolve();
+                    tx.onerror = (e) => reject(e.target.error);
+                });
+            }
+        }
+
+        const genieDB = new GenieDB();
+        genieDB.open().catch(err => console.warn('IndexedDB init failed:', err));
+
+        // Current conversation being built
+        let currentConversation = null;
+
+        // ── State ──
+        let serverUrl = '';
+        let isConnected = false;
+        let isStreaming = false;
+        let threadId = crypto.randomUUID();
+        let runCounter = 0;
+        let currentAssistantBubble = null;
+        let currentAssistantContent = '';
+        let currentMessageId = null;  // track active message ID
+        let abortController = null;   // AbortController for cancelling streaming
+
+        // ── DOM Refs ──
+        const messagesEl = document.getElementById('chat-messages');
+        const inputEl = document.getElementById('chat-input');
+        const sendBtn = document.getElementById('send-btn');
+        const connectionBadge = document.getElementById('connection-badge');
+        const connectionLabel = document.getElementById('connection-label');
+        const emptyState = document.getElementById('empty-state');
+
+        // ── Connect ──
+        async function connectToServer() {
+            const endpoint = document.getElementById('endpoint-input').value.trim();
+            if (!endpoint) return;
+
+            serverUrl = endpoint.replace(/\/+$/, '');
+
+            // Test connection with health check
+            try {
+                const res = await fetch(serverUrl + '/health', { mode: 'cors' });
+                if (!res.ok) throw new Error('Health check failed');
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    setConnected(true);
+                    emptyState.style.display = 'none';
+                    inputEl.disabled = false;
+                    sendBtn.disabled = false;
+                    inputEl.focus();
+                    addSystemMessage('Connected to Genie at ' + serverUrl);
+
+                    // Initialize a new conversation for this server
+                    currentConversation = {
+                        threadId: threadId,
+                        serverUrl: serverUrl,
+                        title: 'New conversation',
+                        messages: [],
+                        updatedAt: Date.now(),
+                    };
+
+                    // Load history sidebar
+                    await refreshSidebar();
+                }
+            } catch (err) {
+                addErrorMessage('Failed to connect: ' + err.message + '. Make sure genie is running with --http-port and --enable-cors.');
+            }
+        }
+
+        function setConnected(connected) {
+            isConnected = connected;
+            connectionBadge.className = 'connection-badge ' + (connected ? 'connected' : 'disconnected');
+            connectionLabel.textContent = connected ? 'Connected' : 'Not connected';
+            updateButtonState();
+        }
+
+        // ── Send Message ──
+        async function sendMessage() {
+            const message = inputEl.value.trim();
+            if (!message || isStreaming || !isConnected) return;
+
+            // Add user bubble
+            addUserBubble(message);
+            inputEl.value = '';
+            autoResize(inputEl);
+
+            // Persist user message
+            if (currentConversation) {
+                if (currentConversation.messages.length === 0) {
+                    currentConversation.title = message.length > 60 ? message.substring(0, 60) + '…' : message;
+                }
+                currentConversation.messages.push({ role: 'user', content: message, timestamp: Date.now() });
+                currentConversation.updatedAt = Date.now();
+                genieDB.saveConversation(currentConversation).then(() => refreshSidebar()).catch(console.warn);
+                updateButtonState();
+            }
+
+            // Prepare request
+            runCounter++;
+            const runId = 'run-' + runCounter;
+            isStreaming = true;
+            sendBtn.disabled = true;
+            sendBtn.style.display = 'none';
+            document.getElementById('stop-btn').classList.add('visible');
+            inputEl.disabled = true;
+            abortController = new AbortController();
+
+            // Start SSE stream
+            try {
+                const response = await fetch(serverUrl + '/', {
+                    method: 'POST',
+                    signal: abortController.signal,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        threadId: threadId,
+                        runId: runId,
+                        messages: [{ role: 'user', content: message }]
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Server returned ' + response.status);
+                }
+
+                // Parse SSE stream
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+
+                    // SSE events are delimited by blank lines (\n\n).
+                    // Process all complete events, keep any partial trailing data.
+                    let delimIdx;
+                    while ((delimIdx = buffer.indexOf('\n\n')) !== -1) {
+                        const frame = buffer.substring(0, delimIdx);
+                        buffer = buffer.substring(delimIdx + 2);
+
+                        let eventType = '';
+                        let dataLines = [];
+                        for (const line of frame.split('\n')) {
+                            if (line.startsWith('event:')) {
+                                eventType = line.slice(6).trim();
+                            } else if (line.startsWith('data:')) {
+                                dataLines.push(line.slice(5).trimStart());
+                            }
+                            // Skip comments (: lines)
+                        }
+                        if (dataLines.length > 0) {
+                            const raw = dataLines.join('\n');
+                            try {
+                                const event = JSON.parse(raw);
+                                handleSSEEvent(event, eventType);
+                            } catch (e) {
+                                console.warn('[SSE] bad JSON:', raw);
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                if (err.name === 'AbortError') {
+                    addErrorMessage('Stopped by user');
+                } else {
+                    addErrorMessage('Stream error: ' + err.message);
+                }
+            } finally {
+                finishStreaming();
+            }
+        }
+
+        // ── SSE Event Handler ──
+        function handleSSEEvent(event, eventType) {
+            const type = event.type || eventType;
+
+            switch (type) {
+                case 'RUN_STARTED':
+                    showThinking();
+                    break;
+
+                case 'TEXT_MESSAGE_START':
+                    hideThinking();
+                    // If a new message starts for a different messageId, finalize the old one.
+                    if (currentMessageId && event.messageId && event.messageId !== currentMessageId) {
+                        finalizeAssistantBubble();
+                    }
+                    currentMessageId = event.messageId || null;
+                    startAssistantBubble();
+                    break;
+
+                case 'TEXT_MESSAGE_CONTENT':
+                    hideThinking();
+                    // If messageId changed, finalize old bubble & start new one.
+                    if (event.messageId && currentMessageId && event.messageId !== currentMessageId) {
+                        finalizeAssistantBubble();
+                        currentMessageId = event.messageId;
+                    }
+                    if (!currentAssistantBubble) {
+                        currentMessageId = event.messageId || null;
+                        startAssistantBubble();
+                    }
+                    appendToAssistantBubble(event.delta || '');
+                    break;
+
+                case 'TEXT_MESSAGE_END':
+                    finalizeAssistantBubble();
+                    currentMessageId = null;
+                    break;
+
+                case 'REASONING_MESSAGE_CONTENT':
+                    // Show reasoning as a dimmer text
+                    if (!currentAssistantBubble) startAssistantBubble();
+                    appendToAssistantBubble(event.delta || '', true);
+                    break;
+
+                case 'TOOL_CALL_START':
+                    hideThinking();
+                    addToolCard(event.toolCallId, event.toolCallName, 'running');
+                    break;
+
+                case 'TOOL_CALL_ARGS':
+                    // Accumulate tool arguments for later display
+                    if (event.toolCallId && toolCallMeta[event.toolCallId]) {
+                        toolCallMeta[event.toolCallId].args += (event.delta || '');
+                    }
+                    break;
+
+                case 'TOOL_CALL_END':
+                    updateToolCard(event.toolCallId, 'completed');
+                    break;
+
+                case 'TOOL_CALL_RESULT':
+                    updateToolCard(event.toolCallId, 'done', event.content);
+                    break;
+
+                case 'RUN_FINISHED':
+                    hideThinking();
+                    finalizeAssistantBubble();
+                    break;
+
+                case 'RUN_ERROR':
+                    hideThinking();
+                    finalizeAssistantBubble();
+                    addErrorMessage(event.message || 'An error occurred');
+                    break;
+
+                case 'STEP_STARTED':
+                    showThinking(event.stepName);
+                    break;
+
+                case 'CUSTOM':
+                    // Log events — just show as subtle system messages
+                    if (event.name === 'log' && event.value) {
+                        // Skip debug logs
+                        if (event.value.level !== 'DEBUG') {
+                            console.log('[Genie]', event.value.level, event.value.message);
+                        }
+                    }
+                    break;
+
+                case 'TOOL_APPROVAL_REQUEST':
+                    hideThinking();
+                    addApprovalCard(event.approvalId, event.toolCallName, event.content);
+                    break;
+            }
+        }
+
+        // ── UI Helpers ──
+        function addUserBubble(text) {
+            const div = document.createElement('div');
+            div.className = 'flex justify-end mb-4';
+            div.innerHTML = `<div class="chat-bubble user">${escapeHtml(text)}</div>`;
+            messagesEl.appendChild(div);
+            scrollToBottom();
+        }
+
+        function startAssistantBubble() {
+            if (currentAssistantBubble) return;
+            currentAssistantContent = '';
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'flex justify-start mb-4';
+
+            const bubble = document.createElement('div');
+            bubble.className = 'chat-bubble assistant';
+            bubble.innerHTML = '';
+
+            wrapper.appendChild(bubble);
+            messagesEl.appendChild(wrapper);
+            currentAssistantBubble = bubble;
+            scrollToBottom();
+        }
+
+        function appendToAssistantBubble(text, isReasoning) {
+            if (!currentAssistantBubble) return;
+            currentAssistantContent += text;
+            currentAssistantBubble.innerHTML = renderMarkdown(currentAssistantContent);
+            scrollToBottom();
+        }
+
+        function finalizeAssistantBubble() {
+            if (currentAssistantBubble && currentAssistantContent) {
+                currentAssistantBubble.innerHTML = renderMarkdown(currentAssistantContent);
+
+                // Persist assistant response
+                if (currentConversation && currentAssistantContent.trim()) {
+                    currentConversation.messages.push({ role: 'assistant', content: currentAssistantContent, timestamp: Date.now() });
+                    currentConversation.updatedAt = Date.now();
+                    genieDB.saveConversation(currentConversation).then(() => refreshSidebar()).catch(console.warn);
+                    updateButtonState();
+                }
+            }
+            currentAssistantBubble = null;
+            currentAssistantContent = '';
+        }
+
+        function showThinking(label) {
+            hideThinking(); // Remove existing
+            const div = document.createElement('div');
+            div.id = 'thinking-indicator';
+            div.className = 'thinking-indicator';
+            div.innerHTML = `
+        <div class="thinking-dots"><span></span><span></span><span></span></div>
+        <span>${label ? escapeHtml(label) + '...' : 'Thinking...'}</span>
+      `;
+            messagesEl.appendChild(div);
+            scrollToBottom();
+        }
+
+        function hideThinking() {
+            const el = document.getElementById('thinking-indicator');
+            if (el) el.remove();
+        }
+
+        // Track tool metadata per call for smart result formatting
+        const toolCallMeta = {};
+
+        function friendlyToolName(rawName) {
+            const map = {
+                'web_search': '🔍 Searching the web',
+                'create_agent': '🤖 Delegating to specialist',
+                'read_file': '📄 Reading a file',
+                'read_multiple_files': '📄 Reading files',
+                'save_file': '💾 Saving a file',
+                'run_shell': '⚙️ Running a command',
+                'list_file': '📂 Listing files',
+                'search_file': '🔍 Searching files',
+                'search_content': '🔍 Searching content',
+                'replace_content': '✏️ Editing file',
+                'summarize_content': '📝 Summarizing',
+                'memory_search': '🧠 Searching memory',
+                'memory_store': '🧠 Storing to memory',
+                'browser_navigate': '🌐 Opening page',
+                'browser_read_text': '🌐 Reading page',
+                'browser_read_html': '🌐 Reading page HTML',
+                'browser_click': '🖱️ Clicking element',
+                'browser_type': '⌨️ Typing text',
+                'browser_screenshot': '📸 Taking screenshot',
+                'browser_eval_js': '🌐 Running browser script',
+                'browser_wait': '⏳ Waiting for page',
+                'email_send': '📧 Sending email',
+                'email_read': '📧 Reading email',
+            };
+            return map[rawName] || ('🔧 Using ' + (rawName || 'tool'));
+        }
+
+        /**
+         * Format a tool result into a human-friendly summary.
+         * Avoids showing raw JSON — instead extracts meaningful info
+         * based on the tool name and the shape of the response.
+         */
+        function formatToolResult(toolName, rawContent, toolCallId) {
+            if (!rawContent) return null;
+            const text = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent);
+
+            // Try parsing as JSON for structured extraction
+            let parsed = null;
+            try { parsed = JSON.parse(text); } catch (_) { /* not JSON */ }
+
+            switch (toolName) {
+                case 'web_search': {
+                    if (parsed && Array.isArray(parsed.results)) {
+                        const items = parsed.results.slice(0, 3);
+                        return items.map(r => `• ${r.title || r.url || 'Result'}`).join('\n') +
+                            (parsed.results.length > 3 ? `\n  … and ${parsed.results.length - 3} more` : '');
+                    }
+                    if (parsed && parsed.snippet) return parsed.snippet;
+                    return _truncText(text, 200);
+                }
+                case 'create_agent': {
+                    if (parsed && parsed.result) return _truncText(parsed.result, 300);
+                    if (parsed && parsed.output) return _truncText(parsed.output, 300);
+                    return _truncText(text, 300);
+                }
+                case 'read_file':
+                case 'read_multiple_files': {
+                    const meta = toolCallMeta[toolCallId];
+                    const fname = _extractArg(meta, 'file_name');
+                    const preview = _truncText(text, 200);
+                    return fname ? `📄 ${fname}\n${preview}` : preview;
+                }
+                case 'save_file': {
+                    const meta2 = toolCallMeta[toolCallId];
+                    const fname2 = _extractArg(meta2, 'file_name');
+                    if (fname2) return `Saved ${fname2}`;
+                    if (parsed && parsed.message) return parsed.message;
+                    return _truncText(text, 150);
+                }
+                case 'list_file':
+                case 'search_file':
+                case 'search_content': {
+                    // Often returns a list of file paths
+                    if (parsed && Array.isArray(parsed)) {
+                        const shown = parsed.slice(0, 5).map(f => typeof f === 'string' ? f : (f.path || f.name || JSON.stringify(f)));
+                        return shown.map(f => `  ${f}`).join('\n') +
+                            (parsed.length > 5 ? `\n  … and ${parsed.length - 5} more` : '');
+                    }
+                    return _truncText(text, 200);
+                }
+                case 'run_shell': {
+                    if (parsed && parsed.stdout != null) {
+                        const out = parsed.stdout || parsed.stderr || '';
+                        return _truncText(out, 250);
+                    }
+                    return _truncText(text, 250);
+                }
+                case 'summarize_content':
+                    return _truncText(text, 300);
+                default: {
+                    // Generic: if it's a JSON object, try to find a 'message', 'result', or 'output' key
+                    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                        const useful = parsed.message || parsed.result || parsed.output || parsed.summary || parsed.content;
+                        if (useful) return _truncText(String(useful), 250);
+                    }
+                    return _truncText(text, 200);
+                }
+            }
+        }
+
+        function _truncText(s, max) {
+            if (!s) return '';
+            if (s.length <= max) return s;
+            return s.substring(0, max) + '…';
+        }
+
+        function _extractArg(meta, key) {
+            if (!meta || !meta.args) return null;
+            try {
+                const a = JSON.parse(meta.args);
+                return a[key] || null;
+            } catch (_) { return null; }
+        }
+
+        function addToolCard(toolCallId, toolName, status) {
+            // Track metadata for this tool call
+            toolCallMeta[toolCallId] = { name: toolName, args: '' };
+
+            const div = document.createElement('div');
+            div.className = 'flex justify-start mb-3';
+            const friendly = friendlyToolName(toolName);
+            div.innerHTML = `
+        <details class="tool-card" id="tool-${toolCallId}">
+          <summary>
+            <span class="tool-label">${friendly}</span>
+            <span class="tool-status running" id="tool-status-${toolCallId}">Running…</span>
+            <span class="tool-chevron">▶</span>
+          </summary>
+          <div class="tool-body" id="tool-body-${toolCallId}"></div>
+        </details>
+      `;
+            messagesEl.appendChild(div);
+            scrollToBottom();
+        }
+
+        function updateToolCard(toolCallId, status, result) {
+            const statusEl = document.getElementById('tool-status-' + toolCallId);
+            if (statusEl) {
+                if (status === 'completed' || status === 'done') {
+                    statusEl.textContent = 'Done ✓';
+                    statusEl.className = 'tool-status done';
+                } else {
+                    statusEl.textContent = status;
+                }
+            }
+
+            // Append human-friendly tool result if provided
+            if (result) {
+                const bodyEl = document.getElementById('tool-body-' + toolCallId);
+                const meta = toolCallMeta[toolCallId];
+                const toolName = meta ? meta.name : '';
+                const friendly = formatToolResult(toolName, result, toolCallId);
+
+                if (bodyEl && friendly) {
+                    const resultDiv = document.createElement('div');
+                    resultDiv.className = 'tool-result';
+                    resultDiv.textContent = friendly;
+                    bodyEl.appendChild(resultDiv);
+                }
+
+                // Persist tool result to conversation
+                if (currentConversation && friendly) {
+                    currentConversation.messages.push({
+                        role: 'tool',
+                        content: friendly,
+                        toolName: toolName,
+                        timestamp: Date.now(),
+                    });
+                    currentConversation.updatedAt = Date.now();
+                    genieDB.saveConversation(currentConversation).catch(console.warn);
+                }
+            }
+        }
+
+        function addApprovalCard(approvalId, toolName, args) {
+            const div = document.createElement('div');
+            div.className = 'flex justify-start mb-3';
+            div.innerHTML = `
+        <div class="approval-card" id="approval-${approvalId}">
+          <div class="approval-header">⚠️ Approval Required — ${escapeHtml(toolName || 'tool')}</div>
+          <div class="approval-args">${escapeHtml(args || '')}</div>
+          <div class="approval-actions" id="approval-actions-${approvalId}">
+            <button class="btn-approve" onclick="resolveApproval('${approvalId}', 'approved')">✅ Approve</button>
+            <button class="btn-reject" onclick="resolveApproval('${approvalId}', 'rejected')">❌ Reject</button>
+          </div>
+        </div>
+      `;
+            messagesEl.appendChild(div);
+            scrollToBottom();
+        }
+
+        async function resolveApproval(approvalId, decision) {
+            const actionsEl = document.getElementById('approval-actions-' + approvalId);
+            if (!actionsEl) return;
+
+            // Disable buttons immediately
+            actionsEl.querySelectorAll('button').forEach(btn => btn.disabled = true);
+
+            try {
+                const resp = await fetch(serverUrl + '/approve', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ approvalId, decision }),
+                });
+
+                if (!resp.ok) {
+                    const err = await resp.text();
+                    throw new Error(err);
+                }
+
+                // Replace buttons with resolved status
+                if (decision === 'approved') {
+                    actionsEl.innerHTML = '<span class="approval-resolved" style="color:#16a34a">✅ Approved</span>';
+                } else {
+                    actionsEl.innerHTML = '<span class="approval-resolved" style="color:#dc2626">❌ Rejected</span>';
+                }
+            } catch (err) {
+                actionsEl.innerHTML = '<span class="approval-resolved" style="color:#dc2626">⚠️ Error: ' + escapeHtml(err.message) + '</span>';
+            }
+        }
+
+        function addSystemMessage(text) {
+            const div = document.createElement('div');
+            div.className = 'flex justify-center mb-4';
+            div.innerHTML = `<div class="chat-bubble system">${escapeHtml(text)}</div>`;
+            messagesEl.appendChild(div);
+            scrollToBottom();
+        }
+
+        function addErrorMessage(text) {
+            const div = document.createElement('div');
+            div.className = 'flex justify-center mb-4';
+            div.innerHTML = `<div class="chat-bubble error">⚠️ ${escapeHtml(text)}</div>`;
+            messagesEl.appendChild(div);
+            scrollToBottom();
+        }
+
+        function finishStreaming() {
+            isStreaming = false;
+            abortController = null;
+            sendBtn.disabled = false;
+            sendBtn.style.display = '';
+            document.getElementById('stop-btn').classList.remove('visible');
+            inputEl.disabled = false;
+            inputEl.focus();
+            hideThinking();
+            finalizeAssistantBubble();
+        }
+
+        function stopStreaming() {
+            if (abortController) {
+                abortController.abort();
+            }
+        }
+
+        function scrollToBottom() {
+            requestAnimationFrame(() => {
+                messagesEl.scrollTop = messagesEl.scrollHeight;
+            });
+        }
+
+        // ── Markdown Rendering (lightweight) ──
+        function renderMarkdown(text) {
+            // Code blocks
+            text = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+                return `<pre><code>${escapeHtml(code.trim())}</code></pre>`;
+            });
+            // Inline code
+            text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+            // Bold
+            text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            // Italic
+            text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+            // Line breaks
+            text = text.replace(/\n/g, '<br>');
+            return text;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // ── Input Handling ──
+        function handleKeyDown(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        }
+
+        function autoResize(el) {
+            el.style.height = 'auto';
+            el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+        }
+
+        // ── Sidebar & History ──
+        function toggleSidebar() {
+            document.getElementById('history-sidebar').classList.toggle('open');
+            document.getElementById('sidebar-overlay').classList.toggle('open');
+        }
+
+        async function refreshSidebar() {
+            try {
+                const all = await genieDB.getAllConversations();
+                const listEl = document.getElementById('sidebar-list');
+
+                if (all.length === 0) {
+                    listEl.innerHTML = '<div class="sidebar-empty">No conversations yet</div>';
+                    return;
+                }
+
+                // Group by serverUrl
+                const groups = {};
+                for (const c of all) {
+                    const key = c.serverUrl || 'Unknown';
+                    if (!groups[key]) groups[key] = [];
+                    groups[key].push(c);
+                }
+
+                let html = '';
+                for (const [url, convs] of Object.entries(groups)) {
+                    const label = url.replace(/^https?:\/\//, '');
+                    html += `<div class="sidebar-server-group">`;
+                    html += `<div class="sidebar-server-label">${escapeHtml(label)}</div>`;
+                    for (const c of convs) {
+                        const active = c.threadId === threadId ? ' active' : '';
+                        const timeStr = formatTimeAgo(c.updatedAt);
+                        html += `<div class="sidebar-conv${active}" onclick="loadConversation('${c.threadId}')">`;
+                        html += `<div class="sidebar-conv-info">`;
+                        html += `<div class="sidebar-conv-title">${escapeHtml(c.title || 'Untitled')}</div>`;
+                        html += `<div class="sidebar-conv-time">${timeStr}</div>`;
+                        html += `</div>`;
+                        html += `<button class="sidebar-conv-delete" onclick="event.stopPropagation(); deleteConversation('${c.threadId}')" title="Delete">🗑️</button>`;
+                        html += `</div>`;
+                    }
+                    html += `</div>`;
+                }
+                listEl.innerHTML = html;
+            } catch (err) {
+                console.warn('Failed to refresh sidebar:', err);
+            }
+        }
+
+        function formatTimeAgo(ts) {
+            if (!ts) return '';
+            const diff = Date.now() - ts;
+            const mins = Math.floor(diff / 60000);
+            if (mins < 1) return 'Just now';
+            if (mins < 60) return mins + 'm ago';
+            const hours = Math.floor(mins / 60);
+            if (hours < 24) return hours + 'h ago';
+            const days = Math.floor(hours / 24);
+            if (days < 7) return days + 'd ago';
+            return new Date(ts).toLocaleDateString();
+        }
+
+        async function loadConversation(convThreadId) {
+            try {
+                const conv = await genieDB.getConversation(convThreadId);
+                if (!conv) return;
+
+                // Switch to this conversation
+                threadId = conv.threadId;
+                currentConversation = conv;
+                serverUrl = conv.serverUrl || serverUrl;
+
+                // Clear messages area
+                messagesEl.innerHTML = '';
+                emptyState.style.display = 'none';
+                currentAssistantBubble = null;
+                currentAssistantContent = '';
+
+                // Replay messages
+                for (const msg of conv.messages) {
+                    if (msg.role === 'user') {
+                        addUserBubble(msg.content);
+                    } else if (msg.role === 'assistant') {
+                        const wrapper = document.createElement('div');
+                        wrapper.className = 'flex justify-start mb-4';
+                        const bubble = document.createElement('div');
+                        bubble.className = 'chat-bubble assistant';
+                        bubble.innerHTML = renderMarkdown(msg.content);
+                        wrapper.appendChild(bubble);
+                        messagesEl.appendChild(wrapper);
+                    } else if (msg.role === 'tool') {
+                        const div = document.createElement('div');
+                        div.className = 'flex justify-start mb-3';
+                        const friendly = friendlyToolName(msg.toolName || '');
+                        div.innerHTML = `
+                            <details class="tool-card">
+                                <summary>
+                                    <span class="tool-label">${friendly}</span>
+                                    <span class="tool-status done">Done ✓</span>
+                                    <span class="tool-chevron">▶</span>
+                                </summary>
+                                <div class="tool-body">
+                                    <div class="tool-result">${escapeHtml(msg.content || '')}</div>
+                                </div>
+                            </details>`;
+                        messagesEl.appendChild(div);
+                    } else if (msg.role === 'system') {
+                        addSystemMessage(msg.content);
+                    }
+                }
+
+                scrollToBottom();
+                toggleSidebar();
+                await refreshSidebar();
+                updateButtonState();
+            } catch (err) {
+                console.warn('Failed to load conversation:', err);
+            }
+        }
+
+        async function deleteConversation(convThreadId) {
+            try {
+                await genieDB.deleteConversation(convThreadId);
+                if (convThreadId === threadId) {
+                    startNewChat();
+                }
+                await refreshSidebar();
+            } catch (err) {
+                console.warn('Failed to delete conversation:', err);
+            }
+        }
+
+        function exportChat() {
+            if (!currentConversation || !currentConversation.messages.length) {
+                alert('No conversation to export');
+                return;
+            }
+
+            const history = currentConversation.messages.map(m => {
+                const role = m.role.toUpperCase();
+                const content = m.content || '';
+                return `### ${role}\n\n${content}\n`;
+            }).join('\n---\n\n');
+
+            const blob = new Blob([history], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `genie-chat-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.md`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function summarizeChat() {
+            if (!isConnected) {
+                alert('Please connect to Genie first');
+                return;
+            }
+            if (isStreaming) return;
+
+            const input = document.getElementById('chat-input');
+            input.value = "Please summarize our conversation so far in a concise manner, highlighting key decisions and next steps.";
+            sendMessage();
+        }
+
+        function startNewChat() {
+            threadId = crypto.randomUUID();
+            runCounter = 0;
+            currentAssistantBubble = null;
+            currentAssistantContent = '';
+            currentMessageId = null;
+
+            // Clear messages
+            messagesEl.innerHTML = '';
+
+            // Start a new conversation record
+            if (isConnected && serverUrl) {
+                currentConversation = {
+                    threadId: threadId,
+                    serverUrl: serverUrl,
+                    title: 'New conversation',
+                    messages: [],
+                    updatedAt: Date.now(),
+                };
+                emptyState.style.display = 'none';
+            } else {
+                currentConversation = null;
+                messagesEl.appendChild(emptyState);
+                emptyState.style.display = '';
+            }
+
+            // Close sidebar if open
+            document.getElementById('history-sidebar').classList.remove('open');
+            document.getElementById('sidebar-overlay').classList.remove('open');
+
+            refreshSidebar().catch(console.warn);
+            updateButtonState();
+            inputEl.focus();
+        }
+
+        function updateButtonState() {
+            const hasMessages = currentConversation && currentConversation.messages && currentConversation.messages.length > 0;
+            const canSummarize = isConnected && !isStreaming && hasMessages;
+
+            const btnSummarize = document.getElementById('btn-summarize');
+            const btnExport = document.getElementById('btn-export');
+            const btnNewChat = document.getElementById('btn-new-chat');
+
+            if (btnSummarize) btnSummarize.disabled = !canSummarize;
+            if (btnExport) btnExport.disabled = !hasMessages;
+            // New chat is enabled if we have a conversation object (even emptiness is a state) 
+            // but effectively we might only want it if there's messages to clear or if we want to confirm a fresh start.
+            // Let's enable it if isConnected so user can reset an empty chat if they really want, 
+            // but mostly it makes sense when there's history. 
+            // User request: "disable the buttons if there are no conversation yet".
+            // Since "New Chat" on an empty chat is a no-op visually, disabling it is fine.
+            if (btnNewChat) btnNewChat.disabled = !hasMessages && !currentConversation;
+        }
+
+    </script>
+
+</body>
+
+</html>

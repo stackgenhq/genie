@@ -86,7 +86,7 @@ var _ = Describe("Memory", func() {
 				Service: svc,
 				AppName: "reactree-test",
 				UserID:  "test-user",
-			}.NewServiceEpisodicMemory()
+			}.NewEpisodicMemory()
 		})
 
 		AfterEach(func() {

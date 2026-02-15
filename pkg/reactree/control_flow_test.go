@@ -19,6 +19,28 @@ func stubNodeFunc(status reactree.NodeStatus) graph.NodeFunc {
 	}
 }
 
+// stubNodeFuncWithCompletion creates a graph.NodeFunc that returns a fixed
+// NodeStatus and TaskCompleted flag. Used to test early-exit behavior.
+func stubNodeFuncWithCompletion(status reactree.NodeStatus, completed bool) graph.NodeFunc {
+	return func(_ context.Context, _ graph.State) (any, error) {
+		return graph.State{
+			reactree.StateKeyNodeStatus:    status,
+			reactree.StateKeyTaskCompleted: completed,
+		}, nil
+	}
+}
+
+// trackingNodeFunc creates a graph.NodeFunc that sets a flag when executed.
+// Used to verify that a node was (or was not) reached during graph execution.
+func trackingNodeFunc(status reactree.NodeStatus, executed *bool) graph.NodeFunc {
+	return func(_ context.Context, _ graph.State) (any, error) {
+		*executed = true
+		return graph.State{
+			reactree.StateKeyNodeStatus: status,
+		}, nil
+	}
+}
+
 // testInvocation creates a minimal agent.Invocation for test execution.
 func testInvocation() *agent.Invocation {
 	return agent.NewInvocation()
@@ -70,6 +92,92 @@ var _ = Describe("ControlFlow", func() {
 			schema := reactree.NewReAcTreeSchema()
 			sg := graph.NewStateGraph(schema)
 			result := reactree.BuildSequence(sg, []string{})
+			Expect(result).NotTo(BeNil())
+		})
+	})
+
+	Describe("BuildSequenceWithEarlyExit", func() {
+		It("should skip remaining stages when task is completed (zero tool calls)", func() {
+			schema := reactree.NewReAcTreeSchema()
+			sg := graph.NewStateGraph(schema)
+
+			nodeBExecuted := false
+			sg.AddNode("a", stubNodeFuncWithCompletion(reactree.Success, true)) // completed = true → early exit
+			sg.AddNode("b", trackingNodeFunc(reactree.Success, &nodeBExecuted))
+			sg.SetEntryPoint("a")
+
+			reactree.BuildSequenceWithEarlyExit(sg, []string{"a", "b"})
+
+			compiled, err := sg.Compile()
+			Expect(err).NotTo(HaveOccurred())
+
+			executor, err := graph.NewExecutor(compiled)
+			Expect(err).NotTo(HaveOccurred())
+
+			events, err := executor.Execute(context.Background(), graph.State{}, testInvocation())
+			Expect(err).NotTo(HaveOccurred())
+			for range events {
+			}
+
+			// Node b should NOT have been executed because a signaled completion
+			Expect(nodeBExecuted).To(BeFalse(), "node b should be skipped when task completed early")
+		})
+
+		It("should continue to next stage when task is not completed", func() {
+			schema := reactree.NewReAcTreeSchema()
+			sg := graph.NewStateGraph(schema)
+
+			nodeBExecuted := false
+			sg.AddNode("a", stubNodeFuncWithCompletion(reactree.Success, false)) // completed = false → continue
+			sg.AddNode("b", trackingNodeFunc(reactree.Success, &nodeBExecuted))
+			sg.SetEntryPoint("a")
+
+			reactree.BuildSequenceWithEarlyExit(sg, []string{"a", "b"})
+
+			compiled, err := sg.Compile()
+			Expect(err).NotTo(HaveOccurred())
+
+			executor, err := graph.NewExecutor(compiled)
+			Expect(err).NotTo(HaveOccurred())
+
+			events, err := executor.Execute(context.Background(), graph.State{}, testInvocation())
+			Expect(err).NotTo(HaveOccurred())
+			for range events {
+			}
+
+			// Node b SHOULD have been executed because task was not completed
+			Expect(nodeBExecuted).To(BeTrue(), "node b should execute when task is not completed")
+		})
+
+		It("should still short-circuit on failure", func() {
+			schema := reactree.NewReAcTreeSchema()
+			sg := graph.NewStateGraph(schema)
+
+			nodeBExecuted := false
+			sg.AddNode("a", stubNodeFuncWithCompletion(reactree.Failure, false))
+			sg.AddNode("b", trackingNodeFunc(reactree.Success, &nodeBExecuted))
+			sg.SetEntryPoint("a")
+
+			reactree.BuildSequenceWithEarlyExit(sg, []string{"a", "b"})
+
+			compiled, err := sg.Compile()
+			Expect(err).NotTo(HaveOccurred())
+
+			executor, err := graph.NewExecutor(compiled)
+			Expect(err).NotTo(HaveOccurred())
+
+			events, err := executor.Execute(context.Background(), graph.State{}, testInvocation())
+			Expect(err).NotTo(HaveOccurred())
+			for range events {
+			}
+
+			Expect(nodeBExecuted).To(BeFalse(), "node b should be skipped on failure")
+		})
+
+		It("should handle empty node list gracefully", func() {
+			schema := reactree.NewReAcTreeSchema()
+			sg := graph.NewStateGraph(schema)
+			result := reactree.BuildSequenceWithEarlyExit(sg, []string{})
 			Expect(result).NotTo(BeNil())
 		})
 	})
@@ -126,9 +234,10 @@ var _ = Describe("ControlFlow", func() {
 			schema := reactree.NewReAcTreeSchema()
 			sg := graph.NewStateGraph(schema)
 
-			sg.AddNode("a", stubNodeFunc(reactree.Success))
-			sg.AddNode("b", stubNodeFunc(reactree.Failure))
-			sg.AddNode("c", stubNodeFunc(reactree.Success))
+			// Wrap nodes for parallel so per-node status keys are written for majority voting.
+			sg.AddNode("a", reactree.WrapNodeForParallel("a", stubNodeFunc(reactree.Success)))
+			sg.AddNode("b", reactree.WrapNodeForParallel("b", stubNodeFunc(reactree.Failure)))
+			sg.AddNode("c", reactree.WrapNodeForParallel("c", stubNodeFunc(reactree.Success)))
 
 			// Fan out from start to all nodes
 			sg.SetEntryPoint("a")
@@ -184,6 +293,7 @@ var _ = Describe("ControlFlow", func() {
 			Expect(schema.Fields).To(HaveKey(reactree.StateKeyNodeStatus))
 			Expect(schema.Fields).To(HaveKey(reactree.StateKeyOutput))
 			Expect(schema.Fields).To(HaveKey(reactree.StateKeyWorkingMemory))
+			Expect(schema.Fields).To(HaveKey(reactree.StateKeyTaskCompleted))
 		})
 	})
 

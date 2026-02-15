@@ -8,6 +8,7 @@ import (
 )
 
 func TestCodeOwner(t *testing.T) {
+	t.Parallel()
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "CodeOwner Suite")
 }

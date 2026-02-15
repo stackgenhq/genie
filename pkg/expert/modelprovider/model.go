@@ -30,11 +30,24 @@ func DefaultModelConfig() ModelConfig {
 		})
 	}
 	if os.Getenv("GEMINI_API_KEY") != "" || os.Getenv("GOOGLE_API_KEY") != "" {
+		// Flash model for lightweight front desk classification / triage
+		result.Providers = append(result.Providers, ProviderConfig{
+			Provider:    "gemini",
+			ModelName:   "gemini-3-flash",
+			Variant:     "default",
+			GoodForTask: TaskFrontDesk,
+		})
 		result.Providers = append(result.Providers, ProviderConfig{
 			Provider:    "gemini",
 			ModelName:   osutils.Getenv("GOOGLE_MODEL", "gemini-3-pro-preview"),
 			Variant:     "default",
 			GoodForTask: TaskToolCalling,
+		})
+		result.Providers = append(result.Providers, ProviderConfig{
+			Provider:    "gemini",
+			ModelName:   osutils.Getenv("GOOGLE_MODEL", "gemini-3-pro-preview"),
+			Variant:     "default",
+			GoodForTask: TaskGeneralTask,
 		})
 	}
 	if os.Getenv("ANTHROPIC_API_KEY") != "" {

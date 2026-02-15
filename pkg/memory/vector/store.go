@@ -28,6 +28,11 @@ type Config struct {
 	OllamaModel       string `yaml:"ollama_model" toml:"ollama_model"`
 }
 
+// CanInitialize checks if the config can be used to initialize a vector store.
+func (c Config) CanInitialize() bool {
+	return c.EmbeddingProvider != "" || c.APIKey != "" || c.OllamaURL != ""
+}
+
 // snapshotFile is the filename used to persist the vector store state.
 const snapshotFile = "vector_store.json"
 
@@ -61,7 +66,7 @@ type Store struct {
 
 // NewStore creates a new vector store backed by trpc-agent-go/knowledge.
 // If cfg.PersistenceDir is set, existing data is loaded from disk.
-func NewStore(_ context.Context, cfg Config) (*Store, error) {
+func (cfg Config) NewStore(_ context.Context) (*Store, error) {
 	emb, err := buildEmbedder(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create embedder: %w", err)

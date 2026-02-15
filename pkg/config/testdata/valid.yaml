@@ -1,5 +1,3 @@
-architect:
-  google_search_api_key: "yaml-key"
 ops:
   max_pages: 10
   enable_verification: false

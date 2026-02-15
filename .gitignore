@@ -8,3 +8,7 @@ coverage.out
 testreports
 genie_output
 **/*/.terraform
+genie_
+genie_audit.log
+build
+audit.log

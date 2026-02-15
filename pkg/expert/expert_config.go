@@ -20,8 +20,8 @@ type ExpertConfig struct {
 func DefaultExpertConfig() ExpertConfig {
 	return ExpertConfig{
 		MaxLLMCalls:       15,
-		MaxToolIterations: 30,
-		MaxHistoryRuns:    5,
+		MaxToolIterations: 20,
+		MaxHistoryRuns:    3,
 	}
 }
 

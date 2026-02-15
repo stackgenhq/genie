@@ -3,6 +3,7 @@ package expert_test
 import (
 	"context"
 
+	"github.com/appcd-dev/genie/pkg/audit/auditfakes"
 	"github.com/appcd-dev/genie/pkg/expert"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider/modelproviderfakes"
 	. "github.com/onsi/ginkgo/v2"
@@ -10,7 +11,29 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
+// fakeTool is a minimal callable tool for expert tests.
+type fakeTool struct {
+	name      string
+	callCount int
+	result    string
+}
+
+func (f *fakeTool) Declaration() *tool.Declaration {
+	return &tool.Declaration{Name: f.name}
+}
+
+func (f *fakeTool) Call(_ context.Context, _ []byte) (any, error) {
+	f.callCount++
+	return f.result, nil
+}
+
 var _ = Describe("ExpertBio", func() {
+	var (
+		fakeAuditor *auditfakes.FakeAuditor
+	)
+	BeforeEach(func() {
+		fakeAuditor = &auditfakes.FakeAuditor{}
+	})
 	Describe("ToExpert", func() {
 		It("should successfully create an expert", func() {
 			bio := expert.ExpertBio{
@@ -21,7 +44,7 @@ var _ = Describe("ExpertBio", func() {
 
 			fakeModelProvider := &modelproviderfakes.FakeModelProvider{}
 
-			exp, err := bio.ToExpert(context.Background(), fakeModelProvider)
+			exp, err := bio.ToExpert(context.Background(), fakeModelProvider, fakeAuditor)
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(exp).NotTo(BeNil())
@@ -40,7 +63,7 @@ var _ = Describe("ExpertBio", func() {
 
 			fakeModelProvider := &modelproviderfakes.FakeModelProvider{}
 
-			exp, err := bio.ToExpert(context.Background(), fakeModelProvider)
+			exp, err := bio.ToExpert(context.Background(), fakeModelProvider, fakeAuditor)
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(exp).NotTo(BeNil())
@@ -53,7 +76,7 @@ var _ = Describe("ExpertBio", func() {
 
 			fakeModelProvider := &modelproviderfakes.FakeModelProvider{}
 
-			exp, err := bio.ToExpert(context.Background(), fakeModelProvider)
+			exp, err := bio.ToExpert(context.Background(), fakeModelProvider, fakeAuditor)
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(exp).NotTo(BeNil())
@@ -66,8 +89,8 @@ var _ = Describe("ExpertConfig", func() {
 		It("should return sensible defaults", func() {
 			cfg := expert.DefaultExpertConfig()
 			Expect(cfg.MaxLLMCalls).To(Equal(15))
-			Expect(cfg.MaxToolIterations).To(Equal(30))
-			Expect(cfg.MaxHistoryRuns).To(Equal(5))
+			Expect(cfg.MaxToolIterations).To(Equal(20))
+			Expect(cfg.MaxHistoryRuns).To(Equal(3))
 			Expect(cfg.DisableParallelTools).To(BeFalse())
 		})
 	})
@@ -87,7 +110,7 @@ var _ = Describe("ExpertConfig", func() {
 			defaultCfg := expert.DefaultExpertConfig()
 			Expect(cfg.MaxLLMCalls).To(BeNumerically("<", defaultCfg.MaxLLMCalls))
 			Expect(cfg.MaxToolIterations).To(BeNumerically("<", defaultCfg.MaxToolIterations))
-			Expect(cfg.MaxHistoryRuns).To(BeNumerically("<", defaultCfg.MaxHistoryRuns))
+			Expect(cfg.MaxHistoryRuns).To(BeNumerically("<=", defaultCfg.MaxHistoryRuns))
 		})
 	})
 })

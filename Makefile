@@ -1,14 +1,15 @@
-# StackGen CLI Makefile
+# Genie CLI Makefile
 
 # Build variables
-BINARY_NAME=stackgen
+BINARY_NAME=genie
 GIT_COMMIT = $(shell git rev-parse --short HEAD)
 GIT_DIRTY  = $(shell test -n "`git status --porcelain`" && echo "-dirty" || echo "")
 GIT_VERSION=${GIT_COMMIT}${GIT_DIRTY}
 GO_BUILD_FLAGS=-ldflags="-s -w \
 	-X 'github.com/appcd-dev/go-lib/constants.Version=${GIT_VERSION}' \
 	-X 'github.com/appcd-dev/go-lib/constants.BuildDate=$(shell date +%D)' \
-	-X github.com/appcd-dev/go-lib/featureflag.Key=${FF_UNLEASH_API_KEY}"
+	-X github.com/appcd-dev/go-lib/featureflag.Key=${FF_UNLEASH_API_KEY}" \
+	-mod=mod
 DIST_DIR=build
 
 # Go related variables

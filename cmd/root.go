@@ -22,9 +22,9 @@ import (
 )
 
 type rootCmdOption struct {
-	cfgFile  string
-	logLevel string
-	codeDir  string
+	cfgFile    string
+	logLevel   string
+	workingDir string
 }
 
 func (r rootCmdOption) level() slog.Level {
@@ -38,7 +38,7 @@ func (r rootCmdOption) level() slog.Level {
 	case "error":
 		return slog.LevelError
 	default:
-		return slog.LevelWarn
+		return slog.LevelDebug
 	}
 }
 
@@ -88,16 +88,14 @@ Infrastructure is hard. Being a Genie is easy.`,
 		return nil, err
 	}
 	rootCmd.AddCommand(grantCobraCmd)
-	rootCmd.AddCommand(newMCPCommand(&r.opts))
 	rootCmd.AddCommand(newVersionCommand(&r.opts))
-	rootCmd.AddCommand(newAnalyzeCommand(&r.opts).command())
+	rootCmd.AddCommand(newConnectCommand(&r.opts))
 	// Global flags
 	rootCmd.PersistentFlags().StringVar(&r.opts.cfgFile, "config", "", "config file (default is $HOME/.genie.yaml; repo .genie.yaml preferred)")
 	rootCmd.PersistentFlags().StringVar(&r.opts.logLevel, "log-level", "warn", "log level (debug, info, warn, error)")
 
 	// Grant command flags (also available at root level for convenience)
-	rootCmd.PersistentFlags().StringVar(&r.opts.codeDir, "code-dir", cwd, "code directory")
-	rootCmd.PersistentFlags().StringVar(&grantCmd.opts.SaveTo, "save-to", filepath.Join(cwd, "genie_output"), "save to")
+	rootCmd.PersistentFlags().StringVar(&r.opts.workingDir, "working-dir", cwd, "code directory")
 
 	return rootCmd, nil
 }

@@ -1,6 +1,3 @@
-[architect]
-google_search_api_key = "toml-key"
-
 [ops]
 max_pages = 8
 enable_verification = true

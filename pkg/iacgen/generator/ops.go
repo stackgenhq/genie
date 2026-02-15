@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/appcd-dev/genie/pkg/agui"
+	"github.com/appcd-dev/genie/pkg/audit"
 	"github.com/appcd-dev/genie/pkg/expert"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/langfuse"
@@ -15,6 +17,7 @@ import (
 	"github.com/appcd-dev/go-lib/logger"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/file"
+	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )
 
 //go:generate go tool counterfeiter -generate
@@ -52,6 +55,20 @@ type IACResponse struct {
 //counterfeiter:generate . IACWriter
 type IACWriter interface {
 	CreateIAC(ctx context.Context, requirement IACRequest) (IACResponse, error)
+	Tool() tool.Tool
+}
+
+// IACWriterToolRequest is the input schema for the generate_iac tool.
+type IACWriterToolRequest struct {
+	ArchitectureRequirements []string `json:"architecture_requirements" jsonschema:"description=Architecture notes and requirements to generate IaC from,required"`
+	OutputFolder             string   `json:"output_folder" jsonschema:"description=Absolute path to the directory where Terraform files will be written,required"`
+}
+
+// IACWriterToolResponse is the output of the generate_iac tool.
+type IACWriterToolResponse struct {
+	IACCodePath string `json:"iac_code_path"`
+	Notes       string `json:"notes"`
+	Status      string `json:"status"`
 }
 
 type OpsConfig struct {
@@ -86,7 +103,7 @@ func NewLLMBasedIACWriter(ctx context.Context, modelProvider modelprovider.Model
 		Tools:       allTools,
 	}
 
-	expertInstance, err := expertBio.ToExpert(ctx, modelProvider)
+	expertInstance, err := expertBio.ToExpert(ctx, modelProvider, &audit.NoopAuditor{})
 	if err != nil {
 		logr.Error("Failed to create expert instance", "error", err)
 		return nil, err
@@ -102,6 +119,33 @@ type llmBasedIACWriter struct {
 	expert       expert.Expert
 	cfg          OpsConfig
 	outputFolder string
+}
+
+func (w *llmBasedIACWriter) Tool() tool.Tool {
+	return function.NewFunctionTool(
+		w.executeTool,
+		function.WithName("generate_iac"),
+		function.WithDescription(
+			"Generates Infrastructure as Code (Terraform/OpenTofu) from architecture requirements. "+
+				"Takes architecture notes describing cloud resources and produces production-ready "+
+				"Terraform files with module-first approach, validation, and policy compliance."),
+	)
+}
+
+func (w *llmBasedIACWriter) executeTool(ctx context.Context, req IACWriterToolRequest) (IACWriterToolResponse, error) {
+	resp, err := w.CreateIAC(ctx, IACRequest{
+		ArchitectureRequirement: req.ArchitectureRequirements,
+		OutputFolder:            req.OutputFolder,
+	})
+	if err != nil {
+		return IACWriterToolResponse{Status: "error", Notes: err.Error()}, nil
+	}
+
+	return IACWriterToolResponse{
+		IACCodePath: resp.IACCodePath,
+		Notes:       strings.Join(resp.Notes, "\n"),
+		Status:      "success",
+	}, nil
 }
 
 // CreateIAC generates Terraform code based on architectural requirements
@@ -134,6 +178,9 @@ func (w *llmBasedIACWriter) CreateIAC(ctx context.Context, requirement IACReques
 		return IACResponse{}, fmt.Errorf("failed to create file toolset: %w", err)
 	}
 	fileToolsList := fileToolSet.Tools(ctx)
+
+	emitOpsThinking(requirement.EventChan, "Preparing Terraform tooling...")
+
 	// Build the prompt for Terraform code generation with module-first approach
 	logr.Debug("Building module-first prompt")
 	prompt := buildModuleFirstPrompt(ctx, requirement, w.cfg)
@@ -142,6 +189,7 @@ func (w *llmBasedIACWriter) CreateIAC(ctx context.Context, requirement IACReques
 	// Generate Terraform code using the expert with available tools
 	// The expert will automatically discover and use the appropriate tools for registry search and file operations
 	logr.Info("Invoking expert to generate Terraform code")
+	emitOpsThinking(requirement.EventChan, "Generating Terraform modules and configurations...")
 	result, err := w.expert.Do(ctx, expert.Request{
 		Message:         prompt,
 		AdditionalTools: fileToolsList,
@@ -155,6 +203,7 @@ func (w *llmBasedIACWriter) CreateIAC(ctx context.Context, requirement IACReques
 	}
 
 	logr.Info("Expert completed code generation", "choicesCount", len(result.Choices))
+	emitOpsThinking(requirement.EventChan, "Finalizing infrastructure files...")
 
 	// Collect the generated code and notes from all choices
 	var notes []string
@@ -285,4 +334,13 @@ func buildModuleFirstPrompt(ctx context.Context, requirement IACRequest, cfg Ops
 	)
 
 	return replacer.Replace(template)
+}
+
+// emitOpsThinking sends an AgentThinkingMsg to the TUI event channel.
+// It is a nil-safe no-op when the event channel is not provided.
+func emitOpsThinking(eventChan chan<- interface{}, message string) {
+	if eventChan == nil {
+		return
+	}
+	agui.EmitThinking(eventChan, "Terraform Expert", message)
 }

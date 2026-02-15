@@ -6,13 +6,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/appcd-dev/genie/pkg/config"
 	"github.com/appcd-dev/genie/pkg/skills"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
 func TestLoader(t *testing.T) {
+	t.Parallel()
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Skills Loader Suite")
 }
@@ -33,11 +33,7 @@ var _ = Describe("LoadSkillsFromConfig", func() {
 
 	Context("with valid skills path", func() {
 		It("should load skills and create tools", func() {
-			cfg := config.GenieConfig{
-				SkillsRoots: []string{skillsDir},
-			}
-
-			tools, err := skills.LoadSkillsFromConfig(context.Background(), cfg)
+			tools, err := skills.LoadSkillsFromConfig(context.Background(), skillsDir)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tools).NotTo(BeEmpty())
 			Expect(len(tools)).To(Equal(3)) // list_skills, skill_load, skill_run
@@ -56,11 +52,7 @@ var _ = Describe("LoadSkillsFromConfig", func() {
 
 	Context("with empty skills path", func() {
 		It("should return nil tools without error", func() {
-			cfg := config.GenieConfig{
-				SkillsRoots: []string{},
-			}
-
-			tools, err := skills.LoadSkillsFromConfig(context.Background(), cfg)
+			tools, err := skills.LoadSkillsFromConfig(context.Background())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tools).To(BeNil())
 		})
@@ -68,11 +60,7 @@ var _ = Describe("LoadSkillsFromConfig", func() {
 
 	Context("with non-existent skills path", func() {
 		It("should return nil tools without error", func() {
-			cfg := config.GenieConfig{
-				SkillsRoots: []string{"/nonexistent/path"},
-			}
-
-			tools, err := skills.LoadSkillsFromConfig(context.Background(), cfg)
+			tools, err := skills.LoadSkillsFromConfig(context.Background(), "/nonexistent/path")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tools).To(BeNil())
 		})
@@ -85,11 +73,7 @@ var _ = Describe("LoadSkillsFromConfig", func() {
 			err := os.WriteFile(tempFile, []byte("test"), 0644)
 			Expect(err).NotTo(HaveOccurred())
 
-			cfg := config.GenieConfig{
-				SkillsRoots: []string{tempFile},
-			}
-
-			tools, err := skills.LoadSkillsFromConfig(context.Background(), cfg)
+			tools, err := skills.LoadSkillsFromConfig(context.Background(), tempFile)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tools).To(BeNil()) // Invalid paths are skipped gracefully
 		})
@@ -102,11 +86,7 @@ var _ = Describe("LoadSkillsFromConfig", func() {
 			os.Setenv(testEnvVar, skillsDir)
 			defer os.Unsetenv(testEnvVar)
 
-			cfg := config.GenieConfig{
-				SkillsRoots: []string{"${" + testEnvVar + "}"},
-			}
-
-			tools, err := skills.LoadSkillsFromConfig(context.Background(), cfg)
+			tools, err := skills.LoadSkillsFromConfig(context.Background(), "${"+testEnvVar+"}")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tools).NotTo(BeEmpty())
 		})

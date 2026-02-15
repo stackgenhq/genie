@@ -7,10 +7,16 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/appcd-dev/genie/pkg/agui"
+	"github.com/appcd-dev/genie/pkg/browser"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/iacgen/generator"
 	"github.com/appcd-dev/genie/pkg/mcp"
 	"github.com/appcd-dev/genie/pkg/memory/vector"
+	"github.com/appcd-dev/genie/pkg/messenger"
+	"github.com/appcd-dev/genie/pkg/tools/email"
+	"github.com/appcd-dev/genie/pkg/tools/pm"
+	"github.com/appcd-dev/genie/pkg/tools/scm"
 	"github.com/appcd-dev/genie/pkg/tools/secops"
 	"github.com/appcd-dev/genie/pkg/tools/websearch"
 	"gopkg.in/yaml.v3"
@@ -18,13 +24,18 @@ import (
 
 type GenieConfig struct {
 	ModelConfig  modelprovider.ModelConfig `yaml:"model_config" toml:"model_config"`
-	Architect    generator.ArchitectConfig `yaml:"architect" toml:"architect"`
 	Ops          generator.OpsConfig       `yaml:"ops" toml:"ops"`
 	SecOps       secops.SecOpsConfig       `yaml:"secops" toml:"secops"`
 	SkillsRoots  []string                  `yaml:"skills_roots" toml:"skills_roots"` // Supports multiple roots including HTTPS URLs
 	MCP          mcp.MCPConfig             `yaml:"mcp" toml:"mcp"`
 	WebSearch    websearch.Config          `yaml:"web_search" toml:"web_search"`
 	VectorMemory vector.Config             `yaml:"vector_memory" toml:"vector_memory"`
+	Messenger    messenger.Config          `yaml:"messenger" toml:"messenger"`
+	Browser      browser.Config            `yaml:"browser" toml:"browser"`
+	SCM          scm.Config                `yaml:"scm" toml:"scm"`
+	PM           pm.Config                 `yaml:"pm" toml:"pm"`
+	Email        email.Config              `yaml:"email" toml:"email"`
+	AGUI         agui.ServerConfig         `yaml:"agui" toml:"agui"`
 }
 
 func LoadGenieConfig(path string) (GenieConfig, error) {
@@ -44,13 +55,16 @@ func LoadGenieConfig(path string) (GenieConfig, error) {
 			},
 		},
 		WebSearch: websearch.Config{
+			Provider:     os.Getenv("GENIE_SEARCH_PROVIDER"),
 			GoogleAPIKey: os.Getenv("GOOGLE_API_KEY"),
 			GoogleCX:     os.Getenv("GOOGLE_CSE_ID"),
+			BingAPIKey:   os.Getenv("BING_API_KEY"),
 		},
 		VectorMemory: vector.Config{
 			EmbeddingProvider: "dummy", // Default
 			APIKey:            os.Getenv("OPENAI_API_KEY"),
 		},
+		AGUI: agui.DefaultServerConfig(),
 	}
 
 	// Override VectorMemory provider default if env vars present

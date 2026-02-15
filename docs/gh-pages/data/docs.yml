@@ -1,0 +1,522 @@
+# ─────────────────────────────────────────────────────────────
+# docs.yml — Single source of truth for the Documentation page.
+# Edit this file to update content; no HTML changes needed.
+# ─────────────────────────────────────────────────────────────
+
+header:
+  title: Documentation
+  subtitle: Everything you need to configure, extend, and troubleshoot Genie.
+  tabs:
+    - id: configuration
+      icon: "⚙️"
+      label: Configuration
+    - id: howto
+      icon: "📖"
+      label: How-To
+    - id: architecture
+      icon: "🏗️"
+      label: Architecture
+    - id: faq
+      icon: "❓"
+      label: FAQ
+
+# ═══════════════════════════════════════════════════════════
+# TAB 1: CONFIGURATION  (master-detail sidebar)
+# ═══════════════════════════════════════════════════════════
+config_sections:
+  - id: model_config
+    icon: "🤖"
+    name: model_config
+    sidebar_desc: AI models & task routing
+    detail_title: "🤖 model_config"
+    detail_desc: >
+      Configure one or more AI model providers. Genie routes different tasks to the
+      model best suited for the job.
+    tables:
+      - columns: [Key, Type, Description]
+        rows:
+          - ["provider", "string", "AI provider — `openai`, `gemini`, or `anthropic`"]
+          - ["model_name", "string", "Specific model, e.g. `gpt-5.2`, `gemini-3-flash`, `claude-sonnet-4.5`"]
+          - ["variant", "string", "Usually `default` — use `azure` for Azure-hosted OpenAI"]
+          - ["token", "string", "API key — use `${OPENAI_API_KEY}` to read from environment"]
+          - ["good_for_task", "string", "What this model excels at: `planning`, `tool_calling`, `efficiency`, `scientific_reasoning`"]
+
+  - id: ops
+    icon: "⚙️"
+    name: ops
+    sidebar_desc: IaC generation & verification
+    detail_title: "⚙️ ops"
+    detail_desc: >
+      Controls for infrastructure code generation and how many times Genie will verify its work.
+    tables:
+      - columns: [Key, Type, Default, Description]
+        rows:
+          - ["max_pages", "int", "`5`", "Max documentation pages to read during research"]
+          - ["enable_verification", "bool", "`true`", "Run `terraform validate` after generating code"]
+          - ["max_verification_runs", "int", "`3`", "Retry limit for fix → re-verify cycles"]
+
+  - id: secops
+    icon: "🔒"
+    name: secops
+    sidebar_desc: Security scanning thresholds
+    detail_title: "🔒 secops"
+    detail_desc: >
+      Security scanning using Trivy or Snyk. Severity thresholds control how many issues are acceptable.
+    tables:
+      - columns: [Key, Type, Default, Description]
+        rows:
+          - ["scanner", "string", "`trivy`", "`trivy` (free) or `snyk` (needs account)"]
+          - ["severity_thresholds.high", "int", "`0`", "Max HIGH issues — `0` = zero tolerance"]
+          - ["severity_thresholds.medium", "int", "`42`", "Max MEDIUM issues allowed"]
+          - ["severity_thresholds.low", "int", "`-1`", "Max LOW issues — `-1` = unlimited (ignore)"]
+
+  - id: skills_roots
+    icon: "🎯"
+    name: skills_roots
+    sidebar_desc: Reusable agent capabilities
+    detail_title: "🎯 skills_roots"
+    detail_desc: >
+      Skills are reusable capability packs that teach Genie how to do specific things.
+      See <a href="https://agentskills.io" target="_blank" class="text-purple-500 hover:text-purple-600">agentskills.io</a>.
+    tables:
+      - columns: [Key, Type, Default, Description]
+        rows:
+          - ["skills_roots", "string[]", '`["./skills"]`', "Directories or HTTPS URLs containing skill definitions"]
+
+  - id: mcp
+    icon: "🔌"
+    name: mcp
+    sidebar_desc: External tool servers (MCP)
+    detail_title: "🔌 mcp"
+    detail_desc: >
+      MCP (Model Context Protocol) lets you extend Genie with additional tools from
+      external servers — local or remote.
+    subsections:
+      - label: Server Configuration
+        columns: [Key, Type, Description]
+        rows:
+          - ["name", "string", "Friendly name, e.g. `terraform-registry`"]
+          - ["transport", "string", "`stdio` (local), `streamable_http`, or `sse` (remote)"]
+          - ["command", "string", "Program to run (stdio only), e.g. `npx @org/mcp-server`"]
+          - ["args", "string[]", "Extra command arguments"]
+          - ["server_url", "string", "URL for HTTP/SSE transports"]
+          - ["headers", "map", "Custom HTTP headers like `Authorization`"]
+          - ["include_tools", "string[]", "Whitelist — only use these tools"]
+          - ["exclude_tools", "string[]", "Blacklist — block these tools"]
+          - ["session_reconnect", "int", "Auto-reconnect retries (`0` = off)"]
+      - label: Retry Configuration
+        columns: [Key, Type, Default, Description]
+        rows:
+          - ["timeout", "duration", "`10s`", "Connection timeout"]
+          - ["max_retries", "int", "`2`", "Retry count (0–10)"]
+          - ["initial_backoff", "duration", "`500ms`", "Wait before first retry"]
+          - ["backoff_factor", "float", "`2.0`", "Exponential backoff multiplier"]
+          - ["max_backoff", "duration", "`8s`", "Max wait between retries"]
+
+  - id: web_search
+    icon: "🔍"
+    name: web_search
+    sidebar_desc: Internet search for answers
+    detail_title: "🔍 web_search"
+    detail_desc: >
+      Genie uses Google Custom Search to look up documentation and reference material.
+    tables:
+      - columns: [Key, Type, Description]
+        rows:
+          - ["google_api_key", "string", "Google Custom Search API key — use `${GOOGLE_API_KEY}`"]
+          - ["google_cx", "string", "Custom Search Engine ID — controls which sites are searched"]
+
+  - id: vector_memory
+    icon: "🧠"
+    name: vector_memory
+    sidebar_desc: Persistent memory across sessions
+    detail_title: "🧠 vector_memory"
+    detail_desc: >
+      Vector memory stores knowledge as embeddings so Genie gets smarter over time.
+    tables:
+      - columns: [Key, Type, Default, Description]
+        rows:
+          - ["persistence_dir", "string", "—", "Where to save memory on disk (empty = in-memory only)"]
+          - ["embedding_provider", "string", "`dummy`", "`openai` (best), `ollama` (local/free), or `dummy` (off)"]
+          - ["api_key", "string", "—", "OpenAI API key (only when provider is `openai`)"]
+          - ["ollama_url", "string", "—", "Ollama server URL, e.g. `http://localhost:11434`"]
+          - ["ollama_model", "string", "—", "Embedding model, e.g. `nomic-embed-text`"]
+
+  - id: messenger
+    icon: "💬"
+    name: messenger
+    sidebar_desc: Chat platform integrations
+    detail_title: "💬 messenger"
+    detail_desc: >
+      Integrate Genie with your team's chat platform — Slack, Discord, Telegram, Teams,
+      Google Chat, or WhatsApp.
+    subsections:
+      - label: Common Settings
+        columns: [Key, Type, Default, Description]
+        rows:
+          - ["platform", "string", "—", "Which chat app — `slack`, `discord`, `telegram`, `teams`, `googlechat`, `whatsapp`"]
+          - ["buffer_size", "int", "`100`", "Message queue size before dropping"]
+      - label: Slack
+        columns: [Key, Description]
+        rows:
+          - ["slack.app_token", "App-Level Token (starts with `xapp-`)"]
+          - ["slack.bot_token", "Bot User Token (starts with `xoxb-`)"]
+      - label: Discord
+        columns: [Key, Description]
+        rows:
+          - ["discord.bot_token", "Bot Token from Developer Portal"]
+      - label: Telegram
+        columns: [Key, Description]
+        rows:
+          - ['telegram.token', 'Token from <a href="https://t.me/BotFather" target="_blank" class="text-purple-500">@BotFather</a>']
+      - label: Microsoft Teams
+        columns: [Key, Description]
+        rows:
+          - ["teams.app_id", "Azure Bot App ID"]
+          - ["teams.app_password", "Azure Bot secret/password"]
+          - ["teams.listen_addr", "Webhook address (default `:3978`)"]
+      - label: Google Chat
+        columns: [Key, Description]
+        rows:
+          - ["googlechat.credentials_file", "Service account JSON path"]
+          - ["googlechat.listen_addr", "Webhook address (default `:8080`)"]
+      - label: WhatsApp
+        columns: [Key, Description]
+        rows:
+          - ["whatsapp.access_token", "Business API access token"]
+          - ["whatsapp.phone_number_id", "Phone Number ID"]
+          - ["whatsapp.app_secret", "Facebook App Secret"]
+          - ["whatsapp.verify_token", "Webhook verification token"]
+          - ["whatsapp.listen_addr", "Webhook address (default `:8443`)"]
+
+  - id: browser
+    icon: "🌐"
+    name: browser
+    sidebar_desc: Browser automation & safety
+    detail_title: "🌐 browser"
+    detail_desc: >
+      Browser automation tools powered by Chrome DevTools Protocol (chromedp).
+      Provides 7 composable tools: navigate, click, type, read text, read HTML,
+      screenshot, and eval JS. Use the blocklist to restrict which domains the
+      agent is allowed to visit.
+    tables:
+      - columns: [Key, Type, Default, Description]
+        rows:
+          - ["blocked_domains", "string[]", "`[]`", "Domains the agent is forbidden from navigating to. Matching is suffix-based — `example.com` also blocks `sub.example.com`"]
+    subsections:
+      - label: Available Tools
+        columns: [Tool, Description]
+        rows:
+          - ["`browser_navigate`", "Load a URL (respects blocklist)"]
+          - ["`browser_click`", "Wait for & click a CSS-selected element"]
+          - ["`browser_type`", "Clear & type text into an input"]
+          - ["`browser_read_text`", "Extract visible text from an element"]
+          - ["`browser_read_html`", "Extract outer HTML from an element"]
+          - ["`browser_screenshot`", "Capture viewport or element as base64 PNG"]
+          - ["`browser_eval_js`", "Evaluate arbitrary JavaScript"]
+    code_example:
+      label: Example YAML
+      code: |
+        browser:
+          blocked_domains:
+            - admin.internal.corp
+            - payments.example.com
+            - localhost
+
+  - id: scm
+    icon: "🐙"
+    name: scm
+    sidebar_desc: Source Control (GitHub/GitLab)
+    detail_title: "🐙 scm"
+    detail_desc: >
+      Integrate with Source Control Management systems like GitHub, GitLab, or Bitbucket.
+    tables:
+      - columns: [Key, Type, Description]
+        rows:
+          - ["provider", "string", "`github`, `gitlab`, `bitbucket`"]
+          - ["token", "string", "Personal Access Token (PAT)"]
+          - ["base_url", "string", "API Base URL (for Enterprise instances)"]
+
+  - id: pm
+    icon: "📋"
+    name: pm
+    sidebar_desc: Project Management (Jira/Linear)
+    detail_title: "📋 pm"
+    detail_desc: >
+      Connect to Project Management tools like JIRA, Linear, or Asana.
+    tables:
+      - columns: [Key, Type, Description]
+        rows:
+          - ["provider", "string", "`jira`, `linear`, `asana`"]
+          - ["api_token", "string", "API Token for authentication"]
+          - ["base_url", "string", "Instance URL (e.g. `https://mycompany.atlassian.net`)"]
+          - ["email", "string", "Jira only — email address for Basic auth (used with API token)"]
+
+  - id: email
+    icon: "📧"
+    name: email
+    sidebar_desc: Email Sending & Reading
+    detail_title: "📧 email"
+    detail_desc: >
+      Send and receive emails via SMTP/IMAP or API providers.
+    tables:
+      - columns: [Key, Type, Description]
+        rows:
+          - ["provider", "string", "`smtp`, `gmail_api`, `sendgrid`"]
+          - ["host", "string", "SMTP Host (e.g. `smtp.gmail.com`)"]
+          - ["port", "int", "SMTP Port (e.g. `587`)"]
+          - ["username", "string", "Email username"]
+          - ["password", "string", "Email password or App Password"]
+
+# ═══════════════════════════════════════════════════════════
+# TAB 2: HOW-TO
+# ═══════════════════════════════════════════════════════════
+howto_guides:
+  - step: 1
+    title: Getting Started
+    desc: Install Genie and run your first command in under a minute.
+    code: |
+      # Install via Homebrew
+      brew install stackgenhq/homebrew-stackgen/genie
+
+      # Or run via Docker
+      docker run --rm -it \
+        -v ~/.genie.toml:/root/.genie.toml \
+        -v $(pwd):/workspace \
+        ghcr.io/stackgenhq/genie:latest grant
+
+      # Grant your first wish
+      genie grant
+
+  - step: 2
+    title: Setting Up Models
+    desc: Configure multi-model routing so Genie picks the best brain for each task.
+    code: |
+      # .genie.toml
+      [[model_config]]
+      provider = "openai"
+      model_name = "gpt-5.2"
+      token = "${OPENAI_API_KEY}"
+      good_for_task = "planning"
+
+      [[model_config]]
+      provider = "gemini"
+      model_name = "gemini-3-flash"
+      token = "${GEMINI_API_KEY}"
+      good_for_task = "tool_calling"
+
+  - step: 3
+    title: Adding Skills
+    desc: >
+      Create reusable capability packs that teach Genie new tricks. Based on the
+      <a href="https://agentskills.io" target="_blank" class="text-purple-500 hover:text-purple-600">agentskills.io</a> spec.
+    code: |
+      # 1. Create a skill directory
+      mkdir -p skills/my-skill
+
+      # 2. Add a SKILL.md with frontmatter
+      cat > skills/my-skill/SKILL.md <<EOF
+      ---
+      name: my-skill
+      description: What this skill does
+      ---
+      # My Skill
+      Instructions here...
+      EOF
+
+      # 3. Configure in .genie.toml
+      skills_roots = ["./skills"]
+
+  - step: 4
+    title: Connecting MCP Tools
+    desc: Extend Genie with external tool servers via the Model Context Protocol.
+    code: |
+      # Local stdio server
+      [[mcp]]
+      name = "terraform-registry"
+      transport = "stdio"
+      command = "npx"
+      args = ["@anthropic/mcp-tf"]
+
+      # Remote HTTP server
+      [[mcp]]
+      name = "cloud-tools"
+      transport = "streamable_http"
+      server_url = "https://mcp.example.com"
+      [mcp.headers]
+      Authorization = "${MCP_TOKEN}"
+
+  - step: 5
+    title: Chat Platform Setup
+    desc: >
+      Wire Genie into Slack, Discord, Telegram, Teams, Google Chat, or WhatsApp so your team can
+      interact directly.
+    code: |
+      # Example: Slack (Socket Mode)
+      [messenger]
+      platform = "slack"
+      buffer_size = 100
+
+      [messenger.slack]
+      app_token = "${SLACK_APP_TOKEN}"
+      bot_token = "${SLACK_BOT_TOKEN}"
+
+      # Steps:
+      # 1. Create app at api.slack.com/apps
+      # 2. Enable Socket Mode
+      # 3. Add bot scopes: chat:write
+      # 4. Install to your workspace
+
+  - step: 6
+    title: Using Environment Variables
+    desc: >
+      Keep API keys and secrets out of your config files using the <code>${ENV_VAR}</code> pattern.
+    code: |
+      # In .genie.toml — reference env vars
+      [[model_config]]
+      token = "${OPENAI_API_KEY}"
+
+      [messenger.slack]
+      app_token = "${SLACK_APP_TOKEN}"
+
+      # Load from a .env file before running
+      set -a && source .env && set +a
+      genie grant
+
+# ═══════════════════════════════════════════════════════════
+# TAB 3: ARCHITECTURE
+# ═══════════════════════════════════════════════════════════
+architecture:
+  title: Architecture & Internals
+
+  event_pipeline:
+    title: Event Pipeline
+    desc: "The TUI communicates with the agent through a two-stage event pipeline:"
+    diagram: |
+      ┌───────────────┐     ┌──────────────┐     ┌──────────────┐     ┌───────┐
+      │ Agent / Expert│────▶│ rawEventChan │────▶│ EventAdapter │────▶│ Model │
+      │ (grant.go)    │     │ (chan iface{})│     │ (goroutine)  │     │(Update)│
+      └───────────────┘     └──────────────┘     └──────────────┘     └───────┘
+                                                                          │
+                                                                  ┌───────┴───────┐
+                                                                  │   ChatView    │
+                                                                  │  (completed)  │
+                                                                  └───────────────┘
+
+  channels:
+    title: Key Channels
+    columns: [Channel, Direction, Purpose]
+    rows:
+      - ["rawEventChan", "Agent → Adapter", "Raw events (event.Event, AgentChatMessage)"]
+      - ["tuiEventChan", "Adapter → Model", "Converted TUI messages"]
+      - ["inputChan", "Model → Agent", "User chat input"]
+
+  debugging:
+    title: Debugging Scenarios
+    items:
+      - title: No output in chat window
+        steps:
+          - "Check that `Model.Update` calls `waitForEvent(m.eventChan)`"
+          - "Check `EventAdapter.ConvertEvent()` output"
+          - "Verify `chatView.AppendToLastMessage()` execution"
+      - title: Tool cards stuck on ⟳
+        steps:
+          - "Verify `EventAdapter` converts tool response events"
+          - "Check `Model.Update` routes response to `chatView.UpdateToolCall()`"
+          - "Verify `ToolCallID` matches between call and response"
+
+  footer_note: "For full details, see `pkg/tui/Agents.md` in the repository."
+
+# ═══════════════════════════════════════════════════════════
+# TAB 4: FAQ
+# ═══════════════════════════════════════════════════════════
+faq:
+  - q: Which AI providers does Genie support?
+    a: >
+      Genie supports <strong>OpenAI</strong> (including Azure-hosted), <strong>Google Gemini</strong>,
+      and <strong>Anthropic Claude</strong>. Set the <code>provider</code> field in
+      <code>[[model_config]]</code> to <code>openai</code>, <code>gemini</code>, or
+      <code>anthropic</code>. For Azure OpenAI, set <code>variant = "azure"</code>.
+
+  - q: Can I use multiple models at once?
+    a: >
+      Yes! Genie is designed for multi-model routing. Add multiple <code>[[model_config]]</code>
+      blocks, each with a different <code>good_for_task</code> value (<code>planning</code>,
+      <code>tool_calling</code>, <code>efficiency</code>, <code>scientific_reasoning</code>). Genie
+      automatically routes each stage of execution to the best-suited model.
+
+  - q: How do I keep API keys out of my config file?
+    a: >
+      Use the <code>${ENV_VAR}</code> syntax in your config. For example:
+      <code>token = "${OPENAI_API_KEY}"</code>. Genie automatically expands environment variables at
+      load time. You can load a <code>.env</code> file before running:
+      <code>set -a && source .env && set +a</code>.
+
+  - q: What's the difference between Skills and MCP?
+    a: >
+      <strong>Skills</strong> are self-contained capability packs (markdown + optional scripts)
+      following the <a href="https://agentskills.io" target="_blank"
+      class="text-purple-500">agentskills.io</a> spec. They live in local directories or remote
+      URLs and teach Genie new tasks.<br><br>
+      <strong>MCP</strong> (Model Context Protocol) connects Genie to external tool servers — either
+      local processes via <code>stdio</code> or remote servers via
+      <code>streamable_http</code>/<code>sse</code>. MCP tools are discovered dynamically at runtime
+      and extend Genie's toolbox.
+
+  - q: Does Genie work in CI/CD pipelines?
+    a: >
+      Yes. Use the Docker image: <code>ghcr.io/stackgenhq/genie:latest</code>. Mount your config file
+      and workspace as volumes. Pass API keys via environment variables. The Docker container is ideal
+      for GitHub Actions, GitLab CI, Jenkins, and Kubernetes Jobs.
+
+  - q: How do I connect Slack, Discord, or Teams?
+    a: >
+      Add a <code>[messenger]</code> section to your <code>.genie.toml</code> with
+      <code>platform</code> set to <code>slack</code>, <code>discord</code>, <code>telegram</code>,
+      <code>teams</code>, <code>googlechat</code>, or <code>whatsapp</code>. Then add the
+      platform-specific credentials block (e.g. <code>[messenger.slack]</code> with
+      <code>app_token</code> and <code>bot_token</code>). See the Configuration tab for all keys.
+
+  - q: Where does Genie store vector memory?
+    a: >
+      By default, vector memory is in-memory only and lost when Genie exits. To persist it, set
+      <code>persistence_dir</code> to a path on disk. Embeddings can be computed via OpenAI
+      (<code>embedding_provider = "openai"</code>) or locally via Ollama
+      (<code>embedding_provider = "ollama"</code>). Set <code>embedding_provider = "dummy"</code> to
+      disable memory entirely.
+
+  - q: What is <code>good_for_task</code> and how does model routing work?
+    a: >
+      <code>good_for_task</code> tells Genie what each model excels at. Values include
+      <code>planning</code> (deep reasoning), <code>tool_calling</code> (function calling),
+      <code>efficiency</code> (fast/cheap tasks), and <code>scientific_reasoning</code>. Genie's
+      ReAcTree engine routes each execution stage to the model best suited for that stage, giving you
+      the quality of the best model and the speed of the fastest.
+
+  - q: Can I run Genie in Docker?
+    a: >
+      Yes. Pull the official image: <code>docker pull ghcr.io/stackgenhq/genie:latest</code>. Mount
+      your config and workspace as volumes:<br><br>
+      <code>docker run --rm -it -v ~/.genie.toml:/root/.genie.toml -v $(pwd):/workspace ghcr.io/stackgenhq/genie:latest grant</code><br><br>
+      Pass secrets via <code>-e</code> flags (e.g. <code>-e OPENAI_API_KEY=sk-...</code>) and use
+      <code>${ENV_VAR}</code> in your config.
+
+  - q: How do I enable security scanning?
+    a: >
+      Security scanning via the SecOps agent is enabled by default using <strong>Trivy</strong> (free,
+      no account needed). Configure it with the <code>[secops]</code> section. Set
+      <code>scanner = "snyk"</code> if you prefer Snyk (requires an account). Use
+      <code>severity_thresholds</code> to define how many HIGH, MEDIUM, or LOW issues are acceptable.
+      Set a threshold to <code>0</code> for zero tolerance, or <code>-1</code> to ignore that severity
+      level.
+
+# ─────────────────────────────────────────────────────────────
+# CTA Section at bottom of docs page
+# ─────────────────────────────────────────────────────────────
+cta:
+  title: Build Your Config Interactively
+  desc: >
+    Use the Config Builder to create your <code class="bg-gray-100 px-2 py-0.5 rounded text-sm font-mono text-purple-600">.genie.toml</code>
+    with a visual UI — no TOML knowledge needed.
+  button_text: Config Builder
+  button_href: config-builder.html

@@ -35,7 +35,6 @@ var _ = Describe("LoadGenieConfig", func() {
 	It("should load values from YAML file", func() {
 		cfg, err := config.LoadGenieConfig(validYamlPath)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(cfg.Architect.GoogleSearchAPIKey).To(Equal("yaml-key"))
 		Expect(cfg.Ops.MaxPages).To(Equal(10))
 		Expect(cfg.Ops.EnableVerification).To(BeFalse())
 		Expect(cfg.SecOps.SeverityThresholds.Medium).To(Equal(20))
@@ -44,7 +43,6 @@ var _ = Describe("LoadGenieConfig", func() {
 	It("should load values from TOML file", func() {
 		cfg, err := config.LoadGenieConfig(validTomlPath)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(cfg.Architect.GoogleSearchAPIKey).To(Equal("toml-key"))
 		Expect(cfg.Ops.MaxPages).To(Equal(8))
 		Expect(cfg.Ops.EnableVerification).To(BeTrue())
 		Expect(cfg.SecOps.SeverityThresholds.Medium).To(Equal(30))
@@ -62,12 +60,12 @@ var _ = Describe("LoadGenieConfig", func() {
 	})
 
 	It("should expand environment variables", func() {
-		os.Setenv("TEST_API_KEY", "expanded-key")
-		defer os.Unsetenv("TEST_API_KEY")
+		os.Setenv("TEST_MAX_PAGES", "20")
+		defer os.Unsetenv("TEST_MAX_PAGES")
 
 		path := filepath.Join("testdata", "env_vars.yaml")
 		cfg, err := config.LoadGenieConfig(path)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(cfg.Architect.GoogleSearchAPIKey).To(Equal("expanded-key"))
+		Expect(cfg.Ops.MaxPages).To(Equal(20))
 	})
 })

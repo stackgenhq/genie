@@ -13,13 +13,13 @@ import (
 // If the error is due to hitting the max tool iteration limit, it synthesizes
 // a partial success response with an explanatory message.
 // Otherwise, it returns the original error.
-func HandleExpertError(err error) (Response, error) {
+func HandleExpertError(ctx context.Context, err error) (Response, error) {
 	if err == nil {
 		return Response{}, nil
 	}
 
 	// Log the actual error for debugging
-	logger.GetLogger(context.TODO()).Error("Expert error occurred", "error", err.Error(), "error_type", fmt.Sprintf("%T", err))
+	logger.GetLogger(ctx).Error("Expert error occurred", "error", err.Error(), "error_type", fmt.Sprintf("%T", err))
 
 	// The runner returns a formatted error string when max tool iterations are exceeded.
 	// See trpc-agent-go/internal/flow/processor/functioncall.go

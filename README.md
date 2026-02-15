@@ -75,9 +75,6 @@ Configuration values matching the pattern `${VAR_NAME}` will be automatically ex
 Check out [config.toml.example](./config.toml.example) for a full example of available options.
 
 ```toml
-[architect]
-google_search_api_key = "your-key"
-
 [ops]
 max_pages = 5
 enable_verification = true

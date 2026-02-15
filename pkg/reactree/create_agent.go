@@ -5,7 +5,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/appcd-dev/genie/pkg/agentutils"
+	"github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
+	"github.com/appcd-dev/genie/pkg/toolwrap"
+	"github.com/appcd-dev/go-lib/logger"
+	"go.opentelemetry.io/otel"
 	"trpc.group/trpc-go/trpc-agent-go/agent/llmagent"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/runner"
@@ -32,42 +37,47 @@ type CreateAgentResponse struct {
 // requested tools, runs it, and returns the result.
 type createAgentTool struct {
 	modelProvider modelprovider.ModelProvider
+	summarizer    agentutils.Summarizer
 	toolRegistry  map[string]tool.Tool
+	// toolWrapSvc wraps sub-agent tools with HITL approval, audit logging,
+	// and caching. When nil, sub-agent tools execute without HITL gating.
+	toolWrapSvc *toolwrap.Service
 }
 
 // NewCreateAgentTool creates a tool that spawns sub-agents with dynamic tool
 // subsets. The llmModel is the LLM to use for sub-agents. The toolRegistry is
 // a name→tool map of all available tools the sub-agent can choose from.
-func NewCreateAgentTool(modelProvider modelprovider.ModelProvider, toolRegistry map[string]tool.Tool) tool.Tool {
+// The optional toolWrapSvc, when provided, wraps sub-agent tools with HITL
+// approval gating, audit logging, and file-read caching — ensuring sub-agents
+// cannot execute write tools without human approval.
+func NewCreateAgentTool(modelProvider modelprovider.ModelProvider, summarizer agentutils.Summarizer, toolRegistry map[string]tool.Tool, toolWrapSvc ...*toolwrap.Service) tool.Tool {
 	// Build description listing available tools
 	var toolList []string
 	for name := range toolRegistry {
 		toolList = append(toolList, name)
 	}
 
+	var svc *toolwrap.Service
+	if len(toolWrapSvc) > 0 {
+		svc = toolWrapSvc[0]
+	}
+
 	t := &createAgentTool{
 		modelProvider: modelProvider,
+		summarizer:    summarizer,
 		toolRegistry:  toolRegistry,
+		toolWrapSvc:   svc,
 	}
 
 	return function.NewFunctionTool(
 		t.execute,
 		function.WithName("create_agent"),
 		function.WithDescription(fmt.Sprintf(
-			"Spawn a focused sub-agent to accomplish a specific goal with a selected "+
-				"subset of tools. Best for WRITE-HEAVY or MULTI-STEP tasks (editing files, "+
-				"build-test-fix loops, shell workflows). For pure file reads, use read tools directly.\n\n"+
-				"TASK TYPE GUIDANCE (maps to different models for cost/speed optimization):\n"+
-				"- tool_calling: Best for file edits, shell commands (fastest, cheapest)\n"+
-				"- planning: Best for complex reasoning, architecture decisions (most capable)\n"+
-				"- terminal_calling: Best for shell/CLI-heavy tasks\n"+
-				"- novel_reasoning: Best for creative problem-solving\n\n"+
-				"BEST PRACTICES:\n"+
-				"- Always set task_type to 'tool_calling' for file/shell sub-tasks\n"+
-				"- Give only the tools the sub-agent needs (minimal tool set)\n"+
-				"- Batch related work into one sub-agent goal\n"+
-				"- For independent sub-tasks, call create_agent multiple times in parallel\n"+
-				"- Do NOT delegate pure file reads — sub-agents pay the same input token cost\n\n"+
+			"Spawn a sub-agent with selected tools for multi-step tasks. "+
+				"task_type: tool_calling (file/shell, fastest), planning (reasoning), "+
+				"terminal_calling (CLI), novel_reasoning (creative). "+
+				"Give only needed tools. Batch related work into one agent; "+
+				"spawn parallel agents for independent tasks.\n\n"+
 				"Available tools: %s",
 			strings.Join(toolList, ", "),
 		)),
@@ -75,6 +85,9 @@ func NewCreateAgentTool(modelProvider modelprovider.ModelProvider, toolRegistry 
 }
 
 func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (CreateAgentResponse, error) {
+	logr := logger.GetLogger(ctx).With("fn", "createAgentTool.execute", "goal", toolwrap.TruncateForAudit(req.Goal, 80))
+	logr.Info("create_agent invoked", "tool_names", req.ToolNames, "task_type", req.TaskType)
+
 	// Select tools from registry
 	var selectedTools []tool.Tool
 	if len(req.ToolNames) == 0 {
@@ -88,6 +101,31 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 			}
 		}
 	}
+
+	logr.Info("sub-agent tools selected", "count", len(selectedTools))
+
+	// Wrap sub-agent tools with HITL approval, audit logging, and caching.
+	// This ensures every sub-agent tool call (run_shell, save_file, etc.)
+	// goes through the same approval gate as parent-agent tools.
+	// Extract per-request fields (EventChan, ThreadID, RunID) from context
+	// so HITL approval events propagate to the UI correctly.
+	if t.toolWrapSvc != nil {
+		threadID := agui.ThreadIDFromContext(ctx)
+		runID := agui.RunIDFromContext(ctx)
+		evChan := agui.EventChanFromContext(ctx)
+		logr.Info("wrapping sub-agent tools with HITL",
+			"threadID", threadID,
+			"runID", runID,
+			"hasEventChan", evChan != nil,
+			"hasApprovalStore", t.toolWrapSvc.ApprovalStore != nil,
+		)
+		selectedTools = t.toolWrapSvc.Wrap(selectedTools, toolwrap.WrapRequest{
+			EventChan: evChan,
+			ThreadID:  threadID,
+			RunID:     runID,
+		})
+	}
+
 	if req.TaskType == "" {
 		req.TaskType = modelprovider.TaskPlanning
 	}
@@ -108,6 +146,8 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 		llmagent.WithInstruction("You are a focused sub-agent. Complete the given task using ONLY your available tools. "+
 			"Be concise — return the essential result without commentary. "+
 			"If working memory already contains relevant data, use it instead of re-reading files. "+
+			"IMPORTANT: save_file, read_file, and list_file only accept RELATIVE paths under the workspace directory. "+
+			"Do NOT pass absolute paths (e.g. /tmp/foo) to these tools — use run_shell instead for absolute paths. "+
 			"ERROR BUDGET: If a command or tool call fails 3 times consecutively, stop and report the failure rather than retrying."),
 		llmagent.WithDescription("Focused sub-agent for delegated tasks"),
 		llmagent.WithMaxLLMCalls(10),
@@ -121,7 +161,14 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 		runner.WithSessionService(inmemory.NewSessionService()),
 	)
 
-	evCh, err := r.Run(ctx, "parent", "sub-session", model.NewUserMessage(req.Goal))
+	// Explicitly start a span for the sub-agent execution to ensure proper
+	// nesting in traces. The tool invoker might not have propagated the
+	// tool span context correctly to the runner otherwise.
+	tracer := otel.Tracer("genie")
+	runCtx, span := tracer.Start(ctx, "sub-agent execution")
+	defer span.End()
+
+	evCh, err := r.Run(runCtx, "parent", "sub-session", model.NewUserMessage(req.Goal))
 	if err != nil {
 		return CreateAgentResponse{
 			Status: "error",
@@ -147,8 +194,23 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 		}
 	}
 
+	result := sb.String()
+
+	// Summarize large sub-agent output to keep context concise for the parent agent.
+	const summarizeThreshold = 2000
+	if t.summarizer != nil && len(result) > summarizeThreshold {
+		summarized, err := t.summarizer.Summarize(ctx, agentutils.SummarizeRequest{
+			Content:              result,
+			RequiredOutputFormat: agentutils.OutputFormatText,
+		})
+		if err == nil {
+			result = summarized
+		}
+		// On summarization error, fall through and return the original result.
+	}
+
 	return CreateAgentResponse{
-		Output: sb.String(),
+		Output: result,
 		Status: "success",
 	}, nil
 }

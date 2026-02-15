@@ -12,17 +12,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/analyzer"
+	"github.com/appcd-dev/genie/pkg/audit"
 	"github.com/appcd-dev/genie/pkg/expert"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/langfuse"
 	"github.com/appcd-dev/go-lib/logger"
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 	"golang.org/x/sync/errgroup"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
-	"trpc.group/trpc-go/trpc-agent-go/tool/google/search"
+	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )
 
 //go:embed prompts/architect_persona.txt
@@ -34,7 +34,19 @@ var readmeTaskPrompt string
 //counterfeiter:generate . Architect
 type Architect interface {
 	Design(ctx context.Context, req DesignCloudRequest) (DesignCloudResponse, error)
-	Tool() server.ServerTool
+	Tool() tool.Tool
+}
+
+// ArchitectToolRequest is the input schema for the generate_architecture tool.
+type ArchitectToolRequest struct {
+	CCEFilePath string `json:"cce_file_path" jsonschema:"description=Absolute path to the CCE analysis result file (NDJSON),required"`
+	SaveTo      string `json:"save_to" jsonschema:"description=Absolute path to the directory where architecture notes will be saved,required"`
+}
+
+// ArchitectToolResponse is the output of the generate_architecture tool.
+type ArchitectToolResponse struct {
+	Notes  string `json:"notes"`
+	Status string `json:"status"`
 }
 
 type DesignCloudRequest struct {
@@ -47,41 +59,19 @@ type DesignCloudResponse struct {
 	Notes []string
 }
 
-type ArchitectConfig struct {
-	GoogleSearchAPIKey string `yaml:"google_search_api_key" toml:"google_search_api_key"`
-	GoogleSearchCX     string `yaml:"google_search_cx" toml:"google_search_cx"`
-	PageSize           int    `yaml:"page_size" toml:"page_size"`
-}
-
-func (a ArchitectConfig) searchConfig() []search.Option {
-	var opts []search.Option
-	if a.GoogleSearchAPIKey != "" {
-		opts = append(opts, search.WithAPIKey(a.GoogleSearchAPIKey))
-	}
-	if a.GoogleSearchCX != "" {
-		opts = append(opts, search.WithEngineID(a.GoogleSearchCX))
-	}
-	if a.PageSize > 0 {
-		opts = append(opts, search.WithSize(a.PageSize))
-	}
-	return opts
-}
-
-func NewLLMBasedArchitect(ctx context.Context, modelProvider modelprovider.ModelProvider, cfg ArchitectConfig) (Architect, error) {
-	var toolsList []tool.Tool
-	if cfg.GoogleSearchAPIKey != "" {
-		if searchTool, err := search.NewToolSet(ctx, cfg.searchConfig()...); err == nil {
-			toolsList = append(toolsList, searchTool.Tools(ctx)...)
-		}
-	}
-
+func NewLLMBasedArchitect(
+	ctx context.Context,
+	modelProvider modelprovider.ModelProvider,
+	auditor audit.Auditor,
+	toolsList ...tool.Tool,
+) (Architect, error) {
 	expertBio := expert.ExpertBio{
 		Personality: langfuse.GetPrompt(ctx, "genie_architect_persona", architectPersonaPrompt),
 		Name:        "software-architect",
 		Description: "Software Architect",
 		Tools:       toolsList,
 	}
-	expert, err := expertBio.ToExpert(ctx, modelProvider)
+	expert, err := expertBio.ToExpert(ctx, modelProvider, auditor)
 	if err != nil {
 		return nil, err
 	}
@@ -95,50 +85,35 @@ type llmBasedArchitect struct {
 	expert expert.Expert
 }
 
-func (a llmBasedArchitect) Tool() server.ServerTool {
-	return server.ServerTool{
-		Tool: mcp.NewTool("generate_architecture",
-			mcp.WithDescription("Generates architectural insights and design patterns based on code analysis (CCE)."),
-			mcp.WithString("cce_file_path",
-				mcp.Required(),
-				mcp.Description("Absolute path to the CCE analysis result file (NDJSON)"),
-			),
-			mcp.WithString("save_to",
-				mcp.Required(),
-				mcp.Description("Absolute path to the directory where architecture notes will be saved"),
-			),
-		),
-		Handler: a.toolCall,
-	}
+func (a llmBasedArchitect) Tool() tool.Tool {
+	return function.NewFunctionTool(
+		a.executeTool,
+		function.WithName("generate_architecture"),
+		function.WithDescription(
+			"Generates architectural insights and design patterns based on code analysis (CCE). "+
+				"Reads a CCE analysis NDJSON file, determines cloud resources used by the codebase, "+
+				"and produces architecture notes describing the infrastructure design."),
+	)
 }
 
-func (a llmBasedArchitect) toolCall(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	cceFilePath, err := req.RequireString("cce_file_path")
-	if err != nil {
-		return nil, err
-	}
-	saveTo, err := req.RequireString("save_to")
-	if err != nil {
-		return nil, err
-	}
-
+func (a llmBasedArchitect) executeTool(ctx context.Context, req ArchitectToolRequest) (ArchitectToolResponse, error) {
 	designReq := DesignCloudRequest{
-		SaveTo: saveTo,
+		SaveTo: req.SaveTo,
 	}
-	designReq.MethodCalls, err = a.mappedResources(ctx, cceFilePath)
+	var err error
+	designReq.MethodCalls, err = a.mappedResources(ctx, req.CCEFilePath)
 	if err != nil {
-		return nil, err
+		return ArchitectToolResponse{Status: "error", Notes: err.Error()}, nil
 	}
 
 	resp, err := a.Design(ctx, designReq)
 	if err != nil {
-		return nil, err
+		return ArchitectToolResponse{Status: "error", Notes: err.Error()}, nil
 	}
 
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			mcp.NewTextContent(strings.Join(resp.Notes, "\n\n")),
-		},
+	return ArchitectToolResponse{
+		Notes:  strings.Join(resp.Notes, "\n\n"),
+		Status: "success",
 	}, nil
 }
 
@@ -189,6 +164,7 @@ func (a llmBasedArchitect) Design(ctx context.Context, req DesignCloudRequest) (
 	for _, cloudBasedPrompt := range cloudBasedPrompts {
 		errGroup.Go(func() error {
 			logr.Info("Generating architecture design for cloud provider", "cloudProvider", cloudBasedPrompt.CloudProvider, "identifiedResources", len(cloudBasedPrompt.Prompt))
+			emitArchitectThinking(req.EventChan, fmt.Sprintf("Designing %s infrastructure...", cloudBasedPrompt.CloudProvider))
 			notes, err := a.generateArchitecture(gctx, cloudBasedPrompt, req.EventChan)
 			if err != nil {
 				return err
@@ -213,6 +189,7 @@ func (a llmBasedArchitect) Design(ctx context.Context, req DesignCloudRequest) (
 
 	// Generate README.md after notes are completed (synchronous to prevent data loss on early exit)
 	logr.Info("Generating README.md", "saveTo", req.SaveTo)
+	emitArchitectThinking(req.EventChan, "Writing README.md...")
 	if readmeErr := a.generateReadme(ctx, req.SaveTo, result); readmeErr != nil {
 		logr.Warn("Failed to generate README.md", "error", readmeErr)
 	}
@@ -221,7 +198,7 @@ func (a llmBasedArchitect) Design(ctx context.Context, req DesignCloudRequest) (
 
 func (a llmBasedArchitect) saveNotes(ctx context.Context, saveTo string, notes []string) error {
 	logr := logger.GetLogger(ctx).With("fn", "llmBasedArchitect.saveNotes")
-	logr.Info("Saving notes", "saveTo", saveTo, "notes", notes)
+	logr.Info("Saving notes", "saveTo", saveTo)
 	return os.WriteFile(filepath.Join(saveTo, "Architecture.md"), []byte(strings.Join(notes, "\n")), 0644)
 }
 
@@ -298,4 +275,13 @@ func buildReadmePrompt(notes []string) string {
 		"{timestamp}", time.Now().Format("2006-01-02 15:04:05 MST"),
 	)
 	return r.Replace(readmeTaskPrompt)
+}
+
+// emitArchitectThinking sends an AgentThinkingMsg to the TUI event channel.
+// It is a nil-safe no-op when the event channel is not provided.
+func emitArchitectThinking(eventChan chan<- interface{}, message string) {
+	if eventChan == nil {
+		return
+	}
+	agui.EmitThinking(eventChan, "Architect", message)
 }

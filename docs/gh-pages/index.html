@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Genie — Enterprise Agentic CLI by Stackgen</title>
+  <meta name="description"
+    content="Genie is an enterprise-grade agentic CLI that actually does things. Multi-model, multi-tool, extensible with skills and MCP — powered by Stackgen.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
+          colors: { navy: '#09152B', purple: { 50: '#f3eaff', 100: '#e0d4f7', 500: '#8247E7', 600: '#6d28d9', 900: '#2E004F' } }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="css/custom.css">
+</head>
+
+<body class="font-sans text-navy bg-white antialiased overflow-x-hidden">
+
+  <!-- Nav -->
+  <div id="nav-container"></div>
+
+  <!-- Glow Blobs -->
+  <div class="glow-blob glow-purple" style="width:600px;height:600px;top:-200px;left:-100px;"></div>
+  <div class="glow-blob glow-blue" style="width:500px;height:500px;top:-100px;right:-150px;"></div>
+  <div class="glow-blob glow-pink" style="width:400px;height:400px;top:400px;left:50%;"></div>
+
+  <!-- Hero -->
+  <section class="relative pt-32 pb-20 px-6">
+    <div class="max-w-4xl mx-auto text-center fade-in">
+      <div
+        class="inline-flex items-center gap-2 bg-purple-50 text-purple-500 text-sm font-medium px-4 py-1.5 rounded-full mb-6">
+        <span>🧞</span> The Agent That Actually Ships
+      </div>
+      <h1 class="text-5xl md:text-6xl font-extrabold tracking-tight leading-tight mb-6">
+        Your Intent.<br>
+        <span class="gradient-text">Executed at Scale.</span>
+      </h1>
+      <p class="text-lg md:text-xl text-gray-500 max-w-2xl mx-auto mb-10 leading-relaxed">
+        Stop context-switching between tools. <strong class="text-navy">genie</strong> is an enterprise-grade agentic
+        CLI that thinks, plans, and executes — across codebases, infrastructure, security, and operations.
+      </p>
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+        <a href="config-builder.html" class="btn-primary text-base no-underline">
+          Build Config
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+          </svg>
+        </a>
+        <a href="https://github.com/appcd-dev/genie" target="_blank" rel="noopener"
+          class="btn-secondary text-base no-underline">
+          <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+            <path
+              d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+          </svg>
+          View on GitHub
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Install -->
+  <section class="py-12 px-6">
+    <div class="max-w-2xl mx-auto fade-in">
+      <!-- Install method tabs -->
+      <div class="install-tabs">
+        <button class="install-tab active" data-tab="homebrew" onclick="switchInstallTab('homebrew')">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M5.177 4.424C6.029 2.587 7.588 1.558 9.236 1.558c1.2 0 2.183.564 2.986 1.28.803-.716 1.786-1.28 2.986-1.28 1.648 0 3.207 1.03 4.059 2.866C22.395 4.994 24 7.27 24 10.016c0 5.795-6.222 10.06-11.186 12.725a1.63 1.63 0 0 1-1.628 0C6.222 20.076 0 15.811 0 10.016c0-2.746 1.605-5.022 4.724-5.592z" />
+          </svg>
+          Homebrew
+        </button>
+        <button class="install-tab" data-tab="docker" onclick="switchInstallTab('docker')">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M13.983 11.078h2.119a.186.186 0 0 0 .186-.185V9.006a.186.186 0 0 0-.186-.186h-2.119a.185.185 0 0 0-.185.185v1.888c0 .102.083.185.185.185m-2.954-5.43h2.118a.186.186 0 0 0 .186-.186V3.574a.186.186 0 0 0-.186-.185h-2.118a.185.185 0 0 0-.185.185v1.888c0 .102.082.186.185.186m0 2.716h2.118a.187.187 0 0 0 .186-.186V6.29a.186.186 0 0 0-.186-.185h-2.118a.185.185 0 0 0-.185.185v1.887c0 .102.082.186.185.186m-2.93 0h2.12a.186.186 0 0 0 .184-.186V6.29a.185.185 0 0 0-.185-.185H8.1a.185.185 0 0 0-.185.185v1.887c0 .102.083.186.185.186m-2.964 0h2.119a.186.186 0 0 0 .185-.186V6.29a.186.186 0 0 0-.185-.185H5.136a.186.186 0 0 0-.186.185v1.887c0 .102.084.186.186.186m5.893 2.715h2.118a.186.186 0 0 0 .186-.185V9.006a.186.186 0 0 0-.186-.186h-2.118a.185.185 0 0 0-.185.185v1.888c0 .102.082.185.185.185m-2.93 0h2.12a.185.185 0 0 0 .184-.185V9.006a.185.185 0 0 0-.184-.186h-2.12a.185.185 0 0 0-.184.185v1.888c0 .102.083.185.185.185m-2.964 0h2.119a.185.185 0 0 0 .185-.185V9.006a.186.186 0 0 0-.185-.186H5.136a.186.186 0 0 0-.186.186v1.887c0 .102.084.185.186.185m-2.92 0h2.12a.185.185 0 0 0 .184-.185V9.006a.186.186 0 0 0-.184-.186h-2.12a.185.185 0 0 0-.184.185v1.888c0 .102.082.185.185.185M23.763 9.89c-.065-.051-.672-.51-1.954-.51-.338.001-.676.03-1.01.087-.248-1.7-1.653-2.53-1.716-2.566l-.344-.199-.226.327c-.284.438-.49.922-.612 1.43-.23.97-.09 1.882.403 2.661-.595.332-1.55.413-1.744.42H.751a.751.751 0 0 0-.75.748 11.376 11.376 0 0 0 .692 4.062c.545 1.428 1.355 2.48 2.41 3.124 1.18.723 3.1 1.137 5.275 1.137a15.74 15.74 0 0 0 2.93-.266 10.303 10.303 0 0 0 3.236-1.308 8.724 8.724 0 0 0 2.221-2.02c1.085-1.375 1.736-2.927 2.216-4.31h.192c1.194 0 1.93-.472 2.338-.892a2.166 2.166 0 0 0 .543-.913z" />
+          </svg>
+          Docker
+        </button>
+      </div>
+
+      <!-- Homebrew panel -->
+      <div id="install-homebrew" class="install-panel active">
+        <div class="code-snippet" style="border-radius: 0 0 0.75rem 0.75rem; border-top: none;">
+          <button class="copy-btn"
+            onclick="navigator.clipboard.writeText('brew install stackgenhq/homebrew-stackgen/genie').then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)})">Copy</button>
+          <span class="text-gray-500"># Get the genie out of the bottle</span>
+          <br>brew install stackgenhq/homebrew-stackgen/genie
+
+          <br><br><span class="text-gray-500"># Grant your first wish</span>
+          <br>genie grant
+        </div>
+      </div>
+
+      <!-- Docker panel -->
+      <div id="install-docker" class="install-panel">
+        <div class="code-snippet" style="border-radius: 0 0 0.75rem 0.75rem; border-top: none;">
+          <button class="copy-btn"
+            onclick="navigator.clipboard.writeText('docker run --rm -it \\\n  -v ~/.genie.toml:/root/.genie.toml \\\n  -v $(pwd):/workspace \\\n  ghcr.io/stackgenhq/genie:latest grant').then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)})">Copy</button>
+          <span class="text-gray-500"># Pull and run genie from the container registry</span>
+          <br>docker run --rm -it \
+          <br>&nbsp;&nbsp;-v ~/.genie.toml:/root/.genie.toml \
+          <br>&nbsp;&nbsp;-v $(pwd):/workspace \
+          <br>&nbsp;&nbsp;ghcr.io/stackgenhq/genie:latest grant
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- What Makes Genie Different -->
+  <section class="py-20 px-6">
+    <div class="max-w-6xl mx-auto">
+      <div class="text-center mb-14 fade-in">
+        <h2 class="text-3xl md:text-4xl font-bold tracking-tight mb-4">What Makes Genie Different ✨</h2>
+        <p class="text-gray-500 max-w-2xl mx-auto">Most AI agents are locked to a single model. Genie is a multi-model,
+          multi-tool orchestrator that picks the right brain for every task.</p>
+      </div>
+
+      <!-- Hero differentiator: Multi-model routing -->
+      <div class="feature-card mb-10 p-8"
+        style="border: 2px solid rgba(130,71,231,0.2); background: linear-gradient(135deg, rgba(130,71,231,0.03), rgba(59,130,246,0.05));">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
+          <div>
+            <div
+              class="inline-flex items-center gap-2 bg-purple-50 text-purple-500 text-xs font-semibold px-3 py-1 rounded-full mb-4">
+              KEY DIFFERENTIATOR</div>
+            <h3 class="text-2xl font-bold mb-3">Not One LLM — The Right LLM</h3>
+            <p class="text-gray-500 leading-relaxed mb-4">Genie doesn't bet on a single model. It routes each stage of
+              execution to the model best suited for the task — planning with one, tool-calling with another, code
+              synthesis with a third.</p>
+            <ul class="space-y-2 text-sm text-gray-500">
+              <li class="flex items-start gap-2"><span class="text-purple-500 font-bold">→</span> <strong
+                  class="text-navy">Planning & Research:</strong> Deep-reasoning models (o3, Gemini Deep Think)</li>
+              <li class="flex items-start gap-2"><span class="text-purple-500 font-bold">→</span> <strong
+                  class="text-navy">Tool Calling:</strong> Function-calling specialists (GPT-4.1, Gemini Flash)</li>
+              <li class="flex items-start gap-2"><span class="text-purple-500 font-bold">→</span> <strong
+                  class="text-navy">Code Generation:</strong> Coding models (GPT-5.3 Codex, Claude Sonnet)</li>
+              <li class="flex items-start gap-2"><span class="text-purple-500 font-bold">→</span> <strong
+                  class="text-navy">Efficiency:</strong> Fast, cost-effective models for simple tasks</li>
+            </ul>
+          </div>
+          <div class="text-center">
+            <div class="inline-block bg-white rounded-2xl shadow-lg p-6 border border-gray-100"
+              style="min-width:280px;">
+              <p class="text-xs text-gray-400 uppercase tracking-wider mb-4 font-semibold">Task-Aware Model Routing</p>
+              <div class="space-y-3">
+                <div class="flex items-center gap-3 bg-purple-50 rounded-lg px-4 py-2">
+                  <span class="text-sm">🧠</span>
+                  <span class="text-sm font-mono text-purple-600">planning</span>
+                  <span class="text-gray-300 mx-auto">→</span>
+                  <span class="text-xs font-mono bg-purple-100 px-2 py-0.5 rounded text-purple-700">o3</span>
+                </div>
+                <div class="flex items-center gap-3 bg-blue-50 rounded-lg px-4 py-2">
+                  <span class="text-sm">🔧</span>
+                  <span class="text-sm font-mono text-blue-600">tool_calling</span>
+                  <span class="text-gray-300 mx-auto">→</span>
+                  <span class="text-xs font-mono bg-blue-100 px-2 py-0.5 rounded text-blue-700">gemini-3-flash</span>
+                </div>
+                <div class="flex items-center gap-3 bg-green-50 rounded-lg px-4 py-2">
+                  <span class="text-sm">💻</span>
+                  <span class="text-sm font-mono text-green-600">code_gen</span>
+                  <span class="text-gray-300 mx-auto">→</span>
+                  <span class="text-xs font-mono bg-green-100 px-2 py-0.5 rounded text-green-700">gpt-5.3-codex</span>
+                </div>
+                <div class="flex items-center gap-3 bg-orange-50 rounded-lg px-4 py-2">
+                  <span class="text-sm">⚡</span>
+                  <span class="text-sm font-mono text-orange-600">efficiency</span>
+                  <span class="text-gray-300 mx-auto">→</span>
+                  <span class="text-xs font-mono bg-orange-100 px-2 py-0.5 rounded text-orange-700">gpt-4.1-nano</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Other capability cards -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 stagger-children">
+        <div class="feature-card">
+          <div class="feature-icon bg-blue-50 text-blue-500">🔧</div>
+          <h3 class="text-lg font-semibold mb-2">Extensible Skills & MCP Tools</h3>
+          <p class="text-sm text-gray-500 leading-relaxed">Extend Genie with custom skills or connect to any
+            MCP-compatible tool server. Build once, reuse everywhere.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon bg-green-50 text-green-500">💬</div>
+          <h3 class="text-lg font-semibold mb-2">Works Where You Work</h3>
+          <p class="text-sm text-gray-500 leading-relaxed">Integrate with Slack, Discord, Teams, Telegram, WhatsApp, or
+            Google Chat. Genie meets your enterprise where it already communicates.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon bg-orange-50 text-orange-500">🏗️</div>
+          <h3 class="text-lg font-semibold mb-2">Infrastructure as Code</h3>
+          <p class="text-sm text-gray-500 leading-relaxed">Synthesize production-ready Terraform and Pulumi from natural
+            language. Built-in security scanning and verification.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon bg-red-50 text-red-500">🛡️</div>
+          <h3 class="text-lg font-semibold mb-2">Security-First</h3>
+          <p class="text-sm text-gray-500 leading-relaxed">Built-in SecOps scanning, severity thresholds, and audit
+            logging. Enterprise compliance isn't an afterthought.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon bg-indigo-50 text-indigo-500">🧠</div>
+          <h3 class="text-lg font-semibold mb-2">Persistent Memory</h3>
+          <p class="text-sm text-gray-500 leading-relaxed">Vector-backed memory remembers context across sessions. Your
+            agent gets smarter the more you use it.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon bg-pink-50 text-pink-500">🌳</div>
+          <h3 class="text-lg font-semibold mb-2">Multi-Agent Orchestration</h3>
+          <p class="text-sm text-gray-500 leading-relaxed">ReAcTree executor delegates complex work across sub-agents in
+            parallel — like having a team, not just one assistant.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How It Works -->
+  <section class="py-20 px-6 bg-gray-50/50">
+    <div class="max-w-3xl mx-auto fade-in">
+      <div class="text-center mb-14">
+        <h2 class="text-3xl md:text-4xl font-bold tracking-tight mb-4">How It Works 📖</h2>
+        <p class="text-gray-500">From intent to execution in four steps.</p>
+      </div>
+      <div class="space-y-8">
+        <div class="workflow-step">
+          <div class="workflow-number">1</div>
+          <div>
+            <h3 class="text-lg font-semibold mb-1">Configure Once</h3>
+            <p class="text-sm text-gray-500">Set up your models, tools, skills, and integrations with a <a
+                href="config-builder.html" class="text-purple-500 hover:text-purple-600">single config file</a>.</p>
+          </div>
+        </div>
+        <div class="workflow-step">
+          <div class="workflow-number">2</div>
+          <div>
+            <h3 class="text-lg font-semibold mb-1">Describe Your Intent</h3>
+            <p class="text-sm text-gray-500">Tell Genie what you need — in plain language. It understands context,
+              constraints, and best practices.</p>
+          </div>
+        </div>
+        <div class="workflow-step">
+          <div class="workflow-number">3</div>
+          <div>
+            <h3 class="text-lg font-semibold mb-1">Watch It Work</h3>
+            <p class="text-sm text-gray-500">Genie plans, researches, delegates to sub-agents, calls tools, and
+              synthesizes results — all visible in the TUI.</p>
+          </div>
+        </div>
+        <div class="workflow-step">
+          <div class="workflow-number">4</div>
+          <div>
+            <h3 class="text-lg font-semibold mb-1">Ship It</h3>
+            <p class="text-sm text-gray-500">Review the output, apply changes, and deploy. Built-in verification ensures
+              production-readiness.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Enterprise vs Personal -->
+  <section class="py-20 px-6">
+    <div class="max-w-4xl mx-auto fade-in">
+      <div class="text-center mb-14">
+        <h2 class="text-3xl md:text-4xl font-bold tracking-tight mb-4">Built for Enterprise Teams 🏢</h2>
+        <p class="text-gray-500 max-w-xl mx-auto">Personal AI assistants are great for individuals. Genie is built for
+          the teams that ship software at scale.</p>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div class="feature-card">
+          <h3 class="text-lg font-semibold mb-3 text-purple-600">Personal AI</h3>
+          <ul class="space-y-2 text-sm text-gray-500">
+            <li class="flex items-start gap-2"><span class="text-gray-300">○</span> Chat-based interactions</li>
+            <li class="flex items-start gap-2"><span class="text-gray-300">○</span> Browser & calendar control</li>
+            <li class="flex items-start gap-2"><span class="text-gray-300">○</span> Single-user context</li>
+            <li class="flex items-start gap-2"><span class="text-gray-300">○</span> Consumer-grade security</li>
+          </ul>
+        </div>
+        <div class="feature-card"
+          style="border: 2px solid rgba(130,71,231,0.3); background: linear-gradient(135deg, rgba(130,71,231,0.03), rgba(130,71,231,0.08));">
+          <h3 class="text-lg font-semibold mb-3 text-purple-600">Genie for Enterprise</h3>
+          <ul class="space-y-2 text-sm text-gray-500">
+            <li class="flex items-start gap-2"><span class="text-purple-500">●</span> Multi-agent orchestration
+              (ReAcTree)</li>
+            <li class="flex items-start gap-2"><span class="text-purple-500">●</span> IaC, security scanning, code
+              synthesis</li>
+            <li class="flex items-start gap-2"><span class="text-purple-500">●</span> Team-wide
+              Slack/Teams/Discord/WhatsApp
+              integration</li>
+            <li class="flex items-start gap-2"><span class="text-purple-500">●</span> Audit logging, compliance, SecOps
+              built-in</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="py-20 px-6">
+    <div class="max-w-3xl mx-auto text-center fade-in">
+      <h2 class="text-3xl md:text-4xl font-bold tracking-tight mb-4">Ready to Get Started?</h2>
+      <p class="text-gray-500 mb-8 max-w-lg mx-auto">Create your configuration file with our interactive builder, or
+        dive straight into the code.</p>
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+        <a href="config-builder.html" class="btn-primary text-base no-underline">
+          Config Builder
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+          </svg>
+        </a>
+        <a href="contact.html" class="btn-secondary text-base no-underline">Contact Us</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <div id="footer-container"></div>
+
+  <script>
+    function switchInstallTab(tab) {
+      document.querySelectorAll('.install-tab').forEach(function (btn) {
+        btn.classList.toggle('active', btn.getAttribute('data-tab') === tab);
+      });
+      document.querySelectorAll('.install-panel').forEach(function (panel) {
+        panel.classList.toggle('active', panel.id === 'install-' + tab);
+      });
+    }
+  </script>
+  <script src="js/nav.js"></script>
+</body>
+
+</html>
