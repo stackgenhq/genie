@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/appcd-dev/genie/pkg/agentutils"
 	"github.com/appcd-dev/genie/pkg/audit"
@@ -185,7 +186,11 @@ func NewCodeOwner(
 
 	// Initialize local code executor for shell access (bash only for now)
 	// This enables sub-agents to run verification commands like 'go test' or 'terraform validate'.
-	exec := local.New(local.WithWorkDir(workingDirectory))
+	exec := local.New(
+		local.WithWorkDir(workingDirectory),
+		local.WithTimeout(10*time.Minute),
+		local.WithCleanTempFiles(true),
+	)
 
 	// Use ShellTool which wraps the code executor
 	codeTool := NewShellTool(exec)
