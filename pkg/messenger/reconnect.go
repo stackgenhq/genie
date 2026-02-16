@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/appcd-dev/go-lib/logger"
+	"github.com/appcd-dev/genie/pkg/logger"
 )
 
 // ReceiveWithReconnect wraps Messenger.Receive() in a reconnection loop with

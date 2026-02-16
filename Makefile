@@ -6,9 +6,8 @@ GIT_COMMIT = $(shell git rev-parse --short HEAD)
 GIT_DIRTY  = $(shell test -n "`git status --porcelain`" && echo "-dirty" || echo "")
 GIT_VERSION=${GIT_COMMIT}${GIT_DIRTY}
 GO_BUILD_FLAGS=-ldflags="-s -w \
-	-X 'github.com/appcd-dev/go-lib/constants.Version=${GIT_VERSION}' \
-	-X 'github.com/appcd-dev/go-lib/constants.BuildDate=$(shell date +%D)' \
-	-X github.com/appcd-dev/go-lib/featureflag.Key=${FF_UNLEASH_API_KEY}" \
+	-X 'github.com/appcd-dev/genie/cmd.Version=${GIT_VERSION}' \
+	-X 'github.com/appcd-dev/genie/cmd.BuildDate=$(shell date +%D)'" \
 	-mod=mod
 DIST_DIR=build
 
@@ -23,9 +22,6 @@ GO_MOD=$(GO_CMD) mod
 setup: clean deps generate go/tv ## Setup the environment
 
 go/tv:
-ifneq ($(CI),true)
-	@go get github.com/appcd-dev/go-lib@main
-endif
 	@go mod tidy
 	@go mod vendor
 
@@ -101,7 +97,7 @@ fmt/fix:
 .PHONY: install
 install:
 	$(GO_CMD) install \
-		-ldflags="-X 'github.com/appcd-dev/go-lib/constants.Version=${GIT_VERSION}' -X 'github.com/appcd-dev/go-lib/constants.BuildDate=$(shell date +%D)'" \
+		-ldflags="-X 'github.com/appcd-dev/genie/cmd.Version=${GIT_VERSION}' -X 'github.com/appcd-dev/genie/cmd.BuildDate=$(shell date +%D)'" \
 		.
 
 # Run the CLI

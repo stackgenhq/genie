@@ -3,8 +3,12 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/appcd-dev/go-lib/constants"
 	"github.com/spf13/cobra"
+)
+
+var (
+	Version   = "dev"
+	BuildDate = ""
 )
 
 type versionCmd struct {
@@ -26,6 +30,6 @@ func (v versionCmd) command() *cobra.Command {
 }
 
 func (v versionCmd) run(cmd *cobra.Command, args []string) error {
-	fmt.Println(constants.Version)
+	fmt.Println(Version)
 	return nil
 }

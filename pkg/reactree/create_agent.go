@@ -9,9 +9,9 @@ import (
 	"github.com/appcd-dev/genie/pkg/agentutils"
 	"github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
+	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/reactree/memory"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
-	"github.com/appcd-dev/go-lib/logger"
 	"go.opentelemetry.io/otel"
 	"trpc.group/trpc-go/trpc-agent-go/agent/llmagent"
 	"trpc.group/trpc-go/trpc-agent-go/model"
@@ -20,6 +20,8 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )
+
+const summarizeThreshold = 2000
 
 // CreateAgentRequest is the input for the create_agent tool.
 type CreateAgentRequest struct {
@@ -117,22 +119,20 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 	// goes through the same approval gate as parent-agent tools.
 	// Extract per-request fields (EventChan, ThreadID, RunID) from context
 	// so HITL approval events propagate to the UI correctly.
-	if t.toolWrapSvc != nil {
-		threadID := agui.ThreadIDFromContext(ctx)
-		runID := agui.RunIDFromContext(ctx)
-		evChan := agui.EventChanFromContext(ctx)
-		logr.Info("wrapping sub-agent tools with HITL",
-			"threadID", threadID,
-			"runID", runID,
-			"hasEventChan", evChan != nil,
-			"hasApprovalStore", t.toolWrapSvc.ApprovalStore != nil,
-		)
-		selectedTools = t.toolWrapSvc.Wrap(selectedTools, toolwrap.WrapRequest{
-			EventChan: evChan,
-			ThreadID:  threadID,
-			RunID:     runID,
-		})
-	}
+	threadID := agui.ThreadIDFromContext(ctx)
+	runID := agui.RunIDFromContext(ctx)
+	evChan := agui.EventChanFromContext(ctx)
+	logr.Info("wrapping sub-agent tools with HITL",
+		"threadID", threadID,
+		"runID", runID,
+		"hasEventChan", evChan != nil,
+		"hasApprovalStore", t.toolWrapSvc.ApprovalStore != nil,
+	)
+	selectedTools = t.toolWrapSvc.Wrap(selectedTools, toolwrap.WrapRequest{
+		EventChan: evChan,
+		ThreadID:  threadID,
+		RunID:     runID,
+	})
 
 	if req.TaskType == "" {
 		req.TaskType = modelprovider.TaskPlanning
@@ -159,7 +159,11 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 		"IMPORTANT: save_file, read_file, and list_file only accept RELATIVE paths under the workspace directory. " +
 		"Do NOT pass absolute paths (e.g. /tmp/foo) to these tools — use run_shell instead for absolute paths. " +
 		"Do not rewrite the same file multiple times unless fixing an error. Write files once and move to the next task. " +
-		"ERROR BUDGET: If a command or tool call fails 3 times consecutively, stop and report the failure rather than retrying."
+		"ERROR BUDGET: If a command or tool call fails 3 times consecutively, stop and report the failure rather than retrying. " +
+		"ANTI-LOOP: After calling a tool, process its result immediately. " +
+		"NEVER call the same tool with the same arguments more than once — if you already received a result, use it directly. " +
+		"Once you have the data you need, summarize it and return your final answer. " +
+		"JUSTIFICATION: When calling any tool, include a \"_justification\" field in the arguments explaining why this action is necessary."
 
 	// Inject shared working memory context so sub-agent knows what has been done
 	if t.workingMemory != nil {
@@ -197,6 +201,7 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 		subAgent,
 		runner.WithSessionService(inmemory.NewSessionService()),
 	)
+	defer func() { _ = r.Close() }()
 
 	// Explicitly start a span for the sub-agent execution to ensure proper
 	// nesting in traces. The tool invoker might not have propagated the
@@ -205,7 +210,7 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 	runCtx, span := tracer.Start(ctx, "sub-agent execution")
 	defer span.End()
 
-	evCh, err := r.Run(runCtx, "parent", "sub-session", model.NewUserMessage(req.Goal))
+	evCh, err := r.Run(runCtx, "parent", req.AgentName, model.NewUserMessage(req.Goal))
 	if err != nil {
 		return CreateAgentResponse{
 			Status: "error",
@@ -235,12 +240,11 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 	logr.Info("sub-agent execution completed", "output_length", len(result))
 
 	// Summarize large sub-agent output to keep context concise for the parent agent.
-	const summarizeThreshold = 2000
 	if t.summarizer != nil && len(result) > summarizeThreshold {
 		logr.Info("summarizing large sub-agent output", "original_length", len(result), "threshold", summarizeThreshold)
 		summarized, err := t.summarizer.Summarize(ctx, agentutils.SummarizeRequest{
 			Content:              result,
-			RequiredOutputFormat: agentutils.OutputFormatText,
+			RequiredOutputFormat: agentutils.OutputFormatMarkdown,
 		})
 		if err == nil {
 			logr.Info("sub-agent output summarized", "original_length", len(result), "summarized_length", len(summarized))

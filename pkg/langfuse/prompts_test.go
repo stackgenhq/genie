@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"time"
 
-	"github.com/appcd-dev/go-lib/ttlcache"
+	"github.com/appcd-dev/genie/pkg/ttlcache"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -14,52 +14,43 @@ import (
 var _ = Describe("Prompts", func() {
 	Describe("GetPrompt", func() {
 		var (
-			server     *httptest.Server
-			c          *client
-			origHost   string
-			origPublic string
-			origSecret string
-			origEnable bool
+			server *httptest.Server
+			c      *client
+			cfg    Config
 		)
 
 		BeforeEach(func() {
-			// Save original globals
-			origHost = LangfuseHost
-			origPublic = LangfusePublicKey
-			origSecret = LangfuseSecretKey
-			origEnable = EnablePrompts
-
 			// Default setup: valid keys and enabled
-			LangfusePublicKey = "pk"
-			LangfuseSecretKey = "sk"
-			EnablePrompts = true
+			cfg = Config{
+				PublicKey:     "pk",
+				SecretKey:     "sk",
+				EnablePrompts: true,
+				Host:          "http://localhost", // Placeholder, updated when server starts
+			}
 		})
 
 		AfterEach(func() {
 			if server != nil {
 				server.Close()
 			}
-			// Restore globals
-			LangfuseHost = origHost
-			LangfusePublicKey = origPublic
-			LangfuseSecretKey = origSecret
-			EnablePrompts = origEnable
 		})
 
 		Context("when keys are missing", func() {
 			It("returns default value when public key is empty", func() {
-				LangfusePublicKey = ""
+				cfg.PublicKey = ""
 				c = &client{
 					httpClient: http.DefaultClient,
+					config:     cfg,
 				}
 				p := c.GetPrompt(context.Background(), "test-prompt", "default value")
 				Expect(p).To(Equal("default value"))
 			})
 
 			It("returns default value when secret key is empty", func() {
-				LangfuseSecretKey = ""
+				cfg.SecretKey = ""
 				c = &client{
 					httpClient: http.DefaultClient,
+					config:     cfg,
 				}
 				p := c.GetPrompt(context.Background(), "test-prompt", "default value")
 				Expect(p).To(Equal("default value"))
@@ -68,9 +59,10 @@ var _ = Describe("Prompts", func() {
 
 		Context("when prompts are disabled", func() {
 			It("returns default value", func() {
-				EnablePrompts = false
+				cfg.EnablePrompts = false
 				c = &client{
 					httpClient: http.DefaultClient,
+					config:     cfg,
 				}
 				p := c.GetPrompt(context.Background(), "test-prompt", "default value")
 				Expect(p).To(Equal("default value"))
@@ -88,9 +80,10 @@ var _ = Describe("Prompts", func() {
 						serverHandler(w, r)
 					}
 				}))
-				LangfuseHost = server.URL
+				cfg.Host = server.URL
 				c = &client{
 					httpClient: server.Client(),
+					config:     cfg,
 				}
 				c.promptsCache = ttlcache.NewItem(c.getAllPrompts, 10*time.Minute)
 			})
@@ -162,28 +155,23 @@ var _ = Describe("Prompts", func() {
 
 	Describe("getAllPromptNames", func() {
 		var (
-			server     *httptest.Server
-			c          *client
-			origHost   string
-			origPublic string
-			origSecret string
+			server *httptest.Server
+			c      *client
+			cfg    Config
 		)
 
 		BeforeEach(func() {
-			origHost = LangfuseHost
-			origPublic = LangfusePublicKey
-			origSecret = LangfuseSecretKey
-			LangfusePublicKey = "pk"
-			LangfuseSecretKey = "sk"
+			cfg = Config{
+				PublicKey:     "pk",
+				SecretKey:     "sk",
+				EnablePrompts: true,
+			}
 		})
 
 		AfterEach(func() {
 			if server != nil {
 				server.Close()
 			}
-			LangfuseHost = origHost
-			LangfusePublicKey = origPublic
-			LangfuseSecretKey = origSecret
 		})
 
 		Context("with mocked server", func() {
@@ -200,9 +188,10 @@ var _ = Describe("Prompts", func() {
 				}`))
 					Expect(err).NotTo(HaveOccurred())
 				}))
-				LangfuseHost = server.URL
+				cfg.Host = server.URL
 				c = &client{
 					httpClient: server.Client(),
+					config:     cfg,
 				}
 			})
 
@@ -218,9 +207,10 @@ var _ = Describe("Prompts", func() {
 				server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.WriteHeader(http.StatusInternalServerError)
 				}))
-				LangfuseHost = server.URL
+				cfg.Host = server.URL
 				c = &client{
 					httpClient: server.Client(),
+					config:     cfg,
 				}
 			})
 
@@ -237,9 +227,10 @@ var _ = Describe("Prompts", func() {
 					w.WriteHeader(http.StatusOK)
 					_, _ = w.Write([]byte(`not valid json`))
 				}))
-				LangfuseHost = server.URL
+				cfg.Host = server.URL
 				c = &client{
 					httpClient: server.Client(),
+					config:     cfg,
 				}
 			})
 
@@ -253,28 +244,23 @@ var _ = Describe("Prompts", func() {
 
 	Describe("getPromptByName", func() {
 		var (
-			server     *httptest.Server
-			c          *client
-			origHost   string
-			origPublic string
-			origSecret string
+			server *httptest.Server
+			c      *client
+			cfg    Config
 		)
 
 		BeforeEach(func() {
-			origHost = LangfuseHost
-			origPublic = LangfusePublicKey
-			origSecret = LangfuseSecretKey
-			LangfusePublicKey = "pk"
-			LangfuseSecretKey = "sk"
+			cfg = Config{
+				PublicKey:     "pk",
+				SecretKey:     "sk",
+				EnablePrompts: true,
+			}
 		})
 
 		AfterEach(func() {
 			if server != nil {
 				server.Close()
 			}
-			LangfuseHost = origHost
-			LangfusePublicKey = origPublic
-			LangfuseSecretKey = origSecret
 		})
 
 		Context("with successful response", func() {
@@ -285,9 +271,10 @@ var _ = Describe("Prompts", func() {
 					_, err := w.Write([]byte(`{"prompt": "This is the prompt content"}`))
 					Expect(err).NotTo(HaveOccurred())
 				}))
-				LangfuseHost = server.URL
+				cfg.Host = server.URL
 				c = &client{
 					httpClient: server.Client(),
+					config:     cfg,
 				}
 			})
 
@@ -303,9 +290,10 @@ var _ = Describe("Prompts", func() {
 				server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.WriteHeader(http.StatusNotFound)
 				}))
-				LangfuseHost = server.URL
+				cfg.Host = server.URL
 				c = &client{
 					httpClient: server.Client(),
+					config:     cfg,
 				}
 			})
 
@@ -323,9 +311,10 @@ var _ = Describe("Prompts", func() {
 					w.WriteHeader(http.StatusOK)
 					_, _ = w.Write([]byte(`not valid json`))
 				}))
-				LangfuseHost = server.URL
+				cfg.Host = server.URL
 				c = &client{
 					httpClient: server.Client(),
+					config:     cfg,
 				}
 			})
 
@@ -339,28 +328,23 @@ var _ = Describe("Prompts", func() {
 
 	Describe("getAllPrompts", func() {
 		var (
-			server     *httptest.Server
-			c          *client
-			origHost   string
-			origPublic string
-			origSecret string
+			server *httptest.Server
+			c      *client
+			cfg    Config
 		)
 
 		BeforeEach(func() {
-			origHost = LangfuseHost
-			origPublic = LangfusePublicKey
-			origSecret = LangfuseSecretKey
-			LangfusePublicKey = "pk"
-			LangfuseSecretKey = "sk"
+			cfg = Config{
+				PublicKey:     "pk",
+				SecretKey:     "sk",
+				EnablePrompts: true,
+			}
 		})
 
 		AfterEach(func() {
 			if server != nil {
 				server.Close()
 			}
-			LangfuseHost = origHost
-			LangfusePublicKey = origPublic
-			LangfuseSecretKey = origSecret
 		})
 
 		Context("with successful responses for all prompts", func() {
@@ -386,9 +370,10 @@ var _ = Describe("Prompts", func() {
 						w.WriteHeader(http.StatusNotFound)
 					}
 				}))
-				LangfuseHost = server.URL
+				cfg.Host = server.URL
 				c = &client{
 					httpClient: server.Client(),
+					config:     cfg,
 				}
 			})
 
@@ -406,9 +391,10 @@ var _ = Describe("Prompts", func() {
 				server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.WriteHeader(http.StatusInternalServerError)
 				}))
-				LangfuseHost = server.URL
+				cfg.Host = server.URL
 				c = &client{
 					httpClient: server.Client(),
+					config:     cfg,
 				}
 			})
 
@@ -441,9 +427,10 @@ var _ = Describe("Prompts", func() {
 						w.WriteHeader(http.StatusNotFound)
 					}
 				}))
-				LangfuseHost = server.URL
+				cfg.Host = server.URL
 				c = &client{
 					httpClient: server.Client(),
+					config:     cfg,
 				}
 			})
 
@@ -475,9 +462,10 @@ var _ = Describe("Prompts", func() {
 						w.WriteHeader(http.StatusNotFound)
 					}
 				}))
-				LangfuseHost = server.URL
+				cfg.Host = server.URL
 				c = &client{
 					httpClient: server.Client(),
+					config:     cfg,
 				}
 			})
 

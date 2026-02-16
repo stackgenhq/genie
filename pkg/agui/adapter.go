@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/appcd-dev/go-lib/logger"
+	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/google/uuid"
 	"trpc.group/trpc-go/trpc-agent-go/event"
 	"trpc.group/trpc-go/trpc-agent-go/model"

@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/appcd-dev/go-lib/logger"
+	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/google/uuid"
 )
 

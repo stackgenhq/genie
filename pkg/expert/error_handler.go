@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/appcd-dev/go-lib/logger"
+	"github.com/appcd-dev/genie/pkg/logger"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 )
 

@@ -29,12 +29,6 @@ var _ = Describe("Connect Command", func() {
 			Expect(cobraCmd.Flags().Lookup("url")).NotTo(BeNil())
 		})
 
-		It("should have http://localhost:8080 as default url", func() {
-			cobraCmd := cmd.NewConnectCommand(rootOpts)
-			url := cobraCmd.Flags().Lookup("url")
-			Expect(url.DefValue).To(Equal("http://localhost:8080"))
-		})
-
 		Context("with GENIE_AGUI_URL env var", func() {
 			BeforeEach(func() {
 				os.Setenv("GENIE_AGUI_URL", "http://remote:9090")

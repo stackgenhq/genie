@@ -7,9 +7,9 @@ import (
 
 	"github.com/appcd-dev/genie/pkg/expert"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
+	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/reactree/memory"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
-	"github.com/appcd-dev/go-lib/logger"
 	"trpc.group/trpc-go/trpc-agent-go/graph"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )

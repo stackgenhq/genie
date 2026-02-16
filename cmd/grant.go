@@ -20,18 +20,17 @@ import (
 	"github.com/appcd-dev/genie/pkg/config"
 	geniedb "github.com/appcd-dev/genie/pkg/db"
 	"github.com/appcd-dev/genie/pkg/hitl"
+	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/mcp"
 	"github.com/appcd-dev/genie/pkg/memory/vector"
 	"github.com/appcd-dev/genie/pkg/messenger"
 	messengerhitl "github.com/appcd-dev/genie/pkg/messenger/hitl"
+	"github.com/appcd-dev/genie/pkg/osutils"
 	"github.com/appcd-dev/genie/pkg/skills"
 	"github.com/appcd-dev/genie/pkg/tools/email"
 	"github.com/appcd-dev/genie/pkg/tools/pm"
 	"github.com/appcd-dev/genie/pkg/tools/scm"
 	"github.com/appcd-dev/genie/pkg/tools/websearch"
-	"github.com/appcd-dev/go-lib/constants"
-	"github.com/appcd-dev/go-lib/logger"
-	"github.com/appcd-dev/go-lib/osutils"
 	"github.com/aquasecurity/trivy/pkg/log"
 	"github.com/spf13/cobra"
 	"trpc.group/trpc-go/trpc-agent-go/skill"
@@ -78,7 +77,11 @@ Examples:
   genie grant`,
 		RunE: g.run,
 	}
-	cwd, err := filepath.Abs(osutils.Getwd())
+	wd, err := osutils.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("error getting the current working directory: %w", err)
+	}
+	cwd, err := filepath.Abs(wd)
 	if err != nil {
 		return nil, fmt.Errorf("error getting the current working directory: %w", err)
 	}
@@ -102,8 +105,10 @@ func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
+	genieCfg.Langfuse.Init(ctx)
+
 	logger := logger.GetLogger(ctx).With("fn", "grantCmd.run")
-	logger.Info("Starting grant command", "version", constants.Version)
+	logger.Info("Starting grant command", "version", Version)
 
 	// Set up messenger (best-effort, non-fatal).
 	g.msgr, err = genieCfg.Messenger.InitMessenger(ctx)
@@ -249,13 +254,14 @@ func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
 	// Print startup banner.
 	fmt.Fprintf(os.Stderr, "\n🧞 Genie AG-UI server starting on :%d\n", genieCfg.AGUI.Port)
 	fmt.Fprintf(os.Stderr, "   Working directory: %s\n", g.rootOpts.workingDir)
+	fmt.Fprintf(os.Stderr, "   Config file:       %s\n", g.rootOpts.cfgFile)
 	fmt.Fprintf(os.Stderr, "   Database:          %s\n", genieCfg.DBConfig.DBFile)
+	fmt.Fprintf(os.Stderr, "   Audit log:         %s\n", g.opts.AuditLogPath)
 	fmt.Fprintf(os.Stderr, "   Health check:      http://localhost:%d/health\n", genieCfg.AGUI.Port)
 	fmt.Fprintf(os.Stderr, "   Resume:            http://localhost:%d/api/v1/resume\n\n", genieCfg.AGUI.Port)
 
 	// Start AG-UI HTTP/SSE server — blocks until context is cancelled.
 	aguiServer := genieCfg.AGUI.NewServer(httpHandler, approvalStore)
-	logger.Info("Starting AG-UI server", "port", genieCfg.AGUI.Port)
 	return aguiServer.Start(ctx)
 }
 
@@ -310,6 +316,9 @@ func (g *grantCmd) initToolDeps(ctx context.Context, cfg config.GenieConfig) ([]
 
 	// SCM tools
 	if scmSvc, err := scm.New(cfg.SCM); err == nil {
+		if vErr := scmSvc.Validate(ctx); vErr != nil {
+			log.Warn("SCM health check failed — token or endpoint may be invalid", "error", vErr)
+		}
 		tools = append(tools, scm.AllTools(scmSvc)...)
 	} else {
 		log.Warn("failed to init SCM tools", "error", err)
@@ -317,7 +326,10 @@ func (g *grantCmd) initToolDeps(ctx context.Context, cfg config.GenieConfig) ([]
 	log.Debug("SCM tools initialized")
 
 	// PM tools
-	if pmSvc, err := pm.New(cfg.PM); err == nil {
+	if pmSvc, err := pm.New(cfg.ProjectManagement); err == nil {
+		if vErr := pmSvc.Validate(ctx); vErr != nil {
+			log.Warn("PM health check failed — token or endpoint may be invalid", "error", vErr)
+		}
 		tools = append(tools, pm.AllTools(pmSvc)...)
 	} else {
 		log.Warn("failed to init PM tools", "error", err)
@@ -347,7 +359,7 @@ func (g *grantCmd) initToolDeps(ctx context.Context, cfg config.GenieConfig) ([]
 // Returns NoopAuditor when --audit-log-path is not set (opt-in only).
 func (g *grantCmd) initAuditor() (audit.Auditor, func(), error) {
 	if g.opts.AuditLogPath == "" {
-		return &audit.NoopAuditor{}, func() {}, nil
+		g.opts.AuditLogPath = filepath.Join(g.rootOpts.workingDir, "genie_audit.ndjson")
 	}
 	auditor, err := audit.NewFileAuditor(g.opts.AuditLogPath)
 	if err != nil {
@@ -371,47 +383,52 @@ func (g *grantCmd) handleMessengerInput(ctx context.Context, msg messenger.Incom
 
 	senderCtx := msg.String()
 
-	// 1. Check for interactive HITL reply (Yes/No)
-	if g.notifierStore != nil {
-		normalized := strings.TrimSpace(strings.ToLower(msg.Content.Text))
-		isApproval := normalized == "yes" || normalized == "y"
-		isRejection := normalized == "no" || normalized == "n"
+	// 1. Check for interactive HITL reply (Yes/No/Revisit)
+	normalized := strings.TrimSpace(strings.ToLower(msg.Content.Text))
+	isApproval := normalized == "yes" || normalized == "y"
+	isRejection := normalized == "no" || normalized == "n"
 
-		if isApproval || isRejection {
-			if approvalID, found := g.notifierStore.GetPending(senderCtx); found {
-				status := hitl.StatusApproved
-				replyText := "✅ **Approved**"
-				if isRejection {
-					status = hitl.StatusRejected
-					replyText = "❌ **Rejected**"
-				}
+	// Any reply while an approval is pending counts as HITL interaction.
+	// Yes = approve, No = reject, anything else = revisit with feedback.
+	if approvalID, found := g.notifierStore.GetPending(senderCtx); found {
+		status := hitl.StatusApproved
+		replyText := "✅ **Approved**"
+		var feedback string
 
-				// Resolve the pending approval
-				err := g.notifierStore.Resolve(ctx, hitl.ResolveRequest{
-					ApprovalID: approvalID,
-					Decision:   status,
-					ResolvedBy: msg.Sender.DisplayName,
-				})
-
-				if err != nil {
-					logger.Error("failed to resolve approval via messenger", "error", err)
-					replyText = fmt.Sprintf("⚠️ Failed to resolve: %s", err)
-				} else {
-					// Cleanup pending map on success
-					g.notifierStore.RemovePending(senderCtx)
-				}
-
-				// Reply to user
-				_, _ = g.msgr.Send(ctx, messenger.SendRequest{
-					Channel:  msg.Channel,
-					ThreadID: msg.ThreadID,
-					Content:  messenger.MessageContent{Text: replyText},
-				})
-				return
-			}
+		if isRejection {
+			status = hitl.StatusRejected
+			replyText = "❌ **Rejected**"
+		} else if !isApproval {
+			// Treat as revisit — reject with feedback so the LLM re-plans
+			status = hitl.StatusRejected
+			feedback = msg.Content.Text
+			replyText = "🔄 **Sent back for revision** — " + feedback
 		}
-	}
 
+		// Resolve the pending approval
+		err := g.notifierStore.Resolve(ctx, hitl.ResolveRequest{
+			ApprovalID: approvalID,
+			Decision:   status,
+			ResolvedBy: msg.Sender.DisplayName,
+			Feedback:   feedback,
+		})
+
+		if err != nil {
+			logger.Error("failed to resolve approval via messenger", "error", err)
+			replyText = fmt.Sprintf("⚠️ Failed to resolve: %s", err)
+		} else {
+			// Cleanup pending map on success
+			g.notifierStore.RemovePending(senderCtx)
+		}
+
+		// Reply to user
+		_, _ = g.msgr.Send(ctx, messenger.SendRequest{
+			Channel:  msg.Channel,
+			ThreadID: msg.ThreadID,
+			Content:  messenger.MessageContent{Text: replyText},
+		})
+		return
+	}
 	// Emit attributed user bubble so the TUI shows the sender and platform (#6).
 	senderLabel := fmt.Sprintf("%s (%s)", msg.Sender.DisplayName, msg.Platform)
 	agui.EmitAgentMessage(ctx, eventChan, senderLabel, msg.Content.Text)

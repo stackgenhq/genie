@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/appcd-dev/go-lib/logger"
+	"github.com/appcd-dev/genie/pkg/logger"
 )
 
 // Config holds platform-agnostic messenger configuration that can be loaded

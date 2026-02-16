@@ -30,8 +30,12 @@ config_sections:
     sidebar_desc: Brain Power & Routing
     detail_title: "🤖 model_config"
     detail_desc: >
-      Configure the AI brains (models) Genie uses. Genie automatically picks the
-      best brain for each specific task.
+      <strong>The Brains of the Operation.</strong><br>
+      Genie isn't tied to a single AI model. Instead, it uses a <strong>Multi-Model Routing</strong> strategy to assign
+      the best brain for each specific task. For example, it might use a reasoning-heavy model like <em>o3</em> for
+      complex planning, a fast model like <em>Gemini Flash</em> for tool calling, and a coding specialist like
+      <em>Claude Sonnet</em> for writing software.<br><br>
+      Configure multiple providers here to give Genie a diverse set of capabilities.
     tables:
       - columns: [Key, Type, Description]
         rows:
@@ -48,7 +52,11 @@ config_sections:
     sidebar_desc: Web UI Server
     detail_title: "🖥️ agui"
     detail_desc: >
-      Configure the built-in web server that powers the Genie UI.
+      <strong>The Web Interface Server.</strong><br>
+      The AG-UI (Agent UI) server provides the HTTP API and SSE (Server-Sent Events) stream that powers Genie's
+      frontend. It handles incoming requests, manages concurrency, applies rate limits to prevent abuse, and
+      streams real-time events back to the browser.<br><br>
+      This is essential if you are running Genie as a shared service for your team.
     tables:
       - columns: [Key, Type, Default, Description]
         rows:
@@ -67,8 +75,12 @@ config_sections:
     sidebar_desc: Teaching Genie New Tricks
     detail_title: "🎯 skills_roots"
     detail_desc: >
-      Skills are like expansion packs that teach Genie how to do new things.
-      See <a href="https://agentskills.io" target="_blank" class="text-purple-500 hover:text-purple-600">agentskills.io</a>.
+      <strong>Teach Genie New Tricks.</strong><br>
+      Skills are modular capability packs that extend what Genie can do. They follow the
+      <a href="https://agentskills.io" target="_blank" class="text-purple-500 hover:text-purple-600">agentskills.io</a>
+      specification. A skill can be anything from a set of new tools (like "AWS Management" or "Kubernetes Control")
+      to specialized knowledge bases.<br><br>
+      Point <code>skills_roots</code> to local directories or Git repositories containing standard skill definitions.
     tables:
       - columns: [Key, Type, Default, Description]
         rows:
@@ -80,8 +92,12 @@ config_sections:
     sidebar_desc: Connecting External Tools
     detail_title: "🔌 mcp"
     detail_desc: >
-      Connect Genie to external tools and data sources, whether they are on your computer or in the cloud
-      using the Model Context Protocol (MCP).
+      <strong>Universal Tool Connectivity.</strong><br>
+      The <a href="https://modelcontextprotocol.io" target="_blank" class="text-purple-500 hover:text-purple-600">Model Context Protocol (MCP)</a>
+      is an open standard that allows AI agents to connect to data and tools. By configuring MCP servers here,
+      you give Genie direct access to external systems—whether it's a local PostgreSQL database, a cloud service,
+      or a proprietary internal API.<br><br>
+      Genie supports both local (stdio) and remote (SSE/HTTP) MCP connections.
     subsections:
       - label: Server Configuration
         columns: [Key, Type, Description]
@@ -110,7 +126,11 @@ config_sections:
     sidebar_desc: Internet Research
     detail_title: "🔍 web_search"
     detail_desc: >
-      Allows Genie to search the web for documentation and answers, just like a human developer.
+      <strong>Grounded Research & fast Fact-Checking.</strong><br>
+      Give Genie the ability to browse the live web. This is critical for tasks that require up-to-date information,
+      such as looking up recent documentation, checking library versions, or researching error messages.<br><br>
+      Without web search, the model is limited to its training data cutoff. With it, Genie acts like a senior
+      engineer with Google at their fingertips.
     tables:
       - columns: [Key, Type, Description]
         rows:
@@ -125,7 +145,11 @@ config_sections:
     sidebar_desc: Long-Term Memory
     detail_title: "🧠 vector_memory"
     detail_desc: >
-      Gives Genie long-term memory so it can learn from past conversations and get smarter over time.
+      <strong>Long-Term Recall & Semantic Search.</strong><br>
+      Vector memory allows Genie to "remember" things beyond the current conversation context window. By embedding
+      text into vector space and storing it, Genie can semantically search for relevant past information—like
+      architectural decisions, code snippets, or project guidelines—whenever it answers a new question.<br><br>
+      Configure where these vectors are stored (persistence) and which model generates the embeddings.
     tables:
       - columns: [Key, Type, Default, Description]
         rows:
@@ -141,7 +165,10 @@ config_sections:
     sidebar_desc: Chat Apps
     detail_title: "💬 messenger"
     detail_desc: >
-      Connect Genie to your team's favorite chat apps like Slack, Discord, or Teams.
+      <strong>ChatOps & Team Collaboration.</strong><br>
+      Integrate Genie directly into where your team communicates. Instead of a separate web UI, your team can
+      tag <code>@Genie</code> in Slack, Discord, or Teams to trigger workflows, ask questions, or debug incidents together.<br><br>
+      This enables "Conversation as a Platform"—turning your chat history into a shared context for automation.
     subsections:
       - label: Common Settings
         columns: [Key, Type, Default, Description]
@@ -183,11 +210,12 @@ config_sections:
     sidebar_desc: Web Surfing
     detail_title: "🌐 browser"
     detail_desc: >
-      Gives Genie a web browser to navigate sites, click buttons, and read pages—safely
-      controlled by you.
-      Provides 7 composable tools: navigate, click, type, read text, read HTML,
-      screenshot, and eval JS. Use the blocklist to restrict which domains the
-      agent is allowed to visit.
+      <strong>Headless Browser Automation.</strong><br>
+      Give Genie a pair of eyes and hands on the web. The browser integration allows the agent to navigate websites,
+      click elements, fill forms, and read content. This is useful for end-to-end testing, scraping data from
+      dynamic SPAs, or automating web-based workflows.<br><br>
+      <strong>Safety First:</strong> Use the <code>blocked_domains</code> list to prevent the agent from wandering
+      into sensitive areas (like production admin panels) or getting distracted by social media.
     tables:
       - columns: [Key, Type, Default, Description]
         rows:
@@ -218,7 +246,10 @@ config_sections:
     sidebar_desc: Code Storage (GitHub/GitLab)
     detail_title: "🐙 scm"
     detail_desc: >
-      Connect to where your code lives, like GitHub, GitLab, or Bitbucket.
+      <strong>Source Code Intelligence.</strong><br>
+      Connect Genie to your version control system (GitHub, GitLab, Bitbucket). This allows the agent to
+      read repositories, search code, open pull requests, and review changes.<br><br>
+      Essential for coding tasks, code reviews, and automating your PR workflows.
     tables:
       - columns: [Key, Type, Description]
         rows:
@@ -232,7 +263,10 @@ config_sections:
     sidebar_desc: Task Trackers
     detail_title: "📋 pm"
     detail_desc: >
-      Connect to project management tools like Jira or Linear to read and update tickets.
+      <strong>Project Management Integration.</strong><br>
+      Link Genie to your issue tracker (Jira, Linear, Asana). This enables the agent to read ticket details,
+      update statuses, create new tasks, and summarize project progress.<br><br>
+      Great for automating status reports or having Genie "work on ticket PROJ-123" by reading the requirements directly.
     tables:
       - columns: [Key, Type, Description]
         rows:
@@ -247,7 +281,10 @@ config_sections:
     sidebar_desc: Email Integration
     detail_title: "📧 email"
     detail_desc: >
-      Allow Genie to send and receive emails.
+      <strong>Communication Gateway.</strong><br>
+      Enable Genie to send and receive emails via SMTP/IMAP. This can be used for checking automated reports,
+      sending notifications, or even processing tasks via email.<br><br>
+      Currently supports basic SMTP for sending and IMAP for reading.
     tables:
       - columns: [Key, Type, Description]
         rows:
@@ -265,12 +302,33 @@ config_sections:
     sidebar_desc: Human Approval
     detail_title: "👮 hitl"
     detail_desc: >
-      Safety guardrails. Require explicit human permission before Genie performs sensitive
-      actions like deleting files or browsing the web.
+      <strong>Enterprise Safety Guardrails.</strong><br>
+      Human-in-the-Loop (HITL) policies ensure that the agent never goes rogue. You can define a list of
+      "sensitive tools" (like `delete_file`, `deploy_prod`, or `send_email`) that always require explicit
+      human approval before execution.<br><br>
+      When the agent tries to use a restricted tool, it pauses and waits for you to click "Approve" or "Reject".
     tables:
       - columns: [Key, Type, Default, Description]
         rows:
           - ["always_allowed", "string[]", "`[]`", "List of tools that trigger an approval request, e.g. `['browser_click', 'run_command']`. Use `['*']` to require approval for <strong>all</strong> tools."]
+
+  - id: langfuse
+    icon: "🪢"
+    name: langfuse
+    sidebar_desc: Observability & Tracing
+    detail_title: "🪢 langfuse"
+    detail_desc: >
+      <strong>Deep Observability & Debugging.</strong><br>
+      Langfuse provides open-source observability and analytics for LLM applications. By enabling this integration,
+      Genie will trace every agent run, tool call, and reasoning step, sending detailed telemetry to your Langfuse dashboard.<br><br>
+      Use this to debug complex agent behaviors, analyze costs, and manage prompt versions.
+    tables:
+      - columns: [Key, Type, Default, Description]
+        rows:
+          - ["public_key", "string", "—", "Langfuse Public Key (use `${LANGFUSE_PUBLIC_KEY}`)"]
+          - ["secret_key", "string", "—", "Langfuse Secret Key (use `${LANGFUSE_SECRET_KEY}`)"]
+          - ["host", "string", "`https://cloud.langfuse.com`", "Langfuse API host (change for self-hosted)"]
+          - ["enable_prompts", "bool", "`false`", "If true, Genie fetches prompt templates from Langfuse instead of using built-ins"]
 
 # ═══════════════════════════════════════════════════════════
 # TAB 2: HOW-TO
@@ -393,43 +451,105 @@ howto_guides:
 architecture:
   title: Architecture & Internals
 
-  event_pipeline:
-    title: Event Pipeline
-    desc: "The TUI communicates with the agent through a two-stage event pipeline:"
+  overview:
+    title: System Overview
+    desc: >
+      Genie is built from three core subsystems. Every request flows through
+      these layers, from the browser to the LLM and back.
     diagram: |
-      ┌───────────────┐     ┌──────────────┐     ┌──────────────┐     ┌───────┐
-      │ Agent / Expert│────▶│ rawEventChan │────▶│ EventAdapter │────▶│ Model │
-      │ (grant.go)    │     │ (chan iface{})│     │ (goroutine)  │     │(Update)│
-      └───────────────┘     └──────────────┘     └──────────────┘     └───────┘
-                                                                          │
-                                                                  ┌───────┴───────┐
-                                                                  │   ChatView    │
-                                                                  │  (completed)  │
-                                                                  └───────────────┘
+      ┌─────────┐  POST /   ┌─────────────────────┐  Chat()  ┌────────────────┐  Run()  ┌──────────────────┐
+      │ Browser │──────────▶│  AG-UI Server       │────────▶│  CodeOwner      │───────▶│  ReAcTree Engine  │
+      │ (SSE)   │◀──────────│  pkg/agui           │◀────────│  pkg/codeowner  │◀───────│  pkg/reactree     │
+      └─────────┘  events   │                     │ events  │                │ result │                    │
+                            │  • SSE streaming    │         │  • Classify    │        │  • Sequence        │
+                            │  • Dedup filter     │         │  • Memory      │        │  • Fallback        │
+                            │  • Rate limiting    │         │  • ReAcTree    │        │  • Parallel        │
+                            │  • HITL approval    │         │  • Agents.md   │        │  • Adaptive loop   │
+                            └─────────────────────┘         └────────────────┘        └──────────────────┘
 
-  channels:
-    title: Key Channels
-    columns: [Channel, Direction, Purpose]
+  subsystems:
+    - title: "🖥️ AG-UI Server (pkg/agui)"
+      desc: >
+        HTTP server implementing the
+        <a href="https://docs.ag-ui.com" target="_blank" class="text-purple-500 hover:text-purple-600">AG-UI protocol</a>.
+        Accepts a POST with RunAgentInput, streams events back as SSE, and provides
+        DDoS protection (per-IP rate limiting, concurrency semaphore, max body size).
+      columns: [Component, File, Purpose]
+      rows:
+        - ["`Server`", "`server.go`", "HTTP server, chi router, handleRun, CORS, graceful shutdown"]
+        - ["`SSEWriter`", "`sse.go`", "Writes `event: TYPE\\ndata: JSON\\n\\n` with auto-flush"]
+        - ["`MapEvent`", "`event_mapper.go`", "Converts internal events → AG-UI wire JSON"]
+        - ["`EventAdapter`", "`adapter.go`", "Converts trpc-agent-go `*event.Event` → typed TUI messages"]
+        - ["`BackgroundWorker`", "`events.go`", "Worker pool for event-driven agent runs (webhooks, heartbeats)"]
+        - ["`ipRateLimiter`", "`ratelimit.go`", "Per-IP token-bucket rate limiting middleware"]
+        - ["Dedup filter", "`server_expert.go`", "Suppresses multi-stage text replays via cumulative content tracking"]
+
+    - title: "🧑‍💻 CodeOwner Expert (pkg/codeowner)"
+      desc: >
+        The primary agent orchestrator. Receives a user question, classifies it,
+        recalls relevant conversation history, and delegates complex work to the
+        ReAcTree engine.
+      columns: [Step, Detail]
+      rows:
+        - ["1. Classify", "Front-desk expert (fast model) labels the request: `REFUSE`, `SALUTATION`, or `COMPLEX`"]
+        - ["2. Recall", "Search `memory.Service` for past turns relevant to the question (sender-scoped)"]
+        - ["3. Execute", "For `COMPLEX` — run through the ReAcTree with working memory and tools"]
+        - ["4. Store", "Persist the Q&A turn back into memory for future recall"]
+        - ["5. Agents.md", "Load project-level coding standards from `Agents.md` and append to persona"]
+
+    - title: "🌲 ReAcTree Engine (pkg/reactree)"
+      desc: >
+        Tree-structured reasoning engine inspired by the
+        <a href="https://arxiv.org/abs/2310.03756" target="_blank" class="text-purple-500 hover:text-purple-600">ReAcTree paper</a>.
+        Maps Behavior Tree semantics onto `trpc-agent-go` state graphs.
+      columns: [Execution Mode, When Used, Behavior]
+      rows:
+        - ["`runSingleNode`", "No stages, no iterations", "Single root agent node — backward-compatible path"]
+        - ["`runMultiStage`", "Stages configured", "Sequence graph; each stage is an agent node with its own instruction"]
+        - ["`runAdaptiveLoop`", "`MaxIterations > 0`", "Iterative refinement loop over a single node"]
+
+  event_types:
+    title: AG-UI Event Types
+    columns: [Event, Constant, Description]
     rows:
-      - ["rawEventChan", "Agent → Adapter", "Raw events (event.Event, AgentChatMessage)"]
-      - ["tuiEventChan", "Adapter → Model", "Converted TUI messages"]
-      - ["inputChan", "Model → Agent", "User chat input"]
+      - ["Run lifecycle", "`RUN_STARTED` / `RUN_FINISHED` / `RUN_ERROR`", "Marks the start, successful end, or failure of an agent run"]
+      - ["Text streaming", "`TEXT_MESSAGE_START` / `TEXT_MESSAGE_CONTENT` / `TEXT_MESSAGE_END`", "Lifecycle of a streaming text message block"]
+      - ["Reasoning", "`REASONING_MESSAGE_CONTENT`", "Chain-of-thought reasoning content (delta)"]
+      - ["Tool calls", "`TOOL_CALL_START` / `TOOL_CALL_ARGS` / `TOOL_CALL_END` / `TOOL_CALL_RESULT`", "Full tool call lifecycle from invocation to result"]
+      - ["Steps", "`STEP_STARTED` / `STEP_FINISHED`", "Multi-stage workflow progress"]
+      - ["HITL", "`TOOL_APPROVAL_REQUEST`", "Requests human approval before executing a sensitive tool"]
+      - ["Custom", "`CUSTOM`", "Log messages and other extensible events"]
+
+  endpoints:
+    title: API Endpoints
+    columns: [Method, Path, Description]
+    rows:
+      - ["`POST`", "`/`", "AG-UI run endpoint — accepts `RunAgentInput`, streams SSE events"]
+      - ["`POST`", "`/approve`", "HITL approval — resolve a pending tool call (approved/rejected)"]
+      - ["`POST`", "`/api/v1/events`", "Event gateway — accepts webhook/heartbeat events for background processing"]
+      - ["`GET`", "`/api/v1/resume`", "Returns the agent's natural-language capability resume"]
+      - ["`GET`", "`/health`", "Health check — returns `{\"status\": \"ok\"}`"]
 
   debugging:
     title: Debugging Scenarios
     items:
-      - title: No output in chat window
+      - title: No output in chat UI
         steps:
-          - "Check that `Model.Update` calls `waitForEvent(m.eventChan)`"
-          - "Check `EventAdapter.ConvertEvent()` output"
-          - "Verify `chatView.AppendToLastMessage()` execution"
-      - title: Tool cards stuck on ⟳
+          - "Check that SSE headers are set (`Content-Type: text/event-stream`)"
+          - "Verify `MapEvent()` does not return an error for the event type"
+          - "Check the dedup filter in `server_expert.go` — it may be suppressing a replay"
+      - title: Tool cards stuck spinning
         steps:
-          - "Verify `EventAdapter` converts tool response events"
-          - "Check `Model.Update` routes response to `chatView.UpdateToolCall()`"
-          - "Verify `ToolCallID` matches between call and response"
+          - "Verify `EventAdapter.ConvertEvent()` produces `AgentToolResponseMsg` for tool responses"
+          - "Check that `ToolCallID` matches between `TOOL_CALL_START` and `TOOL_CALL_RESULT`"
+          - "Confirm the tool response event reaches `rawEventChan` (not dropped by channel full)"
+      - title: HITL approval not working
+        steps:
+          - "Confirm `approvalStore` is not nil (HITL is disabled when nil)"
+          - "Check that `/approve` endpoint is registered in the chi router"
+          - "Verify the `approvalId` in the POST body matches the pending request"
 
-  footer_note: "For full details, see `pkg/tui/Agents.md` in the repository."
+  footer_note: "For full details, see `pkg/reactree/README.md` in the repository."
 
 # ═══════════════════════════════════════════════════════════
 # TAB 4: FAQ

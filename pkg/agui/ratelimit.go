@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/appcd-dev/go-lib/logger"
+	"github.com/appcd-dev/genie/pkg/logger"
 	"golang.org/x/time/rate"
 )
 
@@ -38,6 +38,11 @@ func (l *ipRateLimiter) get(ip string) *rate.Limiter {
 func rateLimitMiddleware(rl *ipRateLimiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// not for approval request
+			if r.URL.Path == "/approve" {
+				next.ServeHTTP(w, r)
+				return
+			}
 			ip := r.RemoteAddr // includes port, but that's fine for server-side limiting
 			if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
 				// X-Forwarded-For can contain multiple IPs (client, proxy1, proxy2...).

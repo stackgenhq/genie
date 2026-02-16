@@ -255,8 +255,8 @@ var _ = Describe("Wrapper", func() {
 	})
 
 	Describe("response truncation", func() {
-		It("should truncate responses exceeding 2000 characters", func() {
-			longResult := strings.Repeat("a", 3000)
+		It("should truncate responses exceeding maxToolResultSize", func() {
+			longResult := strings.Repeat("a", 90000) // > 80000 maxToolResultSize
 			underlyingTool.name = "execute_code"
 			underlyingTool.result = longResult
 
@@ -276,11 +276,11 @@ var _ = Describe("Wrapper", func() {
 					return false
 				}
 				return strings.Contains(toolMsg.Response, "[truncated") &&
-					len(toolMsg.Response) < 3000
+					len(toolMsg.Response) < 90000
 			})))
 		})
 
-		It("should NOT truncate responses under 2000 characters", func() {
+		It("should NOT truncate responses under maxToolResultSize", func() {
 			shortResult := strings.Repeat("b", 500)
 			underlyingTool.name = "execute_code"
 			underlyingTool.result = shortResult
@@ -581,6 +581,109 @@ var _ = Describe("Wrapper human approval gate", func() {
 		Expect(result).To(Equal("written-no-hitl"))
 		Expect(ft.callCount).To(Equal(1))
 	})
+
+	It("should return re-planning error when approved with feedback", func() {
+		store := &hitlfakes.FakeApprovalStore{}
+		store.CreateStub = func(_ context.Context, req hitl.CreateRequest) (hitl.ApprovalRequest, error) {
+			return hitl.ApprovalRequest{
+				ID:       "fb-" + req.ToolName,
+				ToolName: req.ToolName,
+				Status:   hitl.StatusPending,
+			}, nil
+		}
+		store.WaitForResolutionStub = func(_ context.Context, _ string) (hitl.ApprovalRequest, error) {
+			return hitl.ApprovalRequest{
+				Status:   hitl.StatusApproved,
+				Feedback: "use /tmp/output.txt instead",
+			}, nil
+		}
+
+		ft := &fakeTool{name: "write_file", result: "should not run"}
+		eventChan := make(chan interface{}, 10)
+
+		wrapper := &toolwrap.Wrapper{
+			Tool:          ft,
+			EventChan:     eventChan,
+			ApprovalStore: store,
+			ThreadID:      "t1",
+			RunID:         "r1",
+		}
+
+		result, err := wrapper.Call(context.Background(), []byte(`{"path":"out.txt","content":"hello"}`))
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("user requested changes"))
+		Expect(err.Error()).To(ContainSubstring("use /tmp/output.txt instead"))
+		Expect(result).To(BeNil())
+		Expect(ft.callCount).To(Equal(0)) // tool should NOT have been called
+	})
+
+	It("should include feedback in rejection error when rejected with feedback", func() {
+		store := &hitlfakes.FakeApprovalStore{}
+		store.CreateStub = func(_ context.Context, req hitl.CreateRequest) (hitl.ApprovalRequest, error) {
+			return hitl.ApprovalRequest{
+				ID:       "fb-" + req.ToolName,
+				ToolName: req.ToolName,
+				Status:   hitl.StatusPending,
+			}, nil
+		}
+		store.WaitForResolutionStub = func(_ context.Context, _ string) (hitl.ApprovalRequest, error) {
+			return hitl.ApprovalRequest{
+				Status:   hitl.StatusRejected,
+				Feedback: "this operation is too dangerous",
+			}, nil
+		}
+
+		ft := &fakeTool{name: "run_shell", result: "should not run"}
+		eventChan := make(chan interface{}, 10)
+
+		wrapper := &toolwrap.Wrapper{
+			Tool:          ft,
+			EventChan:     eventChan,
+			ApprovalStore: store,
+			ThreadID:      "t1",
+			RunID:         "r1",
+		}
+
+		result, err := wrapper.Call(context.Background(), []byte(`{"cmd":"rm -rf /"}`))
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("rejected by user"))
+		Expect(err.Error()).To(ContainSubstring("this operation is too dangerous"))
+		Expect(result).To(BeNil())
+		Expect(ft.callCount).To(Equal(0))
+	})
+
+	It("should execute tool normally when approved without feedback", func() {
+		store := &hitlfakes.FakeApprovalStore{}
+		store.CreateStub = func(_ context.Context, req hitl.CreateRequest) (hitl.ApprovalRequest, error) {
+			return hitl.ApprovalRequest{
+				ID:       "clean-" + req.ToolName,
+				ToolName: req.ToolName,
+				Status:   hitl.StatusPending,
+			}, nil
+		}
+		store.WaitForResolutionStub = func(_ context.Context, _ string) (hitl.ApprovalRequest, error) {
+			return hitl.ApprovalRequest{
+				Status:   hitl.StatusApproved,
+				Feedback: "", // no feedback
+			}, nil
+		}
+
+		ft := &fakeTool{name: "write_file", result: "written-clean"}
+		eventChan := make(chan interface{}, 10)
+
+		wrapper := &toolwrap.Wrapper{
+			Tool:          ft,
+			EventChan:     eventChan,
+			ApprovalStore: store,
+			ThreadID:      "t1",
+			RunID:         "r1",
+		}
+
+		result, err := wrapper.Call(context.Background(), []byte(`{"path":"out.txt","content":"hello"}`))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result).To(Equal("written-clean"))
+		Expect(ft.callCount).To(Equal(1)) // tool SHOULD have been called
+	})
 })
 
 // ── Service.Wrap tests ───────────────────────────────────────────────────────
@@ -673,5 +776,207 @@ var _ = Describe("Wrapper threadID/runID context propagation", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(agui.ThreadIDFromContext(ct.capturedCtx)).To(Equal(""))
 		Expect(agui.RunIDFromContext(ct.capturedCtx)).To(Equal(""))
+	})
+})
+
+// ── Loop Detection Tests ─────────────────────────────────────────────────────
+
+var _ = Describe("Wrapper loop detection", func() {
+	It("should detect a loop after 3 identical consecutive calls", func() {
+		ft := &fakeTool{name: "list_issues", result: "issue-1, issue-2"}
+		wrapper := &toolwrap.Wrapper{
+			Tool: ft,
+		}
+
+		args := []byte(`{"status":"open"}`)
+
+		// First call — succeeds
+		result, err := wrapper.Call(context.Background(), args)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result).To(Equal("issue-1, issue-2"))
+
+		// Second call — succeeds
+		result, err = wrapper.Call(context.Background(), args)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result).To(Equal("issue-1, issue-2"))
+
+		// Third call — loop detected
+		result, err = wrapper.Call(context.Background(), args)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("loop detected"))
+		Expect(err.Error()).To(ContainSubstring("list_issues"))
+		Expect(result).To(BeNil())
+		Expect(ft.callCount).To(Equal(2)) // tool was only actually called twice
+	})
+
+	It("should NOT flag calls with different arguments as a loop", func() {
+		ft := &fakeTool{name: "search", result: "results"}
+		wrapper := &toolwrap.Wrapper{
+			Tool: ft,
+		}
+
+		_, err := wrapper.Call(context.Background(), []byte(`{"q":"foo"}`))
+		Expect(err).NotTo(HaveOccurred())
+
+		_, err = wrapper.Call(context.Background(), []byte(`{"q":"bar"}`))
+		Expect(err).NotTo(HaveOccurred())
+
+		_, err = wrapper.Call(context.Background(), []byte(`{"q":"baz"}`))
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(ft.callCount).To(Equal(3)) // all 3 executed
+	})
+
+	It("should reset loop tracking when args change mid-sequence", func() {
+		ft := &fakeTool{name: "list_issues", result: "data"}
+		wrapper := &toolwrap.Wrapper{
+			Tool: ft,
+		}
+
+		sameArgs := []byte(`{"status":"open"}`)
+		diffArgs := []byte(`{"status":"closed"}`)
+
+		// 2 identical, then different, then 2 identical = no loop
+		_, err := wrapper.Call(context.Background(), sameArgs)
+		Expect(err).NotTo(HaveOccurred())
+
+		_, err = wrapper.Call(context.Background(), sameArgs)
+		Expect(err).NotTo(HaveOccurred())
+
+		_, err = wrapper.Call(context.Background(), diffArgs) // breaks the streak
+		Expect(err).NotTo(HaveOccurred())
+
+		_, err = wrapper.Call(context.Background(), sameArgs)
+		Expect(err).NotTo(HaveOccurred())
+
+		_, err = wrapper.Call(context.Background(), sameArgs)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(ft.callCount).To(Equal(5)) // all 5 executed, no loop
+	})
+
+	It("should allow up to 2 identical consecutive calls without error", func() {
+		ft := &fakeTool{name: "get_status", result: "ok"}
+		wrapper := &toolwrap.Wrapper{
+			Tool: ft,
+		}
+
+		args := []byte(`{"id":"123"}`)
+
+		_, err := wrapper.Call(context.Background(), args)
+		Expect(err).NotTo(HaveOccurred())
+
+		_, err = wrapper.Call(context.Background(), args)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(ft.callCount).To(Equal(2))
+	})
+})
+
+// ── Justification Extraction Tests ───────────────────────────────────────────
+
+var _ = Describe("Wrapper justification extraction", func() {
+	It("should strip _justification from args and include it in the approval event", func() {
+		store := &hitlfakes.FakeApprovalStore{}
+		store.CreateStub = func(_ context.Context, req hitl.CreateRequest) (hitl.ApprovalRequest, error) {
+			// Verify that _justification was stripped from args
+			Expect(req.Args).NotTo(ContainSubstring("_justification"))
+			return hitl.ApprovalRequest{
+				ID:       "just-" + req.ToolName,
+				ToolName: req.ToolName,
+				Status:   hitl.StatusPending,
+			}, nil
+		}
+		store.WaitForResolutionStub = func(_ context.Context, _ string) (hitl.ApprovalRequest, error) {
+			return hitl.ApprovalRequest{Status: hitl.StatusApproved}, nil
+		}
+
+		ft := &fakeTool{name: "write_file", result: "written"}
+		eventChan := make(chan interface{}, 10)
+
+		wrapper := &toolwrap.Wrapper{
+			Tool:          ft,
+			EventChan:     eventChan,
+			ApprovalStore: store,
+			ThreadID:      "t1",
+			RunID:         "r1",
+		}
+
+		argsWithJustification := []byte(`{"path":"out.txt","content":"hello","_justification":"Writing output for the user's report"}`)
+		result, err := wrapper.Call(context.Background(), argsWithJustification)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result).To(Equal("written"))
+
+		// Check that the approval event has the justification
+		close(eventChan)
+		var foundApproval bool
+		for e := range eventChan {
+			if msg, ok := e.(agui.ToolApprovalRequestMsg); ok {
+				foundApproval = true
+				Expect(msg.Justification).To(Equal("Writing output for the user's report"))
+				Expect(msg.Arguments).NotTo(ContainSubstring("_justification"))
+			}
+		}
+		Expect(foundApproval).To(BeTrue(), "expected a TOOL_APPROVAL_REQUEST event")
+	})
+
+	It("should pass args through unchanged when no _justification is present", func() {
+		store := &hitlfakes.FakeApprovalStore{}
+		store.CreateStub = func(_ context.Context, req hitl.CreateRequest) (hitl.ApprovalRequest, error) {
+			Expect(req.Args).To(Equal(`{"path":"out.txt","content":"hello"}`))
+			return hitl.ApprovalRequest{
+				ID:       "nojust-" + req.ToolName,
+				ToolName: req.ToolName,
+				Status:   hitl.StatusPending,
+			}, nil
+		}
+		store.WaitForResolutionStub = func(_ context.Context, _ string) (hitl.ApprovalRequest, error) {
+			return hitl.ApprovalRequest{Status: hitl.StatusApproved}, nil
+		}
+
+		ft := &fakeTool{name: "write_file", result: "written"}
+		eventChan := make(chan interface{}, 10)
+
+		wrapper := &toolwrap.Wrapper{
+			Tool:          ft,
+			EventChan:     eventChan,
+			ApprovalStore: store,
+			ThreadID:      "t1",
+			RunID:         "r1",
+		}
+
+		result, err := wrapper.Call(context.Background(), []byte(`{"path":"out.txt","content":"hello"}`))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result).To(Equal("written"))
+
+		// Approval event should have empty justification
+		close(eventChan)
+		for e := range eventChan {
+			if msg, ok := e.(agui.ToolApprovalRequestMsg); ok {
+				Expect(msg.Justification).To(BeEmpty())
+			}
+		}
+	})
+
+	It("should handle readonly tools (no approval) with _justification gracefully", func() {
+		store := &hitlfakes.FakeApprovalStore{}
+		store.IsAllowedStub = func(name string) bool {
+			return name == "read_file"
+		}
+
+		ft := &fakeTool{name: "read_file", result: "content"}
+		wrapper := &toolwrap.Wrapper{
+			Tool:          ft,
+			ApprovalStore: store,
+			ThreadID:      "t1",
+			RunID:         "r1",
+		}
+
+		// Even with _justification, readonly tools should execute immediately
+		args := []byte(`{"path":"test.txt","_justification":"Checking if file exists"}`)
+		result, err := wrapper.Call(context.Background(), args)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result).To(Equal("content"))
+		Expect(store.CreateCallCount()).To(Equal(0))
 	})
 })

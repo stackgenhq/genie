@@ -122,7 +122,7 @@ token = "${GITHUB_TOKEN}"
 
 # ── Linear (PM) ─────────────────────────────────────────────────────────
 # Project management: get/create/assign issues
-[pm]
+[project_management]
 provider = "linear"
 api_token = "${LINEAR_API_KEY}"
 # base_url = ""  # optional override

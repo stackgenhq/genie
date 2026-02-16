@@ -7,8 +7,8 @@ import (
 	"sync"
 
 	"github.com/appcd-dev/genie/pkg/hitl"
+	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/messenger"
-	"github.com/appcd-dev/go-lib/logger"
 )
 
 // NotifierStore wraps an ApprovalStore to send notifications via Messenger.
@@ -63,8 +63,7 @@ func (s *NotifierStore) Create(ctx context.Context, req hitl.CreateRequest) (hit
 // Without this method, NotifierStore relies on the embedded interface which might not behave as expected
 // if not explicitly delegated.
 func (s *NotifierStore) Resolve(ctx context.Context, req hitl.ResolveRequest) error {
-	err := s.realStore.Resolve(ctx, req)
-	return err
+	return s.realStore.Resolve(ctx, req)
 }
 
 // WaitForResolution delegates to the real store.
@@ -115,10 +114,15 @@ func (s *NotifierStore) notifyMessenger(ctx context.Context, senderCtx string, a
 		"⚠️ **Approval Required**\n"+
 			"Tool: `%s`\n"+
 			"Args: ```%s```\n\n"+
-			"Reply **Yes** to approve or **No** to reject.",
+			"Reply **Yes** to approve, **No** to reject, or send any other message as feedback to have the agent revisit its approach.",
 		approval.ToolName,
 		approval.Args,
 	)
+
+	// Append justification if the LLM provided one (via _justification field).
+	if approval.Feedback != "" {
+		msgText += fmt.Sprintf("\n\n💡 **Why**: %s", approval.Feedback)
+	}
 
 	_, err := s.messenger.Send(ctx, messenger.SendRequest{
 		Channel: messenger.Channel{ID: channelID},

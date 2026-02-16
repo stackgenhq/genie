@@ -27,11 +27,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
+	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/messenger"
-	"github.com/appcd-dev/go-lib/logger"
 	"google.golang.org/api/chat/v1"
 	"google.golang.org/api/option"
 )
@@ -123,7 +124,13 @@ func (m *Messenger) Connect(ctx context.Context) error {
 	// Initialize the Chat API service.
 	var chatOpts []option.ClientOption
 	if m.cfg.CredentialsFile != "" {
-		chatOpts = append(chatOpts, option.WithCredentialsFile(m.cfg.CredentialsFile))
+		// Read credentials file content to avoid deprecated WithCredentialsFile
+		// which is flagged as a potential security risk by staticcheck
+		creds, err := os.ReadFile(m.cfg.CredentialsFile)
+		if err != nil {
+			return fmt.Errorf("failed to read credentials file: %w", err)
+		}
+		chatOpts = append(chatOpts, option.WithAuthCredentialsJSON(option.ServiceAccount, creds))
 	}
 
 	svc, err := chat.NewService(ctx, chatOpts...)

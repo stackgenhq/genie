@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/appcd-dev/genie/pkg/db"
+	"github.com/appcd-dev/genie/pkg/retrier"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -88,7 +89,9 @@ func (s *gormStore) Create(ctx context.Context, req CreateRequest) (ApprovalRequ
 		CreatedAt: now,
 	}
 
-	if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
+	if err := retrier.Retry(ctx, func() error {
+		return s.db.WithContext(ctx).Create(&row).Error
+	}); err != nil {
 		return ApprovalRequest{}, fmt.Errorf("failed to insert approval: %w", err)
 	}
 
@@ -113,6 +116,7 @@ func (s *gormStore) Resolve(ctx context.Context, req ResolveRequest) error {
 			"status":      string(req.Decision),
 			"resolved_at": now,
 			"resolved_by": req.ResolvedBy,
+			"feedback":    req.Feedback,
 		})
 
 	if result.Error != nil {
@@ -192,6 +196,7 @@ func toApprovalRequest(row db.Approval) ApprovalRequest {
 		ToolName:   row.ToolName,
 		Args:       row.Args,
 		Status:     ApprovalStatus(row.Status),
+		Feedback:   row.Feedback,
 		CreatedAt:  row.CreatedAt,
 		ResolvedAt: row.ResolvedAt,
 		ResolvedBy: row.ResolvedBy,

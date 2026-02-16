@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/appcd-dev/genie/pkg/audit"
+	"github.com/appcd-dev/genie/pkg/audit/auditfakes"
 	"github.com/appcd-dev/genie/pkg/expert"
 	"github.com/appcd-dev/genie/pkg/expert/expertfakes"
 	"github.com/appcd-dev/genie/pkg/reactree"
@@ -71,7 +71,7 @@ var _ = Describe("CodeOwner", func() {
 				AppName: "test",
 				UserID:  "test",
 			},
-			auditor: &audit.NoopAuditor{},
+			auditor: &auditfakes.FakeAuditor{},
 		}
 	})
 

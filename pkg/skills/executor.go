@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/appcd-dev/go-lib/logger"
+	"github.com/appcd-dev/genie/pkg/logger"
 )
 
 // Executor executes skill scripts.

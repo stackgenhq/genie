@@ -8,7 +8,8 @@ import (
 	"github.com/appcd-dev/genie/pkg/audit"
 	"github.com/appcd-dev/genie/pkg/expert"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
-	"github.com/appcd-dev/go-lib/logger"
+	"github.com/appcd-dev/genie/pkg/logger"
+	"github.com/appcd-dev/genie/pkg/toolwrap"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
@@ -86,7 +87,9 @@ func NewSummarizer(ctx context.Context, modelProvider modelprovider.ModelProvide
 		Description: "Summarizes content into structured output formats",
 	}
 
-	exp, err := bio.ToExpert(ctx, modelProvider, auditor)
+	exp, err := bio.ToExpert(ctx, modelProvider, &toolwrap.Service{
+		Auditor: auditor,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create summarizer expert: %w", err)
 	}

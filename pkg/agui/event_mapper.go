@@ -39,7 +39,8 @@ type aguiEvent struct {
 	Result string `json:"result,omitempty"`
 
 	// HITL approval fields
-	ApprovalID string `json:"approvalId,omitempty"`
+	ApprovalID    string `json:"approvalId,omitempty"`
+	Justification string `json:"justification,omitempty"`
 }
 
 // MapEvent converts an internal TUI event to an AG-UI wire-format event.
@@ -164,10 +165,11 @@ func MapEvent(event interface{}, threadID, runID string) ([]byte, string, error)
 
 	case ToolApprovalRequestMsg:
 		out = aguiEvent{
-			Type:         EventToolApprovalRequest,
-			ApprovalID:   e.ApprovalID,
-			ToolCallName: e.ToolName,
-			Content:      e.Arguments,
+			Type:          EventToolApprovalRequest,
+			ApprovalID:    e.ApprovalID,
+			ToolCallName:  e.ToolName,
+			Content:       e.Arguments,
+			Justification: e.Justification,
 		}
 
 	default:

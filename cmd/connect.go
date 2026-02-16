@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/appcd-dev/genie/pkg/agui"
-	"github.com/appcd-dev/go-lib/osutils"
+	"github.com/appcd-dev/genie/pkg/osutils"
 	"github.com/spf13/cobra"
 )
 
@@ -56,7 +56,7 @@ func (c *connectCmd) run(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("cannot reach Genie at %s: %w", c.url, err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	baseURL := strings.TrimRight(c.url, "/") + "/"
 
@@ -103,7 +103,7 @@ func (c *connectCmd) run(cmd *cobra.Command, _ []string) error {
 
 		if resp.StatusCode != http.StatusOK {
 			respBody, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			fmt.Fprintf(os.Stderr, "\033[31mServer error (%d): %s\033[0m\n", resp.StatusCode, string(respBody))
 			continue
 		}
@@ -113,7 +113,7 @@ func (c *connectCmd) run(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "\033[31mStream error: %v\033[0m\n", err)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		// Preserve thread ID from the first response for conversation continuity.
 		if threadID == "" && newThreadID != "" {

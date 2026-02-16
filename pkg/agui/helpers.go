@@ -3,7 +3,7 @@ package agui
 import (
 	"context"
 
-	"github.com/appcd-dev/go-lib/logger"
+	"github.com/appcd-dev/genie/pkg/logger"
 )
 
 // EmitAgentMessage sends a chat message to the UI.

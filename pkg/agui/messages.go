@@ -250,10 +250,11 @@ func (m LogMsg) AGUIType() string { return EventCustom }
 
 // ToolApprovalRequestMsg requests user approval for a tool call.
 type ToolApprovalRequestMsg struct {
-	Type       string
-	ApprovalID string
-	ToolName   string
-	Arguments  string
+	Type          string
+	ApprovalID    string
+	ToolName      string
+	Arguments     string
+	Justification string // why the LLM is making this tool call
 }
 
 func (m ToolApprovalRequestMsg) AGUIType() string {

@@ -9,16 +9,26 @@ import (
 	"github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/audit"
 	"github.com/appcd-dev/genie/pkg/hitl"
+	"github.com/appcd-dev/genie/pkg/logger"
 	rtmemory "github.com/appcd-dev/genie/pkg/reactree/memory"
-	"github.com/appcd-dev/go-lib/logger"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
+
+const maxToolResultSize = 80000
 
 // Wrapper wraps a tool to emit events when it's called.
 // When WorkingMemory is set, it also caches results from file-read tools
 // (read_file, list_file, read_multiple_files) to prevent redundant reads.
 // When ApprovalStore is set, non-readonly tool calls require human approval
 // before execution proceeds.
+// maxConsecutiveRepeatCalls is the number of consecutive identical tool calls
+// (same tool name + same arguments) that triggers loop detection. When the
+// threshold is reached, the wrapper returns an error to the LLM instead of
+// executing the tool again, breaking infinite loops.
+const maxConsecutiveRepeatCalls = 3
+
 type Wrapper struct {
 	tool.Tool
 	EventChan     chan<- interface{}
@@ -31,6 +41,11 @@ type Wrapper struct {
 	// ThreadID and RunID identify the current AG-UI session for the approval request.
 	ThreadID string
 	RunID    string
+
+	// callHistory tracks recent tool call fingerprints (toolName:args) to detect
+	// infinite loops where the LLM repeatedly calls the same tool with identical
+	// arguments. The slice acts as a bounded sliding window.
+	callHistory []string
 }
 
 func (w *Wrapper) Call(ctx context.Context, jsonArgs []byte) (output any, err error) {
@@ -54,6 +69,20 @@ func (w *Wrapper) Call(ctx context.Context, jsonArgs []byte) (output any, err er
 
 	toolName := w.Tool.Declaration().Name
 
+	// Loop detection: if the same tool+args has been called consecutively
+	// maxConsecutiveRepeatCalls times, break the loop by returning an error
+	// to the LLM so it can summarize existing results instead of retrying.
+	fingerprint := toolName + ":" + string(jsonArgs)
+	if w.isLooping(fingerprint) {
+		logr.Warn("loop detected — same tool+args called consecutively",
+			"tool", toolName, "times", maxConsecutiveRepeatCalls)
+		return nil, fmt.Errorf(
+			"loop detected: tool %s has been called with identical arguments %d times consecutively. "+
+				"Stop calling this tool and summarize the results you already have",
+			toolName, maxConsecutiveRepeatCalls)
+	}
+	w.recordCall(fingerprint)
+
 	// Cache check: return cached result for file-read tools if available.
 	if cached, ok := w.checkFileCache(logr, toolName, jsonArgs); ok {
 		// Emit event even for cache hits so the TUI stays informed
@@ -65,6 +94,13 @@ func (w *Wrapper) Call(ctx context.Context, jsonArgs []byte) (output any, err er
 			}
 		}
 		return cached, nil
+	}
+
+	// Extract optional _justification from args (LLM explains why the tool is needed).
+	// Strip it before forwarding to the actual tool so it doesn't leak into tool logic.
+	justification, strippedArgs := extractJustification(jsonArgs)
+	if justification != "" {
+		jsonArgs = strippedArgs
 	}
 
 	// HITL approval gate: non-readonly tools require human approval before execution.
@@ -105,10 +141,11 @@ func (w *Wrapper) Call(ctx context.Context, jsonArgs []byte) (output any, err er
 		}
 		if evChan != nil {
 			evChan <- agui.ToolApprovalRequestMsg{
-				Type:       agui.EventToolApprovalRequest,
-				ApprovalID: approval.ID,
-				ToolName:   toolName,
-				Arguments:  string(jsonArgs),
+				Type:          agui.EventToolApprovalRequest,
+				ApprovalID:    approval.ID,
+				ToolName:      toolName,
+				Arguments:     string(jsonArgs),
+				Justification: justification,
 			}
 		}
 
@@ -118,8 +155,18 @@ func (w *Wrapper) Call(ctx context.Context, jsonArgs []byte) (output any, err er
 			return nil, fmt.Errorf("approval wait failed for tool %s: %w", toolName, waitErr)
 		}
 		if resolved.Status == hitl.StatusRejected {
+			if resolved.Feedback != "" {
+				w.storeFeedback(toolName, resolved.Feedback)
+				logr.Info("tool call rejected by user with feedback", "tool", toolName, "feedback", resolved.Feedback)
+				return nil, fmt.Errorf("tool call %s rejected by user: %s", toolName, resolved.Feedback)
+			}
 			logr.Info("tool call rejected by user", "tool", toolName)
 			return nil, fmt.Errorf("tool call %s rejected by user", toolName)
+		}
+		if resolved.Feedback != "" {
+			w.storeFeedback(toolName, resolved.Feedback)
+			logr.Info("tool call approved with feedback — returning to LLM for re-planning", "tool", toolName, "feedback", resolved.Feedback)
+			return nil, fmt.Errorf("tool call %s: user requested changes — %s — please adjust your approach and try again", toolName, resolved.Feedback)
 		}
 		logr.Info("tool call approved by user", "tool", toolName)
 	}
@@ -166,7 +213,6 @@ func (w *Wrapper) Call(ctx context.Context, jsonArgs []byte) (output any, err er
 
 	// Token optimization: Truncate large tool responses to prevent context explosion
 	// Large outputs (like generated Terraform files) can bloat context in subsequent LLM calls
-	const maxToolResultSize = 2000
 	responseStr := fmt.Sprintf("%v", output)
 	truncated := false
 	if len(responseStr) > maxToolResultSize {
@@ -181,17 +227,17 @@ func (w *Wrapper) Call(ctx context.Context, jsonArgs []byte) (output any, err er
 
 	// Log tool result
 	if err != nil {
-		logr.Error("tool call failed", "error", err)
+		logr.Error("tool call failed", "tool", toolName, "args", string(jsonArgs), "error", err)
 	} else {
-		logr.Debug("tool call completed", "response_length", len(responseStr), "truncated", truncated)
+		logr.Debug("tool call completed", "tool", toolName, "response_length", len(responseStr), "truncated", truncated)
 	}
 
 	// Audit: log tool call
+	errStr := ""
+	if err != nil {
+		errStr = err.Error()
+	}
 	if w.Auditor != nil {
-		errStr := ""
-		if err != nil {
-			errStr = err.Error()
-		}
 		w.Auditor.Log(ctx, audit.LogRequest{
 			EventType: audit.EventToolCall,
 			Actor:     "expert",
@@ -301,4 +347,68 @@ func TruncateForAudit(s string, maxLen int) string {
 		return s
 	}
 	return string(runes[:maxLen]) + "…"
+}
+
+// isLooping returns true when the most recent (maxConsecutiveRepeatCalls-1)
+// entries in callHistory all match the given fingerprint. Combined with the
+// current call this means the tool would have been invoked
+// maxConsecutiveRepeatCalls times consecutively with the same arguments.
+func (w *Wrapper) isLooping(fingerprint string) bool {
+	n := len(w.callHistory)
+	needed := maxConsecutiveRepeatCalls - 1
+	if n < needed {
+		return false
+	}
+	for i := n - needed; i < n; i++ {
+		if w.callHistory[i] != fingerprint {
+			return false
+		}
+	}
+	return true
+}
+
+// recordCall appends a fingerprint to callHistory and trims the slice to the
+// most recent 10 entries to bound memory usage.
+func (w *Wrapper) recordCall(fingerprint string) {
+	w.callHistory = append(w.callHistory, fingerprint)
+	const maxHistory = 10
+	if len(w.callHistory) > maxHistory {
+		w.callHistory = w.callHistory[len(w.callHistory)-maxHistory:]
+	}
+}
+
+// extractJustification pulls the optional "_justification" key from a JSON
+// tool-call argument blob. It returns the justification string and the
+// arguments with the key removed. If the key is absent or the blob is not
+// valid JSON, the original args are returned unchanged with an empty
+// justification.
+func extractJustification(args []byte) (string, []byte) {
+	justification := gjson.GetBytes(args, "_justification")
+	if !justification.Exists() {
+		return "", args
+	}
+
+	stripped, err := sjson.DeleteBytes(args, "_justification")
+	if err != nil {
+		return "", args
+	}
+	return justification.String(), stripped
+}
+
+// storeFeedback persists user HITL feedback into WorkingMemory so that
+// current and future sub-agents can learn from the correction. Feedback
+// is stored under "hitl:feedback:<toolName>" keys and is automatically
+// injected into sub-agent prompts via the WorkingMemory snapshot in
+// create_agent.go. Multiple feedback entries for the same tool are
+// concatenated with newlines.
+func (w *Wrapper) storeFeedback(toolName, feedback string) {
+	if w.WorkingMemory == nil || feedback == "" {
+		return
+	}
+	key := fmt.Sprintf("hitl:feedback:%s", toolName)
+	if existing, ok := w.WorkingMemory.Recall(key); ok && existing != "" {
+		w.WorkingMemory.Store(key, existing+"\n"+feedback)
+	} else {
+		w.WorkingMemory.Store(key, feedback)
+	}
 }

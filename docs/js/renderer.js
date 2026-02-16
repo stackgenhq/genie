@@ -122,42 +122,60 @@
     }
 
     function renderArchitectureTab(arch) {
-        var html = '<section class="py-12 px-6"><div class="max-w-4xl mx-auto fade-in">';
+        var html = '<section class="py-12 px-6"><div class="max-w-5xl mx-auto fade-in">';
         html += '<h2 class="text-3xl font-bold mb-8">' + arch.title + '</h2>';
 
-        // Event pipeline
-        html += '<h3 class="text-xl font-semibold mb-4">' + arch.event_pipeline.title + '</h3>';
-        html += '<p class="mb-4">' + arch.event_pipeline.desc + '</p>';
-        html += '<pre class="bg-gray-50 p-4 rounded-lg overflow-x-auto text-sm font-mono mb-6">' + escapeHtml(arch.event_pipeline.diagram.trim()) + '</pre>';
+        // Overview
+        if (arch.overview) {
+            html += '<h3 class="text-xl font-semibold mb-4">' + arch.overview.title + '</h3>';
+            html += '<p class="mb-4 text-sm text-gray-600">' + arch.overview.desc + '</p>';
+            html += '<pre class="bg-gray-50 p-4 rounded-lg overflow-x-auto text-xs font-mono mb-8">' + escapeHtml(arch.overview.diagram.trim()) + '</pre>';
+        }
 
-        // Channels table
-        html += '<h3 class="text-xl font-semibold mb-4">' + arch.channels.title + '</h3>';
-        html += '<table class="w-full text-sm text-left text-gray-500 mb-8 border border-gray-100 rounded-lg overflow-hidden">';
-        html += '<thead class="text-xs text-gray-700 uppercase bg-gray-50"><tr>';
-        arch.channels.columns.forEach(function (c) { html += '<th class="px-6 py-3">' + c + '</th>'; });
-        html += '</tr></thead><tbody>';
-        arch.channels.rows.forEach(function (r) {
-            html += '<tr class="bg-white border-b">';
-            r.forEach(function (cell, ci) {
-                html += '<td class="px-6 py-4' + (ci === 0 ? ' font-mono' : '') + '">' + cell + '</td>';
+        // Subsystems
+        if (arch.subsystems) {
+            arch.subsystems.forEach(function (sub) {
+                html += '<div class="mb-8 p-5 border border-gray-100 rounded-xl shadow-sm">';
+                html += '<h3 class="text-lg font-semibold mb-2">' + sub.title + '</h3>';
+                html += '<p class="text-sm text-gray-600 mb-4">' + sub.desc + '</p>';
+                if (sub.columns && sub.rows) {
+                    html += renderTable(sub.columns, sub.rows);
+                }
+                html += '</div>';
             });
-            html += '</tr>';
-        });
-        html += '</tbody></table>';
+        }
+
+        // Event types table
+        if (arch.event_types) {
+            html += '<h3 class="text-xl font-semibold mb-4">' + arch.event_types.title + '</h3>';
+            html += '<div class="mb-8">' + renderTable(arch.event_types.columns, arch.event_types.rows) + '</div>';
+        }
+
+        // Endpoints table
+        if (arch.endpoints) {
+            html += '<h3 class="text-xl font-semibold mb-4">' + arch.endpoints.title + '</h3>';
+            html += '<div class="mb-8">' + renderTable(arch.endpoints.columns, arch.endpoints.rows) + '</div>';
+        }
 
         // Debugging scenarios
-        html += '<h3 class="text-xl font-semibold mb-4">' + arch.debugging.title + '</h3>';
-        html += '<div class="space-y-4 mb-8">';
-        arch.debugging.items.forEach(function (item) {
-            html += '<div class="p-4 border border-gray-200 rounded-lg">';
-            html += '<h4 class="font-semibold mb-2">' + item.title + '</h4>';
-            html += '<ol class="list-decimal list-inside space-y-1 text-sm text-gray-600">';
-            item.steps.forEach(function (s) { html += '<li>' + inlineCode(s) + '</li>'; });
-            html += '</ol></div>';
-        });
-        html += '</div>';
+        if (arch.debugging) {
+            html += '<h3 class="text-xl font-semibold mb-4">' + arch.debugging.title + '</h3>';
+            html += '<div class="space-y-4 mb-8">';
+            arch.debugging.items.forEach(function (item) {
+                html += '<div class="p-4 border border-gray-200 rounded-lg">';
+                html += '<h4 class="font-semibold mb-2">' + item.title + '</h4>';
+                html += '<ol class="list-decimal list-inside space-y-1 text-sm text-gray-600">';
+                item.steps.forEach(function (s) { html += '<li>' + inlineCode(s) + '</li>'; });
+                html += '</ol></div>';
+            });
+            html += '</div>';
+        }
 
-        html += '<p class="text-sm text-gray-500">For full details, see <code>' + arch.footer_note.replace(/`/g, '') + '</code></p>';
+        // Footer note
+        if (arch.footer_note) {
+            html += '<p class="text-sm text-gray-500">' + inlineCode(arch.footer_note) + '</p>';
+        }
+
         html += '</div></section>';
         return html;
     }

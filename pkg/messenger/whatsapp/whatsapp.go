@@ -30,8 +30,8 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/messenger"
-	"github.com/appcd-dev/go-lib/logger"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"

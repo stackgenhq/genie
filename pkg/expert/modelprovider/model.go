@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/appcd-dev/go-lib/logger"
-	"github.com/appcd-dev/go-lib/osutils"
+	"github.com/appcd-dev/genie/pkg/logger"
+	"github.com/appcd-dev/genie/pkg/osutils"
 	"google.golang.org/genai"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/model/anthropic"

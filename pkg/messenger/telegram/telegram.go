@@ -29,8 +29,8 @@ import (
 	tgbot "github.com/go-telegram/bot"
 	tgmodels "github.com/go-telegram/bot/models"
 
+	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/messenger"
-	"github.com/appcd-dev/go-lib/logger"
 )
 
 func init() {

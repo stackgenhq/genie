@@ -28,8 +28,8 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/messenger"
-	"github.com/appcd-dev/go-lib/logger"
 )
 
 func init() {

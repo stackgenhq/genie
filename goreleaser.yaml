@@ -54,11 +54,8 @@ builds:
       -w
       -s
       -extldflags '-static'
-      -X github.com/appcd-dev/go-lib/constants.Version={{.Version}}
-      -X github.com/appcd-dev/go-lib/constants.BuildDate={{.Date}}
-      -X github.com/appcd-dev/go-lib/featureflag.Key={{.Env.FF_UNLEASH_API_KEY}}
-      -X github.com/appcd-dev/genie/pkg/tracing.LangfusePublicKey={{.Env.LANGFUSE_PUBLIC_KEY}}
-      -X github.com/appcd-dev/genie/pkg/tracing.LangfuseSecretKey={{.Env.LANGFUSE_SECRET_KEY}}
+      -X github.com/appcd-dev/genie/cmd.Version={{.Version}}
+      -X github.com/appcd-dev/genie/cmd.BuildDate={{.Date}}
   - id: darwin-build
     binary: genie
     goos:
@@ -88,11 +85,8 @@ builds:
     ldflags: |
       -w
       -s
-      -X github.com/appcd-dev/go-lib/constants.Version={{.Version}}
-      -X github.com/appcd-dev/go-lib/constants.BuildDate={{.Date}}
-      -X github.com/appcd-dev/go-lib/featureflag.Key={{.Env.FF_UNLEASH_API_KEY}}
-      -X github.com/appcd-dev/genie/pkg/tracing.LangfusePublicKey={{.Env.LANGFUSE_PUBLIC_KEY}}
-      -X github.com/appcd-dev/genie/pkg/tracing.LangfuseSecretKey={{.Env.LANGFUSE_SECRET_KEY}}
+      -X github.com/appcd-dev/genie/cmd.Version={{.Version}}
+      -X github.com/appcd-dev/genie/cmd.BuildDate={{.Date}}
     hooks:
       post:
         - cmd: quill sign "{{ .Path }}" --ad-hoc={{ .IsSnapshot }} -vv

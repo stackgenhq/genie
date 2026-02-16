@@ -8,11 +8,10 @@ import (
 	"github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/audit"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
+	"github.com/appcd-dev/genie/pkg/logger"
+	"github.com/appcd-dev/genie/pkg/osutils"
 	rtmemory "github.com/appcd-dev/genie/pkg/reactree/memory"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
-	"github.com/appcd-dev/go-lib/constants"
-	"github.com/appcd-dev/go-lib/logger"
-	"github.com/appcd-dev/go-lib/osutils"
 	"github.com/google/uuid"
 	"trpc.group/trpc-go/trpc-agent-go/agent"
 	"trpc.group/trpc-go/trpc-agent-go/agent/llmagent"
@@ -33,22 +32,14 @@ type ExpertBio struct {
 func (e ExpertBio) ToExpert(
 	ctx context.Context,
 	modelProvider modelprovider.ModelProvider,
-	auditor audit.Auditor,
-	toolwrapSvc ...*toolwrap.Service,
+	toolwrapSvc *toolwrap.Service,
 ) (_ Expert, err error) {
-	var svc *toolwrap.Service
-	if len(toolwrapSvc) > 0 && toolwrapSvc[0] != nil {
-		svc = toolwrapSvc[0]
-	} else {
-		// Default: create a service with just the auditor (backward compatible).
-		svc = &toolwrap.Service{Auditor: auditor}
-	}
 	expert := &expert{
 		bio:           e,
 		modelProvider: modelProvider,
 		eventAdapter:  agui.NewEventAdapter(e.Name),
-		auditor:       auditor,
-		toolwrapSvc:   svc,
+		auditor:       toolwrapSvc.Auditor,
+		toolwrapSvc:   toolwrapSvc,
 	}
 	return expert, nil
 }
@@ -79,7 +70,7 @@ type Request struct {
 func (r Request) mode() []llmagent.Option {
 	defaultMode := []llmagent.Option{
 		llmagent.WithGenerationConfig(model.GenerationConfig{
-			Temperature: constants.ToPtr(0.3),
+			Temperature: model.Float64Ptr(0.3),
 			Stream:      true,
 		}),
 		llmagent.WithEnableParallelTools(true),                           // Enable parallel tool execution for better performance
@@ -89,7 +80,7 @@ func (r Request) mode() []llmagent.Option {
 		llmagent.WithMaxLLMCalls(25),
 		llmagent.WithMaxToolIterations(20),
 		// Token optimization: Only include current request context, not full history (50-70% savings)
-		llmagent.WithMessageFilterMode(llmagent.IsolatedRequest),
+		llmagent.WithMessageFilterMode(llmagent.RequestContext),
 		// Token optimization: Limit history messages to reduce context size (20-30% savings)
 		llmagent.WithMaxHistoryRuns(3),
 		// Token optimization: Discard reasoning chains from previous turns (10-20% savings)
@@ -128,8 +119,7 @@ type expert struct {
 	bio           ExpertBio
 	modelProvider modelprovider.ModelProvider
 	eventAdapter  *agui.EventAdapter
-	// Auditor is an optional audit logger for recording LLM calls and tool invocations.
-	// When nil, no audit events are emitted.
+	// Auditor is an audit logger for recording LLM calls and tool invocations.
 	auditor audit.Auditor
 
 	// toolwrapSvc holds the session-stable dependencies for tool wrapping

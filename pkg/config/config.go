@@ -12,6 +12,7 @@ import (
 	"github.com/appcd-dev/genie/pkg/db"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/hitl"
+	"github.com/appcd-dev/genie/pkg/langfuse"
 	"github.com/appcd-dev/genie/pkg/mcp"
 	"github.com/appcd-dev/genie/pkg/memory/vector"
 	"github.com/appcd-dev/genie/pkg/messenger"
@@ -31,11 +32,14 @@ type GenieConfig struct {
 	Messenger    messenger.Config          `yaml:"messenger" toml:"messenger"`
 	Browser      browser.Config            `yaml:"browser" toml:"browser"`
 	SCM          scm.Config                `yaml:"scm" toml:"scm"`
-	PM           pm.Config                 `yaml:"pm" toml:"pm"`
-	Email        email.Config              `yaml:"email" toml:"email"`
-	AGUI         agui.ServerConfig         `yaml:"agui" toml:"agui"`
-	HITL         hitl.Config               `yaml:"hitl" toml:"hitl"`
-	DBConfig     db.Config                 `yaml:"db_config" toml:"db_config"`
+
+	ProjectManagement pm.Config `yaml:"project_management" toml:"project_management"`
+
+	Email    email.Config      `yaml:"email" toml:"email"`
+	AGUI     agui.ServerConfig `yaml:"agui" toml:"agui"`
+	HITL     hitl.Config       `yaml:"hitl" toml:"hitl"`
+	DBConfig db.Config         `yaml:"db_config" toml:"db_config"`
+	Langfuse langfuse.Config   `yaml:"langfuse" toml:"langfuse"`
 }
 
 func LoadGenieConfig(path string) (GenieConfig, error) {
@@ -52,6 +56,7 @@ func LoadGenieConfig(path string) (GenieConfig, error) {
 		AGUI:         agui.DefaultServerConfig(),
 		HITL:         hitl.DefaultConfig(),
 		DBConfig:     db.DefaultConfig(),
+		Langfuse:     langfuse.DefaultConfig(),
 	}
 
 	// Override VectorMemory provider default if env vars present

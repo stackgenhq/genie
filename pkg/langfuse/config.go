@@ -1,35 +1,59 @@
 package langfuse
 
 import (
+	"net/http"
 	"os"
-	"strconv"
 	"strings"
+	"time"
 
-	"github.com/appcd-dev/go-lib/osutils"
+	"github.com/appcd-dev/genie/pkg/httputil"
+	"github.com/appcd-dev/genie/pkg/ttlcache"
 )
 
-var (
-	LangfusePublicKey = osutils.Getenv("LANGFUSE_PUBLIC_KEY", "")
-	LangfuseSecretKey = osutils.Getenv("LANGFUSE_SECRET_KEY", "")
-	LangfuseHost      = osutils.Getenv("LANGFUSE_HOST", "langfuse.cloud.stackgen.com")
-	EnablePrompts     = getBoolEnv("LANGFUSE_ENABLE_PROMPTS", false)
-)
-
-func langfuseHost() string {
-	if strings.HasPrefix(LangfuseHost, "https://") || strings.HasPrefix(LangfuseHost, "http://") {
-		return LangfuseHost
-	}
-	return "https://" + LangfuseHost
+type Config struct {
+	PublicKey     string `json:"public_key" toml:"public_key" yaml:"public_key"`
+	SecretKey     string `json:"secret_key" toml:"secret_key" yaml:"secret_key"`
+	Host          string `json:"host" toml:"host" yaml:"host"`
+	EnablePrompts bool   `json:"enable_prompts" toml:"enable_prompts" yaml:"enable_prompts"`
 }
 
-func getBoolEnv(key string, defaultVal bool) bool {
-	val := os.Getenv(key)
-	if val == "" {
-		return defaultVal
+func DefaultConfig() Config {
+	return Config{
+		PublicKey:     os.Getenv("LANGFUSE_PUBLIC_KEY"),
+		SecretKey:     os.Getenv("LANGFUSE_SECRET_KEY"),
+		Host:          os.Getenv("LANGFUSE_HOST"),
+		EnablePrompts: os.Getenv("LANGFUSE_ENABLE_PROMPTS") == "true",
 	}
-	b, err := strconv.ParseBool(val)
-	if err != nil {
-		return defaultVal
+}
+
+// langfuseHost returns the full URL (with scheme) for the Langfuse HTTP API.
+func (c Config) langfuseHost() string {
+	if strings.HasPrefix(c.Host, "https://") || strings.HasPrefix(c.Host, "http://") {
+		return c.Host
 	}
-	return b
+	return "https://" + c.Host
+}
+
+// langfuseOTLPEndpoint returns the host in "hostname:port" format for the OTLP exporter.
+func (c Config) langfuseOTLPEndpoint() string {
+	host := c.Host
+	host = strings.TrimPrefix(host, "https://")
+	host = strings.TrimPrefix(host, "http://")
+	if !strings.Contains(host, ":") {
+		host = host + ":443"
+	}
+	return host
+}
+
+func (c Config) NewClient() Client {
+	if c.PublicKey == "" || c.SecretKey == "" || c.Host == "" {
+		return &noopClient{}
+	}
+	langfuseClient := &client{
+		httpClient: httputil.GetClient(func(req *http.Request) {
+			req.SetBasicAuth(c.PublicKey, c.SecretKey)
+		}),
+	}
+	langfuseClient.promptsCache = ttlcache.NewItem(langfuseClient.getAllPrompts, 10*time.Minute)
+	return langfuseClient
 }

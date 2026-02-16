@@ -418,6 +418,45 @@
             background: #fecaca;
         }
 
+        .approval-card .btn-revisit {
+            background: #f5f3ff;
+            color: #7c3aed;
+            border-color: #c4b5fd;
+        }
+
+        .approval-card .btn-revisit:hover {
+            background: #ede9fe;
+        }
+
+        .approval-card .feedback-area {
+            width: 100%;
+            margin-bottom: 0.5rem;
+        }
+
+        .approval-card .feedback-area textarea {
+            width: 100%;
+            min-height: 2.5rem;
+            max-height: 6rem;
+            padding: 0.4rem 0.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 0.375rem;
+            background: rgba(0, 0, 0, 0.2);
+            color: inherit;
+            font-size: 0.75rem;
+            font-family: inherit;
+            resize: vertical;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+
+        .approval-card .feedback-area textarea::placeholder {
+            color: rgba(255, 255, 255, 0.4);
+        }
+
+        .approval-card .feedback-area textarea:focus {
+            border-color: rgba(99, 102, 241, 0.6);
+        }
+
         .approval-card .approval-resolved {
             font-weight: 600;
             font-size: 0.75rem;
@@ -1334,7 +1373,7 @@
 
                 case 'TOOL_APPROVAL_REQUEST':
                     hideThinking();
-                    addApprovalCard(event.approvalId, event.toolCallName, event.content);
+                    addApprovalCard(event.approvalId, event.toolCallName, event.content, event.justification);
                     break;
             }
         }
@@ -1618,15 +1657,23 @@
             }
         }
 
-        function addApprovalCard(approvalId, toolName, args) {
+        function addApprovalCard(approvalId, toolName, args, justification) {
             const div = document.createElement('div');
             div.className = 'flex justify-start mb-3';
+            const justificationHtml = justification
+                ? `<div style="font-size:0.75rem;color:#a5b4fc;background:rgba(99,102,241,0.1);border-left:3px solid rgba(99,102,241,0.4);padding:0.35rem 0.5rem;margin-bottom:0.5rem;border-radius:0 0.25rem 0.25rem 0;">💡 ${escapeHtml(justification)}</div>`
+                : '';
             div.innerHTML = `
         <div class="approval-card" id="approval-${approvalId}">
           <div class="approval-header">⚠️ Approval Required — ${escapeHtml(toolName || 'tool')}</div>
+          ${justificationHtml}
           <div class="approval-args">${escapeHtml(args || '')}</div>
+          <div class="feedback-area">
+            <textarea id="feedback-${approvalId}" placeholder="Optional feedback — guide the agent on what to change…" rows="1"></textarea>
+          </div>
           <div class="approval-actions" id="approval-actions-${approvalId}">
             <button class="btn-approve" onclick="resolveApproval('${approvalId}', 'approved')">✅ Approve</button>
+            <button class="btn-revisit" onclick="revisitApproval('${approvalId}')" title="Send back with feedback for the agent to rethink">🔄 Revisit</button>
             <button class="btn-reject" onclick="resolveApproval('${approvalId}', 'rejected')">❌ Reject</button>
           </div>
         </div>
@@ -1639,14 +1686,19 @@
             const actionsEl = document.getElementById('approval-actions-' + approvalId);
             if (!actionsEl) return;
 
+            // Grab optional feedback
+            const feedbackEl = document.getElementById('feedback-' + approvalId);
+            const feedback = feedbackEl ? feedbackEl.value.trim() : '';
+
             // Disable buttons immediately
             actionsEl.querySelectorAll('button').forEach(btn => btn.disabled = true);
+            if (feedbackEl) feedbackEl.disabled = true;
 
             try {
                 const resp = await fetch(serverUrl + '/approve', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ approvalId, decision }),
+                    body: JSON.stringify({ approvalId, decision, feedback }),
                 });
 
                 if (!resp.ok) {
@@ -1655,11 +1707,60 @@
                 }
 
                 // Replace buttons with resolved status
-                if (decision === 'approved') {
-                    actionsEl.innerHTML = '<span class="approval-resolved" style="color:#16a34a">✅ Approved</span>';
+                let statusHtml;
+                if (decision === 'revisit') {
+                    statusHtml = '<span class="approval-resolved" style="color:#a78bfa">🔄 Sent back for revision</span>';
+                } else if (decision === 'approved' && feedback) {
+                    statusHtml = '<span class="approval-resolved" style="color:#f59e0b">✏️ Approved with feedback</span>';
+                } else if (decision === 'approved') {
+                    statusHtml = '<span class="approval-resolved" style="color:#16a34a">✅ Approved</span>';
                 } else {
-                    actionsEl.innerHTML = '<span class="approval-resolved" style="color:#dc2626">❌ Rejected</span>';
+                    statusHtml = '<span class="approval-resolved" style="color:#dc2626">❌ Rejected</span>';
                 }
+                if (feedback) {
+                    statusHtml += `<div style="font-size:0.7rem;color:rgba(255,255,255,0.5);margin-top:0.25rem">${escapeHtml(feedback)}</div>`;
+                }
+                actionsEl.innerHTML = statusHtml;
+                // Hide the feedback textarea after resolution
+                if (feedbackEl) feedbackEl.parentElement.style.display = 'none';
+            } catch (err) {
+                actionsEl.innerHTML = '<span class="approval-resolved" style="color:#dc2626">⚠️ Error: ' + escapeHtml(err.message) + '</span>';
+            }
+        }
+
+        async function revisitApproval(approvalId) {
+            const feedbackEl = document.getElementById('feedback-' + approvalId);
+            let feedback = feedbackEl ? feedbackEl.value.trim() : '';
+
+            if (!feedback) {
+                feedback = prompt('What should the agent do differently?');
+                if (!feedback) return; // User cancelled
+            }
+
+            // Use the existing resolveApproval with 'rejected' + feedback
+            // so the LLM receives the error and re-plans
+            const actionsEl = document.getElementById('approval-actions-' + approvalId);
+            if (!actionsEl) return;
+
+            actionsEl.querySelectorAll('button').forEach(btn => btn.disabled = true);
+            if (feedbackEl) feedbackEl.disabled = true;
+
+            try {
+                const resp = await fetch(serverUrl + '/approve', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ approvalId, decision: 'rejected', feedback }),
+                });
+
+                if (!resp.ok) {
+                    const err = await resp.text();
+                    throw new Error(err);
+                }
+
+                let statusHtml = '<span class="approval-resolved" style="color:#a78bfa">🔄 Sent back for revision</span>';
+                statusHtml += `<div style="font-size:0.7rem;color:rgba(255,255,255,0.5);margin-top:0.25rem">${escapeHtml(feedback)}</div>`;
+                actionsEl.innerHTML = statusHtml;
+                if (feedbackEl) feedbackEl.parentElement.style.display = 'none';
             } catch (err) {
                 actionsEl.innerHTML = '<span class="approval-resolved" style="color:#dc2626">⚠️ Error: ' + escapeHtml(err.message) + '</span>';
             }

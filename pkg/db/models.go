@@ -18,6 +18,7 @@ type Approval struct {
 	CreatedAt  time.Time  `gorm:"not null" json:"created_at"`
 	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
 	ResolvedBy string     `gorm:"type:text;default:''" json:"resolved_by,omitempty"`
+	Feedback   string     `gorm:"type:text;default:''" json:"feedback,omitempty"`
 }
 
 // TableName overrides the default GORM table name.

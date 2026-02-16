@@ -9,9 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/appcd-dev/go-lib/httputil"
-	"github.com/appcd-dev/go-lib/logger"
-	"github.com/appcd-dev/go-lib/ttlcache"
+	"github.com/appcd-dev/genie/pkg/logger"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -33,16 +31,6 @@ type langfusePromptsResponse struct {
 	} `json:"meta"`
 }
 
-//go:generate go tool counterfeiter -generate
-
-// Client defines the interface for fetching prompts from Langfuse.
-//
-//counterfeiter:generate . Client
-type Client interface {
-	// GetPrompt returns the prompt template by name, or the default if not found/disabled.
-	GetPrompt(ctx context.Context, name, defaultPrompt string) string
-}
-
 type remotePrompts map[string]string
 
 func (r remotePrompts) get(name, defaultPrompt string) string {
@@ -52,43 +40,12 @@ func (r remotePrompts) get(name, defaultPrompt string) string {
 	return defaultPrompt
 }
 
-type client struct {
-	httpClient   *http.Client
-	promptsCache *ttlcache.Item[remotePrompts]
-}
-
-var defaultClient = newClient()
-
-func GetPrompt(ctx context.Context, name, defaultPrompt string) string {
-	return defaultClient.GetPrompt(ctx, name, defaultPrompt)
-}
-
-type noopClient struct {
-}
-
-func (n *noopClient) GetPrompt(ctx context.Context, name, defaultPrompt string) string {
-	return defaultPrompt
-}
-
-func newClient() Client {
-	if LangfusePublicKey == "" || LangfuseSecretKey == "" {
-		return &noopClient{}
-	}
-	langfuseClient := &client{
-		httpClient: httputil.GetClient(func(req *http.Request) {
-			req.SetBasicAuth(LangfusePublicKey, LangfuseSecretKey)
-		}),
-	}
-	langfuseClient.promptsCache = ttlcache.NewItem(langfuseClient.getAllPrompts, 10*time.Minute)
-	return langfuseClient
-}
-
 type promptResponse struct {
 	Prompt string `json:"prompt"`
 }
 
 func (c *client) getAllPromptNames(ctx context.Context) ([]string, error) {
-	url := fmt.Sprintf("%s/api/public/v2/prompts", langfuseHost())
+	url := fmt.Sprintf("%s/api/public/v2/prompts", c.config.langfuseHost())
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -161,7 +118,7 @@ func (c *client) getAllPrompts(ctx context.Context) (remotePrompts, error) {
 
 // getPromptByName fetches the latest version of a prompt by its name
 func (c *client) getPromptByName(ctx context.Context, name string) (string, error) {
-	url := fmt.Sprintf("%s/api/public/v2/prompts/%s", langfuseHost(), name)
+	url := fmt.Sprintf("%s/api/public/v2/prompts/%s", c.config.langfuseHost(), name)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
@@ -191,12 +148,7 @@ func (c *client) getPromptByName(ctx context.Context, name string) (string, erro
 }
 
 func (c *client) GetPrompt(ctx context.Context, name string, defaultPrompt string) string {
-	if LangfusePublicKey == "" || LangfuseSecretKey == "" {
-		return defaultPrompt
-	}
-	// do not use langfuse template for now
-	// do not use langfuse template for now
-	if !EnablePrompts {
+	if c.config.PublicKey == "" || c.config.SecretKey == "" || c.config.Host == "" || !c.config.EnablePrompts {
 		return defaultPrompt
 	}
 	prompts, err := c.promptsCache.GetValue(ctx)

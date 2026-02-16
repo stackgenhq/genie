@@ -35,6 +35,7 @@ type ApprovalRequest struct {
 	ToolName   string         `json:"tool_name"`
 	Args       string         `json:"args"`
 	Status     ApprovalStatus `json:"status"`
+	Feedback   string         `json:"feedback,omitempty"`
 	CreatedAt  time.Time      `json:"created_at"`
 	ResolvedAt *time.Time     `json:"resolved_at,omitempty"`
 	ResolvedBy string         `json:"resolved_by,omitempty"`
@@ -53,6 +54,7 @@ type ResolveRequest struct {
 	ApprovalID string
 	Decision   ApprovalStatus
 	ResolvedBy string
+	Feedback   string
 }
 
 // ApprovalStore is the interface for persisting and coordinating tool approvals.

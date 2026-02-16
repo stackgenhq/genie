@@ -14,13 +14,13 @@ import (
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/hitl"
 	"github.com/appcd-dev/genie/pkg/langfuse"
+	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/memory/vector"
 	"github.com/appcd-dev/genie/pkg/messenger"
 	"github.com/appcd-dev/genie/pkg/osutils"
 	"github.com/appcd-dev/genie/pkg/reactree"
 	rtmemory "github.com/appcd-dev/genie/pkg/reactree/memory"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
-	"github.com/appcd-dev/go-lib/logger"
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor/local"
 	"trpc.group/trpc-go/trpc-agent-go/memory"
 	"trpc.group/trpc-go/trpc-agent-go/model"
@@ -123,7 +123,10 @@ func NewCodeOwner(
 		Description: "Genie — personal AI assistant that gets things done",
 	}
 
-	exp, err := expertBio.ToExpert(ctx, modelProvider, auditor)
+	exp, err := expertBio.ToExpert(ctx, modelProvider, &toolwrap.Service{
+		Auditor:       auditor,
+		ApprovalStore: approvalStore,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +139,10 @@ func NewCodeOwner(
 		Name:        "front-desk",
 		Description: "Classifies incoming requests to determine routing",
 	}
-	frontDeskExp, err := frontDeskBio.ToExpert(ctx, modelProvider, auditor)
+	frontDeskExp, err := frontDeskBio.ToExpert(ctx, modelProvider, &toolwrap.Service{
+		Auditor:       auditor,
+		ApprovalStore: approvalStore,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create front desk expert: %w", err)
 	}
@@ -262,6 +268,7 @@ func (c *codeOwner) createResume(
 	fullPersona string,
 ) (string, error) {
 	logger := logger.GetLogger(ctx)
+	logger.Info("building my resume")
 	// use the front desk expert to check on available tools and then create a resume
 	result, err := summarizer.Summarize(ctx, agentutils.SummarizeRequest{
 		RequiredOutputFormat: agentutils.OutputFormatMarkdown,

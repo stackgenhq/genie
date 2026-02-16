@@ -3,147 +3,241 @@ package scm_test
 import (
 	"context"
 	"encoding/json"
-	"reflect"
-	"testing"
-	"time"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 
 	"github.com/appcd-dev/genie/pkg/tools/scm"
+	"github.com/appcd-dev/genie/pkg/tools/scm/scmfakes"
 	go_scm "github.com/drone/go-scm/scm"
 )
 
-// MockService implements scm.Service for testing
-type MockService struct {
-	ListReposFunc         func(ctx context.Context) ([]*go_scm.Repository, error)
-	GetPullRequestFunc    func(ctx context.Context, repo string, id int) (*go_scm.PullRequest, error)
-	CreatePullRequestFunc func(ctx context.Context, repo string, input *go_scm.PullRequestInput) (*go_scm.PullRequest, error)
-}
+var _ = Describe("SCM Tools", func() {
+	var fake *scmfakes.FakeService
 
-func (m *MockService) ListRepos(ctx context.Context) ([]*go_scm.Repository, error) {
-	if m.ListReposFunc != nil {
-		return m.ListReposFunc(ctx)
-	}
-	return nil, nil
-}
+	BeforeEach(func() {
+		fake = new(scmfakes.FakeService)
+	})
 
-func (m *MockService) GetPullRequest(ctx context.Context, repo string, id int) (*go_scm.PullRequest, error) {
-	if m.GetPullRequestFunc != nil {
-		return m.GetPullRequestFunc(ctx, repo, id)
-	}
-	return nil, nil
-}
-
-func (m *MockService) CreatePullRequest(ctx context.Context, repo string, input *go_scm.PullRequestInput) (*go_scm.PullRequest, error) {
-	if m.CreatePullRequestFunc != nil {
-		return m.CreatePullRequestFunc(ctx, repo, input)
-	}
-	return nil, nil
-}
-
-func TestListReposTool(t *testing.T) {
-	mockSvc := &MockService{
-		ListReposFunc: func(ctx context.Context) ([]*go_scm.Repository, error) {
-			return []*go_scm.Repository{
+	Describe("NewListReposTool", func() {
+		It("should return repository names", func(ctx context.Context) {
+			fake.ListReposReturns([]*go_scm.Repository{
 				{Name: "repo1"},
 				{Name: "repo2"},
-			}, nil
-		},
-	}
+			}, nil)
 
-	tool := scm.NewListReposTool(mockSvc)
+			tool := scm.NewListReposTool(fake)
+			reqJSON, _ := json.Marshal(struct{}{})
 
-	// Marshaling empty struct for request as the tool expects struct{}{} input via JSON
-	reqJSON, _ := json.Marshal(struct{}{})
+			resp, err := tool.Call(ctx, reqJSON)
+			Expect(err).NotTo(HaveOccurred())
 
-	resp, err := tool.Call(context.Background(), reqJSON)
-	if err != nil {
-		t.Fatalf("unexpected error calling tool: %v", err)
-	}
+			typed, ok := resp.(scm.ListReposResponse)
+			Expect(ok).To(BeTrue())
+			Expect(typed.Repositories).To(Equal([]string{"repo1", "repo2"}))
+			Expect(fake.ListReposCallCount()).To(Equal(1))
+		})
+	})
 
-	respTyped, ok := resp.(scm.ListReposResponse)
-	if !ok {
-		t.Fatalf("expected response type scm.ListReposResponse, got %T", resp)
-	}
+	Describe("NewListPullRequestsTool", func() {
+		It("should return open PRs by default", func(ctx context.Context) {
+			fake.ListPullRequestsReturns([]*go_scm.PullRequest{
+				{Number: 1, Title: "Fix bug", Source: "fix-bug", Target: "main", Author: go_scm.User{Login: "alice"}},
+				{Number: 2, Title: "Add feature", Source: "feature", Target: "main", Author: go_scm.User{Login: "bob"}, Merged: true},
+			}, nil)
 
-	expected := []string{"repo1", "repo2"}
-	if !reflect.DeepEqual(respTyped.Repositories, expected) {
-		t.Errorf("expected repositories %v, got %v", expected, respTyped.Repositories)
-	}
-}
+			tool := scm.NewListPullRequestsTool(fake)
+			reqJSON, _ := json.Marshal(scm.ListPullRequestsRequest{Repo: "owner/repo"})
 
-func TestGetPullRequestTool(t *testing.T) {
-	now := time.Now()
-	mockSvc := &MockService{
-		GetPullRequestFunc: func(ctx context.Context, repo string, id int) (*go_scm.PullRequest, error) {
-			if repo == "owner/repo" && id == 123 {
-				return &go_scm.PullRequest{
-					Number:  123,
-					Title:   "Test PR",
-					Created: now,
-				}, nil
-			}
-			return nil, nil
-		},
-	}
+			resp, err := tool.Call(ctx, reqJSON)
+			Expect(err).NotTo(HaveOccurred())
 
-	tool := scm.NewGetPullRequestTool(mockSvc)
-	req := scm.GetPullRequestRequest{
-		Repo: "owner/repo",
-		ID:   123,
-	}
-	reqJSON, _ := json.Marshal(req)
+			summaries, ok := resp.([]scm.PullRequestSummary)
+			Expect(ok).To(BeTrue())
+			Expect(summaries).To(HaveLen(2))
+			Expect(summaries[0].Title).To(Equal("Fix bug"))
+			Expect(summaries[0].Author).To(Equal("alice"))
+			Expect(summaries[0].State).To(Equal("open"))
+			Expect(summaries[1].State).To(Equal("merged"))
 
-	resp, err := tool.Call(context.Background(), reqJSON)
-	if err != nil {
-		t.Fatalf("unexpected error calling tool: %v", err)
-	}
+			Expect(fake.ListPullRequestsCallCount()).To(Equal(1))
+			_, repo, opts := fake.ListPullRequestsArgsForCall(0)
+			Expect(repo).To(Equal("owner/repo"))
+			Expect(opts.Open).To(BeTrue())
+			Expect(opts.Closed).To(BeFalse())
+		})
 
-	respTyped, ok := resp.(*go_scm.PullRequest)
-	if !ok {
-		t.Fatalf("expected response type *scm.PullRequest, got %T", resp)
-	}
+		It("should pass closed filter when state=closed", func(ctx context.Context) {
+			fake.ListPullRequestsReturns([]*go_scm.PullRequest{
+				{Number: 3, Title: "Old PR", Closed: true, Author: go_scm.User{Login: "charlie"}},
+			}, nil)
 
-	if respTyped.Number != 123 || respTyped.Title != "Test PR" {
-		t.Errorf("unexpected PR details: %+v", respTyped)
-	}
-}
+			tool := scm.NewListPullRequestsTool(fake)
+			reqJSON, _ := json.Marshal(scm.ListPullRequestsRequest{Repo: "owner/repo", State: "closed"})
 
-func TestCreatePullRequestTool(t *testing.T) {
-	mockSvc := &MockService{
-		CreatePullRequestFunc: func(ctx context.Context, repo string, input *go_scm.PullRequestInput) (*go_scm.PullRequest, error) {
-			if repo == "owner/repo" && input.Title == "New Feature" && input.Source == "feature-branch" && input.Target == "main" {
-				return &go_scm.PullRequest{
-					Number: 456,
-					Title:  input.Title,
-					Body:   input.Body,
-					Source: input.Source,
-					Target: input.Target,
-				}, nil
-			}
-			return nil, nil
-		},
-	}
+			resp, err := tool.Call(ctx, reqJSON)
+			Expect(err).NotTo(HaveOccurred())
 
-	tool := scm.NewCreatePullRequestTool(mockSvc)
-	req := scm.CreatePullRequestRequest{
-		Repo:  "owner/repo",
-		Title: "New Feature",
-		Body:  "Description",
-		Head:  "feature-branch",
-		Base:  "main",
-	}
-	reqJSON, _ := json.Marshal(req)
+			summaries, ok := resp.([]scm.PullRequestSummary)
+			Expect(ok).To(BeTrue())
+			Expect(summaries).To(HaveLen(1))
+			Expect(summaries[0].State).To(Equal("closed"))
 
-	resp, err := tool.Call(context.Background(), reqJSON)
-	if err != nil {
-		t.Fatalf("unexpected error calling tool: %v", err)
-	}
+			_, _, opts := fake.ListPullRequestsArgsForCall(0)
+			Expect(opts.Open).To(BeFalse())
+			Expect(opts.Closed).To(BeTrue())
+		})
+	})
 
-	respTyped, ok := resp.(*go_scm.PullRequest)
-	if !ok {
-		t.Fatalf("expected response type *scm.PullRequest, got %T", resp)
-	}
+	Describe("NewGetPullRequestTool", func() {
+		It("should return a single PR by repo and number", func(ctx context.Context) {
+			fake.GetPullRequestReturns(&go_scm.PullRequest{Number: 123, Title: "Test PR"}, nil)
 
-	if respTyped.Number != 456 || respTyped.Title != "New Feature" {
-		t.Errorf("unexpected PR details: %+v", respTyped)
-	}
-}
+			tool := scm.NewGetPullRequestTool(fake)
+			reqJSON, _ := json.Marshal(scm.GetPullRequestRequest{Repo: "owner/repo", ID: 123})
+
+			resp, err := tool.Call(ctx, reqJSON)
+			Expect(err).NotTo(HaveOccurred())
+
+			pr, ok := resp.(*go_scm.PullRequest)
+			Expect(ok).To(BeTrue())
+			Expect(pr.Number).To(Equal(123))
+			Expect(pr.Title).To(Equal("Test PR"))
+
+			_, repo, id := fake.GetPullRequestArgsForCall(0)
+			Expect(repo).To(Equal("owner/repo"))
+			Expect(id).To(Equal(123))
+		})
+	})
+
+	Describe("NewCreatePullRequestTool", func() {
+		It("should create a PR with the given input", func(ctx context.Context) {
+			fake.CreatePullRequestReturns(&go_scm.PullRequest{
+				Number: 456, Title: "New Feature", Source: "feature-branch", Target: "main",
+			}, nil)
+
+			tool := scm.NewCreatePullRequestTool(fake)
+			reqJSON, _ := json.Marshal(scm.CreatePullRequestRequest{
+				Repo: "owner/repo", Title: "New Feature", Body: "Description", Head: "feature-branch", Base: "main",
+			})
+
+			resp, err := tool.Call(ctx, reqJSON)
+			Expect(err).NotTo(HaveOccurred())
+
+			pr, ok := resp.(*go_scm.PullRequest)
+			Expect(ok).To(BeTrue())
+			Expect(pr.Number).To(Equal(456))
+
+			_, repo, input := fake.CreatePullRequestArgsForCall(0)
+			Expect(repo).To(Equal("owner/repo"))
+			Expect(input.Title).To(Equal("New Feature"))
+			Expect(input.Source).To(Equal("feature-branch"))
+			Expect(input.Target).To(Equal("main"))
+		})
+	})
+
+	Describe("NewListPRChangesTool", func() {
+		It("should return changed files", func(ctx context.Context) {
+			fake.ListPullRequestChangesReturns([]*go_scm.Change{
+				{Path: "pkg/main.go", Added: true},
+				{Path: "README.md"},
+			}, nil)
+
+			tool := scm.NewListPRChangesTool(fake)
+			reqJSON, _ := json.Marshal(scm.PRNumberRequest{Repo: "owner/repo", Number: 42})
+
+			resp, err := tool.Call(ctx, reqJSON)
+			Expect(err).NotTo(HaveOccurred())
+
+			changes, ok := resp.([]scm.ChangeSummary)
+			Expect(ok).To(BeTrue())
+			Expect(changes).To(HaveLen(2))
+			Expect(changes[0].Path).To(Equal("pkg/main.go"))
+			Expect(changes[0].Added).To(BeTrue())
+
+			_, repo, number, _ := fake.ListPullRequestChangesArgsForCall(0)
+			Expect(repo).To(Equal("owner/repo"))
+			Expect(number).To(Equal(42))
+		})
+	})
+
+	Describe("NewListPRCommentsTool", func() {
+		It("should return comments", func(ctx context.Context) {
+			fake.ListPullRequestCommentsReturns([]*go_scm.Comment{
+				{ID: 1, Body: "LGTM", Author: go_scm.User{Login: "reviewer"}},
+			}, nil)
+
+			tool := scm.NewListPRCommentsTool(fake)
+			reqJSON, _ := json.Marshal(scm.PRNumberRequest{Repo: "owner/repo", Number: 10})
+
+			resp, err := tool.Call(ctx, reqJSON)
+			Expect(err).NotTo(HaveOccurred())
+
+			comments, ok := resp.([]scm.CommentSummary)
+			Expect(ok).To(BeTrue())
+			Expect(comments).To(HaveLen(1))
+			Expect(comments[0].Body).To(Equal("LGTM"))
+			Expect(comments[0].Author).To(Equal("reviewer"))
+		})
+	})
+
+	Describe("NewCreatePRCommentTool", func() {
+		It("should create a comment", func(ctx context.Context) {
+			fake.CreatePullRequestCommentReturns(&go_scm.Comment{ID: 99, Body: "Nice work!"}, nil)
+
+			tool := scm.NewCreatePRCommentTool(fake)
+			reqJSON, _ := json.Marshal(scm.CreatePRCommentRequest{Repo: "owner/repo", Number: 10, Body: "Nice work!"})
+
+			resp, err := tool.Call(ctx, reqJSON)
+			Expect(err).NotTo(HaveOccurred())
+
+			comment, ok := resp.(*go_scm.Comment)
+			Expect(ok).To(BeTrue())
+			Expect(comment.ID).To(Equal(99))
+
+			_, repo, number, input := fake.CreatePullRequestCommentArgsForCall(0)
+			Expect(repo).To(Equal("owner/repo"))
+			Expect(number).To(Equal(10))
+			Expect(input.Body).To(Equal("Nice work!"))
+		})
+	})
+
+	Describe("NewListPRCommitsTool", func() {
+		It("should return commits", func(ctx context.Context) {
+			fake.ListPullRequestCommitsReturns([]*go_scm.Commit{
+				{Sha: "abc123", Message: "fix bug", Author: go_scm.Signature{Login: "dev1"}},
+				{Sha: "def456", Message: "add tests", Author: go_scm.Signature{Name: "Dev Two"}},
+			}, nil)
+
+			tool := scm.NewListPRCommitsTool(fake)
+			reqJSON, _ := json.Marshal(scm.PRNumberRequest{Repo: "owner/repo", Number: 5})
+
+			resp, err := tool.Call(ctx, reqJSON)
+			Expect(err).NotTo(HaveOccurred())
+
+			commits, ok := resp.([]scm.CommitSummary)
+			Expect(ok).To(BeTrue())
+			Expect(commits).To(HaveLen(2))
+			Expect(commits[0].Sha).To(Equal("abc123"))
+			Expect(commits[0].Author).To(Equal("dev1"))
+			Expect(commits[1].Author).To(Equal("Dev Two"))
+		})
+	})
+
+	Describe("NewMergePRTool", func() {
+		It("should merge and return success message", func(ctx context.Context) {
+			fake.MergePullRequestReturns(nil)
+
+			tool := scm.NewMergePRTool(fake)
+			reqJSON, _ := json.Marshal(scm.PRNumberRequest{Repo: "owner/repo", Number: 7})
+
+			resp, err := tool.Call(ctx, reqJSON)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp).To(Equal("PR #7 merged successfully"))
+
+			_, repo, number := fake.MergePullRequestArgsForCall(0)
+			Expect(repo).To(Equal("owner/repo"))
+			Expect(number).To(Equal(7))
+		})
+	})
+})

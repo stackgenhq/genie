@@ -6,6 +6,8 @@ import (
 	"github.com/appcd-dev/genie/pkg/audit/auditfakes"
 	"github.com/appcd-dev/genie/pkg/expert"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider/modelproviderfakes"
+	"github.com/appcd-dev/genie/pkg/hitl/hitlfakes"
+	"github.com/appcd-dev/genie/pkg/toolwrap"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
@@ -44,7 +46,10 @@ var _ = Describe("ExpertBio", func() {
 
 			fakeModelProvider := &modelproviderfakes.FakeModelProvider{}
 
-			exp, err := bio.ToExpert(context.Background(), fakeModelProvider, fakeAuditor)
+			exp, err := bio.ToExpert(context.Background(), fakeModelProvider, &toolwrap.Service{
+				Auditor:       fakeAuditor,
+				ApprovalStore: &hitlfakes.FakeApprovalStore{},
+			})
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(exp).NotTo(BeNil())
@@ -63,7 +68,10 @@ var _ = Describe("ExpertBio", func() {
 
 			fakeModelProvider := &modelproviderfakes.FakeModelProvider{}
 
-			exp, err := bio.ToExpert(context.Background(), fakeModelProvider, fakeAuditor)
+			exp, err := bio.ToExpert(context.Background(), fakeModelProvider, &toolwrap.Service{
+				Auditor:       fakeAuditor,
+				ApprovalStore: &hitlfakes.FakeApprovalStore{},
+			})
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(exp).NotTo(BeNil())
@@ -76,7 +84,10 @@ var _ = Describe("ExpertBio", func() {
 
 			fakeModelProvider := &modelproviderfakes.FakeModelProvider{}
 
-			exp, err := bio.ToExpert(context.Background(), fakeModelProvider, fakeAuditor)
+			exp, err := bio.ToExpert(context.Background(), fakeModelProvider, &toolwrap.Service{
+				Auditor:       fakeAuditor,
+				ApprovalStore: nil,
+			})
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(exp).NotTo(BeNil())

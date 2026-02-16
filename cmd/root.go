@@ -14,10 +14,8 @@ import (
 	"syscall"
 
 	"github.com/appcd-dev/genie/pkg/config"
-	"github.com/appcd-dev/genie/pkg/langfuse"
-	"github.com/appcd-dev/go-lib/constants"
-	"github.com/appcd-dev/go-lib/logger"
-	"github.com/appcd-dev/go-lib/osutils"
+	"github.com/appcd-dev/genie/pkg/logger"
+	"github.com/appcd-dev/genie/pkg/osutils"
 	"github.com/spf13/cobra"
 )
 
@@ -53,7 +51,11 @@ func NewRootCommand() rootCmd {
 func (r rootCmd) command(ctx context.Context) (*cobra.Command, error) {
 	grantCmd := NewGrantCommand(&r.opts)
 
-	cwd, err := filepath.Abs(osutils.Getwd())
+	wd, err := osutils.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("error getting the current working directory: %w", err)
+	}
+	cwd, err := filepath.Abs(wd)
 	if err != nil {
 		return nil, fmt.Errorf("error getting the current working directory: %w", err)
 	}
@@ -72,11 +74,6 @@ and consider it granted.
 Built with ✨ by Stackgen (https://stackgen.com)
 Infrastructure is hard. Being a Genie is easy.`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			err := langfuse.StartTrace(cmd.Context())
-			if err != nil {
-				logger.GetLogger(cmd.Context()).Error("Failed to start trace", "error", err)
-				return nil
-			}
 			return r.init(cmd.Context())
 		},
 		RunE: grantCmd.run,
@@ -145,9 +142,9 @@ func (r rootCmd) init(ctx context.Context) error {
 
 	// Log startup info at debug level, include config path if available
 	if cfgFile != "" {
-		logger.GetLogger(ctx).Debug("genie CLI starting", "version", constants.Version, "config", cfgFile)
+		logger.GetLogger(ctx).Debug("genie CLI starting", "version", Version, "config", cfgFile)
 	} else {
-		logger.GetLogger(ctx).Debug("genie CLI starting", "version", constants.Version)
+		logger.GetLogger(ctx).Debug("genie CLI starting", "version", Version)
 	}
 
 	return nil

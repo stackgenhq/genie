@@ -15,6 +15,5 @@ runs:
       shell: bash
       run: |
         git config --global url."https://${{ inputs.GO_LIB_TOKEN }}:x-oauth-basic@github.com".insteadOf "https://github.com"
-        go env -w GOPRIVATE=github.com/appcd-dev/go-lib
         export PATH=$PATH:$(go env GOPATH)/bin:$PATH:$HOME/.local/bin
         make setup

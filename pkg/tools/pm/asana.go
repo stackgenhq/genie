@@ -37,6 +37,33 @@ func newAsana(cfg Config) (*asanaService, error) {
 
 // ── Asana REST payloads ─────────────────────────────────────────────────
 
+func (a *asanaService) Supported() []string {
+	return []string{opGetIssue, opListIssues, opCreateIssue, opAssignIssue}
+}
+
+// Validate performs a lightweight health check against the Asana REST API
+// by calling GET /users/me to verify the token and base URL.
+func (a *asanaService) Validate(ctx context.Context) error {
+	url := fmt.Sprintf("%s/users/me", a.baseURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("pm/asana: build validate request: %w", err)
+	}
+	a.setAuth(req)
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("pm/asana: validate request failed: %w", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("pm/asana: validate failed (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
 type asanaTaskResponse struct {
 	Data struct {
 		GID      string `json:"gid"`
@@ -63,6 +90,64 @@ type asanaErrorResponse struct {
 }
 
 // ── Service implementation ──────────────────────────────────────────────
+
+func (a *asanaService) ListIssues(ctx context.Context, filter IssueFilter) ([]*Issue, error) {
+	// Asana uses /user_task_lists/me/tasks for the current user's tasks.
+	// completed_since=now returns only incomplete tasks.
+	url := fmt.Sprintf("%s/tasks?opt_fields=gid,name,notes,assignee,assignee_status,completed&assignee=me&workspace=me&completed_since=now&limit=50", a.baseURL)
+	if filter.Status == "closed" {
+		// For closed tasks, look back 30 days.
+		since := time.Now().AddDate(0, 0, -30).Format(time.RFC3339)
+		url = fmt.Sprintf("%s/tasks?opt_fields=gid,name,notes,assignee,assignee_status,completed&assignee=me&workspace=me&completed_since=%s&completed=true&limit=50", a.baseURL, since)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("pm/asana: build request: %w", err)
+	}
+	a.setAuth(req)
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("pm/asana: request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, a.parseError("list tasks", resp.StatusCode, body)
+	}
+
+	var result struct {
+		Data []struct {
+			GID      string `json:"gid"`
+			Name     string `json:"name"`
+			Notes    string `json:"notes"`
+			Assignee *struct {
+				Name string `json:"name"`
+			} `json:"assignee"`
+			AssigneeStatus string `json:"assignee_status"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("pm/asana: parse response: %w", err)
+	}
+
+	issues := make([]*Issue, 0, len(result.Data))
+	for _, d := range result.Data {
+		issue := &Issue{
+			ID:          d.GID,
+			Title:       d.Name,
+			Description: d.Notes,
+			Status:      d.AssigneeStatus,
+		}
+		if d.Assignee != nil {
+			issue.Assignee = d.Assignee.Name
+		}
+		issues = append(issues, issue)
+	}
+	return issues, nil
+}
 
 func (a *asanaService) GetIssue(ctx context.Context, id string) (*Issue, error) {
 	url := fmt.Sprintf("%s/tasks/%s", a.baseURL, id)
@@ -186,4 +271,29 @@ func (a *asanaService) parseError(op string, status int, body []byte) error {
 		return fmt.Errorf("pm/asana: %s: HTTP %d: %s", op, status, ae.Errors[0].Message)
 	}
 	return fmt.Errorf("pm/asana: %s: HTTP %d: %s", op, status, string(body))
+}
+
+func (a *asanaService) UpdateIssue(_ context.Context, _ string, _ IssueUpdate) (*Issue, error) {
+	return nil, fmt.Errorf("pm/asana: UpdateIssue not implemented")
+}
+func (a *asanaService) AddComment(_ context.Context, _ string, _ string) (*Comment, error) {
+	return nil, fmt.Errorf("pm/asana: AddComment not implemented")
+}
+func (a *asanaService) ListComments(_ context.Context, _ string) ([]*Comment, error) {
+	return nil, fmt.Errorf("pm/asana: ListComments not implemented")
+}
+func (a *asanaService) SearchIssues(_ context.Context, _ string) ([]*Issue, error) {
+	return nil, fmt.Errorf("pm/asana: SearchIssues not implemented")
+}
+func (a *asanaService) ListTeams(_ context.Context) ([]*Team, error) {
+	return nil, fmt.Errorf("pm/asana: ListTeams not implemented")
+}
+func (a *asanaService) ListLabels(_ context.Context, _ string) ([]*Label, error) {
+	return nil, fmt.Errorf("pm/asana: ListLabels not implemented")
+}
+func (a *asanaService) AddLabel(_ context.Context, _ string, _ string) error {
+	return fmt.Errorf("pm/asana: AddLabel not implemented")
+}
+func (a *asanaService) ListUsers(_ context.Context) ([]*User, error) {
+	return nil, fmt.Errorf("pm/asana: ListUsers not implemented")
 }

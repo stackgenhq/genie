@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/appcd-dev/genie/pkg/hitl"
-	"github.com/appcd-dev/go-lib/logger"
-	"github.com/appcd-dev/go-lib/osutils"
+	"github.com/appcd-dev/genie/pkg/logger"
+	"github.com/appcd-dev/genie/pkg/osutils"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"golang.org/x/time/rate"
@@ -394,6 +394,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 type approveRequest struct {
 	ApprovalID string `json:"approvalId"`
 	Decision   string `json:"decision"` // "approved" or "rejected"
+	Feedback   string `json:"feedback"` // optional user feedback
 }
 
 // handleApprove processes a human approval or rejection for a pending tool call.
@@ -422,6 +423,7 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 		ApprovalID: req.ApprovalID,
 		Decision:   decision,
 		ResolvedBy: "chat-ui",
+		Feedback:   req.Feedback,
 	}); err != nil {
 		logr.Error("failed to resolve approval", "error", err, "approvalId", req.ApprovalID)
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)

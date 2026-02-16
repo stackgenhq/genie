@@ -40,6 +40,33 @@ func newJira(cfg Config) (*jiraService, error) {
 
 // ── Jira REST payloads ──────────────────────────────────────────────────
 
+func (j *jiraService) Supported() []string {
+	return []string{opGetIssue, opListIssues, opCreateIssue, opAssignIssue}
+}
+
+// Validate performs a lightweight health check against the Jira REST API
+// by calling GET /rest/api/3/myself to verify the token and base URL.
+func (j *jiraService) Validate(ctx context.Context) error {
+	url := fmt.Sprintf("%s/rest/api/3/myself", j.baseURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("pm/jira: build validate request: %w", err)
+	}
+	j.setAuth(req)
+
+	resp, err := j.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("pm/jira: validate request failed: %w", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("pm/jira: validate failed (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
 type jiraIssueResponse struct {
 	Key    string `json:"key"`
 	Fields struct {
@@ -75,6 +102,54 @@ type jiraCreateResponse struct {
 
 // ── Service implementation ──────────────────────────────────────────────
 
+func (j *jiraService) ListIssues(ctx context.Context, filter IssueFilter) ([]*Issue, error) {
+	jql := "statusCategory != Done ORDER BY updated DESC"
+	if filter.Status == "closed" {
+		jql = "statusCategory = Done ORDER BY updated DESC"
+	}
+
+	url := fmt.Sprintf("%s/rest/api/3/search?jql=%s&maxResults=50&fields=summary,status,assignee,description",
+		j.baseURL, strings.ReplaceAll(jql, " ", "+"))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("pm/jira: build request: %w", err)
+	}
+	j.setAuth(req)
+
+	resp, err := j.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("pm/jira: request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("pm/jira: search returned HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Issues []jiraIssueResponse `json:"issues"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("pm/jira: parse search response: %w", err)
+	}
+
+	issues := make([]*Issue, 0, len(result.Issues))
+	for _, jr := range result.Issues {
+		issue := &Issue{
+			ID:     jr.Key,
+			Title:  jr.Fields.Summary,
+			Status: jr.Fields.Status.Name,
+		}
+		if jr.Fields.Assignee != nil {
+			issue.Assignee = jr.Fields.Assignee.DisplayName
+		}
+		issue.Description = extractJiraDescription(jr.Fields.Description)
+		issues = append(issues, issue)
+	}
+	return issues, nil
+}
+
 func (j *jiraService) GetIssue(ctx context.Context, id string) (*Issue, error) {
 	url := fmt.Sprintf("%s/rest/api/3/issue/%s", j.baseURL, id)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -107,11 +182,7 @@ func (j *jiraService) GetIssue(ctx context.Context, id string) (*Issue, error) {
 	if jr.Fields.Assignee != nil {
 		issue.Assignee = jr.Fields.Assignee.DisplayName
 	}
-	if jr.Fields.Description != nil {
-		if desc, ok := jr.Fields.Description.(string); ok {
-			issue.Description = desc
-		}
-	}
+	issue.Description = extractJiraDescription(jr.Fields.Description)
 	return issue, nil
 }
 
@@ -199,4 +270,47 @@ func (j *jiraService) AssignIssue(ctx context.Context, id string, assignee strin
 func (j *jiraService) setAuth(req *http.Request) {
 	req.SetBasicAuth(j.email, j.token)
 	req.Header.Set("Accept", "application/json")
+}
+
+// extractJiraDescription converts a Jira v3 description field to a string.
+// Jira returns ADF (Atlassian Document Format) objects for rich descriptions,
+// not plain strings. This helper gracefully handles both cases.
+func extractJiraDescription(desc any) string {
+	if desc == nil {
+		return ""
+	}
+	if s, ok := desc.(string); ok {
+		return s
+	}
+	// ADF object — marshal to JSON as a best-effort representation.
+	raw, err := json.Marshal(desc)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
+func (j *jiraService) UpdateIssue(_ context.Context, _ string, _ IssueUpdate) (*Issue, error) {
+	return nil, fmt.Errorf("pm/jira: UpdateIssue not implemented")
+}
+func (j *jiraService) AddComment(_ context.Context, _ string, _ string) (*Comment, error) {
+	return nil, fmt.Errorf("pm/jira: AddComment not implemented")
+}
+func (j *jiraService) ListComments(_ context.Context, _ string) ([]*Comment, error) {
+	return nil, fmt.Errorf("pm/jira: ListComments not implemented")
+}
+func (j *jiraService) SearchIssues(_ context.Context, _ string) ([]*Issue, error) {
+	return nil, fmt.Errorf("pm/jira: SearchIssues not implemented")
+}
+func (j *jiraService) ListTeams(_ context.Context) ([]*Team, error) {
+	return nil, fmt.Errorf("pm/jira: ListTeams not implemented")
+}
+func (j *jiraService) ListLabels(_ context.Context, _ string) ([]*Label, error) {
+	return nil, fmt.Errorf("pm/jira: ListLabels not implemented")
+}
+func (j *jiraService) AddLabel(_ context.Context, _ string, _ string) error {
+	return fmt.Errorf("pm/jira: AddLabel not implemented")
+}
+func (j *jiraService) ListUsers(_ context.Context) ([]*User, error) {
+	return nil, fmt.Errorf("pm/jira: ListUsers not implemented")
 }

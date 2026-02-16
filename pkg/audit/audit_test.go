@@ -216,22 +216,3 @@ var _ = Describe("FileAuditor", func() {
 		})
 	})
 })
-
-var _ = Describe("NoopAuditor", func() {
-	It("should implement the Auditor interface", func() {
-		var auditor audit.Auditor = &audit.NoopAuditor{}
-		Expect(auditor).NotTo(BeNil())
-	})
-
-	It("should not panic when Log is called", func() {
-		auditor := &audit.NoopAuditor{}
-		Expect(func() {
-			auditor.Log(context.Background(), audit.LogRequest{
-				EventType: audit.EventConnection,
-				Actor:     "test",
-				Action:    "connect",
-				Metadata:  map[string]interface{}{"key": "value"},
-			})
-		}).NotTo(Panic())
-	})
-})

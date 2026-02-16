@@ -104,10 +104,3 @@ func (a *FileAuditor) Close() error {
 	}
 	return nil
 }
-
-// NoopAuditor implements Auditor but does nothing.
-type NoopAuditor struct{}
-
-func (a *NoopAuditor) Log(ctx context.Context, req LogRequest) {}
-
-func (a *NoopAuditor) Close() error { return nil }

@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/appcd-dev/genie/pkg/agui"
-	"github.com/appcd-dev/go-lib/logger"
+	"github.com/appcd-dev/genie/pkg/logger"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"trpc.group/trpc-go/trpc-agent-go/agent"

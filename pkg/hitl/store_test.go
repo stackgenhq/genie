@@ -223,4 +223,98 @@ var _ = Describe("GORMStore", func() {
 			Expect(err).To(Equal(context.DeadlineExceeded))
 		})
 	})
+
+	Describe("Resolve with feedback", func() {
+		It("should persist feedback when approving", func() {
+			approval, err := store.Create(ctx, hitl.CreateRequest{
+				ThreadID: "t1", RunID: "r1", ToolName: "run_shell", Args: `{"cmd":"echo hi"}`,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			err = store.Resolve(ctx, hitl.ResolveRequest{
+				ApprovalID: approval.ID,
+				Decision:   hitl.StatusApproved,
+				ResolvedBy: "user@test.com",
+				Feedback:   "please use a safer command",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			result, err := store.WaitForResolution(ctx, approval.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Status).To(Equal(hitl.StatusApproved))
+			Expect(result.Feedback).To(Equal("please use a safer command"))
+		})
+
+		It("should persist feedback when rejecting", func() {
+			approval, err := store.Create(ctx, hitl.CreateRequest{
+				ThreadID: "t1", RunID: "r1", ToolName: "write_file", Args: "{}",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			err = store.Resolve(ctx, hitl.ResolveRequest{
+				ApprovalID: approval.ID,
+				Decision:   hitl.StatusRejected,
+				ResolvedBy: "reviewer",
+				Feedback:   "wrong file path, use /tmp instead",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			result, err := store.WaitForResolution(ctx, approval.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Status).To(Equal(hitl.StatusRejected))
+			Expect(result.Feedback).To(Equal("wrong file path, use /tmp instead"))
+			Expect(result.ResolvedBy).To(Equal("reviewer"))
+		})
+
+		It("should handle empty feedback gracefully", func() {
+			approval, err := store.Create(ctx, hitl.CreateRequest{
+				ThreadID: "t1", RunID: "r1", ToolName: "execute_code", Args: "{}",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			err = store.Resolve(ctx, hitl.ResolveRequest{
+				ApprovalID: approval.ID,
+				Decision:   hitl.StatusApproved,
+				ResolvedBy: "user",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			result, err := store.WaitForResolution(ctx, approval.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Status).To(Equal(hitl.StatusApproved))
+			Expect(result.Feedback).To(BeEmpty())
+		})
+
+		It("should deliver feedback through async WaitForResolution", func() {
+			approval, err := store.Create(ctx, hitl.CreateRequest{
+				ThreadID: "t1", RunID: "r1", ToolName: "run_shell", Args: "{}",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			resultChan := make(chan hitl.ApprovalRequest, 1)
+			errChan := make(chan error, 1)
+
+			go func() {
+				res, err := store.WaitForResolution(ctx, approval.ID)
+				errChan <- err
+				resultChan <- res
+			}()
+
+			time.Sleep(50 * time.Millisecond)
+			err = store.Resolve(ctx, hitl.ResolveRequest{
+				ApprovalID: approval.ID,
+				Decision:   hitl.StatusApproved,
+				ResolvedBy: "tester",
+				Feedback:   "add error handling",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(errChan, 2*time.Second).Should(Receive(BeNil()))
+			Eventually(resultChan, 2*time.Second).Should(Receive(Satisfy(func(r hitl.ApprovalRequest) bool {
+				return r.Status == hitl.StatusApproved &&
+					r.Feedback == "add error handling" &&
+					r.ResolvedBy == "tester"
+			})))
+		})
+	})
 })

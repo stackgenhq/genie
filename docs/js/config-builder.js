@@ -43,7 +43,8 @@
         email: { provider: '', host: '', port: 587, username: '', password: '', imap_host: '', imap_port: 993 },
         hitl: { always_allowed: [] },
         db_config: { db_file: '' },
-        agui: { port: 8080, cors_origins: ['https://appcd-dev.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576 }
+        agui: { port: 8080, cors_origins: ['https://appcd-dev.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576 },
+        langfuse: { public_key: 'LANGFUSE_PUBLIC_KEY', secret_key: 'LANGFUSE_SECRET_KEY', host: 'https://cloud.langfuse.com', enable_prompts: false }
     };
 
     var PROVIDERS = ['openai', 'gemini', 'anthropic'];
@@ -194,6 +195,7 @@
         renderHITL();
         renderDBConfig();
         renderAGUI();
+        renderLangfuse();
         renderOutput();
     }
 
@@ -479,6 +481,20 @@
         ]));
     }
 
+    // ── Langfuse ──
+    function renderLangfuse() {
+        var c = $('langfuse-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var l = state.langfuse;
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+            fieldEnvVar('Public Key', l.public_key, function (v) { l.public_key = v; renderOutput(); }, 'LANGFUSE_PUBLIC_KEY', 'Your Langfuse project public key'),
+            fieldEnvVar('Secret Key', l.secret_key, function (v) { l.secret_key = v; renderOutput(); }, 'LANGFUSE_SECRET_KEY', 'Your Langfuse project secret key'),
+            fieldText('Host', l.host, function (v) { l.host = v; renderOutput(); }, 'https://cloud.langfuse.com', 'Langfuse API host (default: cloud)'),
+            fieldToggle('Enable Prompt Management', l.enable_prompts, function (v) { l.enable_prompts = v; renderOutput(); }, 'Enable prompt management integration')
+        ]));
+    }
+
     /* ================================================================
      * 5. TOML SERIALIZERS  (one function per config section)
      * ================================================================ */
@@ -604,7 +620,19 @@
         hitlToToml(lines);
         dbConfigToToml(lines);
         aguiToToml(lines);
+        langfuseToToml(lines);
         return lines.join('\n');
+    }
+
+    function langfuseToToml(lines) {
+        var l = state.langfuse;
+        if (!l.public_key && !l.secret_key && !l.host) return;
+        lines.push('[langfuse]');
+        if (l.public_key) lines.push('public_key = ' + q('${' + l.public_key + '}'));
+        if (l.secret_key) lines.push('secret_key = ' + q('${' + l.secret_key + '}'));
+        if (l.host) lines.push('host = ' + q(l.host));
+        if (l.enable_prompts) lines.push('enable_prompts = true');
+        lines.push('');
     }
 
     function scmToToml(lines) {
@@ -620,7 +648,7 @@
     function pmToToml(lines) {
         var p = state.pm;
         if (!p.provider) return;
-        lines.push('[pm]');
+        lines.push('[project_management]');
         lines.push('provider = ' + q(p.provider));
         if (p.api_token) lines.push('api_token = ' + q('${' + p.api_token + '}'));
         if (p.base_url) lines.push('base_url = ' + q(p.base_url));
@@ -796,6 +824,7 @@
     function toYaml() {
         var lines = [];
         if (state.providers.length > 0) providersToYaml(lines);
+        langfuseToYaml(lines);
 
 
         skillsToYaml(lines);
@@ -834,7 +863,7 @@
     function pmToYaml(lines) {
         var p = state.pm;
         if (!p.provider) return;
-        lines.push('pm:');
+        lines.push('project_management:');
         lines.push('  provider: ' + p.provider);
         if (p.api_token) lines.push('  api_token: ' + yq('${' + p.api_token + '}'));
         if (p.base_url) lines.push('  base_url: ' + yq(p.base_url));
@@ -886,6 +915,17 @@
         lines.push('  rate_burst: ' + a.rate_burst);
         lines.push('  max_concurrent: ' + a.max_concurrent);
         lines.push('  max_body_bytes: ' + a.max_body_bytes);
+        lines.push('');
+    }
+
+    function langfuseToYaml(lines) {
+        var l = state.langfuse;
+        if (!l.public_key && !l.secret_key && !l.host) return;
+        lines.push('langfuse:');
+        if (l.public_key) lines.push('  public_key: ' + yq('${' + l.public_key + '}'));
+        if (l.secret_key) lines.push('  secret_key: ' + yq('${' + l.secret_key + '}'));
+        if (l.host) lines.push('  host: ' + yq(l.host));
+        if (l.enable_prompts) lines.push('  enable_prompts: true');
         lines.push('');
     }
 

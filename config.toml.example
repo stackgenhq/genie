@@ -88,8 +88,8 @@ max_backoff = "8s"
 # token = "${SCM_TOKEN}" # Personal Access Token
 # base_url = ""          # Enterprise instance URL (optional)
 
-# PM (Project Management) configuration
-# [pm]
+#  Project Management configuration
+# [project_management]
 # provider = "jira"             # jira, linear, asana
 # api_token = "${PM_API_TOKEN}" # API token for authentication
 # base_url = "https://mycompany.atlassian.net" # Jira: required; Linear/Asana: optional

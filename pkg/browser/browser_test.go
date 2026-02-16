@@ -6,19 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/appcd-dev/genie/pkg/browser"
 )
-
-func TestBrowser(t *testing.T) {
-	t.Parallel()
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Browser Suite")
-}
 
 // testPage serves a small HTML page used by every test in this suite.
 // It contains a heading, an input field, and a button that sets
@@ -199,7 +192,6 @@ var _ = Describe("Browser tools", Ordered, func() {
 })
 
 var _ = Describe("Domain blocklist", func() {
-
 	It("should block an exact-match domain", func(ctx context.Context) {
 		b, err := browser.New(
 			browser.WithHeadless(true),

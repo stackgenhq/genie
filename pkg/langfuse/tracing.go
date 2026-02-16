@@ -4,30 +4,45 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
+	"github.com/appcd-dev/genie/pkg/logger"
 	"trpc.group/trpc-go/trpc-agent-go/telemetry/langfuse"
 )
 
-func StartTrace(ctx context.Context) error {
-	if LangfusePublicKey == "" || LangfuseSecretKey == "" {
-		return nil
+var once sync.Once
+
+func (c Config) Init(ctx context.Context) {
+	once.Do(func() {
+		defaultClient = c.NewClient()
+		c.startTrace(ctx)
+	})
+}
+
+func (c Config) startTrace(ctx context.Context) {
+	logger := logger.GetLogger(ctx).With("fn", "langfuse.startTrace")
+	if c.PublicKey == "" || c.SecretKey == "" || c.Host == "" {
+		logger.Warn("No Langfuse configuration found")
+		return
 	}
+
 	// Initialize Langfuse tracing
 	cleanup, err := langfuse.Start(ctx,
-		langfuse.WithHost(LangfuseHost),
-		langfuse.WithPublicKey(LangfusePublicKey),
-		langfuse.WithSecretKey(LangfuseSecretKey),
+		langfuse.WithHost(c.langfuseOTLPEndpoint()),
+		langfuse.WithPublicKey(c.PublicKey),
+		langfuse.WithSecretKey(c.SecretKey),
 	)
 	if err != nil {
-		// Log the error but don't panic - allow genie to continue without tracing
-		fmt.Fprintf(os.Stderr, "Warning: failed to initialize Langfuse tracing: %v\n", err)
-		return nil
+		logger.Warn("could not start the tracer", "fn", "langfuse.Init", "error", err)
+		return
 	}
+	logger.Info("langfuse tracing started", "host", c.langfuseOTLPEndpoint())
 
 	// Ensure cleanup is called with proper timeout for trace flushing
 	go func() {
 		<-ctx.Done()
+		logger.Info("Stopping langfuse tracer")
 		// Create a context with timeout to allow traces to be flushed
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -36,6 +51,4 @@ func StartTrace(ctx context.Context) error {
 			fmt.Fprintf(os.Stderr, "Error during Trace cleanup: %v\n", err)
 		}
 	}()
-
-	return nil
 }

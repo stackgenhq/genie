@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/appcd-dev/genie/pkg/agentutils"
-	"github.com/appcd-dev/genie/pkg/audit"
+	"github.com/appcd-dev/genie/pkg/audit/auditfakes"
 	"github.com/appcd-dev/genie/pkg/expert"
 	"github.com/appcd-dev/genie/pkg/expert/expertfakes"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider/modelproviderfakes"
@@ -29,6 +29,13 @@ func (s *stubExpert) Do(_ context.Context, req expert.Request) (expert.Response,
 }
 
 var _ = Describe("Summarizer", func() {
+	var (
+		fakeAuditor *auditfakes.FakeAuditor
+	)
+
+	BeforeEach(func() {
+		fakeAuditor = &auditfakes.FakeAuditor{}
+	})
 
 	Describe("NewSummarizer", func() {
 		It("should return a non-nil Summarizer on success", func(ctx context.Context) {
@@ -37,7 +44,7 @@ var _ = Describe("Summarizer", func() {
 			fakeModel.InfoReturns(model.Info{Name: "test-model"})
 			fakeModelProvider.GetModelReturns(fakeModel, nil)
 
-			s, err := agentutils.NewSummarizer(ctx, fakeModelProvider, &audit.NoopAuditor{})
+			s, err := agentutils.NewSummarizer(ctx, fakeModelProvider, fakeAuditor)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(s).NotTo(BeNil())
 		})
