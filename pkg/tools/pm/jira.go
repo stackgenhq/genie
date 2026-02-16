@@ -87,7 +87,7 @@ func (j *jiraService) GetIssue(ctx context.Context, id string) (*Issue, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pm/jira: request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
@@ -155,7 +155,7 @@ func (j *jiraService) CreateIssue(ctx context.Context, input IssueInput) (*Issue
 	if err != nil {
 		return nil, fmt.Errorf("pm/jira: request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusCreated {
@@ -187,7 +187,7 @@ func (j *jiraService) AssignIssue(ctx context.Context, id string, assignee strin
 	if err != nil {
 		return fmt.Errorf("pm/jira: request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

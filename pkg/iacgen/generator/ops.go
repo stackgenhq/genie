@@ -179,7 +179,7 @@ func (w *llmBasedIACWriter) CreateIAC(ctx context.Context, requirement IACReques
 	}
 	fileToolsList := fileToolSet.Tools(ctx)
 
-	emitOpsThinking(requirement.EventChan, "Preparing Terraform tooling...")
+	agui.EmitThinking(ctx, requirement.EventChan, "Terraform Expert", "Preparing Terraform tooling...")
 
 	// Build the prompt for Terraform code generation with module-first approach
 	logr.Debug("Building module-first prompt")
@@ -189,7 +189,7 @@ func (w *llmBasedIACWriter) CreateIAC(ctx context.Context, requirement IACReques
 	// Generate Terraform code using the expert with available tools
 	// The expert will automatically discover and use the appropriate tools for registry search and file operations
 	logr.Info("Invoking expert to generate Terraform code")
-	emitOpsThinking(requirement.EventChan, "Generating Terraform modules and configurations...")
+	agui.EmitThinking(ctx, requirement.EventChan, "Terraform Expert", "Generating Terraform modules and configurations...")
 	result, err := w.expert.Do(ctx, expert.Request{
 		Message:         prompt,
 		AdditionalTools: fileToolsList,
@@ -203,7 +203,7 @@ func (w *llmBasedIACWriter) CreateIAC(ctx context.Context, requirement IACReques
 	}
 
 	logr.Info("Expert completed code generation", "choicesCount", len(result.Choices))
-	emitOpsThinking(requirement.EventChan, "Finalizing infrastructure files...")
+	agui.EmitThinking(ctx, requirement.EventChan, "Terraform Expert", "Finalizing infrastructure files...")
 
 	// Collect the generated code and notes from all choices
 	var notes []string
@@ -334,13 +334,4 @@ func buildModuleFirstPrompt(ctx context.Context, requirement IACRequest, cfg Ops
 	)
 
 	return replacer.Replace(template)
-}
-
-// emitOpsThinking sends an AgentThinkingMsg to the TUI event channel.
-// It is a nil-safe no-op when the event channel is not provided.
-func emitOpsThinking(eventChan chan<- interface{}, message string) {
-	if eventChan == nil {
-		return
-	}
-	agui.EmitThinking(eventChan, "Terraform Expert", message)
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/appcd-dev/go-lib/logger"
 	"github.com/appcd-dev/go-lib/osutils"
 	"github.com/google/uuid"
+	"trpc.group/trpc-go/trpc-agent-go/agent"
 	"trpc.group/trpc-go/trpc-agent-go/agent/llmagent"
 	"trpc.group/trpc-go/trpc-agent-go/event"
 	"trpc.group/trpc-go/trpc-agent-go/runner"
@@ -81,8 +82,9 @@ func (r Request) mode() []llmagent.Option {
 			Temperature: constants.ToPtr(0.3),
 			Stream:      true,
 		}),
-		llmagent.WithEnableParallelTools(true), // Enable parallel tool execution for better performance
-		llmagent.WithAddCurrentTime(true),      // Automatically inject current time into prompts
+		llmagent.WithEnableParallelTools(true),                           // Enable parallel tool execution for better performance
+		llmagent.WithAddCurrentTime(true),                                // Automatically inject current time into prompts
+		llmagent.WithTimeFormat("Monday, January 02, 2006 15:04:05 MST"), // Format time to be explicit about the date
 		// Token optimization: Prevent runaway costs with iteration limits
 		llmagent.WithMaxLLMCalls(25),
 		llmagent.WithMaxToolIterations(20),
@@ -265,6 +267,12 @@ func (e *expert) Do(ctx context.Context, req Request) (Response, error) {
 		osutils.Getenv("USER", "anonymous"),
 		sessionID,
 		model.NewUserMessage(req.Message),
+		// Detached cancel is intentional: the runner's session service
+		// retains conversation history across HTTP requests. If the HTTP
+		// request context cancelled the runner, it would tear down the
+		// session prematurely, losing multi-turn chat history. The runner
+		// is reused (and re-cancelled) via expert.Do's lifecycle instead.
+		agent.WithDetachedCancel(true),
 	)
 	if err != nil {
 		return HandleExpertError(ctx, err)

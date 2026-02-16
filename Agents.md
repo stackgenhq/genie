@@ -597,7 +597,28 @@ g.Go(func() error {
 
 - **Pre-commit checks**: Ensure linting is part of your development workflow
 
-### 2. Blind Spot Analysis (MANDATORY)
+### 2. Logging Standards (MANDATORY)
+
+**All code MUST include logs at critical execution points and when interacting with 3rd party libraries.**
+
+#### Rules
+
+- **Critical Points**: Add logs at the start and end of major operations (e.g., method/function invocation, server startup/shutdown).
+- **3rd Party Interactions**: Add logs when initializing or interacting with external services/libraries (e.g., database connections, API clients, SCM tools).
+- **Log Levels**: Use appropriate log levels (INFO for significant events, DEBUG for detailed tracing, WARN/ERROR for failures).
+- **Structured Logging**: Use structured logging (key-value pairs) to provide context.
+
+#### Examples
+
+```go
+logger.Info("Starting service", "port", 8080)
+logger.Debug("Initializing database connection", "host", "localhost")
+if err != nil {
+    logger.Error("Failed to connect to database", "error", err)
+}
+```
+
+### 3. Blind Spot Analysis (MANDATORY)
 
 **All code changes MUST include a blind spot analysis to identify potential issues, edge cases, and missing scenarios.**
 

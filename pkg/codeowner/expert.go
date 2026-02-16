@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/appcd-dev/genie/pkg/agentutils"
 	"github.com/appcd-dev/genie/pkg/audit"
@@ -22,7 +23,6 @@ import (
 	"github.com/appcd-dev/go-lib/logger"
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor/local"
 	"trpc.group/trpc-go/trpc-agent-go/memory"
-	"trpc.group/trpc-go/trpc-agent-go/memory/inmemory"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/file"
@@ -63,6 +63,7 @@ type CodeQuestion struct {
 type CodeOwner interface {
 	Chat(ctx context.Context, req CodeQuestion, outputChan chan<- string) error
 	Close() error
+	Resume() string
 }
 
 // requestCategory represents the front desk classification result.
@@ -81,8 +82,20 @@ type codeOwner struct {
 	treeExecutor    reactree.TreeExecutor
 	memorySvc       memory.Service
 	memoryUserKey   memory.UserKey
-	tools           []tool.Tool
+	tools           reactree.ToolRegistry
 	auditor         audit.Auditor
+	resume          string
+	resumeMu        sync.RWMutex
+}
+
+// Resume returns a natural language description of the agent's capabilities.
+func (c *codeOwner) Resume() string {
+	c.resumeMu.RLock()
+	defer c.resumeMu.RUnlock()
+	if c.resume != "" {
+		return c.resume
+	}
+	return ""
 }
 
 // NewCodeOwner creates a new codeOwner with an integrated ReAcTree executor.
@@ -99,11 +112,15 @@ func NewCodeOwner(
 	vectorStore *vector.Store,
 	auditor audit.Auditor,
 	approvalStore hitl.ApprovalStore,
+	memorySvc memory.Service,
 ) (CodeOwner, error) {
 	// Build the persona prompt, appending project-level coding standards if available.
 	fullPersona := langfuse.GetPrompt(ctx, "genie_codeowner_persona", persona)
 	if agentsGuide := loadAgentsGuide(workingDirectory); agentsGuide != "" {
 		fullPersona += "\n\n## Project Standards (from Agents.md)\n\n" + agentsGuide
+		logger.GetLogger(ctx).Info("Agents.md loaded and appended to persona")
+	} else {
+		logger.GetLogger(ctx).Debug("Agents.md not found or empty")
 	}
 
 	expertBio := expert.ExpertBio{
@@ -116,6 +133,7 @@ func NewCodeOwner(
 	if err != nil {
 		return nil, err
 	}
+	logger.GetLogger(ctx).Info("Expert bio created", "name", expertBio.Name)
 
 	// Create a lightweight front desk expert for request classification.
 	// Uses TaskFrontDesk which maps to a fast, cheap model (e.g. gemini-3-flash).
@@ -128,12 +146,14 @@ func NewCodeOwner(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create front desk expert: %w", err)
 	}
+	logger.GetLogger(ctx).Debug("Front desk expert created")
 
 	// Create the summarizer for condensing tool outputs via the front desk model.
 	summarizer, err := agentutils.NewSummarizer(ctx, modelProvider, auditor)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create summarizer: %w", err)
 	}
+	logger.GetLogger(ctx).Debug("Summarizer created")
 
 	// Initialize shared working memory for cross-turn observation sharing
 	wm := rtmemory.NewWorkingMemory()
@@ -143,7 +163,9 @@ func NewCodeOwner(
 	// the LLM runs in a loop and dynamically decides how many iterations
 	// it needs. Simple tasks finish in 1-2 iterations; complex ones can
 	// use up to MaxIterations.
+	// Use the persistent memory service for episodic memory as well.
 	episodicMemoryCfg := rtmemory.DefaultEpisodicMemoryConfig()
+	episodicMemoryCfg.Service = memorySvc
 	treeExec := reactree.NewTreeExecutor(exp, wm, episodicMemoryCfg.NewEpisodicMemory(), reactree.TreeConfig{
 		MaxDepth:            3,
 		MaxDecisionsPerNode: 10,
@@ -151,17 +173,15 @@ func NewCodeOwner(
 		MaxIterations:       10,
 	})
 
-	// Initialize memory.Service for conversation history persistence.
-	// Each Q&A turn is stored and retrieved by semantic similarity,
-	// enabling the expert to recall past discussions when asked.
-	memorySvc := inmemory.NewMemoryService()
+	// Use provided memory.Service for conversation history persistence.
+	logger.GetLogger(ctx).Info("Using persistent memory service")
 	memoryUserKey := memory.UserKey{
 		AppName: "genie-codeowner",
 		UserID:  "default",
 	}
 
 	// Build the full tool set — these are available to sub-agents via create_agent,
-	// but the codeowner itself only gets a restricted subset (list_file, summarize, create_agent).
+	// but the codeowner itself only gets a restricted subset ( summarize, create_agent, hitl_readonly_tools).
 	var allTools []tool.Tool
 	allTools = append(allTools, tools...)
 
@@ -191,7 +211,7 @@ func NewCodeOwner(
 	// Create the create_agent tool for dynamic sub-agent spawning.
 	// Sub-agents have access to the full tool set via the registry,
 	// while the codeowner only uses list_file + summarize + create_agent.
-	toolRegistry := make(map[string]tool.Tool, len(allTools))
+	toolRegistry := make(reactree.ToolRegistry, len(allTools))
 	for _, t := range allTools {
 		toolRegistry[t.Declaration().Name] = t
 	}
@@ -212,12 +232,16 @@ func NewCodeOwner(
 	//   - summarize_content: condense large outputs
 	//   - create_agent: delegate detailed work to sub-agents
 	// All other tools (read_file, shell, etc.) are available to sub-agents only.
-	codeOwnerTools := []tool.Tool{summarizeTool, createAgentTool}
-	if listFileTool, ok := toolRegistry["list_file"]; ok {
-		codeOwnerTools = append(codeOwnerTools, listFileTool)
+	codeOwnerTools := make(reactree.ToolRegistry)
+	codeOwnerTools[createAgentTool.Declaration().Name] = createAgentTool
+	for toolName, tool := range toolRegistry {
+		if approvalStore.IsAllowed(toolName) {
+			codeOwnerTools[toolName] = tool
+		}
 	}
+	logger.GetLogger(ctx).Info("CodeOwner tool registry initialized", "count", len(codeOwnerTools))
 
-	return &codeOwner{
+	codeOwner := &codeOwner{
 		expert:          exp,
 		frontDeskExpert: frontDeskExp,
 		workingMemory:   wm,
@@ -226,7 +250,43 @@ func NewCodeOwner(
 		memoryUserKey:   memoryUserKey,
 		tools:           codeOwnerTools,
 		auditor:         auditor,
-	}, nil
+	}
+	go func(ctx context.Context) {
+		res := codeOwner.createResume(ctx, summarizer, toolRegistry)
+		codeOwner.resumeMu.Lock()
+		codeOwner.resume = res
+		codeOwner.resumeMu.Unlock()
+	}(context.WithoutCancel(ctx))
+	return codeOwner, nil
+}
+
+// createResume generates a natural-language resume for the codeOwner agent
+// based on the tools available to both the main agent and its subagents.
+func (c *codeOwner) createResume(ctx context.Context, summarizer agentutils.Summarizer, registry reactree.ToolRegistry) string {
+	logger := logger.GetLogger(ctx)
+	// use the front desk expert to check on available tools and then create a resume
+	result, err := summarizer.Summarize(ctx, agentutils.SummarizeRequest{
+		RequiredOutputFormat: agentutils.OutputFormatMarkdown,
+		Content: fmt.Sprintf(`Create a linkedIn worthy resume based and things that I can accomplish based on tools available to the given AI Agent:
+
+- Talk in First Person
+- You are trying to sell yourself to the user.
+- Give some examples of what you can do.
+- Keep it short and concise.
+
+Available Subagent Tools:
+%s
+
+Available Main Agent Tools:
+%s
+
+`, registry.String(), c.tools),
+	})
+	if err != nil {
+		logger.Error("error creating resume", "error", err)
+		return ""
+	}
+	return result
 }
 
 // Close releases resources held by the codeOwner, including the conversation
@@ -285,7 +345,7 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 		)
 		resp, err := c.expert.Do(ctx, expert.Request{
 			Message:  salutationMsg,
-			TaskType: modelprovider.TaskFrontDesk,
+			TaskType: modelprovider.TaskEfficiency,
 			Mode: expert.ExpertConfig{
 				MaxLLMCalls:       1,
 				MaxToolIterations: 0,
@@ -301,6 +361,11 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 		c.storeConversation(ctx, req.Question, output, req.SenderContext)
 		return nil
 	}
+
+	// Determine task type based on classification
+	taskType := modelprovider.TaskPlanning
+	// For COMPLEX, we default to TaskPlanning, but if the user requested
+	// specific tool types in other contexts, that logic would go here.
 
 	// categoryComplex (default): Full ReAcTree pipeline
 
@@ -323,10 +388,7 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 	}
 
 	// Filter out excluded tools (e.g. send_message for messenger-originated messages).
-	tools := c.tools
-	if len(req.ExcludeTools) > 0 {
-		tools = filterTools(c.tools, req.ExcludeTools)
-	}
+	tools := c.tools.Exclude(req.ExcludeTools)
 
 	runCtx := ctx
 	if req.SenderContext != "" {
@@ -337,7 +399,29 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 		runCtx = messenger.WithSenderContext(runCtx, req.SenderContext)
 	}
 	if req.BrowserTab != nil {
-		runCtx = req.BrowserTab
+		// Use the browser tab context for chromedp operations, but respect
+		// the parent context's cancellation and deadline. chromedp contexts
+		// form their own hierarchy (rooted at the allocator), so we can't
+		// make tabCtx a child of ctx directly. Instead we:
+		// 1. Wrap the tab context in a cancellable context.
+		// 2. Propagate parent's deadline to the tab context.
+		// 3. Cancel the tab if the parent is cancelled.
+		var tabCancel context.CancelFunc
+		runCtx, tabCancel = context.WithCancel(req.BrowserTab)
+		defer tabCancel()
+		if deadline, ok := ctx.Deadline(); ok {
+			var deadlineCancel context.CancelFunc
+			runCtx, deadlineCancel = context.WithDeadline(runCtx, deadline)
+			defer deadlineCancel()
+		}
+		// Ensure parent cancellation tears down the tab context too.
+		go func() {
+			select {
+			case <-ctx.Done():
+				tabCancel() // Parent cancelled — tear down the tab.
+			case <-runCtx.Done():
+			}
+		}()
 	}
 
 	logr.Info("codeOwner: starting tree execution", "numTools", len(tools))
@@ -346,8 +430,9 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 	res, err := c.treeExecutor.Run(runCtx, reactree.TreeRequest{
 		Goal:          message,
 		EventChan:     req.EventChan,
-		Tools:         tools,
+		Tools:         tools.Tools(),
 		SenderContext: req.SenderContext,
+		TaskType:      taskType,
 	})
 
 	if err != nil {
@@ -380,23 +465,45 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 // Uses senderID-based key so each sender/thread has isolated history.
 func (c *codeOwner) recallConversation(ctx context.Context, question, senderID string) string {
 	key := c.memoryKeyForSender(senderID)
+	// Try to search for relevant memories
 	entries, err := c.memorySvc.SearchMemories(ctx, key, question)
-	if err != nil || len(entries) == 0 {
+	if err != nil {
+		logger.GetLogger(ctx).Warn("failed to search memories", "error", err)
+	}
+
+	// Fallback to recent history if search yields no results (common for "what did we just talk about?" queries)
+	// or if the search implementation is basic (like our SQLite LIKE search).
+	if len(entries) == 0 {
+		recents, err := c.memorySvc.ReadMemories(ctx, key, 5)
+		if err == nil {
+			entries = recents
+		}
+	}
+
+	if len(entries) == 0 {
 		return ""
 	}
 
-	// Limit to top 3 most relevant past turns
+	// Limit to top 3 most relevant past turns (or recent turns if fallback used)
 	limit := 3
 	if len(entries) < limit {
 		limit = len(entries)
 	}
 
+	// Cap total recall size to prevent past conversations from
+	// dominating the context window in multi-turn sessions.
+	const maxRecallSize = 1500
 	var sb strings.Builder
 	for i := 0; i < limit; i++ {
 		if entries[i] == nil || entries[i].Memory == nil {
 			continue
 		}
-		sb.WriteString(entries[i].Memory.Memory)
+		entry := entries[i].Memory.Memory
+		if sb.Len()+len(entry) > maxRecallSize {
+			sb.WriteString("... (earlier turns omitted for brevity)\n")
+			break
+		}
+		sb.WriteString(entry)
 		sb.WriteString("\n\n")
 	}
 
@@ -406,8 +513,13 @@ func (c *codeOwner) recallConversation(ctx context.Context, question, senderID s
 // storeConversation persists a Q&A turn into memory.Service.
 // Uses senderID-based key so each sender/thread has isolated history.
 func (c *codeOwner) storeConversation(ctx context.Context, question, answer, senderID string) {
-	// Format the turn as a structured summary for retrieval
-	summary := fmt.Sprintf("Q: %s\nA: %s", question, toolwrap.TruncateForAudit(answer, 500))
+	// Format the turn as a structured summary for retrieval.
+	// Truncate both question and answer to prevent tool output from
+	// prior turns from entering conversation memory and bloating
+	// future context windows.
+	summary := fmt.Sprintf("Q: %s\nA: %s",
+		toolwrap.TruncateForAudit(question, 300),
+		toolwrap.TruncateForAudit(answer, 500))
 	topics := []string{"conversation", "chat-turn"}
 
 	key := c.memoryKeyForSender(senderID)
@@ -463,7 +575,7 @@ func loadAgentsGuide(dir string) string {
 func (c *codeOwner) classifyRequest(ctx context.Context, question string) (requestCategory, error) {
 	resp, err := c.frontDeskExpert.Do(ctx, expert.Request{
 		Message:  question,
-		TaskType: modelprovider.TaskFrontDesk,
+		TaskType: modelprovider.TaskEfficiency,
 		Mode: expert.ExpertConfig{
 			MaxLLMCalls:       1,
 			MaxToolIterations: 0,

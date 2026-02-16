@@ -1,8 +1,10 @@
-package agui
+package agui_test
 
 import (
+	"context"
 	"fmt"
 
+	"github.com/appcd-dev/genie/pkg/agui"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -15,20 +17,20 @@ var _ = Describe("Helpers", func() {
 	})
 
 	Describe("EmitStageProgress", func() {
-		It("should emit StageProgressMsg", func() {
-			EmitStageProgress(eventChan, "Testing", 1, 4)
+		It("should emit StageProgressMsg", func(ctx context.Context) {
+			agui.EmitStageProgress(ctx, eventChan, "Testing", 1, 4)
 
-			Eventually(eventChan).Should(Receive(BeAssignableToTypeOf(StageProgressMsg{})))
+			Eventually(eventChan).Should(Receive(BeAssignableToTypeOf(agui.StageProgressMsg{})))
 
 			// Let's do it properly
 
 			// Reset chan
 			eventChan = make(chan interface{}, 10)
-			EmitStageProgress(eventChan, "Testing", 1, 4)
+			agui.EmitStageProgress(ctx, eventChan, "Testing", 1, 4)
 			var receivedMsg interface{}
 			Eventually(eventChan).Should(Receive(&receivedMsg))
 
-			progressMsg := receivedMsg.(StageProgressMsg)
+			progressMsg := receivedMsg.(agui.StageProgressMsg)
 			Expect(progressMsg.Stage).To(Equal("Testing"))
 			Expect(progressMsg.StageIndex).To(Equal(1))
 			Expect(progressMsg.TotalStages).To(Equal(4))
@@ -37,26 +39,26 @@ var _ = Describe("Helpers", func() {
 	})
 
 	Describe("EmitThinking", func() {
-		It("should emit AgentThinkingMsg", func() {
-			EmitThinking(eventChan, "Agent", "Thinking...")
+		It("should emit AgentThinkingMsg", func(ctx context.Context) {
+			agui.EmitThinking(ctx, eventChan, "Agent", "Thinking...")
 
 			var receivedMsg interface{}
 			Eventually(eventChan).Should(Receive(&receivedMsg))
 
-			thinkingMsg := receivedMsg.(AgentThinkingMsg)
+			thinkingMsg := receivedMsg.(agui.AgentThinkingMsg)
 			Expect(thinkingMsg.AgentName).To(Equal("Agent"))
 			Expect(thinkingMsg.Message).To(Equal("Thinking..."))
 		})
 	})
 
 	Describe("EmitCompletion", func() {
-		It("should emit AgentCompleteMsg", func() {
-			EmitCompletion(eventChan, true, "Done", "/output")
+		It("should emit AgentCompleteMsg", func(ctx context.Context) {
+			agui.EmitCompletion(ctx, eventChan, true, "Done", "/output")
 
 			var receivedMsg interface{}
 			Eventually(eventChan).Should(Receive(&receivedMsg))
 
-			completeMsg := receivedMsg.(AgentCompleteMsg)
+			completeMsg := receivedMsg.(agui.AgentCompleteMsg)
 			Expect(completeMsg.Success).To(BeTrue())
 			Expect(completeMsg.Message).To(Equal("Done"))
 			Expect(completeMsg.OutputDir).To(Equal("/output"))
@@ -64,14 +66,14 @@ var _ = Describe("Helpers", func() {
 	})
 
 	Describe("EmitError", func() {
-		It("should emit AgentErrorMsg", func() {
+		It("should emit AgentErrorMsg", func(ctx context.Context) {
 			err := fmt.Errorf("oops")
-			EmitError(eventChan, err, "context")
+			agui.EmitError(ctx, eventChan, err, "context")
 
 			var receivedMsg interface{}
 			Eventually(eventChan).Should(Receive(&receivedMsg))
 
-			errorMsg := receivedMsg.(AgentErrorMsg)
+			errorMsg := receivedMsg.(agui.AgentErrorMsg)
 			Expect(errorMsg.Error).To(Equal(err))
 			Expect(errorMsg.Context).To(Equal("context"))
 		})

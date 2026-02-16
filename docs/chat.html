@@ -3,7 +3,8 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Chat — Genie by Stackgen</title>
     <meta name="description"
         content="Chat with Genie directly from your browser. Powered by AG-UI protocol for real-time streaming.">
@@ -28,9 +29,11 @@
         .chat-container {
             display: flex;
             flex-direction: column;
-            height: calc(100vh - 4rem);
+            height: calc(100dvh - 4rem);
+            /* Mobile viewport height */
             max-width: 56rem;
             margin: 0 auto;
+            position: relative;
         }
 
         .chat-messages {
@@ -131,6 +134,7 @@
             padding: 1rem 1.5rem;
             background: rgba(255, 255, 255, 0.95);
             backdrop-filter: blur(12px);
+            padding-bottom: max(1rem, env(safe-area-inset-bottom));
         }
 
         .chat-input-wrapper {
@@ -155,7 +159,8 @@
             outline: none;
             resize: none;
             font-family: 'Inter', sans-serif;
-            font-size: 0.9375rem;
+            font-size: 16px;
+            /* Prevents iOS zoom */
             color: #09152B;
             background: transparent;
             max-height: 120px;
@@ -217,6 +222,49 @@
             display: inline-flex;
         }
 
+        /* Sample Prompts */
+        .sample-prompts-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.75rem;
+            max-width: 600px;
+            margin: 2rem auto 0;
+            width: 100%;
+        }
+
+        .prompt-card {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.75rem;
+            padding: 1rem;
+            text-align: left;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .prompt-card:hover {
+            border-color: #8247E7;
+            background: #fdfcff;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(130, 71, 231, 0.05);
+        }
+
+        .prompt-card h3 {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #1f2937;
+            margin: 0;
+        }
+
+        .prompt-card p {
+            font-size: 0.75rem;
+            color: #6b7280;
+            margin: 0;
+        }
+
         /* Tool call card — collapsible */
         .tool-card {
             background: #f0f9ff;
@@ -268,6 +316,11 @@
         .tool-card .tool-status.done {
             background: #dcfce7;
             color: #16a34a;
+        }
+
+        .tool-card .tool-status.error {
+            background: #fee2e2;
+            color: #dc2626;
         }
 
         .tool-card .tool-chevron {
@@ -508,7 +561,8 @@
             top: 0;
             left: 0;
             bottom: 0;
-            width: 300px;
+            width: 85vw;
+            max-width: 300px;
             background: #fff;
             border-right: 1px solid #e5e7eb;
             z-index: 50;
@@ -640,7 +694,12 @@
             background: none;
             border: none;
             cursor: pointer;
-            padding: 0.375rem;
+            cursor: pointer;
+            padding: 0.75rem;
+            /* Larger touch target */
+            margin: -0.375rem;
+            /* Negative margin to maintain visual alignment */
+            border-radius: 0.5rem;
             border-radius: 0.5rem;
             color: #6b7280;
             transition: all 0.12s ease;
@@ -650,10 +709,97 @@
             background: #f3f4f6;
             color: #111827;
         }
+
+        .chat-bubble.assistant.typing-effect::after {
+            content: '▋';
+            display: inline-block;
+            vertical-align: baseline;
+            animation: blink 1s step-end infinite;
+            color: #8247E7;
+            margin-left: 2px;
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0;
+            }
+        }
+
+        /* ── Resume Section ── */
+        .resume-container {
+            display: none;
+            padding: 0 1rem;
+        }
+
+        .resume-container.visible {
+            display: block;
+            animation: bubbleIn 0.3s ease-out;
+        }
+
+        .resume-card {
+            background: #f8f7ff;
+            border: 1px solid #e8e0f7;
+            border-left: 3px solid #8247E7;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            margin: 0.75rem 0;
+        }
+
+        .resume-card summary {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.625rem 0.875rem;
+            cursor: pointer;
+            list-style: none;
+            user-select: none;
+            font-size: 0.8125rem;
+            font-weight: 600;
+            color: #6d28d9;
+            transition: background 0.15s ease;
+        }
+
+        .resume-card summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .resume-card summary:hover {
+            background: #f0ecff;
+        }
+
+        .resume-card summary .resume-chevron {
+            transition: transform 0.2s ease;
+            font-size: 0.625rem;
+            color: #8247E7;
+        }
+
+        .resume-card[open] summary .resume-chevron {
+            transform: rotate(90deg);
+        }
+
+        .resume-card .resume-body {
+            padding: 0.625rem 0.875rem;
+            border-top: 1px solid #e8e0f7;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            line-height: 1.7;
+            color: #334155;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 16rem;
+            overflow-y: auto;
+        }
     </style>
 </head>
 
-<body class="font-sans text-navy bg-white antialiased overflow-x-hidden">
+<body class="font-sans text-navy bg-white antialiased overflow-x-hidden"
+    style="overscroll-behavior-y: none; height: 100dvh;">
 
     <!-- History Sidebar -->
     <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
@@ -674,8 +820,8 @@
         <div class="chat-container">
 
             <!-- Chat Header -->
-            <div
-                class="flex items-center justify-between px-6 py-3 border-b border-gray-100 bg-white/80 backdrop-blur-sm">
+            <div class="flex items-center justify-between px-6 py-3 border-b border-gray-100 bg-white/80 backdrop-blur-sm"
+                style="padding-top: max(0.75rem, env(safe-area-inset-top))">
                 <div class="flex items-center gap-3">
                     <button class="sidebar-toggle" onclick="toggleSidebar()" title="Chat history">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -714,19 +860,28 @@
                 </div>
             </div>
 
+            <!-- Resume Section (shown after connection) -->
+            <div id="resume-container" class="resume-container">
+                <details class="resume-card" id="resume-card">
+                    <summary>
+                        <span class="resume-chevron">▶</span>
+                        🧞 Genie Resume
+                    </summary>
+                    <div class="resume-body" id="resume-body"></div>
+                </details>
+            </div>
+
             <!-- Messages Area -->
             <div id="chat-messages" class="chat-messages">
                 <div id="empty-state" class="empty-state">
                     <div class="genie-icon">🧞</div>
-                    <h2 class="text-xl font-semibold text-gray-700 mb-2">Chat with Genie</h2>
-                    <p class="text-sm text-gray-400 max-w-md leading-relaxed mb-6">
-                        Connect to a running Genie daemon and start chatting.
-                        Genie will think, plan, use tools, and stream responses in real-time.
+                    <h2 class="text-2xl font-bold text-gray-800 mb-2">Welcome to Genie</h2>
+                    <p class="text-sm text-gray-500 max-w-md leading-relaxed mb-6">
+                        Your intelligent coding companion. Connect to a daemon to start planning, coding, and debugging
+                        together.
                     </p>
-                    <div class="flex flex-col items-center gap-3">
-                        <div class="flex items-center gap-2">
-                            <label for="endpoint-input" class="text-xs font-medium text-gray-500">Server URL</label>
-                        </div>
+
+                    <div class="flex flex-col items-center gap-3 mb-8">
                         <div class="flex items-center gap-2">
                             <input id="endpoint-input" type="text" value="http://localhost:8080"
                                 class="form-input text-sm text-center" style="width: 280px; border-radius: 0.75rem;"
@@ -736,10 +891,30 @@
                                 Connect
                             </button>
                         </div>
-                        <p class="text-xs text-gray-400 mt-1">
-                            Start genie with <code
-                                class="text-purple-500 bg-purple-50 px-1.5 py-0.5 rounded text-xs font-mono">genie grant --http-port 8080 --enable-cors</code>
+                        <p class="text-xs text-gray-400">
+                            Run: <code
+                                class="text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded text-xs font-mono">genie grant</code>
                         </p>
+                    </div>
+
+                    <!-- Sample Prompts -->
+                    <div class="sample-prompts-grid">
+                        <div class="prompt-card" onclick="usePrompt('Explain the current codebase architecture')">
+                            <h3>Explain Codebase</h3>
+                            <p>Get an overview of the project structure</p>
+                        </div>
+                        <div class="prompt-card" onclick="usePrompt('Write a unit test for the auth module')">
+                            <h3>Write Tests</h3>
+                            <p>Generate comprehensive unit tests</p>
+                        </div>
+                        <div class="prompt-card" onclick="usePrompt('Review the code for potential bugs')">
+                            <h3>Code Review</h3>
+                            <p>Scan for bugs and improvements</p>
+                        </div>
+                        <div class="prompt-card" onclick="usePrompt('How do I run this application locally?')">
+                            <h3>Setup Guide</h3>
+                            <p>Learn how to build and run</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -883,6 +1058,12 @@
         let currentMessageId = null;  // track active message ID
         let abortController = null;   // AbortController for cancelling streaming
 
+        // Typing effect state
+        let typingInterval = null;
+        let displayedContentLength = 0;
+        const TYPING_CHUNK_SIZE = 3;
+        const TYPING_TICK_RATE = 10;
+
         // ── DOM Refs ──
         const messagesEl = document.getElementById('chat-messages');
         const inputEl = document.getElementById('chat-input');
@@ -911,6 +1092,9 @@
                     inputEl.focus();
                     addSystemMessage('Connected to Genie at ' + serverUrl);
 
+                    // Fetch and show the Genie resume
+                    fetchAndShowResume();
+
                     // Initialize a new conversation for this server
                     currentConversation = {
                         threadId: threadId,
@@ -924,7 +1108,7 @@
                     await refreshSidebar();
                 }
             } catch (err) {
-                addErrorMessage('Failed to connect: ' + err.message + '. Make sure genie is running with --http-port and --enable-cors.');
+                addErrorMessage('Failed to connect: ' + err.message + '. Ensure genie is running and accessible.');
             }
         }
 
@@ -933,6 +1117,27 @@
             connectionBadge.className = 'connection-badge ' + (connected ? 'connected' : 'disconnected');
             connectionLabel.textContent = connected ? 'Connected' : 'Not connected';
             updateButtonState();
+            // Hide resume section when disconnected
+            if (!connected) {
+                document.getElementById('resume-container').classList.remove('visible');
+            }
+        }
+
+        // ── Fetch & Display Genie Resume ──
+        async function fetchAndShowResume() {
+            try {
+                const res = await fetch(serverUrl + '/api/v1/resume', {
+                    method: 'GET',
+                    mode: 'cors',
+                });
+                if (!res.ok) return; // silently skip if not available
+                const text = await res.text();
+                if (!text || !text.trim()) return;
+                document.getElementById('resume-body').textContent = text;
+                document.getElementById('resume-container').classList.add('visible');
+            } catch (err) {
+                console.warn('Resume fetch failed:', err);
+            }
         }
 
         // ── Send Message ──
@@ -1093,9 +1298,14 @@
                     updateToolCard(event.toolCallId, 'completed');
                     break;
 
-                case 'TOOL_CALL_RESULT':
-                    updateToolCard(event.toolCallId, 'done', event.content);
+                case 'TOOL_CALL_RESULT': {
+                    const isError = event.content && (
+                        event.content.startsWith('tool execution error:') ||
+                        event.content.startsWith('Error:')
+                    );
+                    updateToolCard(event.toolCallId, isError ? 'error' : 'done', event.content);
                     break;
+                }
 
                 case 'RUN_FINISHED':
                     hideThinking();
@@ -1141,12 +1351,13 @@
         function startAssistantBubble() {
             if (currentAssistantBubble) return;
             currentAssistantContent = '';
+            displayedContentLength = 0;
 
             const wrapper = document.createElement('div');
             wrapper.className = 'flex justify-start mb-4';
 
             const bubble = document.createElement('div');
-            bubble.className = 'chat-bubble assistant';
+            bubble.className = 'chat-bubble assistant typing-effect';
             bubble.innerHTML = '';
 
             wrapper.appendChild(bubble);
@@ -1158,13 +1369,19 @@
         function appendToAssistantBubble(text, isReasoning) {
             if (!currentAssistantBubble) return;
             currentAssistantContent += text;
-            currentAssistantBubble.innerHTML = renderMarkdown(currentAssistantContent);
-            scrollToBottom();
+            ensureTyping();
         }
 
         function finalizeAssistantBubble() {
+            if (typingInterval) {
+                clearInterval(typingInterval);
+                typingInterval = null;
+            }
+
             if (currentAssistantBubble && currentAssistantContent) {
+                currentAssistantBubble.classList.remove('typing-effect');
                 currentAssistantBubble.innerHTML = renderMarkdown(currentAssistantContent);
+                displayedContentLength = currentAssistantContent.length;
 
                 // Persist assistant response
                 if (currentConversation && currentAssistantContent.trim()) {
@@ -1176,6 +1393,29 @@
             }
             currentAssistantBubble = null;
             currentAssistantContent = '';
+            displayedContentLength = 0;
+        }
+
+        function ensureTyping() {
+            if (typingInterval) return;
+            typingInterval = setInterval(() => {
+                if (!currentAssistantBubble) {
+                    clearInterval(typingInterval);
+                    typingInterval = null;
+                    return;
+                }
+
+                if (displayedContentLength < currentAssistantContent.length) {
+                    displayedContentLength = Math.min(displayedContentLength + TYPING_CHUNK_SIZE, currentAssistantContent.length);
+                    const visibleText = currentAssistantContent.substring(0, displayedContentLength);
+                    currentAssistantBubble.innerHTML = renderMarkdown(visibleText);
+                    scrollToBottom();
+                } else {
+                    clearInterval(typingInterval);
+                    typingInterval = null;
+                    if (currentAssistantBubble) currentAssistantBubble.classList.remove('typing-effect');
+                }
+            }, TYPING_TICK_RATE);
         }
 
         function showThinking(label) {
@@ -1339,7 +1579,10 @@
         function updateToolCard(toolCallId, status, result) {
             const statusEl = document.getElementById('tool-status-' + toolCallId);
             if (statusEl) {
-                if (status === 'completed' || status === 'done') {
+                if (status === 'error') {
+                    statusEl.textContent = 'Error ✗';
+                    statusEl.className = 'tool-status error';
+                } else if (status === 'completed' || status === 'done') {
                     statusEl.textContent = 'Done ✓';
                     statusEl.className = 'tool-status done';
                 } else {
@@ -1448,6 +1691,7 @@
             inputEl.focus();
             hideThinking();
             finalizeAssistantBubble();
+            updateButtonState();
         }
 
         function stopStreaming() {
@@ -1496,6 +1740,17 @@
         function autoResize(el) {
             el.style.height = 'auto';
             el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+        }
+
+        function usePrompt(text) {
+            const input = document.getElementById('chat-input');
+            // Fill the input with the selected prompt text. If the input is disabled
+            // (e.g., when disconnected), we still populate it but only focus when enabled.
+            input.value = text;
+            autoResize(input);
+            if (!input.disabled) {
+                input.focus();
+            }
         }
 
         // ── Sidebar & History ──
@@ -1659,9 +1914,25 @@
             }
             if (isStreaming) return;
 
+            // Visual feedback
+            addSystemMessage('📝 Summarizing conversation…');
+            const btn = document.getElementById('btn-summarize');
+            const origLabel = btn.textContent;
+            btn.textContent = '⏳ Summarizing…';
+            btn.disabled = true;
+
             const input = document.getElementById('chat-input');
             input.value = "Please summarize our conversation so far in a concise manner, highlighting key decisions and next steps.";
             sendMessage();
+
+            // Restore button label after streaming ends (poll for completion)
+            const restore = setInterval(() => {
+                if (!isStreaming) {
+                    btn.textContent = origLabel;
+                    updateButtonState();
+                    clearInterval(restore);
+                }
+            }, 500);
         }
 
         function startNewChat() {

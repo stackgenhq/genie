@@ -4,11 +4,10 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/hitl"
+	"github.com/appcd-dev/genie/pkg/hitl/hitlfakes"
 	rtmemory "github.com/appcd-dev/genie/pkg/reactree/memory"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
 	. "github.com/onsi/ginkgo/v2"
@@ -441,100 +440,11 @@ var _ = Describe("Wrapper", func() {
 	})
 })
 
-// ── Fake ApprovalStore for tests ──────────────────────────────────────────────
-
-// fakeApprovalStore is a minimal in-memory ApprovalStore for Wrapper tests.
-type fakeApprovalStore struct {
-	mu           sync.Mutex
-	requests     map[string]*hitl.ApprovalRequest
-	waiters      map[string]chan struct{}
-	autoDecision hitl.ApprovalStatus // if set, auto-resolve after Create
-	autoDelay    time.Duration       // delay before auto-resolve
-}
-
-func newFakeApprovalStore() *fakeApprovalStore {
-	return &fakeApprovalStore{
-		requests: make(map[string]*hitl.ApprovalRequest),
-		waiters:  make(map[string]chan struct{}),
-	}
-}
-
-func (f *fakeApprovalStore) Create(_ context.Context, req hitl.CreateRequest) (hitl.ApprovalRequest, error) {
-	f.mu.Lock()
-	a := hitl.ApprovalRequest{
-		ID:        "fake-" + req.ToolName,
-		ThreadID:  req.ThreadID,
-		RunID:     req.RunID,
-		ToolName:  req.ToolName,
-		Args:      req.Args,
-		Status:    hitl.StatusPending,
-		CreatedAt: time.Now(),
-	}
-	f.requests[a.ID] = &a
-	ch := make(chan struct{})
-	f.waiters[a.ID] = ch
-
-	decision := f.autoDecision
-	delay := f.autoDelay
-	f.mu.Unlock()
-
-	if decision != "" {
-		go func() {
-			time.Sleep(delay)
-			f.Resolve(context.Background(), hitl.ResolveRequest{ //nolint:errcheck
-				ApprovalID: a.ID,
-				Decision:   decision,
-				ResolvedBy: "auto-test",
-			})
-		}()
-	}
-	return a, nil
-}
-
-func (f *fakeApprovalStore) Resolve(_ context.Context, req hitl.ResolveRequest) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	a, ok := f.requests[req.ApprovalID]
-	if !ok {
-		return errors.New("not found")
-	}
-	a.Status = req.Decision
-	a.ResolvedBy = req.ResolvedBy
-	if ch, ok := f.waiters[req.ApprovalID]; ok {
-		close(ch)
-		delete(f.waiters, req.ApprovalID)
-	}
-	return nil
-}
-
-func (f *fakeApprovalStore) WaitForResolution(ctx context.Context, approvalID string) (hitl.ApprovalRequest, error) {
-	f.mu.Lock()
-	a := f.requests[approvalID]
-	if a != nil && a.Status != hitl.StatusPending {
-		f.mu.Unlock()
-		return *a, nil
-	}
-	ch := f.waiters[approvalID]
-	f.mu.Unlock()
-
-	select {
-	case <-ch:
-		f.mu.Lock()
-		result := *f.requests[approvalID]
-		f.mu.Unlock()
-		return result, nil
-	case <-ctx.Done():
-		return hitl.ApprovalRequest{}, ctx.Err()
-	}
-}
-
-func (f *fakeApprovalStore) Close() error { return nil }
-
 // ── HITL Wrapper Approval Gate ───────────────────────────────────────────────
 
 var _ = Describe("Wrapper human approval gate", func() {
 	It("should skip approval for readonly tools and execute immediately", func() {
-		store := newFakeApprovalStore()
+		store := &hitlfakes.FakeApprovalStore{}
 		ft := &fakeTool{name: "read_file", result: "file-content"}
 		eventChan := make(chan interface{}, 10)
 
@@ -551,13 +461,23 @@ var _ = Describe("Wrapper human approval gate", func() {
 		Expect(result).To(Equal("file-content"))
 		Expect(ft.callCount).To(Equal(1))
 		// No approval should have been created
-		Expect(store.requests).To(BeEmpty())
+		Expect(store.CreateCallCount()).To(Equal(0))
 	})
 
 	It("should block non-readonly tools until approved then execute", func() {
-		store := newFakeApprovalStore()
-		store.autoDecision = hitl.StatusApproved
-		store.autoDelay = 20 * time.Millisecond
+		store := &hitlfakes.FakeApprovalStore{}
+		store.CreateStub = func(_ context.Context, req hitl.CreateRequest) (hitl.ApprovalRequest, error) {
+			return hitl.ApprovalRequest{
+				ID:       "fake-" + req.ToolName,
+				ToolName: req.ToolName,
+				Status:   hitl.StatusPending,
+			}, nil
+		}
+		store.WaitForResolutionStub = func(_ context.Context, _ string) (hitl.ApprovalRequest, error) {
+			return hitl.ApprovalRequest{
+				Status: hitl.StatusApproved,
+			}, nil
+		}
 
 		ft := &fakeTool{name: "write_file", result: "written"}
 		eventChan := make(chan interface{}, 10)
@@ -575,6 +495,9 @@ var _ = Describe("Wrapper human approval gate", func() {
 		Expect(result).To(Equal("written"))
 		Expect(ft.callCount).To(Equal(1))
 
+		Expect(store.CreateCallCount()).To(Equal(1))
+		Expect(store.WaitForResolutionCallCount()).To(Equal(1))
+
 		// Verify that a TOOL_APPROVAL_REQUEST event was emitted
 		var foundApprovalEvent bool
 		close(eventChan)
@@ -589,9 +512,19 @@ var _ = Describe("Wrapper human approval gate", func() {
 	})
 
 	It("should return an error when a non-readonly tool is rejected", func() {
-		store := newFakeApprovalStore()
-		store.autoDecision = hitl.StatusRejected
-		store.autoDelay = 10 * time.Millisecond
+		store := &hitlfakes.FakeApprovalStore{}
+		store.CreateStub = func(_ context.Context, req hitl.CreateRequest) (hitl.ApprovalRequest, error) {
+			return hitl.ApprovalRequest{
+				ID:       "fake-" + req.ToolName,
+				ToolName: req.ToolName,
+				Status:   hitl.StatusPending,
+			}, nil
+		}
+		store.WaitForResolutionStub = func(_ context.Context, _ string) (hitl.ApprovalRequest, error) {
+			return hitl.ApprovalRequest{
+				Status: hitl.StatusRejected,
+			}, nil
+		}
 
 		ft := &fakeTool{name: "execute_code", result: "should not run"}
 		eventChan := make(chan interface{}, 10)

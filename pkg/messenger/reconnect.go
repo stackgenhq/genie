@@ -16,7 +16,7 @@ import (
 //   - initialBackoff: starting delay between reconnection attempts (e.g. 1s)
 //   - maxBackoff: maximum delay cap (e.g. 30s)
 func ReceiveWithReconnect(ctx context.Context, msgr Messenger, initialBackoff, maxBackoff time.Duration) <-chan IncomingMessage {
-	logger := logger.GetLogger(ctx).With("fn", "ReceiveWithReconnect")
+	log := logger.GetLogger(ctx).With("fn", "ReceiveWithReconnect")
 	relay := make(chan IncomingMessage, 100)
 
 	go func() {
@@ -31,11 +31,14 @@ func ReceiveWithReconnect(ctx context.Context, msgr Messenger, initialBackoff, m
 				if ctx.Err() != nil {
 					return // context cancelled
 				}
-				logger.Warn("messenger Receive failed, retrying",
+				log.Warn("messenger Receive failed, retrying",
 					"error", err, "backoff", backoff)
+
+				timer := time.NewTimer(backoff)
 				select {
-				case <-time.After(backoff):
+				case <-timer.C:
 				case <-ctx.Done():
+					timer.Stop()
 					return
 				}
 				backoff = min(backoff*multiplier, maxBackoff)
@@ -44,14 +47,14 @@ func ReceiveWithReconnect(ctx context.Context, msgr Messenger, initialBackoff, m
 
 			// Reset backoff on successful connection.
 			backoff = initialBackoff
-			logger.Info("messenger connected, listening for messages")
+			log.Info("messenger connected, listening for messages")
 
 			// Forward messages until the channel is closed (disconnect).
 			for {
 				select {
 				case msg, ok := <-ch:
 					if !ok {
-						logger.Warn("messenger disconnected, attempting reconnection")
+						log.Warn("messenger disconnected, attempting reconnection")
 						goto reconnect
 					}
 					select {

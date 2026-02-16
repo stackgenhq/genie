@@ -3,6 +3,7 @@ package agui
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // aguiEvent is the AG-UI wire format for SSE events.
@@ -102,10 +103,19 @@ func MapEvent(event interface{}, threadID, runID string) ([]byte, string, error)
 		}
 
 	case AgentToolResponseMsg:
+		content := e.Response
+		if e.Error != nil {
+			errMsg := e.Error.Error()
+			if !strings.HasPrefix(errMsg, "tool execution error: ") {
+				content = "tool execution error: " + errMsg
+			} else {
+				content = errMsg
+			}
+		}
 		out = aguiEvent{
 			Type:       EventToolCallResult,
 			ToolCallID: e.ToolCallID,
-			Content:    e.Response,
+			Content:    content,
 			Role:       "tool",
 		}
 

@@ -10,6 +10,9 @@ import (
 
 //go:generate go tool counterfeiter -generate
 
+// defaultFilePerm is the default permission for creating files (owner read/write only).
+const defaultFilePerm = 0600
+
 // EventType represents the type of audit event.
 type EventType string
 
@@ -35,9 +38,6 @@ const (
 	EventToolCall EventType = "tool_call"
 	// EventConversation is logged for a complete Q&A turn.
 	EventConversation EventType = "conversation"
-
-	// defaultLogFilePerms is the default permission for audit log files (rw-------).
-	defaultLogFilePerms = 0600
 )
 
 // LogRequest contains all fields needed to record an audit event.
@@ -65,7 +65,7 @@ type FileAuditor struct {
 
 // NewFileAuditor creates a new auditor that writes JSON logs to the specified file.
 func NewFileAuditor(filePath string) (*FileAuditor, error) {
-	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, defaultFilePerm)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open audit log file: %w", err)
 	}
@@ -98,22 +98,16 @@ func (a *FileAuditor) Log(ctx context.Context, req LogRequest) {
 	a.logger.InfoContext(ctx, "audit_event", attrs...)
 }
 
-// NoopAuditor is a no-operation auditor for when auditing is disabled.
-type NoopAuditor struct{}
-
-// Log is a no-op implementation.
-func (n *NoopAuditor) Log(_ context.Context, _ LogRequest) {
-	// Do nothing
-}
-
-// Close is a no-op implementation.
-func (n *NoopAuditor) Close() error {
-	return nil
-}
-
 func (a *FileAuditor) Close() error {
 	if a.logFile != nil {
 		return a.logFile.Close()
 	}
 	return nil
 }
+
+// NoopAuditor implements Auditor but does nothing.
+type NoopAuditor struct{}
+
+func (a *NoopAuditor) Log(ctx context.Context, req LogRequest) {}
+
+func (a *NoopAuditor) Close() error { return nil }

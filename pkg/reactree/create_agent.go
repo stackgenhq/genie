@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/appcd-dev/genie/pkg/agentutils"
 	"github.com/appcd-dev/genie/pkg/agui"
@@ -21,6 +22,7 @@ import (
 
 // CreateAgentRequest is the input for the create_agent tool.
 type CreateAgentRequest struct {
+	AgentName string                 `json:"agent_name" jsonschema:"description=Name of the sub-agent,required"`
 	Goal      string                 `json:"goal" jsonschema:"description=The goal or task for the sub-agent to accomplish,required"`
 	ToolNames []string               `json:"tool_names,omitempty" jsonschema:"description=Names of tools to give the sub-agent. If empty all tools are provided."`
 	TaskType  modelprovider.TaskType `json:"task_type,omitempty" jsonschema:"description=Type of task for the sub-agent to accomplish, Should be one of efficiency/long_horizon_autonomy/mathematical/general_task/novel_reasoning/scientific_reasoning/terminal_calling/planning,required"`
@@ -50,7 +52,11 @@ type createAgentTool struct {
 // The optional toolWrapSvc, when provided, wraps sub-agent tools with HITL
 // approval gating, audit logging, and file-read caching — ensuring sub-agents
 // cannot execute write tools without human approval.
-func NewCreateAgentTool(modelProvider modelprovider.ModelProvider, summarizer agentutils.Summarizer, toolRegistry map[string]tool.Tool, toolWrapSvc ...*toolwrap.Service) tool.Tool {
+func NewCreateAgentTool(
+	modelProvider modelprovider.ModelProvider,
+	summarizer agentutils.Summarizer,
+	toolRegistry ToolRegistry,
+	toolWrapSvc ...*toolwrap.Service) tool.Tool {
 	// Build description listing available tools
 	var toolList []string
 	for name := range toolRegistry {
@@ -140,7 +146,7 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 
 	// Create a fresh sub-agent with only the selected tools
 	subAgent := llmagent.New(
-		"sub-agent",
+		req.AgentName,
 		llmagent.WithModel(modelToUse),
 		llmagent.WithTools(selectedTools),
 		llmagent.WithInstruction("You are a focused sub-agent. Complete the given task using ONLY your available tools. "+
@@ -150,13 +156,16 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 			"Do NOT pass absolute paths (e.g. /tmp/foo) to these tools — use run_shell instead for absolute paths. "+
 			"ERROR BUDGET: If a command or tool call fails 3 times consecutively, stop and report the failure rather than retrying."),
 		llmagent.WithDescription("Focused sub-agent for delegated tasks"),
+		llmagent.WithEnableParallelTools(true),
 		llmagent.WithMaxLLMCalls(10),
+		llmagent.WithAddCurrentTime(true),
+		llmagent.WithTimeFormat(time.RFC3339),
 		llmagent.WithMaxToolIterations(8),
 	)
 
 	// Run via a one-shot runner with isolated session
 	r := runner.NewRunner(
-		"sub-agent",
+		req.AgentName,
 		subAgent,
 		runner.WithSessionService(inmemory.NewSessionService()),
 	)
@@ -195,18 +204,22 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 	}
 
 	result := sb.String()
+	logr.Info("sub-agent execution completed", "output_length", len(result))
 
 	// Summarize large sub-agent output to keep context concise for the parent agent.
 	const summarizeThreshold = 2000
 	if t.summarizer != nil && len(result) > summarizeThreshold {
+		logr.Info("summarizing large sub-agent output", "original_length", len(result), "threshold", summarizeThreshold)
 		summarized, err := t.summarizer.Summarize(ctx, agentutils.SummarizeRequest{
 			Content:              result,
 			RequiredOutputFormat: agentutils.OutputFormatText,
 		})
 		if err == nil {
+			logr.Info("sub-agent output summarized", "original_length", len(result), "summarized_length", len(summarized))
 			result = summarized
+		} else {
+			logr.Warn("sub-agent output summarization failed, using original", "error", err)
 		}
-		// On summarization error, fall through and return the original result.
 	}
 
 	return CreateAgentResponse{

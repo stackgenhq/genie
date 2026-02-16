@@ -22,7 +22,7 @@ Users receive concise, readable responses even when the underlying tool output i
 ### Act
 Send a request that triggers a large tool output, e.g.:
 ```
-List every file in the pkg directory recursively and describe what each one does
+List every file in the pkg/config directory recursively and describe what each one does
 ```
 
 ### Assert

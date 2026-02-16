@@ -3,6 +3,7 @@ package hitl
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -10,6 +11,43 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
+
+const allTools = "*"
+
+type Config struct {
+	AlwaysAllowed []string `yaml:"read_only_tools" toml:"read_only_tools" json:"read_only_tools"`
+}
+
+func DefaultConfig() Config {
+	return Config{
+		AlwaysAllowed: []string{},
+	}
+}
+
+func (c Config) readOnlyTools() []string {
+	for _, tool := range c.AlwaysAllowed {
+		if tool == allTools {
+			return []string{allTools}
+		}
+	}
+	return append(defaultReadOnlyTools, c.AlwaysAllowed...)
+}
+
+// IsAllowed checks if a tool is exempt from HITL approval.
+// If a tool is listed in ReadOnlyTools, it is considered safe and allowed to run
+// without human intervention.
+func (c Config) IsAllowed(toolName string) bool {
+	for _, tool := range c.readOnlyTools() {
+		if tool == allTools {
+			// if the config has a wildcard, then all tools are allowed (HITL disabled)
+			return true
+		}
+		if strings.EqualFold(tool, toolName) {
+			return true
+		}
+	}
+	return false
+}
 
 // gormStore implements ApprovalStore backed by GORM.
 // Pending approvals are tracked with in-process channels for synchronous
@@ -19,13 +57,21 @@ import (
 type gormStore struct {
 	db      *gorm.DB
 	waiters sync.Map // map[approvalID]chan struct{}
+	cfg     Config
 }
 
 // NewStore creates an ApprovalStore backed by the given GORM database.
 // The caller is responsible for opening and migrating the database (via pkg/db).
 // This constructor does NOT own the database lifecycle — Close() is a no-op.
-func NewStore(gormDB *gorm.DB) ApprovalStore {
-	return &gormStore{db: gormDB}
+func (c Config) NewStore(gormDB *gorm.DB) ApprovalStore {
+	return &gormStore{
+		db:  gormDB,
+		cfg: c,
+	}
+}
+
+func (s *gormStore) IsAllowed(toolName string) bool {
+	return s.cfg.IsAllowed(toolName)
 }
 
 // Create persists a new pending approval request and returns it.
@@ -150,4 +196,8 @@ func toApprovalRequest(row db.Approval) ApprovalRequest {
 		ResolvedAt: row.ResolvedAt,
 		ResolvedBy: row.ResolvedBy,
 	}
+}
+
+func (s *gormStore) ReadOnlyTools() []string {
+	return s.cfg.readOnlyTools()
 }

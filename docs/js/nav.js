@@ -103,7 +103,7 @@
               </div>
               <p class="text-gray-500 text-sm leading-relaxed max-w-md">
                 An enterprise-grade agentic CLI powered by Stackgen.
-                Multi-model, multi-tool, extensible — the agent that actually ships.
+                Multi-model, multi-tool, extensible — the agent that actually delivers.
               </p>
             </div>
 

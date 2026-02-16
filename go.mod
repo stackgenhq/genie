@@ -14,6 +14,7 @@ require (
 	github.com/go-chi/chi/v5 v5.2.4
 	github.com/go-telegram/bot v1.18.0
 	github.com/google/uuid v1.6.0
+	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/hashicorp/terraform-exec v0.24.0
 	github.com/hashicorp/terraform-json v0.27.2
@@ -154,7 +155,6 @@ require (
 	github.com/hashicorp/go-getter v1.8.3 // indirect
 	github.com/hashicorp/go-hclog v1.6.3 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
-	github.com/hashicorp/go-retryablehttp v0.7.8 // indirect
 	github.com/hashicorp/go-slug v0.16.8 // indirect
 	github.com/hashicorp/go-tfe v1.99.0 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect

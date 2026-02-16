@@ -16,7 +16,7 @@ import (
 )
 
 // defaultTimeout is the maximum duration for any single browser action.
-const defaultTimeout = 30 * time.Second
+const defaultTimeout = 1 * time.Minute
 
 // Config holds configuration for the browser tool provider.
 // BlockedDomains prevents the agent from navigating to specific domains
@@ -95,6 +95,7 @@ func New(opts ...Option) (*Browser, error) {
 		chromedp.Flag("headless", cfg.headless),
 		chromedp.Flag("disable-gpu", true),
 		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("disable-dev-shm-usage", true), // Prevent crashes in containerized environments
 		chromedp.WindowSize(cfg.width, cfg.height),
 	)
 
@@ -118,18 +119,47 @@ func New(opts ...Option) (*Browser, error) {
 }
 
 // NewTab creates a new isolated browser context (tab). The caller is responsible
-// for cancelling the context to close the tab.
-func (b *Browser) NewTab(ctx context.Context) (context.Context, context.CancelFunc, error) {
-	// Create a new context derived from the browser's allocator context (which is b.ctx)
-	// This ensures the new tab shares the same browser process but has its own target.
-	// Note: b.ctx here is the one created with NewContext(allocCtx), which represents the "first" tab
-	// or the browser/process level context depending on how it was set up.
-	// To cleanly spawn new tabs, we should use the *allocator* context or the existing browser context.
-	// Using b.ctx works fine; it just spawns a new target sharing the browser.
+// for cancelling the returned context to close the tab. The tab will also be
+// closed if the underlying browser context is cancelled (for example, via Close).
+//
+// Note: The 'parent' argument is currently ignored for the purpose of browser
+// inheritance to ensure the tab belongs to this Browser instance. If you need
+// to tie the tab to an existing context's lifecycle, wrap the returned context
+// with context.WithCancel/WithTimeout using your parent context as the reference
+// (though hooking them up directly is not supported by chromedp structure).
+func (b *Browser) NewTab(parent context.Context) (context.Context, context.CancelFunc, error) {
+	if b == nil || b.ctx == nil {
+		// Browser is not properly initialized; avoid creating a context that
+		// is not tied to a running browser process.
+		return nil, func() {}, fmt.Errorf("browser not initialized")
+	}
 
-	// Create a new target (tab)
-	ctx, cancel := chromedp.NewContext(b.ctx)
-	return ctx, cancel, nil
+	// Create a new target (tab) derived from the shared browser context (b.ctx).
+	// This ensures we reuse the browser process managed by b.
+	tabCtx, tabCancel := chromedp.NewContext(b.ctx)
+
+	// Eagerly initialize the tab by running an empty action. Without this,
+	// chromedp lazily creates the target on first use, which can cause
+	// confusing timeouts if the browser process has issues.
+	if err := chromedp.Run(tabCtx); err != nil {
+		tabCancel()
+		return nil, func() {}, fmt.Errorf("failed to initialize browser tab: %w", err)
+	}
+
+	// Propagate parent cancellation to the tab. chromedp contexts form their
+	// own hierarchy (rooted at the allocator), so tabCtx isn't a child of
+	// parent. We bridge the gap with a goroutine that cancels the tab when
+	// the parent is done.
+	go func() {
+		select {
+		case <-parent.Done():
+			tabCancel()
+		case <-tabCtx.Done():
+			// Tab was closed independently (e.g. by the caller calling tabCancel).
+		}
+	}()
+
+	return tabCtx, tabCancel, nil
 }
 
 // Close tears down the browser process and releases all resources.
@@ -143,16 +173,48 @@ func (b *Browser) Close() {
 	}
 }
 
-// run executes a set of chromedp actions with the configured timeout. It is
-// the single entry-point used by every tool to interact with the browser.
-// It accepts a context so that tools can operate on specific tabs/targets.
+// run executes a set of chromedp actions. It is the single entry-point used by
+// every tool to interact with the browser.
+//
+// The caller's context (ctx) is used only for cancellation signaling.
+// All chromedp operations are executed on a context derived from b.ctx,
+// which carries the CDP executor / browser session. This guarantees that
+// even if the caller passes a plain context.Background(), the browser
+// bindings are always available.
 func (b *Browser) run(ctx context.Context, actions ...chromedp.Action) error {
-	// If the context is already a chromedp context, we just need to add a timeout.
-	// If it's a standard context, we might need to derive it from the browser's allocator (not typical for this usage).
-	// In our design, tools will pass a context associated with a specific tab.
-	ctx, cancel := context.WithTimeout(ctx, b.timeout)
-	defer cancel()
-	return chromedp.Run(ctx, actions...)
+	// Determine the effective timeout.
+	// If the caller has a deadline that is shorter than b.timeout, honour it.
+	// Otherwise fall back to the configured default.
+	timeout := b.timeout
+	if dl, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(dl); remaining > 0 && remaining < timeout {
+			timeout = remaining
+		}
+	}
+
+	// Use the caller's context as the parent if it already carries a
+	// chromedp executor (e.g. from NewTab). Otherwise, fall back to b.ctx.
+	// This ensures we don't accidentally run actions against the browser
+	// context instead of the specific tab context.
+	parentCtx := b.ctx
+	if chromedp.FromContext(ctx) != nil {
+		parentCtx = ctx
+	}
+
+	runCtx, runCancel := context.WithTimeout(parentCtx, timeout)
+	defer runCancel()
+
+	// Bridge cancellation: if the caller's context is cancelled (e.g. the
+	// RPC was aborted), propagate that to the browser action.
+	go func() {
+		select {
+		case <-ctx.Done():
+			runCancel()
+		case <-runCtx.Done():
+		}
+	}()
+
+	return chromedp.Run(runCtx, actions...)
 }
 
 // isBlockedDomain returns true when the given raw URL's host matches any

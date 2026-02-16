@@ -2,6 +2,8 @@ package db
 
 import (
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Approval is the GORM model for the approvals table.
@@ -21,4 +23,21 @@ type Approval struct {
 // TableName overrides the default GORM table name.
 func (Approval) TableName() string {
 	return "approvals"
+}
+
+// Memory is the GORM model for the memories table.
+// It stores conversation history and episodic memory.
+type Memory struct {
+	ID        uuid.UUID `gorm:"primaryKey;type:text" json:"id"`
+	AppName   string    `gorm:"type:text;not null;index:idx_memories_key" json:"app_name"`
+	UserID    string    `gorm:"type:text;not null;index:idx_memories_key" json:"user_id"`
+	Content   string    `gorm:"type:text;not null" json:"content"`
+	Topics    string    `gorm:"type:text;not null;default:'[]'" json:"topics"` // JSON encoded string array
+	CreatedAt time.Time `gorm:"not null" json:"created_at"`
+	UpdatedAt time.Time `gorm:"not null" json:"updated_at"`
+}
+
+// TableName overrides the default GORM table name.
+func (Memory) TableName() string {
+	return "memories"
 }

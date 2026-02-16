@@ -25,6 +25,9 @@ const (
 	// OutputFormatText instructs the summarizer to produce a plain-text summary.
 	OutputFormatText OutputFormat = "TEXT"
 
+	// OutputFormatMarkdown instructs the summarizer to produce a markdown-formatted summary.
+	OutputFormatMarkdown OutputFormat = "MARKDOWN"
+
 	// OutputFormatYAML instructs the summarizer to produce a YAML-formatted summary.
 	OutputFormatYAML OutputFormat = "YAML"
 )
@@ -126,7 +129,7 @@ func (s *summarizer) Summarize(ctx context.Context, req SummarizeRequest) (strin
 
 	resp, err := s.expert.Do(ctx, expert.Request{
 		Message:  message,
-		TaskType: modelprovider.TaskFrontDesk,
+		TaskType: modelprovider.TaskEfficiency,
 		Mode: expert.ExpertConfig{
 			MaxLLMCalls:       1,
 			MaxToolIterations: 0,
@@ -149,7 +152,7 @@ func (s *summarizer) Summarize(ctx context.Context, req SummarizeRequest) (strin
 // supported output formats (JSON, TEXT, YAML).
 func isValidOutputFormat(f OutputFormat) bool {
 	switch f {
-	case OutputFormatJSON, OutputFormatText, OutputFormatYAML:
+	case OutputFormatJSON, OutputFormatText, OutputFormatYAML, OutputFormatMarkdown:
 		return true
 	default:
 		return false
@@ -189,7 +192,7 @@ func NewSummarizerTool(s Summarizer) tool.Tool {
 		function.WithDescription(
 			"Summarize verbose content into a concise, structured format. "+
 				"Use this when a tool output or document is too large and needs to be condensed "+
-				"before further processing. Supports JSON, TEXT, and YAML output formats."),
+				"before further processing. Supports JSON, TEXT, YAML and MARKDOWN output formats."),
 	)
 }
 

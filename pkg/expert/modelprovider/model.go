@@ -33,20 +33,17 @@ func DefaultModelConfig() ModelConfig {
 		// Flash model for lightweight front desk classification / triage
 		result.Providers = append(result.Providers, ProviderConfig{
 			Provider:    "gemini",
-			ModelName:   "gemini-3-flash",
-			Variant:     "default",
-			GoodForTask: TaskFrontDesk,
+			ModelName:   "gemini-3-flash-preview",
+			GoodForTask: TaskEfficiency,
 		})
 		result.Providers = append(result.Providers, ProviderConfig{
 			Provider:    "gemini",
 			ModelName:   osutils.Getenv("GOOGLE_MODEL", "gemini-3-pro-preview"),
-			Variant:     "default",
 			GoodForTask: TaskToolCalling,
 		})
 		result.Providers = append(result.Providers, ProviderConfig{
 			Provider:    "gemini",
 			ModelName:   osutils.Getenv("GOOGLE_MODEL", "gemini-3-pro-preview"),
-			Variant:     "default",
 			GoodForTask: TaskGeneralTask,
 		})
 	}

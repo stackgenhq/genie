@@ -1,2 +1,3 @@
-ops:
-  max_pages: ${TEST_MAX_PAGES}
+model_config:
+  providers:
+    - provider: ${TEST_PROVIDER}

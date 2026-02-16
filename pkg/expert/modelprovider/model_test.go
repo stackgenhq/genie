@@ -144,8 +144,8 @@ var _ = Describe("ModelProvider", func() {
 
 				// First Gemini provider should be flash (frontdesk)
 				Expect(cfg.Providers[0].Provider).To(Equal("gemini"))
-				Expect(cfg.Providers[0].ModelName).To(Equal("gemini-3-flash"))
-				Expect(cfg.Providers[0].GoodForTask).To(Equal(modelprovider.TaskFrontDesk))
+				Expect(cfg.Providers[0].ModelName).To(Equal("gemini-3-flash-preview"))
+				Expect(cfg.Providers[0].GoodForTask).To(Equal(modelprovider.TaskEfficiency))
 
 				// Second Gemini provider should be pro (tool_calling)
 				Expect(cfg.Providers[1].Provider).To(Equal("gemini"))
@@ -171,7 +171,7 @@ var _ = Describe("ModelProvider", func() {
 				cfg := modelprovider.DefaultModelConfig()
 				Expect(cfg.Providers).To(HaveLen(3)) // flash + pro (tool_calling) + pro (general_task)
 				Expect(cfg.Providers[0].Provider).To(Equal("gemini"))
-				Expect(cfg.Providers[0].ModelName).To(Equal("gemini-3-flash"))
+				Expect(cfg.Providers[0].ModelName).To(Equal("gemini-3-flash-preview"))
 				Expect(cfg.Providers[1].Provider).To(Equal("gemini"))
 				Expect(cfg.Providers[1].ModelName).NotTo(BeEmpty())
 				Expect(cfg.Providers[2].Provider).To(Equal("gemini"))
@@ -190,7 +190,7 @@ var _ = Describe("ModelProvider", func() {
 				cfg := modelprovider.DefaultModelConfig()
 				Expect(cfg.Providers).To(HaveLen(3)) // flash + custom pro (tool_calling) + custom pro (general_task)
 				Expect(cfg.Providers[0].Provider).To(Equal("gemini"))
-				Expect(cfg.Providers[0].ModelName).To(Equal("gemini-3-flash"))
+				Expect(cfg.Providers[0].ModelName).To(Equal("gemini-3-flash-preview"))
 				Expect(cfg.Providers[1].Provider).To(Equal("gemini"))
 				Expect(cfg.Providers[1].ModelName).To(Equal("gemini-pro"))
 				Expect(cfg.Providers[2].Provider).To(Equal("gemini"))
@@ -218,8 +218,8 @@ var _ = Describe("ModelProvider", func() {
 
 				// Second provider should be Gemini flash (frontdesk)
 				Expect(cfg.Providers[1].Provider).To(Equal("gemini"))
-				Expect(cfg.Providers[1].ModelName).To(Equal("gemini-3-flash"))
-				Expect(cfg.Providers[1].GoodForTask).To(Equal(modelprovider.TaskFrontDesk))
+				Expect(cfg.Providers[1].ModelName).To(Equal("gemini-3-flash-preview"))
+				Expect(cfg.Providers[1].GoodForTask).To(Equal(modelprovider.TaskEfficiency))
 
 				// Third provider should be Gemini pro (tool_calling)
 				Expect(cfg.Providers[2].Provider).To(Equal("gemini"))
@@ -244,7 +244,7 @@ var _ = Describe("ModelProvider", func() {
 				Expect(cfg.Providers).To(HaveLen(4)) // openai + gemini-flash + gemini-pro (tool_calling) + gemini-pro (general_task)
 				Expect(cfg.Providers[0].Provider).To(Equal("openai"))
 				Expect(cfg.Providers[1].Provider).To(Equal("gemini"))
-				Expect(cfg.Providers[1].ModelName).To(Equal("gemini-3-flash"))
+				Expect(cfg.Providers[1].ModelName).To(Equal("gemini-3-flash-preview"))
 				Expect(cfg.Providers[2].Provider).To(Equal("gemini"))
 				Expect(cfg.Providers[3].Provider).To(Equal("gemini"))
 				Expect(cfg.Providers[3].GoodForTask).To(Equal(modelprovider.TaskGeneralTask))
@@ -322,8 +322,8 @@ var _ = Describe("ModelProvider", func() {
 
 					// Second provider should be Gemini flash (frontdesk)
 					Expect(cfg.Providers[1].Provider).To(Equal("gemini"))
-					Expect(cfg.Providers[1].ModelName).To(Equal("gemini-3-flash"))
-					Expect(cfg.Providers[1].GoodForTask).To(Equal(modelprovider.TaskFrontDesk))
+					Expect(cfg.Providers[1].ModelName).To(Equal("gemini-3-flash-preview"))
+					Expect(cfg.Providers[1].GoodForTask).To(Equal(modelprovider.TaskEfficiency))
 
 					// Third provider should be Gemini pro (tool_calling)
 					Expect(cfg.Providers[2].Provider).To(Equal("gemini"))

@@ -73,30 +73,20 @@ type ApprovalStore interface {
 
 	// Close releases any resources held by the store.
 	Close() error
+
+	IsAllowed(toolName string) bool
 }
 
-// readOnlyTools is the set of tool names that do NOT require human approval.
+// defaultReadOnlyTools is the set of tool names that do NOT require human approval.
 // These tools only read data and have no side effects.
-var readOnlyTools = map[string]bool{
-	"read_file":           true,
-	"list_file":           true,
-	"read_multiple_files": true,
-	"memory_search":       true,
-	"summarize_content":   true,
-	"web_search":          true,
-	"search_content":      true,
-	"search_file":         true,
-	"create_agent":        true, // orchestration — sub-agent tools get their own HITL
-	"browser_navigate":    true,
-	"browser_read_text":   true,
-	"browser_read_html":   true,
-	"browser_screenshot":  true,
-}
-
-// IsReadOnly returns true if the given tool name is classified as read-only
-// and does not require human approval before execution.
-// Without this function every tool call would require approval, including
-// harmless read operations, degrading the user experience.
-func IsReadOnly(toolName string) bool {
-	return readOnlyTools[toolName]
+var defaultReadOnlyTools = []string{
+	"read_file",
+	"list_file",
+	"read_multiple_files",
+	"memory_search",
+	"summarize_content",
+	"web_search",
+	"search_content",
+	"search_file",
+	"create_agent", // orchestration — sub-agent tools get their own HITL
 }

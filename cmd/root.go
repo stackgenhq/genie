@@ -38,7 +38,7 @@ func (r rootCmdOption) level() slog.Level {
 	case "error":
 		return slog.LevelError
 	default:
-		return slog.LevelDebug
+		return slog.LevelInfo
 	}
 }
 
@@ -92,7 +92,7 @@ Infrastructure is hard. Being a Genie is easy.`,
 	rootCmd.AddCommand(newConnectCommand(&r.opts))
 	// Global flags
 	rootCmd.PersistentFlags().StringVar(&r.opts.cfgFile, "config", "", "config file (default is $HOME/.genie.yaml; repo .genie.yaml preferred)")
-	rootCmd.PersistentFlags().StringVar(&r.opts.logLevel, "log-level", "warn", "log level (debug, info, warn, error)")
+	rootCmd.PersistentFlags().StringVar(&r.opts.logLevel, "log-level", "info", "log level (debug, info, warn, error)")
 
 	// Grant command flags (also available at root level for convenience)
 	rootCmd.PersistentFlags().StringVar(&r.opts.workingDir, "working-dir", cwd, "code directory")

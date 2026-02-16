@@ -176,14 +176,18 @@ func WrapNodeForParallel(nodeID string, original graph.NodeFunc) graph.NodeFunc 
 // statusRouter is a conditional edge function that routes based on
 // the NodeStatus stored in graph state. It returns "success" or "failure"
 // as branch keys for the conditional edge path map.
-func statusRouter(_ context.Context, state graph.State) (string, error) {
+func statusRouter(ctx context.Context, state graph.State) (string, error) {
+	logr := logger.GetLogger(ctx).With("fn", "statusRouter")
 	status, ok := graph.GetStateValue[NodeStatus](state, StateKeyNodeStatus)
 	if !ok {
+		logr.Warn("no node status found in state, defaulting to failure")
 		return "failure", nil
 	}
 	if status == Success {
+		logr.Debug("routing: success")
 		return "success", nil
 	}
+	logr.Info("routing: failure", "status", status)
 	return "failure", nil
 }
 
@@ -192,18 +196,23 @@ func statusRouter(_ context.Context, state graph.State) (string, error) {
 //   - failure  → stage failed, abort pipeline
 //   - completed → stage succeeded with zero tool calls, task is done
 //   - success  → stage succeeded with tool calls, continue to next stage
-func stageRouter(_ context.Context, state graph.State) (string, error) {
+func stageRouter(ctx context.Context, state graph.State) (string, error) {
+	logr := logger.GetLogger(ctx).With("fn", "stageRouter")
 	status, ok := graph.GetStateValue[NodeStatus](state, StateKeyNodeStatus)
 	if !ok {
+		logr.Warn("no node status found in state, defaulting to failure")
 		return "failure", nil
 	}
 	if status != Success {
+		logr.Info("stage routing: failure", "status", status)
 		return "failure", nil
 	}
 	completed, _ := graph.GetStateValue[bool](state, StateKeyTaskCompleted)
 	if completed {
+		logr.Info("stage routing: early exit (task completed with zero tool calls)")
 		return "completed", nil
 	}
+	logr.Debug("stage routing: success, continuing to next stage")
 	return "success", nil
 }
 
@@ -228,7 +237,7 @@ func majorityVoteFunc(nodeIDs []string) graph.NodeFunc {
 			result = Success
 		}
 
-		logr.Debug("majority vote completed", "successes", successes, "total", total, "result", result)
+		logr.Info("majority vote completed", "successes", successes, "total", total, "result", result)
 
 		return graph.State{
 			StateKeyNodeStatus: result,

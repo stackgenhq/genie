@@ -29,6 +29,7 @@ import (
 	"github.com/appcd-dev/genie/pkg/tools/pm"
 	"github.com/appcd-dev/genie/pkg/tools/scm"
 	"github.com/appcd-dev/genie/pkg/tools/websearch"
+	"github.com/appcd-dev/go-lib/constants"
 	"github.com/appcd-dev/go-lib/logger"
 	"github.com/appcd-dev/go-lib/osutils"
 	"github.com/aquasecurity/trivy/pkg/log"
@@ -102,12 +103,14 @@ func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
 	}
 
 	logger := logger.GetLogger(ctx).With("fn", "grantCmd.run")
+	logger.Info("Starting grant command", "version", constants.Version)
 
 	// Set up messenger (best-effort, non-fatal).
 	g.msgr, err = genieCfg.Messenger.InitMessenger(ctx)
 	if err != nil {
 		logger.Warn("failed to initialize messenger, continuing without", "error", err)
 	} else if g.msgr != nil {
+		logger.Info("Messenger initialized successfully", "platform", g.msgr.Platform())
 		defer func() {
 			if err := g.msgr.Disconnect(context.Background()); err != nil {
 				logger.Warn("failed to disconnect messenger", "error", err)
@@ -128,19 +131,18 @@ func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
 		store, err = genieCfg.VectorMemory.NewStore(ctx)
 		if err != nil {
 			log.Warn("failed to initialize vector store, skipping memory tools", "error", err)
+		} else {
+			logger.Info("Vector memory initialized")
 		}
 	}
 
 	// Initialize audit logger (NoopAuditor when --audit-log-path is not set).
-	var auditor audit.Auditor = &audit.NoopAuditor{}
-	if g.opts.AuditLogPath != "" {
-		fileAuditor, cleanupAudit, auditErr := g.initAuditor()
-		if auditErr != nil {
-			return fmt.Errorf("audit init: %w", auditErr)
-		}
-		defer cleanupAudit()
-		auditor = fileAuditor
+	auditor, cleanupAudit, auditErr := g.initAuditor()
+	if auditErr != nil {
+		return fmt.Errorf("audit init: %w", auditErr)
 	}
+	defer cleanupAudit()
+	logger.Info("Audit logger initialized", "path", g.opts.AuditLogPath)
 
 	// Open central database (GORM + SQLite) for persistent features.
 	// Must be initialized before NewCodeOwner so the approval store is
@@ -164,20 +166,24 @@ func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
 	logger.Info("Central database opened", "path", dbPath)
 
 	// HITL approval store for human-in-the-loop tool approval.
-	var approvalStore hitl.ApprovalStore = hitl.NewStore(gormDB)
+	var approvalStore = genieCfg.HITL.NewStore(gormDB)
 	if g.msgr != nil {
 		g.notifierStore = messengerhitl.NewNotifierStore(approvalStore, g.msgr)
 		approvalStore = g.notifierStore
 	}
 
+	// Persistent memory service for conversation history and episodic memory.
+	memorySvc := geniedb.NewMemoryService(gormDB)
+
 	if g.msgr != nil {
 		tools = append(tools, messenger.NewSendMessageTool(g.msgr))
 	}
 
-	g.codeOwner, err = codeowner.NewCodeOwner(ctx, modelProvider, g.rootOpts.workingDir, tools, store, auditor, approvalStore)
+	g.codeOwner, err = codeowner.NewCodeOwner(ctx, modelProvider, g.rootOpts.workingDir, tools, store, auditor, approvalStore, memorySvc)
 	if err != nil {
 		return err
 	}
+	logger.Info("CodeOwner agent initialized")
 	defer func() {
 		if closeErr := g.codeOwner.Close(); closeErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to close code owner: %v\n", closeErr)
@@ -185,7 +191,7 @@ func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
 	}()
 
 	// Build AG-UI chat handler.
-	httpHandler := agui.NewChatHandlerFromCodeOwner(func(ctx context.Context, message string, agentsMessage chan<- interface{}) error {
+	chatHandler := func(ctx context.Context, message string, agentsMessage chan<- interface{}) error {
 		outputChan := make(chan string)
 		chatDone := make(chan struct{})
 		go func() {
@@ -199,7 +205,7 @@ func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
 				var err error
 				tabCtx, cancel, err = g.browser.NewTab(ctx)
 				if err != nil {
-					agui.EmitError(agentsMessage, err, "failed to create browser tab")
+					agui.EmitError(ctx, agentsMessage, err, "failed to create browser tab")
 					return
 				}
 				defer cancel()
@@ -212,7 +218,7 @@ func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
 				SenderContext: "agui:http",
 				BrowserTab:    tabCtx,
 			}, outputChan); err != nil {
-				agui.EmitError(agentsMessage, err, "while processing AG-UI chat message")
+				agui.EmitError(ctx, agentsMessage, err, "while processing AG-UI chat message")
 			}
 		}()
 		// Drain the output channel (agent responses).
@@ -222,7 +228,8 @@ func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
 		// to eventChan before NewChatHandlerFromCodeOwner closes it.
 		<-chatDone
 		return nil
-	})
+	}
+	httpHandler := agui.NewChatHandlerFromCodeOwner(g.codeOwner.Resume(), chatHandler)
 
 	// Start listening for incoming messenger messages (Slack, Teams, etc.).
 	if g.msgr != nil {
@@ -251,6 +258,7 @@ func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
 
 	// Start AG-UI HTTP/SSE server — blocks until context is cancelled.
 	aguiServer := genieCfg.AGUI.NewServer(httpHandler, approvalStore)
+	logger.Info("Starting AG-UI server", "port", genieCfg.AGUI.Port)
 	return aguiServer.Start(ctx)
 }
 
@@ -263,6 +271,7 @@ func (g *grantCmd) initToolDeps(ctx context.Context, cfg config.GenieConfig) ([]
 	// WebSearch — always available (falls back to DuckDuckGo if no Google API key)
 	var tools []tool.Tool
 	tools = append(tools, websearch.NewTool(cfg.WebSearch))
+	log.Debug("WebSearch tool initialized")
 
 	// MCP tools
 	mcpClient, err := mcp.NewClient(ctx, cfg.MCP)
@@ -271,6 +280,7 @@ func (g *grantCmd) initToolDeps(ctx context.Context, cfg config.GenieConfig) ([]
 	} else {
 		g.mcpClient = mcpClient
 		tools = append(tools, mcpClient.GetTools()...)
+		log.Info("MCP client initialized", "server_count", len(cfg.MCP.Servers))
 	}
 
 	// Skills
@@ -280,7 +290,9 @@ func (g *grantCmd) initToolDeps(ctx context.Context, cfg config.GenieConfig) ([]
 			log.Warn("failed to initialize skills repository, skipping skill tools", "error", err)
 		} else {
 			executor := skills.NewLocalExecutor(g.rootOpts.workingDir)
-			tools = append(tools, skills.CreateAllSkillTools(repo, executor)...)
+			skillTools := skills.CreateAllSkillTools(repo, executor)
+			tools = append(tools, skillTools...)
+			log.Info("Skills initialized", "tool_count", len(skillTools))
 		}
 	}
 
@@ -296,6 +308,7 @@ func (g *grantCmd) initToolDeps(ctx context.Context, cfg config.GenieConfig) ([]
 		for _, bt := range browser.AllTools(bw) {
 			tools = append(tools, bt)
 		}
+		log.Info("Browser initialized", "headless", true)
 	}
 
 	// SCM tools
@@ -304,6 +317,7 @@ func (g *grantCmd) initToolDeps(ctx context.Context, cfg config.GenieConfig) ([]
 	} else {
 		log.Warn("failed to init SCM tools", "error", err)
 	}
+	log.Debug("SCM tools initialized")
 
 	// PM tools
 	if pmSvc, err := pm.New(cfg.PM); err == nil {
@@ -311,6 +325,7 @@ func (g *grantCmd) initToolDeps(ctx context.Context, cfg config.GenieConfig) ([]
 	} else {
 		log.Warn("failed to init PM tools", "error", err)
 	}
+	log.Debug("PM tools initialized")
 
 	// Email tools
 	if emailSvc, err := cfg.Email.New(); err == nil {
@@ -318,6 +333,7 @@ func (g *grantCmd) initToolDeps(ctx context.Context, cfg config.GenieConfig) ([]
 	} else {
 		log.Warn("failed to init Email tools", "error", err)
 	}
+	log.Debug("Email tools initialized")
 
 	cleanup := func() {
 		if g.mcpClient != nil {
@@ -331,8 +347,11 @@ func (g *grantCmd) initToolDeps(ctx context.Context, cfg config.GenieConfig) ([]
 }
 
 // initAuditor creates the audit logger when a path is configured.
-// Returns a nil auditor and nil cleanup func when auditing is disabled.
+// Returns NoopAuditor when --audit-log-path is not set (opt-in only).
 func (g *grantCmd) initAuditor() (audit.Auditor, func(), error) {
+	if g.opts.AuditLogPath == "" {
+		return &audit.NoopAuditor{}, func() {}, nil
+	}
 	auditor, err := audit.NewFileAuditor(g.opts.AuditLogPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to initialize audit logger: %w", err)
@@ -398,7 +417,7 @@ func (g *grantCmd) handleMessengerInput(ctx context.Context, msg messenger.Incom
 
 	// Emit attributed user bubble so the TUI shows the sender and platform (#6).
 	senderLabel := fmt.Sprintf("%s (%s)", msg.Sender.DisplayName, msg.Platform)
-	agui.EmitAgentMessage(eventChan, senderLabel, msg.Content.Text)
+	agui.EmitAgentMessage(ctx, eventChan, senderLabel, msg.Content.Text)
 
 	logger.Info("received messenger message",
 		"platform", msg.Platform,
@@ -418,7 +437,7 @@ func (g *grantCmd) handleMessengerInput(ctx context.Context, msg messenger.Incom
 			var err error
 			tabCtx, cancel, err = g.browser.NewTab(ctx)
 			if err != nil {
-				agui.EmitError(eventChan, err, "failed to create browser tab")
+				agui.EmitError(ctx, eventChan, err, "failed to create browser tab")
 				return
 			}
 			defer cancel()
@@ -432,13 +451,13 @@ func (g *grantCmd) handleMessengerInput(ctx context.Context, msg messenger.Incom
 			ExcludeTools:  []string{"send_message"},
 			BrowserTab:    tabCtx,
 		}, agentThoughts); err != nil {
-			agui.EmitError(eventChan, err, "while processing messenger message")
+			agui.EmitError(ctx, eventChan, err, "while processing messenger message")
 		}
 	}()
 
 	for response := range agentThoughts {
 		// Echo response to the TUI as well.
-		agui.EmitAgentMessage(eventChan, "Genie", response)
+		agui.EmitAgentMessage(ctx, eventChan, "Genie", response)
 
 		// Reply to the originating messenger channel/thread.
 		if _, err := g.msgr.Send(ctx, messenger.SendRequest{

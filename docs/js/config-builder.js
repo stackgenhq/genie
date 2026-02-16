@@ -23,8 +23,7 @@
         format: 'toml',
         providers: [{ provider: 'openai', model_name: 'gpt-5.2', variant: 'default', token: 'OPENAI_API_KEY', good_for_task: 'efficiency' }],
 
-        ops: { max_pages: 5, enable_verification: true, max_verification_runs: 3 },
-        secops: { scanner: 'trivy', severity_thresholds: { high: 0, medium: 42, low: -1 } },
+
         skills_roots: ['./skills'],
         mcp_servers: [],
         web_search: { provider: 'duckduckgo', google_api_key: 'GOOGLE_API_KEY', google_cx: 'GOOGLE_CSE_ID', bing_api_key: 'BING_API_KEY' },
@@ -42,13 +41,14 @@
         pm: { provider: '', api_token: 'PM_API_TOKEN', base_url: '', email: '' },
         browser: { blocked_domains: [] },
         email: { provider: '', host: '', port: 587, username: '', password: '', imap_host: '', imap_port: 993 },
+        hitl: { read_only_tools: [] },
         agui: { port: 8080, cors_origins: ['https://appcd-dev.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576 }
     };
 
     var PROVIDERS = ['openai', 'gemini', 'anthropic'];
     var MODELS_BY_PROVIDER = {
         openai: ['gpt-5.3-codex', 'gpt-5.2', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'o3', 'o4-mini'],
-        gemini: ['gemini-3-pro', 'gemini-3-flash', 'gemini-3-deep-think', 'gemini-2.5-pro', 'gemini-2.5-flash'],
+        gemini: ['gemini-3-pro', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
         anthropic: ['claude-opus-4.6', 'claude-sonnet-4.5', 'claude-haiku-4.5', 'claude-sonnet-4', 'claude-opus-4']
     };
     var TASK_TYPES = ['tool_calling', 'planning', 'terminal_calling', 'scientific_reasoning',
@@ -56,7 +56,7 @@
     var MCP_TRANSPORTS = ['stdio', 'streamable_http', 'sse'];
     var EMBED_PROVIDERS = ['dummy', 'openai', 'ollama'];
     var PLATFORMS = ['', 'slack', 'discord', 'telegram', 'teams', 'googlechat', 'whatsapp'];
-    var SCANNERS = ['trivy', 'snyk'];
+
     var SEARCH_PROVIDERS = ['duckduckgo', 'google', 'bing'];
     var SCM_PROVIDERS = ['', 'github', 'gitlab', 'bitbucket'];
     var PM_PROVIDERS = ['', 'jira', 'linear', 'asana'];
@@ -180,8 +180,7 @@
 
     function renderAll() {
         renderProviders();
-        renderOps();
-        renderSecOps();
+
         renderSkills();
         renderMCP();
         renderWebSearch();
@@ -191,6 +190,7 @@
         renderPM();
         renderBrowser();
         renderEmail();
+        renderHITL();
         renderAGUI();
         renderOutput();
     }
@@ -237,43 +237,7 @@
 
 
 
-    // ── Ops ──
-    function renderOps() {
-        var c = $('ops-body');
-        if (!c) return;
-        c.innerHTML = '';
-        var o = state.ops;
-        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-3 gap-4' }, [
-            fieldNumber('Max Pages', o.max_pages, function (v) { o.max_pages = v; renderOutput(); }, 1, 50, 'Maximum documentation pages to read during research — more pages = better context'),
-            fieldToggle('Enable Verification', o.enable_verification, function (v) { o.enable_verification = v; renderOutput(); }, 'When on, Genie will validate generated code (e.g. terraform validate) before finishing'),
-            fieldNumber('Max Verification Runs', o.max_verification_runs, function (v) { o.max_verification_runs = v; renderOutput(); }, 1, 20, 'How many times Genie will try to fix and re-verify broken code')
-        ]));
-    }
 
-    // ── SecOps ──
-    function renderSecOps() {
-        var c = $('secops-body');
-        if (!c) return;
-        c.innerHTML = '';
-        var s = state.secops;
-        c.appendChild(el('div', { className: 'space-y-4' }, [
-            el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
-                fieldSelect('Scanner', s.scanner, SCANNERS, function (v) { s.scanner = v; renderOutput(); }, 'Which tool scans for vulnerabilities — Trivy is free, Snyk needs an account')
-            ]),
-            buildThresholdsGroup(s.severity_thresholds)
-        ]));
-    }
-
-    function buildThresholdsGroup(t) {
-        return el('div', {}, [
-            el('p', { className: 'form-label' }, 'Severity Thresholds <span class="text-gray-400 font-normal">(use -1 for unlimited)</span>'),
-            el('div', { className: 'grid grid-cols-3 gap-4 mt-2' }, [
-                fieldNumber('High', t.high, function (v) { t.high = v; renderOutput(); }, -1, 1000, 'Max critical issues allowed — 0 means zero tolerance'),
-                fieldNumber('Medium', t.medium, function (v) { t.medium = v; renderOutput(); }, -1, 1000, 'Max medium issues allowed — set higher for lenient checks'),
-                fieldNumber('Low', t.low, function (v) { t.low = v; renderOutput(); }, -1, 1000, 'Max low-priority issues — use -1 for unlimited (ignore)')
-            ])
-        ]);
-    }
 
     // ── Skills ──
     function renderSkills() {
@@ -475,6 +439,17 @@
         }
     }
 
+    // ── HITL ──
+    function renderHITL() {
+        var c = $('hitl-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var h = state.hitl;
+        c.appendChild(el('div', { className: 'space-y-4' }, [
+            fieldText('Read-Only Tools (comma-separated)', (h.read_only_tools || []).join(', '), function (v) { h.read_only_tools = splitCSV(v); renderOutput(); }, 'read_file, list_file', 'Tools that require explicit human approval before execution')
+        ]));
+    }
+
     // ── AGUI ──
     function renderAGUI() {
         var c = $('agui-body');
@@ -509,28 +484,7 @@
 
 
 
-    function opsToToml(lines) {
-        var o = state.ops;
-        lines.push('[ops]');
-        lines.push('max_pages = ' + o.max_pages);
-        lines.push('enable_verification = ' + o.enable_verification);
-        lines.push('max_verification_runs = ' + o.max_verification_runs);
-        lines.push('');
-    }
 
-    function secopsToToml(lines) {
-        var s = state.secops;
-        if (s.scanner) {
-            lines.push('[secops]');
-            lines.push('scanner = ' + q(s.scanner));
-            lines.push('');
-        }
-        lines.push('[secops.severity_thresholds]');
-        lines.push('high = ' + s.severity_thresholds.high);
-        lines.push('medium = ' + s.severity_thresholds.medium);
-        lines.push('low = ' + s.severity_thresholds.low);
-        lines.push('');
-    }
 
     function skillsToToml(lines) {
         if (!hasItems(state.skills_roots)) return;
@@ -624,8 +578,7 @@
         var lines = [];
         if (state.providers.length > 0) providersToToml(lines);
 
-        opsToToml(lines);
-        secopsToToml(lines);
+
         skillsToToml(lines);
         mcpToToml(lines);
         webSearchToToml(lines);
@@ -635,6 +588,7 @@
         pmToToml(lines);
         browserToToml(lines);
         emailToToml(lines);
+        hitlToToml(lines);
         aguiToToml(lines);
         return lines.join('\n');
     }
@@ -682,6 +636,14 @@
         lines.push('');
     }
 
+    function hitlToToml(lines) {
+        var h = state.hitl;
+        if (!hasItems(h.read_only_tools)) return;
+        lines.push('[hitl]');
+        lines.push('read_only_tools = [' + h.read_only_tools.filter(Boolean).map(q).join(', ') + ']');
+        lines.push('');
+    }
+
     function aguiToToml(lines) {
         var a = state.agui;
         lines.push('[agui]');
@@ -713,25 +675,7 @@
 
 
 
-    function opsToYaml(lines) {
-        var o = state.ops;
-        lines.push('ops:');
-        lines.push('  max_pages: ' + o.max_pages);
-        lines.push('  enable_verification: ' + o.enable_verification);
-        lines.push('  max_verification_runs: ' + o.max_verification_runs);
-        lines.push('');
-    }
 
-    function secopsToYaml(lines) {
-        var s = state.secops;
-        lines.push('secops:');
-        if (s.scanner) lines.push('  scanner: ' + s.scanner);
-        lines.push('  severity_thresholds:');
-        lines.push('    high: ' + s.severity_thresholds.high);
-        lines.push('    medium: ' + s.severity_thresholds.medium);
-        lines.push('    low: ' + s.severity_thresholds.low);
-        lines.push('');
-    }
 
     function skillsToYaml(lines) {
         if (!hasItems(state.skills_roots)) return;
@@ -831,8 +775,7 @@
         var lines = [];
         if (state.providers.length > 0) providersToYaml(lines);
 
-        opsToYaml(lines);
-        secopsToYaml(lines);
+
         skillsToYaml(lines);
         mcpToYaml(lines);
         webSearchToYaml(lines);
@@ -842,6 +785,7 @@
         pmToYaml(lines);
         browserToYaml(lines);
         emailToYaml(lines);
+        hitlToYaml(lines);
         aguiToYaml(lines);
         return lines.join('\n');
     }
@@ -887,6 +831,15 @@
         if (e.password) lines.push('  password: ' + yq('${' + e.password + '}'));
         if (e.imap_host) lines.push('  imap_host: ' + yq(e.imap_host));
         lines.push('  imap_port: ' + e.imap_port);
+        lines.push('');
+    }
+
+    function hitlToYaml(lines) {
+        var h = state.hitl;
+        if (!hasItems(h.read_only_tools)) return;
+        lines.push('hitl:');
+        lines.push('  read_only_tools:');
+        h.read_only_tools.filter(Boolean).forEach(function (t) { lines.push('    - ' + t); });
         lines.push('');
     }
 

@@ -3,7 +3,6 @@ package reactree
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/expert"
@@ -91,6 +90,7 @@ type TreeRequest struct {
 	EventChan     chan<- interface{}
 	Tools         []tool.Tool
 	SenderContext string
+	TaskType      modelprovider.TaskType
 }
 
 // tree is the default TreeExecutor implementation backed by graph.StateGraph.
@@ -115,6 +115,13 @@ func NewTreeExecutor(
 	if episodic == nil {
 		episodic = memory.NewNoOpEpisodicMemory()
 	}
+	logger.GetLogger(context.Background()).Info("TreeExecutor created",
+		"max_depth", config.MaxDepth,
+		"max_decisions_per_node", config.MaxDecisionsPerNode,
+		"max_total_nodes", config.MaxTotalNodes,
+		"max_iterations", config.MaxIterations,
+		"stages", len(config.Stages),
+	)
 	return &tree{
 		expert:        exp,
 		workingMemory: workingMem,
@@ -270,8 +277,8 @@ func (t *tree) runMultiStage(ctx context.Context, req TreeRequest) (TreeResult, 
 		wrappedFunc := func(ctx context.Context, state graph.State) (any, error) {
 			// Emit stage progress to TUI (guard against nil channel)
 			if req.EventChan != nil {
-				agui.EmitStageProgress(req.EventChan, stageName, stageIdx, totalStages)
-				agui.EmitThinking(req.EventChan, "code-owner", stageName+"...")
+				agui.EmitStageProgress(ctx, req.EventChan, stageName, stageIdx, totalStages)
+				agui.EmitThinking(ctx, req.EventChan, "code-owner", stageName+"...")
 			}
 			logr.Info("stage started", "stage", stageName, "index", stageIdx)
 
@@ -344,146 +351,6 @@ func (t *tree) runMultiStage(ctx context.Context, req TreeRequest) (TreeResult, 
 	return result, nil
 }
 
-// runAdaptiveLoop runs a single agent node in a loop, accumulating context
-// between iterations. The loop terminates when:
-//   - the LLM produces zero tool calls (task naturally completed)
-//   - MaxIterations is reached
-//   - an error occurs
-//
-// This replaces the fixed multi-stage pipeline with dynamic, task-driven
-// expansion: simple tasks finish in 1-2 iterations while complex tasks
-// can use the full budget.
 func (t *tree) runAdaptiveLoop(ctx context.Context, req TreeRequest) (TreeResult, error) {
-	maxIter := t.config.MaxIterations
-	logr := logger.GetLogger(ctx).With("fn", "tree.RunAdaptiveLoop", "goal", req.Goal, "maxIterations", maxIter)
-	logr.Info("starting adaptive-loop ReAcTree execution")
-
-	var accumulatedContext strings.Builder
-	var lastOutput string
-	var lastStatus NodeStatus
-	iterationCount := 0
-
-	for i := 0; i < maxIter; i++ {
-		iterationCount = i + 1
-
-		// Emit iteration progress to TUI
-		if req.EventChan != nil {
-			agui.EmitStageProgress(req.EventChan, fmt.Sprintf("Iteration %d", iterationCount), i, maxIter)
-			agui.EmitThinking(req.EventChan, "code-owner", fmt.Sprintf("Thinking (iteration %d/%d)...", iterationCount, maxIter))
-		}
-
-		logr.Info("adaptive loop iteration started", "iteration", iterationCount)
-
-		// Build a fresh single-node graph for this iteration.
-		// Each iteration gets the full goal plus accumulated context.
-		schema := NewReAcTreeSchema()
-		sg := graph.NewStateGraph(schema)
-
-		var capturedOutput string
-		var capturedStatus NodeStatus
-		var capturedTaskCompleted bool
-
-		innerFunc := NewAgentNodeFunc(AgentNodeConfig{
-			Goal:          req.Goal,
-			Expert:        t.expert,
-			WorkingMemory: t.workingMemory,
-			Episodic:      t.episodic,
-			MaxDecisions:  t.config.MaxDecisionsPerNode,
-			EventChan:     req.EventChan,
-			Tools:         req.Tools,
-			SenderContext: req.SenderContext,
-		})
-
-		wrappedFunc := func(ctx context.Context, state graph.State) (any, error) {
-			result, err := innerFunc(ctx, state)
-			if err != nil {
-				return result, err
-			}
-			if stateMap, ok := result.(graph.State); ok {
-				if out, ok := stateMap[StateKeyOutput].(string); ok {
-					capturedOutput = out
-				}
-				if status, ok := stateMap[StateKeyNodeStatus].(NodeStatus); ok {
-					capturedStatus = status
-				}
-				if completed, ok := stateMap[StateKeyTaskCompleted].(bool); ok {
-					capturedTaskCompleted = completed
-				}
-			}
-			return result, nil
-		}
-
-		sg.AddNode("agent", wrappedFunc).
-			SetEntryPoint("agent").
-			SetFinishPoint("agent")
-
-		compiled, err := sg.Compile()
-		if err != nil {
-			return TreeResult{Status: Failure}, fmt.Errorf("adaptive loop: failed to compile graph at iteration %d: %w", iterationCount, err)
-		}
-
-		executor, err := graph.NewExecutor(compiled,
-			graph.WithMaxSteps(t.config.MaxTotalNodes),
-		)
-		if err != nil {
-			return TreeResult{Status: Failure}, fmt.Errorf("adaptive loop: failed to create executor at iteration %d: %w", iterationCount, err)
-		}
-
-		initialState := graph.State{
-			StateKeyGoal:             req.Goal,
-			StateKeyIterationContext: accumulatedContext.String(),
-			StateKeyIterationCount:   i,
-		}
-
-		events, err := executor.Execute(ctx, initialState, agent.NewInvocation())
-		if err != nil {
-			return TreeResult{Status: Failure}, fmt.Errorf("adaptive loop: execution failed at iteration %d: %w", iterationCount, err)
-		}
-		for range events {
-			// Drain graph lifecycle events
-		}
-
-		lastOutput = capturedOutput
-		lastStatus = capturedStatus
-
-		// Accumulate this iteration's output for future iterations.
-		if capturedOutput != "" {
-			accumulatedContext.WriteString(fmt.Sprintf("\n--- Iteration %d ---\n", iterationCount))
-			accumulatedContext.WriteString(capturedOutput)
-		}
-
-		logr.Info("adaptive loop iteration completed",
-			"iteration", iterationCount,
-			"status", capturedStatus,
-			"task_completed", capturedTaskCompleted,
-			"output_length", len(capturedOutput),
-		)
-
-		// Check termination conditions:
-		// 1. Task completed (zero tool calls) → done
-		if capturedTaskCompleted {
-			logr.Info("adaptive loop: task completed naturally", "iterations", iterationCount)
-			break
-		}
-		// 2. Failure → stop
-		if capturedStatus == Failure {
-			logr.Warn("adaptive loop: iteration failed, stopping", "iteration", iterationCount)
-			break
-		}
-		// 3. Otherwise → continue to next iteration
-	}
-
-	result := TreeResult{
-		Status:    lastStatus,
-		Output:    lastOutput,
-		NodeCount: iterationCount,
-	}
-
-	logr.Info("adaptive-loop ReAcTree execution completed",
-		"status", result.Status,
-		"iterations", iterationCount,
-		"maxIterations", maxIter,
-		"output_length", len(result.Output),
-	)
-	return result, nil
+	return t.runAdaptiveLoop_v2(ctx, req)
 }

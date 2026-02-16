@@ -100,7 +100,7 @@ func (c Config) InitMessenger(ctx context.Context) (Messenger, error) {
 		return nil, nil
 	}
 
-	msgr, err := newFromConfig(c)
+	msgr, err := c.newFromConfig(ctx)
 	if err != nil {
 		return nil, err
 	}

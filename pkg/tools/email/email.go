@@ -87,9 +87,7 @@ func (s *smtpIMAPService) Read(ctx context.Context, filter string) ([]*Email, er
 		return nil, fmt.Errorf("failed to dial IMAP: %w", err)
 	}
 	defer func() {
-		if err := c.Logout(); err != nil {
-			// Log error on logout failure (best effort)
-		}
+		_ = c.Logout()
 	}()
 
 	if err := c.Login(s.cfg.Username, s.cfg.Password); err != nil {

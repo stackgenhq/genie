@@ -1,8 +1,3 @@
-ops:
-  max_pages: 10
-  enable_verification: false
-secops:
-  severity_thresholds:
-    high: 1
-    medium: 20
-    low: 5
+model_config:
+  providers:
+    - provider: openai

@@ -8,6 +8,7 @@ import (
 
 	"github.com/appcd-dev/genie/pkg/hitl"
 	"github.com/appcd-dev/genie/pkg/messenger"
+	"github.com/appcd-dev/go-lib/logger"
 )
 
 // NotifierStore wraps an ApprovalStore to send notifications via Messenger.
@@ -119,8 +120,16 @@ func (s *NotifierStore) notifyMessenger(ctx context.Context, senderCtx string, a
 		approval.Args,
 	)
 
-	_, _ = s.messenger.Send(ctx, messenger.SendRequest{
+	_, err := s.messenger.Send(ctx, messenger.SendRequest{
 		Channel: messenger.Channel{ID: channelID},
 		Content: messenger.MessageContent{Text: msgText},
 	})
+	if err != nil {
+		// Best-effort notification; log failure but don't fail the underlying operation.
+		logger.GetLogger(ctx).Warn("failed to send hitl notification", "error", err)
+	}
+}
+
+func (s *NotifierStore) IsAllowed(toolName string) bool {
+	return s.realStore.IsAllowed(toolName)
 }

@@ -111,7 +111,7 @@ var _ = Describe("DuckDuckGo HTML Search Tool", func() {
 
 		It("should return error on HTTP failure", func(ctx context.Context) {
 			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(http.StatusServiceUnavailable)
+				w.WriteHeader(http.StatusForbidden)
 			}))
 
 			t := websearch.NewDDGTool(
@@ -121,7 +121,7 @@ var _ = Describe("DuckDuckGo HTML Search Tool", func() {
 
 			_, err := t.Call(ctx, []byte(`{"query":"test"}`))
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("HTTP 503"))
+			Expect(err.Error()).To(ContainSubstring("HTTP 403"))
 		})
 
 		It("should resolve DuckDuckGo redirect URLs", func(ctx context.Context) {
@@ -141,6 +141,43 @@ var _ = Describe("DuckDuckGo HTML Search Tool", func() {
 			res, err := t.Call(ctx, []byte(`{"query":"golang"}`))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.(string)).To(ContainSubstring("https://golang.org/doc"))
+		})
+
+		It("should retry on HTTP 202 and succeed when server returns 200", func(ctx context.Context) {
+			var attempt int32
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				attempt++
+				if attempt <= 2 {
+					w.WriteHeader(http.StatusAccepted)
+					return
+				}
+				fmt.Fprint(w, sampleDDGHTML)
+			}))
+
+			t := websearch.NewDDGTool(
+				websearch.WithDDGEndpoint(server.URL),
+				websearch.WithDDGHTTPClient(server.Client()),
+			)
+
+			res, err := t.Call(ctx, []byte(`{"query":"test"}`))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(res.(string)).To(ContainSubstring("Example News Site"))
+			Expect(attempt).To(BeNumerically("==", 3))
+		})
+
+		It("should fail after max retries on persistent HTTP 202", func(ctx context.Context) {
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusAccepted)
+			}))
+
+			t := websearch.NewDDGTool(
+				websearch.WithDDGEndpoint(server.URL),
+				websearch.WithDDGHTTPClient(server.Client()),
+			)
+
+			_, err := t.Call(ctx, []byte(`{"query":"test"}`))
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("giving up"))
 		})
 	})
 })

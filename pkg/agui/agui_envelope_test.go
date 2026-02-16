@@ -1,8 +1,9 @@
-package agui
+package agui_test
 
 import (
 	"encoding/json"
 
+	"github.com/appcd-dev/genie/pkg/agui"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -10,36 +11,36 @@ import (
 var _ = Describe("CloudEvent Envelope", func() {
 	Describe("WrapInCloudEvent", func() {
 		It("wraps an AG-UI event with correct CloudEvents fields", func() {
-			evt := AgentThinkingMsg{
-				Type:      EventRunStarted,
+			evt := agui.AgentThinkingMsg{
+				Type:      agui.EventRunStarted,
 				AgentName: "codeowner",
 				Message:   "analyzing...",
 			}
 
-			ce := WrapInCloudEvent(evt, "genie/reactree/stage-1")
+			ce := agui.WrapInCloudEvent(evt, "genie/reactree/stage-1")
 
 			Expect(ce.SpecVersion).To(Equal("1.0"))
 			Expect(ce.ID).NotTo(BeEmpty())
 			Expect(ce.Source).To(Equal("genie/reactree/stage-1"))
 			Expect(ce.Type).To(Equal("ai.genie.agui.RUN_STARTED"))
 			Expect(ce.Time).NotTo(BeZero())
-			Expect(ce.Data).To(BeAssignableToTypeOf(AgentThinkingMsg{}))
+			Expect(ce.Data).To(BeAssignableToTypeOf(agui.AgentThinkingMsg{}))
 		})
 
 		It("uses CUSTOM type for non-AGUIEvent values", func() {
-			ce := WrapInCloudEvent("plain string", "genie/test")
+			ce := agui.WrapInCloudEvent("plain string", "genie/test")
 			Expect(ce.Type).To(Equal("ai.genie.agui.CUSTOM"))
 		})
 
 		It("marshals to valid JSON", func() {
-			evt := AgentCompleteMsg{
-				Type:      EventRunFinished,
+			evt := agui.AgentCompleteMsg{
+				Type:      agui.EventRunFinished,
 				Success:   true,
 				Message:   "done",
 				OutputDir: "/tmp/out",
 			}
 
-			ce := WrapInCloudEvent(evt, "genie/grant")
+			ce := agui.WrapInCloudEvent(evt, "genie/grant")
 			data, err := json.Marshal(ce)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -53,24 +54,24 @@ var _ = Describe("CloudEvent Envelope", func() {
 
 		It("maps all event types correctly", func() {
 			tests := []struct {
-				event    AGUIEvent
+				event    agui.AGUIEvent
 				expected string
 			}{
-				{AgentThinkingMsg{}, "ai.genie.agui.RUN_STARTED"},
-				{AgentStreamChunkMsg{}, "ai.genie.agui.TEXT_MESSAGE_CONTENT"},
-				{AgentReasoningMsg{}, "ai.genie.agui.REASONING_MESSAGE_CONTENT"},
-				{AgentToolCallMsg{}, "ai.genie.agui.TOOL_CALL_START"},
-				{AgentToolResponseMsg{}, "ai.genie.agui.TOOL_CALL_RESULT"},
-				{AgentCompleteMsg{}, "ai.genie.agui.RUN_FINISHED"},
-				{AgentChatMessage{}, "ai.genie.agui.TEXT_MESSAGE_CONTENT"},
-				{AgentErrorMsg{}, "ai.genie.agui.RUN_ERROR"},
-				{StageProgressMsg{}, "ai.genie.agui.STEP_STARTED"},
-				{LogMsg{}, "ai.genie.agui.CUSTOM"},
-				{UserInputMsg{}, "ai.genie.agui.CUSTOM"},
+				{agui.AgentThinkingMsg{}, "ai.genie.agui.RUN_STARTED"},
+				{agui.AgentStreamChunkMsg{}, "ai.genie.agui.TEXT_MESSAGE_CONTENT"},
+				{agui.AgentReasoningMsg{}, "ai.genie.agui.REASONING_MESSAGE_CONTENT"},
+				{agui.AgentToolCallMsg{}, "ai.genie.agui.TOOL_CALL_START"},
+				{agui.AgentToolResponseMsg{}, "ai.genie.agui.TOOL_CALL_RESULT"},
+				{agui.AgentCompleteMsg{}, "ai.genie.agui.RUN_FINISHED"},
+				{agui.AgentChatMessage{}, "ai.genie.agui.TEXT_MESSAGE_CONTENT"},
+				{agui.AgentErrorMsg{}, "ai.genie.agui.RUN_ERROR"},
+				{agui.StageProgressMsg{}, "ai.genie.agui.STEP_STARTED"},
+				{agui.LogMsg{}, "ai.genie.agui.CUSTOM"},
+				{agui.UserInputMsg{}, "ai.genie.agui.CUSTOM"},
 			}
 
 			for _, tt := range tests {
-				ce := WrapInCloudEvent(tt.event, "test")
+				ce := agui.WrapInCloudEvent(tt.event, "test")
 				Expect(ce.Type).To(Equal(tt.expected), "mismatch for %T", tt.event)
 			}
 		})

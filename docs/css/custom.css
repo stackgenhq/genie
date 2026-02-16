@@ -64,10 +64,16 @@
   gap: 0.5rem;
 }
 
-.btn-secondary:hover {
+.btn-secondary:hover:not(:disabled) {
   border-color: #8247E7;
   box-shadow: 0 4px 12px rgba(130, 71, 231, 0.12);
   transform: translateY(-1px);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 /* Feature cards */

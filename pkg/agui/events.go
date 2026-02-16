@@ -28,7 +28,7 @@ type EventRequest struct {
 
 // BackgroundWorker handles background agent execution.
 type BackgroundWorker struct {
-	chatHandler ChatHandler
+	chatHandler Expert
 	mu          sync.Mutex
 	active      int
 	max         int
@@ -36,7 +36,7 @@ type BackgroundWorker struct {
 }
 
 // NewBackgroundWorker creates a worker with a concurrency limit.
-func NewBackgroundWorker(handler ChatHandler, maxConcurrent int) *BackgroundWorker {
+func NewBackgroundWorker(handler Expert, maxConcurrent int) *BackgroundWorker {
 	if maxConcurrent <= 0 {
 		maxConcurrent = 1
 	}
@@ -112,13 +112,22 @@ func (w *BackgroundWorker) runAgent(ctx context.Context, req EventRequest, runID
 	}
 
 	// This blocks until the agent completes
-	w.chatHandler(ctx, chatReq)
+	w.chatHandler.Handle(ctx, chatReq)
 
 	// Close channel to signal drainer to exit
 	close(eventChan)
 	wg.Wait()
 
 	logr.Info("Background agent run completed", "threadID", threadID)
+}
+
+func (s *Server) handleResumeEndpoint(w http.ResponseWriter, r *http.Request) {
+	resume := s.chatHandler.Resume()
+	if resume == "" {
+		http.Error(w, "Resume not available", http.StatusNotFound)
+		return
+	}
+	_, _ = w.Write([]byte(resume))
 }
 
 // handleEventsEndpoint is the HTTP handler for /api/v1/events
@@ -147,9 +156,11 @@ func (s *Server) handleEventsEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"status":  "accepted",
 		"message": "Event queued for processing",
 		"run_id":  runID,
-	})
+	}); err != nil {
+		logger.GetLogger(r.Context()).Error("failed to write response", "error", err)
+	}
 }

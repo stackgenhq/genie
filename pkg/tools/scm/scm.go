@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/appcd-dev/go-lib/logger"
 	"github.com/drone/go-scm/scm"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
@@ -28,6 +29,7 @@ type Config struct {
 // Without this factory, callers would need to know about each provider's
 // internal constructor, coupling them to implementation details.
 func New(cfg Config) (Service, error) {
+	logger.GetLogger(context.Background()).Info("Initializing SCM service", "provider", cfg.Provider, "has_token", cfg.Token != "")
 	switch cfg.Provider {
 	case "github":
 		return newGitHub(cfg)

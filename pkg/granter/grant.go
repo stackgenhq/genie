@@ -87,8 +87,8 @@ func (g Granter) Generate(ctx context.Context, req GrantRequest) (response Grant
 	}
 
 	// Emit stage progress: Analyzing (stage 0 of 3)
-	agui.EmitStageProgress(req.EventChan, "Probing", 0, 3)
-	agui.EmitThinking(req.EventChan, "Code Prober", "Scanning your codebase...")
+	agui.EmitStageProgress(ctx, req.EventChan, "Probing", 0, 3)
+	agui.EmitThinking(ctx, req.EventChan, "Code Prober", "Scanning your codebase...")
 
 	response.AnalysisOutput, err = g.analyzeRepo(ctx, req)
 	if err != nil {
@@ -96,7 +96,7 @@ func (g Granter) Generate(ctx context.Context, req GrantRequest) (response Grant
 	}
 
 	// Emit stage progress: Architecting (stage 1 of 3)
-	agui.EmitStageProgress(req.EventChan, "Ideating", 1, 3)
+	agui.EmitStageProgress(ctx, req.EventChan, "Ideating", 1, 3)
 
 	// Emit analysis statistics
 	providerCounts := make(map[string]int)
@@ -106,7 +106,7 @@ func (g Granter) Generate(ctx context.Context, req GrantRequest) (response Grant
 		resourceCounts[res.MappedResource.Resource]++
 	}
 
-	agui.EmitThinking(req.EventChan, "Architect", "Designing your infrastructure...")
+	agui.EmitThinking(ctx, req.EventChan, "Architect", "Designing your infrastructure...")
 
 	architectResponse, err := g.architect.Design(ctx, generator.DesignCloudRequest{
 		MethodCalls: response.AnalysisOutput,
@@ -116,14 +116,14 @@ func (g Granter) Generate(ctx context.Context, req GrantRequest) (response Grant
 	if err != nil {
 		return response, err
 	}
-	logr.Info("got the notes from architect", "count", len(architectResponse.Notes))
+	logr.Debug("got the notes from architect", "count", len(architectResponse.Notes))
 	response.Notes = append(response.Notes, architectResponse.Notes...)
 
 	// Emit stage progress: Building (stage 2 of 3)
-	agui.EmitStageProgress(req.EventChan, "Building", 2, 3)
-	agui.EmitThinking(req.EventChan, "IAC Writer", "Creating infrastructure code...")
+	agui.EmitStageProgress(ctx, req.EventChan, "Building", 2, 3)
+	agui.EmitThinking(ctx, req.EventChan, "IAC Writer", "Creating infrastructure code...")
 
-	logr.Info("Calling IaC writer", "outputFolder", req.SaveTo)
+	logr.Debug("Calling IaC writer", "outputFolder", req.SaveTo)
 	iacResponse, err := g.iacWriter.CreateIAC(ctx, generator.IACRequest{
 		ArchitectureRequirement: architectResponse.Notes,
 		OutputFolder:            req.SaveTo,
@@ -133,7 +133,7 @@ func (g Granter) Generate(ctx context.Context, req GrantRequest) (response Grant
 		logr.Error("IaC writer failed", "error", err)
 		return response, err
 	}
-	logr.Info("IaC writer completed", "iacCodePath", iacResponse.IACCodePath, "notesCount", len(iacResponse.Notes))
+	logr.Debug("IaC writer completed", "iacCodePath", iacResponse.IACCodePath, "notesCount", len(iacResponse.Notes))
 
 	// Check if files were actually created
 	files, readErr := os.ReadDir(req.SaveTo)
@@ -146,7 +146,7 @@ func (g Granter) Generate(ctx context.Context, req GrantRequest) (response Grant
 			tfFiles = append(tfFiles, f.Name())
 		}
 	}
-	logr.Info("Terraform files in output folder", "tfFiles", tfFiles, "count", len(tfFiles))
+	logr.Debug("Terraform files in output folder", "tfFiles", tfFiles, "count", len(tfFiles))
 
 	response.Notes = append(response.Notes, iacResponse.Notes...)
 	logr.Info("IAC Files generated", "location", iacResponse.IACCodePath)

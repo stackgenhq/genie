@@ -66,7 +66,12 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 		// Build prompt enriched with memory and previous stage context
 		prompt := buildAgentPrompt(ctx, goal, wm, ep, prevOutput, iterationCtx, iterationCount)
 
-		logr.Debug("agent node calling expert", "prompt_length", len(prompt))
+		logr.Info("agent node calling expert",
+			"prompt_length", len(prompt),
+			"iteration", iterationCount,
+			"has_prev_output", prevOutput != "",
+			"has_iteration_ctx", iterationCtx != "",
+		)
 
 		resp, err := cfg.Expert.Do(ctx, expert.Request{
 			Message:         prompt,
@@ -96,9 +101,16 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 		// Only store successful episodes in episodic memory.
 		// Skip error-like responses that would poison future context.
 		if !looksLikeError(output) {
+			// Cap trajectory to prevent large tool outputs from bloating
+			// future prompts when this episode is retrieved.
+			trajectory := output
+			const maxTrajectorySize = 500
+			if len(trajectory) > maxTrajectorySize {
+				trajectory = trajectory[:maxTrajectorySize] + "... (truncated)"
+			}
 			ep.Store(ctx, memory.Episode{
 				Goal:       goal,
-				Trajectory: output,
+				Trajectory: trajectory,
 				Status:     memory.EpisodeSuccess,
 			})
 		} else {
@@ -108,7 +120,7 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 		// If zero tool calls were made, the agent concluded with just text.
 		// Mark the task as completed so the stage router can skip remaining stages.
 		taskCompleted := toolCallCount == 0
-		logr.Debug("agent node completed",
+		logr.Info("agent node completed",
 			"output_length", len(output),
 			"tool_call_count", toolCallCount,
 			"task_completed", taskCompleted,
@@ -133,7 +145,10 @@ func buildAgentPrompt(ctx context.Context, goal string, wm *memory.WorkingMemory
 	if iterationContext != "" {
 		sb.WriteString(fmt.Sprintf("## Progress So Far (iteration %d)\n", iterationCount))
 		sb.WriteString("The following was already accomplished in prior iterations. " +
-			"DO NOT repeat this work. Continue where you left off.\n\n")
+			"DO NOT repeat tool calls or research already done. " +
+			"Use the gathered information to produce a COMPLETE response that FULLY " +
+			"addresses the original task. Do NOT just acknowledge the prior work — " +
+			"synthesize it into the final deliverable requested by the user.\n\n")
 		const maxIterCtx = 4000
 		if len(iterationContext) > maxIterCtx {
 			// Keep the tail (most recent work) rather than the head
@@ -160,6 +175,11 @@ func buildAgentPrompt(ctx context.Context, goal string, wm *memory.WorkingMemory
 
 	// Include working memory context if available (capped to prevent prompt bloat)
 	snapshot := wm.Snapshot()
+	logger.GetLogger(ctx).Debug("buildAgentPrompt: memory context",
+		"working_memory_keys", len(snapshot),
+		"has_iteration_ctx", iterationContext != "",
+		"has_prev_output", previousStageOutput != "",
+	)
 	if len(snapshot) > 0 {
 		sb.WriteString("## Working Memory (shared observations)\n")
 		const maxSnapshotSize = 2000

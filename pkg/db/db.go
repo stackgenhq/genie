@@ -84,6 +84,7 @@ func Open(dbPath string) (*gorm.DB, error) {
 func AutoMigrate(db *gorm.DB) error {
 	return db.AutoMigrate(
 		&Approval{},
+		&Memory{},
 	)
 }
 

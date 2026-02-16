@@ -170,7 +170,7 @@ var _ = Describe("CodeOwner", func() {
 			}, nil)
 
 			mTool := &mockTool{}
-			co.tools = []tool.Tool{mTool}
+			co.tools = reactree.ToolRegistry{mTool.Declaration().Name: mTool}
 
 			outputChan := make(chan string, 10)
 			err := co.Chat(ctx, CodeQuestion{

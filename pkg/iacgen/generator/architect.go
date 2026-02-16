@@ -147,9 +147,9 @@ func (llmBasedArchitect) mappedResources(ctx context.Context, cceNDJSONFilePath 
 
 func (a llmBasedArchitect) Design(ctx context.Context, req DesignCloudRequest) (DesignCloudResponse, error) {
 	logr := logger.GetLogger(ctx).With("fn", "llmBasedArchitect.Design")
-	logr.Info("creating architecture design")
+	logr.Debug("creating architecture design")
 	defer func(startTime time.Time) {
-		logr.Info("architecture design phase complete", "duration", time.Since(startTime).String())
+		logr.Debug("architecture design phase complete", "duration", time.Since(startTime).String())
 	}(time.Now())
 	cloudBasedPrompts := req.MethodCalls.Summarize(ctx)
 	if len(cloudBasedPrompts) == 0 {
@@ -163,13 +163,13 @@ func (a llmBasedArchitect) Design(ctx context.Context, req DesignCloudRequest) (
 	errGroup, gctx := errgroup.WithContext(ctx)
 	for _, cloudBasedPrompt := range cloudBasedPrompts {
 		errGroup.Go(func() error {
-			logr.Info("Generating architecture design for cloud provider", "cloudProvider", cloudBasedPrompt.CloudProvider, "identifiedResources", len(cloudBasedPrompt.Prompt))
-			emitArchitectThinking(req.EventChan, fmt.Sprintf("Designing %s infrastructure...", cloudBasedPrompt.CloudProvider))
+			logr.Debug("Generating architecture design for cloud provider", "cloudProvider", cloudBasedPrompt.CloudProvider, "identifiedResources", len(cloudBasedPrompt.Prompt))
+			emitArchitectThinking(ctx, req.EventChan, fmt.Sprintf("Designing %s infrastructure...", cloudBasedPrompt.CloudProvider))
 			notes, err := a.generateArchitecture(gctx, cloudBasedPrompt, req.EventChan)
 			if err != nil {
 				return err
 			}
-			logr.Info("architecture design phase complete", "cloudProvider", cloudBasedPrompt.CloudProvider)
+			logr.Debug("architecture design phase complete", "cloudProvider", cloudBasedPrompt.CloudProvider)
 			multiCloudNotes.Store(cloudBasedPrompt.CloudProvider, notes)
 			return nil
 		})
@@ -188,8 +188,8 @@ func (a llmBasedArchitect) Design(ctx context.Context, req DesignCloudRequest) (
 	}
 
 	// Generate README.md after notes are completed (synchronous to prevent data loss on early exit)
-	logr.Info("Generating README.md", "saveTo", req.SaveTo)
-	emitArchitectThinking(req.EventChan, "Writing README.md...")
+	logr.Debug("Generating README.md", "saveTo", req.SaveTo)
+	emitArchitectThinking(ctx, req.EventChan, "Writing README.md...")
 	if readmeErr := a.generateReadme(ctx, req.SaveTo, result); readmeErr != nil {
 		logr.Warn("Failed to generate README.md", "error", readmeErr)
 	}
@@ -234,7 +234,7 @@ func (a llmBasedArchitect) generateReadme(ctx context.Context, saveTo string, re
 	prompt := langfuse.GetPrompt(ctx, "architect_readme", buildReadmePrompt(response.Notes))
 
 	// Use the expert to generate the README content
-	logr.Info("Generating README.md using LLM", "saveTo", saveTo)
+	logr.Debug("Generating README.md using LLM", "saveTo", saveTo)
 	var readmeContent strings.Builder
 	_, err := a.expert.Do(ctx, expert.Request{
 		Message:  prompt,
@@ -279,9 +279,9 @@ func buildReadmePrompt(notes []string) string {
 
 // emitArchitectThinking sends an AgentThinkingMsg to the TUI event channel.
 // It is a nil-safe no-op when the event channel is not provided.
-func emitArchitectThinking(eventChan chan<- interface{}, message string) {
+func emitArchitectThinking(ctx context.Context, eventChan chan<- interface{}, message string) {
 	if eventChan == nil {
 		return
 	}
-	agui.EmitThinking(eventChan, "Architect", message)
+	agui.EmitThinking(ctx, eventChan, "Architect", message)
 }

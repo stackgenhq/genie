@@ -80,11 +80,17 @@ func (a *EventAdapter) ConvertEvent(evt *event.Event) []interface{} {
 		// These events have ToolID set on the message, indicating which tool call they respond to.
 		// Must be checked before content handling to avoid emitting tool output as chat text.
 		if choice.Message.ToolID != "" {
-			messages = append(messages, AgentToolResponseMsg{
+			resMsg := AgentToolResponseMsg{
 				Type:       EventToolCallResult,
 				ToolCallID: choice.Message.ToolID,
 				Response:   choice.Message.Content,
-			})
+			}
+			// Detect tool execution errors so the UI can show failure status.
+			if strings.HasPrefix(choice.Message.Content, "tool execution error:") ||
+				strings.HasPrefix(choice.Message.Content, "Error:") {
+				resMsg.Error = fmt.Errorf("%s", choice.Message.Content)
+			}
+			messages = append(messages, resMsg)
 			continue // Don't also emit this as a stream chunk
 		}
 
@@ -97,8 +103,9 @@ func (a *EventAdapter) ConvertEvent(evt *event.Event) []interface{} {
 			})
 		}
 
-		// Handle streaming content (skip for tool call events which have their own rendering)
-		if choice.Message.Content != "" && len(choice.Message.ToolCalls) == 0 {
+		// Handle streaming content. Text is emitted even when tool calls are present
+		// so the user sees the LLM's reasoning/preamble alongside tool invocations.
+		if choice.Message.Content != "" {
 			// Emit TEXT_MESSAGE_START on the first chunk of a new message.
 			if a.currentMessageID == "" {
 				a.currentMessageID = uuid.NewString()

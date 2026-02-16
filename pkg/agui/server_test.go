@@ -1,4 +1,4 @@
-package agui
+package agui_test
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/appcd-dev/genie/pkg/agui"
+	"github.com/appcd-dev/genie/pkg/agui/aguifakes"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -21,14 +23,14 @@ var _ = Describe("AG-UI Server", func() {
 		runID := "run-1"
 
 		It("should map AgentThinkingMsg to RUN_STARTED", func() {
-			event := AgentThinkingMsg{
-				Type:      EventRunStarted,
+			event := agui.AgentThinkingMsg{
+				Type:      agui.EventRunStarted,
 				AgentName: "Genie",
 				Message:   "Analyzing...",
 			}
-			data, eventType, err := MapEvent(event, threadID, runID)
+			data, eventType, err := agui.MapEvent(event, threadID, runID)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(eventType).To(Equal(EventRunStarted))
+			Expect(eventType).To(Equal(agui.EventRunStarted))
 
 			var parsed map[string]interface{}
 			Expect(json.Unmarshal(data, &parsed)).To(Succeed())
@@ -38,13 +40,13 @@ var _ = Describe("AG-UI Server", func() {
 		})
 
 		It("should map TextMessageStartMsg to TEXT_MESSAGE_START", func() {
-			event := TextMessageStartMsg{
-				Type:      EventTextMessageStart,
+			event := agui.TextMessageStartMsg{
+				Type:      agui.EventTextMessageStart,
 				MessageID: "msg-1",
 			}
-			data, eventType, err := MapEvent(event, threadID, runID)
+			data, eventType, err := agui.MapEvent(event, threadID, runID)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(eventType).To(Equal(EventTextMessageStart))
+			Expect(eventType).To(Equal(agui.EventTextMessageStart))
 
 			var parsed map[string]interface{}
 			Expect(json.Unmarshal(data, &parsed)).To(Succeed())
@@ -53,15 +55,15 @@ var _ = Describe("AG-UI Server", func() {
 		})
 
 		It("should map AgentStreamChunkMsg to TEXT_MESSAGE_CONTENT", func() {
-			event := AgentStreamChunkMsg{
-				Type:      EventTextMessageContent,
+			event := agui.AgentStreamChunkMsg{
+				Type:      agui.EventTextMessageContent,
 				MessageID: "msg-1",
 				Content:   "Hello world",
 				Delta:     true,
 			}
-			data, eventType, err := MapEvent(event, threadID, runID)
+			data, eventType, err := agui.MapEvent(event, threadID, runID)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(eventType).To(Equal(EventTextMessageContent))
+			Expect(eventType).To(Equal(agui.EventTextMessageContent))
 
 			var parsed map[string]interface{}
 			Expect(json.Unmarshal(data, &parsed)).To(Succeed())
@@ -70,24 +72,24 @@ var _ = Describe("AG-UI Server", func() {
 		})
 
 		It("should map TextMessageEndMsg to TEXT_MESSAGE_END", func() {
-			event := TextMessageEndMsg{
-				Type:      EventTextMessageEnd,
+			event := agui.TextMessageEndMsg{
+				Type:      agui.EventTextMessageEnd,
 				MessageID: "msg-1",
 			}
-			_, eventType, err := MapEvent(event, threadID, runID)
+			_, eventType, err := agui.MapEvent(event, threadID, runID)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(eventType).To(Equal(EventTextMessageEnd))
+			Expect(eventType).To(Equal(agui.EventTextMessageEnd))
 		})
 
 		It("should map AgentReasoningMsg to REASONING_MESSAGE_CONTENT", func() {
-			event := AgentReasoningMsg{
-				Type:    EventReasoningMessageContent,
+			event := agui.AgentReasoningMsg{
+				Type:    agui.EventReasoningMessageContent,
 				Content: "thinking...",
 				Delta:   true,
 			}
-			data, eventType, err := MapEvent(event, threadID, runID)
+			data, eventType, err := agui.MapEvent(event, threadID, runID)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(eventType).To(Equal(EventReasoningMessageContent))
+			Expect(eventType).To(Equal(agui.EventReasoningMessageContent))
 
 			var parsed map[string]interface{}
 			Expect(json.Unmarshal(data, &parsed)).To(Succeed())
@@ -95,15 +97,15 @@ var _ = Describe("AG-UI Server", func() {
 		})
 
 		It("should map AgentToolCallMsg to TOOL_CALL_START", func() {
-			event := AgentToolCallMsg{
-				Type:       EventToolCallStart,
+			event := agui.AgentToolCallMsg{
+				Type:       agui.EventToolCallStart,
 				ToolName:   "read_file",
 				ToolCallID: "tc-1",
 				Arguments:  `{"path":"/tmp"}`,
 			}
-			data, eventType, err := MapEvent(event, threadID, runID)
+			data, eventType, err := agui.MapEvent(event, threadID, runID)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(eventType).To(Equal(EventToolCallStart))
+			Expect(eventType).To(Equal(agui.EventToolCallStart))
 
 			var parsed map[string]interface{}
 			Expect(json.Unmarshal(data, &parsed)).To(Succeed())
@@ -112,14 +114,14 @@ var _ = Describe("AG-UI Server", func() {
 		})
 
 		It("should map ToolCallArgsMsg to TOOL_CALL_ARGS", func() {
-			event := ToolCallArgsMsg{
-				Type:       EventToolCallArgs,
+			event := agui.ToolCallArgsMsg{
+				Type:       agui.EventToolCallArgs,
 				ToolCallID: "tc-1",
 				Delta:      `{"path":"/tmp"}`,
 			}
-			data, eventType, err := MapEvent(event, threadID, runID)
+			data, eventType, err := agui.MapEvent(event, threadID, runID)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(eventType).To(Equal(EventToolCallArgs))
+			Expect(eventType).To(Equal(agui.EventToolCallArgs))
 
 			var parsed map[string]interface{}
 			Expect(json.Unmarshal(data, &parsed)).To(Succeed())
@@ -128,25 +130,25 @@ var _ = Describe("AG-UI Server", func() {
 		})
 
 		It("should map ToolCallEndMsg to TOOL_CALL_END", func() {
-			event := ToolCallEndMsg{
-				Type:       EventToolCallEnd,
+			event := agui.ToolCallEndMsg{
+				Type:       agui.EventToolCallEnd,
 				ToolCallID: "tc-1",
 			}
-			_, eventType, err := MapEvent(event, threadID, runID)
+			_, eventType, err := agui.MapEvent(event, threadID, runID)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(eventType).To(Equal(EventToolCallEnd))
+			Expect(eventType).To(Equal(agui.EventToolCallEnd))
 		})
 
 		It("should map AgentToolResponseMsg to TOOL_CALL_RESULT", func() {
-			event := AgentToolResponseMsg{
-				Type:       EventToolCallResult,
+			event := agui.AgentToolResponseMsg{
+				Type:       agui.EventToolCallResult,
 				ToolCallID: "tc-1",
 				ToolName:   "read_file",
 				Response:   "file contents here",
 			}
-			data, eventType, err := MapEvent(event, threadID, runID)
+			data, eventType, err := agui.MapEvent(event, threadID, runID)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(eventType).To(Equal(EventToolCallResult))
+			Expect(eventType).To(Equal(agui.EventToolCallResult))
 
 			var parsed map[string]interface{}
 			Expect(json.Unmarshal(data, &parsed)).To(Succeed())
@@ -156,14 +158,14 @@ var _ = Describe("AG-UI Server", func() {
 		})
 
 		It("should map AgentCompleteMsg to RUN_FINISHED", func() {
-			event := AgentCompleteMsg{
-				Type:    EventRunFinished,
+			event := agui.AgentCompleteMsg{
+				Type:    agui.EventRunFinished,
 				Success: true,
 				Message: "Done!",
 			}
-			data, eventType, err := MapEvent(event, threadID, runID)
+			data, eventType, err := agui.MapEvent(event, threadID, runID)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(eventType).To(Equal(EventRunFinished))
+			Expect(eventType).To(Equal(agui.EventRunFinished))
 
 			var parsed map[string]interface{}
 			Expect(json.Unmarshal(data, &parsed)).To(Succeed())
@@ -172,14 +174,14 @@ var _ = Describe("AG-UI Server", func() {
 		})
 
 		It("should map AgentErrorMsg to RUN_ERROR", func() {
-			event := AgentErrorMsg{
-				Type:    EventRunError,
+			event := agui.AgentErrorMsg{
+				Type:    agui.EventRunError,
 				Error:   fmt.Errorf("something broke"),
 				Context: "during generation",
 			}
-			data, eventType, err := MapEvent(event, threadID, runID)
+			data, eventType, err := agui.MapEvent(event, threadID, runID)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(eventType).To(Equal(EventRunError))
+			Expect(eventType).To(Equal(agui.EventRunError))
 
 			var parsed map[string]interface{}
 			Expect(json.Unmarshal(data, &parsed)).To(Succeed())
@@ -188,13 +190,13 @@ var _ = Describe("AG-UI Server", func() {
 		})
 
 		It("should map StageProgressMsg to STEP_STARTED", func() {
-			event := StageProgressMsg{
-				Type:  EventStepStarted,
+			event := agui.StageProgressMsg{
+				Type:  agui.EventStepStarted,
 				Stage: "Generating",
 			}
-			data, eventType, err := MapEvent(event, threadID, runID)
+			data, eventType, err := agui.MapEvent(event, threadID, runID)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(eventType).To(Equal(EventStepStarted))
+			Expect(eventType).To(Equal(agui.EventStepStarted))
 
 			var parsed map[string]interface{}
 			Expect(json.Unmarshal(data, &parsed)).To(Succeed())
@@ -202,15 +204,15 @@ var _ = Describe("AG-UI Server", func() {
 		})
 
 		It("should map LogMsg to CUSTOM", func() {
-			event := LogMsg{
-				Type:    EventCustom,
-				Level:   LogInfo,
+			event := agui.LogMsg{
+				Type:    agui.EventCustom,
+				Level:   agui.LogInfo,
 				Message: "hello world",
 				Source:  "test",
 			}
-			data, eventType, err := MapEvent(event, threadID, runID)
+			data, eventType, err := agui.MapEvent(event, threadID, runID)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(eventType).To(Equal(EventCustom))
+			Expect(eventType).To(Equal(agui.EventCustom))
 
 			var parsed map[string]interface{}
 			Expect(json.Unmarshal(data, &parsed)).To(Succeed())
@@ -221,15 +223,15 @@ var _ = Describe("AG-UI Server", func() {
 		})
 
 		It("should map AgentChatMessage to TEXT_MESSAGE_CONTENT", func() {
-			event := AgentChatMessage{
-				Type:      EventTextMessageContent,
+			event := agui.AgentChatMessage{
+				Type:      agui.EventTextMessageContent,
 				MessageID: "msg-2",
 				Sender:    "bot",
 				Message:   "hi there",
 			}
-			data, eventType, err := MapEvent(event, threadID, runID)
+			data, eventType, err := agui.MapEvent(event, threadID, runID)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(eventType).To(Equal(EventTextMessageContent))
+			Expect(eventType).To(Equal(agui.EventTextMessageContent))
 
 			var parsed map[string]interface{}
 			Expect(json.Unmarshal(data, &parsed)).To(Succeed())
@@ -237,7 +239,7 @@ var _ = Describe("AG-UI Server", func() {
 		})
 
 		It("should return error for unsupported event types", func() {
-			_, _, err := MapEvent("not an event", threadID, runID)
+			_, _, err := agui.MapEvent("not an event", threadID, runID)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("unsupported event type"))
 		})
@@ -246,7 +248,7 @@ var _ = Describe("AG-UI Server", func() {
 	Describe("SSEWriter", func() {
 		It("should write properly formatted SSE events", func() {
 			recorder := httptest.NewRecorder()
-			sse, err := NewSSEWriter(recorder)
+			sse, err := agui.NewSSEWriter(recorder)
 			Expect(err).NotTo(HaveOccurred())
 
 			err = sse.WriteEvent("RUN_STARTED", []byte(`{"type":"RUN_STARTED"}`))
@@ -260,7 +262,7 @@ var _ = Describe("AG-UI Server", func() {
 
 		It("should set correct SSE headers", func() {
 			recorder := httptest.NewRecorder()
-			_, err := NewSSEWriter(recorder)
+			_, err := agui.NewSSEWriter(recorder)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(recorder.Header().Get("Content-Type")).To(Equal("text/event-stream"))
@@ -270,7 +272,7 @@ var _ = Describe("AG-UI Server", func() {
 
 		It("should write comments for keep-alive", func() {
 			recorder := httptest.NewRecorder()
-			sse, err := NewSSEWriter(recorder)
+			sse, err := agui.NewSSEWriter(recorder)
 			Expect(err).NotTo(HaveOccurred())
 
 			err = sse.WriteComment("ping")
@@ -282,27 +284,29 @@ var _ = Describe("AG-UI Server", func() {
 	})
 
 	Describe("HTTP Endpoint", func() {
-		var server *Server
+		var server *agui.Server
 
 		BeforeEach(func() {
 			// Create a server with a simple chat handler that emits a few events
-			handler := func(ctx context.Context, req ChatRequest) {
-				req.EventChan <- TextMessageStartMsg{
-					Type:      EventTextMessageStart,
+			// Create a server with a simple chat handler that emits a few events
+			handler := &aguifakes.FakeExpert{}
+			handler.HandleStub = func(ctx context.Context, req agui.ChatRequest) {
+				req.EventChan <- agui.TextMessageStartMsg{
+					Type:      agui.EventTextMessageStart,
 					MessageID: "msg-1",
 				}
-				req.EventChan <- AgentStreamChunkMsg{
-					Type:      EventTextMessageContent,
+				req.EventChan <- agui.AgentStreamChunkMsg{
+					Type:      agui.EventTextMessageContent,
 					MessageID: "msg-1",
 					Content:   "Hello, " + req.Message,
 					Delta:     true,
 				}
-				req.EventChan <- TextMessageEndMsg{
-					Type:      EventTextMessageEnd,
+				req.EventChan <- agui.TextMessageEndMsg{
+					Type:      agui.EventTextMessageEnd,
 					MessageID: "msg-1",
 				}
 			}
-			server = ServerConfig{}.NewServer(handler, nil)
+			server = agui.ServerConfig{}.NewServer(handler, nil)
 		})
 
 		It("should stream SSE events for a valid POST", func() {
@@ -393,8 +397,9 @@ var _ = Describe("AG-UI Server", func() {
 
 	Describe("CORS", func() {
 		It("should add CORS headers when origin matches", func() {
-			server := ServerConfig{CORSOrigins: []string{"http://localhost:3000"}}.NewServer(
-				func(ctx context.Context, req ChatRequest) {}, nil,
+			handler := &aguifakes.FakeExpert{}
+			server := agui.ServerConfig{CORSOrigins: []string{"http://localhost:3000"}}.NewServer(
+				handler, nil,
 			)
 
 			req := httptest.NewRequest(http.MethodOptions, "/", nil)
@@ -407,8 +412,9 @@ var _ = Describe("AG-UI Server", func() {
 		})
 
 		It("should not add CORS headers when no origins configured", func() {
-			server := ServerConfig{}.NewServer(
-				func(ctx context.Context, req ChatRequest) {}, nil,
+			handler := &aguifakes.FakeExpert{}
+			server := agui.ServerConfig{}.NewServer(
+				handler, nil,
 			)
 
 			reqBody := `{"messages":[{"role":"user","content":"hello"}]}`
@@ -425,15 +431,17 @@ var _ = Describe("AG-UI Server", func() {
 	Describe("Client disconnect", func() {
 		It("should stop streaming when context is cancelled", func() {
 			// Create a handler that blocks until context is cancelled
-			handler := func(ctx context.Context, req ChatRequest) {
+			// Create a handler that blocks until context is cancelled
+			handler := &aguifakes.FakeExpert{}
+			handler.HandleStub = func(ctx context.Context, req agui.ChatRequest) {
 				// Send one event, then wait for context cancellation
-				req.EventChan <- TextMessageStartMsg{
-					Type:      EventTextMessageStart,
+				req.EventChan <- agui.TextMessageStartMsg{
+					Type:      agui.EventTextMessageStart,
 					MessageID: "msg-1",
 				}
 				<-ctx.Done()
 			}
-			server := ServerConfig{}.NewServer(handler, nil)
+			server := agui.ServerConfig{}.NewServer(handler, nil)
 
 			reqBody := `{"messages":[{"role":"user","content":"hello"}]}`
 			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -456,21 +464,22 @@ var _ = Describe("AG-UI Server", func() {
 
 	Describe("Full SSE stream parsing", func() {
 		It("should produce valid SSE format that can be parsed line by line", func() {
-			handler := func(ctx context.Context, req ChatRequest) {
-				req.EventChan <- AgentStreamChunkMsg{
-					Type:      EventTextMessageContent,
+			handler := &aguifakes.FakeExpert{}
+			handler.HandleStub = func(ctx context.Context, req agui.ChatRequest) {
+				req.EventChan <- agui.AgentStreamChunkMsg{
+					Type:      agui.EventTextMessageContent,
 					MessageID: "msg-1",
 					Content:   "chunk1",
 					Delta:     true,
 				}
-				req.EventChan <- AgentStreamChunkMsg{
-					Type:      EventTextMessageContent,
+				req.EventChan <- agui.AgentStreamChunkMsg{
+					Type:      agui.EventTextMessageContent,
 					MessageID: "msg-1",
 					Content:   "chunk2",
 					Delta:     true,
 				}
 			}
-			server := ServerConfig{}.NewServer(handler, nil)
+			server := agui.ServerConfig{}.NewServer(handler, nil)
 
 			reqBody := `{"threadId":"t1","runId":"r1","messages":[{"role":"user","content":"test"}]}`
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(reqBody))

@@ -77,9 +77,7 @@ func (a *asanaService) GetIssue(ctx context.Context, id string) (*Issue, error) 
 		return nil, fmt.Errorf("pm/asana: request failed: %w", err)
 	}
 	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			// Best effort close
-		}
+		_ = resp.Body.Close()
 	}()
 
 	body, _ := io.ReadAll(resp.Body)
@@ -127,9 +125,7 @@ func (a *asanaService) CreateIssue(ctx context.Context, input IssueInput) (*Issu
 		return nil, fmt.Errorf("pm/asana: request failed: %w", err)
 	}
 	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			// Best effort close
-		}
+		_ = resp.Body.Close()
 	}()
 
 	body, _ := io.ReadAll(resp.Body)
@@ -169,9 +165,7 @@ func (a *asanaService) AssignIssue(ctx context.Context, id string, assignee stri
 		return fmt.Errorf("pm/asana: request failed: %w", err)
 	}
 	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			// Best effort close
-		}
+		_ = resp.Body.Close()
 	}()
 
 	if resp.StatusCode != http.StatusOK {

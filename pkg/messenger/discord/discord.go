@@ -55,9 +55,7 @@ type Messenger struct {
 	session    *discordgo.Session
 	incoming   chan messenger.IncomingMessage
 	connected  bool
-	cancel     context.CancelFunc
 	connCtx    context.Context
-	wg         sync.WaitGroup
 	mu         sync.RWMutex
 }
 

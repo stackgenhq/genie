@@ -225,6 +225,12 @@ func (ts *toolSet) navigate(ctx context.Context, req NavigateRequest) (NavigateR
 		return NavigateResponse{}, fmt.Errorf("navigation to %q is blocked by the domain blocklist", req.URL)
 	}
 	if err := ts.b.run(ctx, chromedp.Navigate(req.URL)); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return NavigateResponse{}, fmt.Errorf(
+				"navigate to %q timed out — the page took too long to load. "+
+					"The browser may be unavailable or the page is unreachable. "+
+					"Do NOT retry this URL. Try a different approach (e.g. web_search) instead", req.URL)
+		}
 		return NavigateResponse{}, fmt.Errorf("navigate failed: %w", err)
 	}
 	return NavigateResponse{Status: "ok", URL: req.URL}, nil

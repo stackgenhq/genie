@@ -1,4 +1,4 @@
-package agui
+package agui_test
 
 import (
 	"testing"
@@ -7,8 +7,8 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestAgui(t *testing.T) {
+func TestAguiExternal(t *testing.T) {
 	t.Parallel()
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "AG-UI Suite")
+	RunSpecs(t, "AG-UI External Suite")
 }

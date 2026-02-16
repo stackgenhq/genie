@@ -64,7 +64,8 @@ type Sender struct {
 	ID string
 	// Username is the unique handle (e.g., Slack member ID, Discord username).
 	Username string
-	// DisplayName is the user's display name.
+	// DisplayName is the user's friendly name (e.g. "John Doe").
+	// Adapters should populate both if possible; otherwise DisplayName generally falls back to Username.
 	DisplayName string
 }
 

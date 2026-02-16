@@ -42,11 +42,9 @@ var _ = Describe("Browser tools", Ordered, func() {
 	var (
 		b   *browser.Browser
 		srv *httptest.Server
-		ctx context.Context
 	)
 
 	BeforeAll(func() {
-		ctx = context.Background()
 		srv = testPage()
 
 		var err error
@@ -63,12 +61,7 @@ var _ = Describe("Browser tools", Ordered, func() {
 		}
 	})
 
-	BeforeEach(func() {
-		// Ensure context is fresh for each test if needed, or just use background
-		ctx = context.Background()
-	})
-
-	It("should navigate to a URL", func() {
+	It("should navigate to a URL", func(ctx context.Context) {
 		ctx, cancel, err := b.NewTab(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		defer cancel()
@@ -79,7 +72,7 @@ var _ = Describe("Browser tools", Ordered, func() {
 		Expect(fmt.Sprintf("%v", res)).To(ContainSubstring("ok"))
 	})
 
-	PIt("should read text from an element", func() {
+	It("should read text from an element", func(ctx context.Context) {
 		ctx, cancel, err := b.NewTab(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		defer cancel()
@@ -94,7 +87,7 @@ var _ = Describe("Browser tools", Ordered, func() {
 		Expect(fmt.Sprintf("%v", res)).To(ContainSubstring("Hello Browser"))
 	})
 
-	PIt("should type text and click a button", func() {
+	It("should type text and click a button", func(ctx context.Context) {
 		ctx, cancel, err := b.NewTab(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		defer cancel()
@@ -117,7 +110,7 @@ var _ = Describe("Browser tools", Ordered, func() {
 		Expect(fmt.Sprintf("%v", res)).To(ContainSubstring("Hi Agent"))
 	})
 
-	PIt("should read outer HTML", func() {
+	PIt("should read outer HTML", func(ctx context.Context) {
 		ctx, cancel, err := b.NewTab(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		defer cancel()
@@ -132,7 +125,7 @@ var _ = Describe("Browser tools", Ordered, func() {
 		Expect(fmt.Sprintf("%v", res)).To(ContainSubstring("<h1"))
 	})
 
-	PIt("should take a full-page screenshot", func() {
+	PIt("should take a full-page screenshot", func(ctx context.Context) {
 		ctx, cancel, err := b.NewTab(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		defer cancel()
@@ -147,7 +140,7 @@ var _ = Describe("Browser tools", Ordered, func() {
 		Expect(fmt.Sprintf("%v", res)).To(ContainSubstring("image_base64"))
 	})
 
-	PIt("should evaluate JavaScript", func() {
+	PIt("should evaluate JavaScript", func(ctx context.Context) {
 		ctx, cancel, err := b.NewTab(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		defer cancel()
@@ -169,7 +162,7 @@ var _ = Describe("Browser tools", Ordered, func() {
 
 	// ── Validation edge cases ──────────────────────────────────
 
-	It("should error when navigate URL is empty", func() {
+	It("should error when navigate URL is empty", func(ctx context.Context) {
 		ctx, cancel, err := b.NewTab(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		defer cancel()
@@ -179,7 +172,7 @@ var _ = Describe("Browser tools", Ordered, func() {
 		Expect(err).To(MatchError(`url is required`))
 	})
 
-	It("should error when click selector is empty", func() {
+	It("should error when click selector is empty", func(ctx context.Context) {
 		ctx, cancel, err := b.NewTab(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		defer cancel()
@@ -189,7 +182,7 @@ var _ = Describe("Browser tools", Ordered, func() {
 		Expect(err).To(MatchError(`selector is required`))
 	})
 
-	It("should error when eval expression is empty", func() {
+	It("should error when eval expression is empty", func(ctx context.Context) {
 		ctx, cancel, err := b.NewTab(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		defer cancel()
@@ -201,13 +194,8 @@ var _ = Describe("Browser tools", Ordered, func() {
 })
 
 var _ = Describe("Domain blocklist", func() {
-	var ctx context.Context
 
-	BeforeEach(func() {
-		ctx = context.Background()
-	})
-
-	It("should block an exact-match domain", func() {
+	It("should block an exact-match domain", func(ctx context.Context) {
 		b, err := browser.New(
 			browser.WithHeadless(true),
 			browser.WithBlockedDomains([]string{"evil.com"}),
@@ -225,7 +213,7 @@ var _ = Describe("Domain blocklist", func() {
 		Expect(err.Error()).To(ContainSubstring("blocked"))
 	})
 
-	It("should block a subdomain of a blocked domain", func() {
+	It("should block a subdomain of a blocked domain", func(ctx context.Context) {
 		b, err := browser.New(
 			browser.WithHeadless(true),
 			browser.WithBlockedDomains([]string{"evil.com"}),
@@ -233,7 +221,7 @@ var _ = Describe("Domain blocklist", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer b.Close()
 
-		ctx, cancel, err := b.NewTab(ctx)
+		ctx, cancel, err := b.NewTab(context.Background())
 		Expect(err).NotTo(HaveOccurred())
 		defer cancel()
 
@@ -256,7 +244,7 @@ var _ = Describe("Domain blocklist", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer b.Close()
 
-		ctx, cancel, err := b.NewTab(ctx)
+		ctx, cancel, err := b.NewTab(context.Background())
 		Expect(err).NotTo(HaveOccurred())
 		defer cancel()
 
@@ -273,7 +261,7 @@ var _ = Describe("Domain blocklist", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer b.Close()
 
-		ctx, cancel, err := b.NewTab(ctx)
+		ctx, cancel, err := b.NewTab(context.Background())
 		Expect(err).NotTo(HaveOccurred())
 		defer cancel()
 
@@ -296,7 +284,7 @@ var _ = Describe("Domain blocklist", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer b.Close()
 
-		ctx, cancel, err := b.NewTab(ctx)
+		ctx, cancel, err := b.NewTab(context.Background())
 		Expect(err).NotTo(HaveOccurred())
 		defer cancel()
 

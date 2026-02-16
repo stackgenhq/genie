@@ -68,7 +68,7 @@ func (w *Wrapper) Call(ctx context.Context, jsonArgs []byte) (output any, err er
 	}
 
 	// HITL approval gate: non-readonly tools require human approval before execution.
-	if w.ApprovalStore != nil && !hitl.IsReadOnly(toolName) {
+	if w.ApprovalStore != nil && !w.ApprovalStore.IsAllowed(toolName) {
 		// Prefer struct-level ThreadID/RunID, fall back to context values
 		// injected by the AG-UI handler.
 		threadID := w.ThreadID

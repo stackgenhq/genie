@@ -62,7 +62,7 @@ func (l *linearService) do(ctx context.Context, gql gqlRequest) (*gqlResponse, e
 	if err != nil {
 		return nil, fmt.Errorf("pm/linear: request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {

@@ -2,6 +2,8 @@ package websearch_test
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 
@@ -104,6 +106,9 @@ var _ = Describe("WebSearch Tool", func() {
 		})
 
 		It("should fallback to DDG for Bing with missing API key (graceful init)", func(ctx context.Context) {
+			if testing.Short() {
+				Skip("Skipping network-dependent test in short mode")
+			}
 			cfg := websearch.Config{Provider: "bing", BingAPIKey: ""}
 			tool := websearch.NewTool(cfg)
 			res, err := tool.Call(ctx, []byte(`{"query":"test"}`))
@@ -112,8 +117,26 @@ var _ = Describe("WebSearch Tool", func() {
 		})
 
 		It("should fallback to DDG for Google with missing credentials (graceful init)", func(ctx context.Context) {
+			if testing.Short() {
+				Skip("Skipping network-dependent test in short mode")
+			}
 			cfg := websearch.Config{Provider: "google"}
-			tool := websearch.NewTool(cfg)
+
+			// Mock DDG server to avoid 403/Ratelimits
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`
+					<div class="result__body">
+						<h2 class="result__title">
+							<a class="result__a" href="https://duckduckgo.com">DuckDuckGo</a>
+						</h2>
+						<a class="result__snippet" href="https://duckduckgo.com">Privacy, simplified.</a>
+					</div>
+				`))
+			}))
+			defer ts.Close()
+
+			tool := websearch.NewTool(cfg, websearch.WithDDGEndpoint(ts.URL))
 			res, err := tool.Call(ctx, []byte(`{"query":"test"}`))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.(string)).To(ContainSubstring("DuckDuckGo"))
@@ -130,7 +153,21 @@ var _ = Describe("WebSearch Tool", func() {
 			}
 			// Note: NewTool might catch empty key, but here we provide a non-empty but invalid key
 			// so NewTool accepts it as Bing, but Search() fails.
-			tool := websearch.NewTool(cfg) // Bing backend initialized
+
+			// Mock DDG server
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`
+					<div class="result__body">
+						<h2 class="result__title">
+							<a class="result__a" href="https://duckduckgo.com">DuckDuckGo</a>
+						</h2>
+					</div>
+				`))
+			}))
+			defer ts.Close()
+
+			tool := websearch.NewTool(cfg, websearch.WithDDGEndpoint(ts.URL)) // Bing backend initialized
 			res, err := tool.Call(ctx, []byte(`{"query":"golang"}`))
 
 			// We expect NO error, because it should fallback to DDG

@@ -73,7 +73,7 @@ func (bt *bingTool) Search(ctx context.Context, req BingSearchRequest) (string, 
 	if err != nil {
 		return "", fmt.Errorf("bing search request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

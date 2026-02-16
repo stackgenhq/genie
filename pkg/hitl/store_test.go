@@ -19,9 +19,13 @@ var _ = Describe("GORMStore", func() {
 		store  hitl.ApprovalStore
 		gormDB *gorm.DB
 		dbDir  string
+		cfg    hitl.Config
 	)
 
 	BeforeEach(func() {
+		cfg = hitl.Config{
+			AlwaysAllowed: []string{"read_file", "list_file"},
+		}
 		ctx = context.Background()
 		var err error
 		dbDir, err = os.MkdirTemp("", "hitl-test-*")
@@ -32,7 +36,7 @@ var _ = Describe("GORMStore", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect(db.AutoMigrate(gormDB)).To(Succeed())
-		store = hitl.NewStore(gormDB)
+		store = cfg.NewStore(gormDB)
 	})
 
 	AfterEach(func() {
@@ -43,6 +47,23 @@ var _ = Describe("GORMStore", func() {
 			db.Close(gormDB) //nolint:errcheck
 		}
 		os.RemoveAll(dbDir)
+	})
+	Describe("IsAllowed", func() {
+		It("should allow for all if * is present in cfg", func() {
+			cfg := hitl.Config{
+				AlwaysAllowed: []string{"*"},
+			}
+			Expect(cfg.IsAllowed("read_file")).To(BeTrue())
+			Expect(cfg.IsAllowed("fix_cancer")).To(BeTrue())
+		})
+		It("should return true for allowed tools", func() {
+			Expect(cfg.IsAllowed("read_file")).To(BeTrue())
+			Expect(cfg.IsAllowed("list_file")).To(BeTrue())
+		})
+		It("should return false for disallowed tools", func() {
+			Expect(cfg.IsAllowed("write_file")).To(BeFalse())
+			Expect(cfg.IsAllowed("execute_code")).To(BeFalse())
+		})
 	})
 
 	Describe("Create", func() {
@@ -201,24 +222,5 @@ var _ = Describe("GORMStore", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(Equal(context.DeadlineExceeded))
 		})
-	})
-})
-
-var _ = Describe("IsReadOnly", func() {
-	It("should return true for read-only tools", func() {
-		Expect(hitl.IsReadOnly("read_file")).To(BeTrue())
-		Expect(hitl.IsReadOnly("list_file")).To(BeTrue())
-		Expect(hitl.IsReadOnly("read_multiple_files")).To(BeTrue())
-		Expect(hitl.IsReadOnly("memory_search")).To(BeTrue())
-		Expect(hitl.IsReadOnly("summarize_content")).To(BeTrue())
-		Expect(hitl.IsReadOnly("web_search")).To(BeTrue())
-	})
-
-	It("should return false for write tools", func() {
-		Expect(hitl.IsReadOnly("write_file")).To(BeFalse())
-		Expect(hitl.IsReadOnly("execute_code")).To(BeFalse())
-		Expect(hitl.IsReadOnly("send_message")).To(BeFalse())
-		Expect(hitl.IsReadOnly("create_file")).To(BeFalse())
-		Expect(hitl.IsReadOnly("unknown_tool")).To(BeFalse())
 	})
 })

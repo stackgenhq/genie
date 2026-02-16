@@ -10,22 +10,19 @@ import (
 	"github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/browser"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
-	"github.com/appcd-dev/genie/pkg/iacgen/generator"
+	"github.com/appcd-dev/genie/pkg/hitl"
 	"github.com/appcd-dev/genie/pkg/mcp"
 	"github.com/appcd-dev/genie/pkg/memory/vector"
 	"github.com/appcd-dev/genie/pkg/messenger"
 	"github.com/appcd-dev/genie/pkg/tools/email"
 	"github.com/appcd-dev/genie/pkg/tools/pm"
 	"github.com/appcd-dev/genie/pkg/tools/scm"
-	"github.com/appcd-dev/genie/pkg/tools/secops"
 	"github.com/appcd-dev/genie/pkg/tools/websearch"
 	"gopkg.in/yaml.v3"
 )
 
 type GenieConfig struct {
 	ModelConfig  modelprovider.ModelConfig `yaml:"model_config" toml:"model_config"`
-	Ops          generator.OpsConfig       `yaml:"ops" toml:"ops"`
-	SecOps       secops.SecOpsConfig       `yaml:"secops" toml:"secops"`
 	SkillsRoots  []string                  `yaml:"skills_roots" toml:"skills_roots"` // Supports multiple roots including HTTPS URLs
 	MCP          mcp.MCPConfig             `yaml:"mcp" toml:"mcp"`
 	WebSearch    websearch.Config          `yaml:"web_search" toml:"web_search"`
@@ -36,24 +33,13 @@ type GenieConfig struct {
 	PM           pm.Config                 `yaml:"pm" toml:"pm"`
 	Email        email.Config              `yaml:"email" toml:"email"`
 	AGUI         agui.ServerConfig         `yaml:"agui" toml:"agui"`
+	HITL         hitl.Config               `yaml:"hitl" toml:"hitl"`
 }
 
 func LoadGenieConfig(path string) (GenieConfig, error) {
 	// Start with defaults
 	cfg := GenieConfig{
 		ModelConfig: modelprovider.DefaultModelConfig(),
-		Ops: generator.OpsConfig{
-			MaxPages:            5,
-			EnableVerification:  true,
-			MaxVerificationRuns: 3,
-		},
-		SecOps: secops.SecOpsConfig{
-			SeverityThresholds: secops.SeverityThresholds{
-				High:   0,
-				Medium: 42, // Default magic number
-				Low:    -1, // Unlimited
-			},
-		},
 		WebSearch: websearch.Config{
 			Provider:     os.Getenv("GENIE_SEARCH_PROVIDER"),
 			GoogleAPIKey: os.Getenv("GOOGLE_API_KEY"),
@@ -65,6 +51,7 @@ func LoadGenieConfig(path string) (GenieConfig, error) {
 			APIKey:            os.Getenv("OPENAI_API_KEY"),
 		},
 		AGUI: agui.DefaultServerConfig(),
+		HITL: hitl.DefaultConfig(),
 	}
 
 	// Override VectorMemory provider default if env vars present

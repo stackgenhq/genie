@@ -1,4 +1,4 @@
-package agui
+package agui_test
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/appcd-dev/genie/pkg/agui"
+	"github.com/appcd-dev/genie/pkg/agui/aguifakes"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -19,7 +21,8 @@ var _ = Describe("BackgroundWorker", func() {
 			var wg sync.WaitGroup
 
 			// Handler simulates work and tracks max concurrent executions
-			handler := func(ctx context.Context, req ChatRequest) {
+			handler := &aguifakes.FakeExpert{}
+			handler.HandleStub = func(ctx context.Context, req agui.ChatRequest) {
 				current := atomic.AddInt32(&active, 1)
 				// Update max observed concurrency
 				for {
@@ -35,14 +38,14 @@ var _ = Describe("BackgroundWorker", func() {
 				atomic.AddInt32(&active, -1)
 			}
 
-			worker := NewBackgroundWorker(handler, 2)
+			worker := agui.NewBackgroundWorker(handler, 2)
 
 			// Launch 5 concurrent events
 			for i := 0; i < 5; i++ {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					_, _ = worker.HandleEvent(context.Background(), EventRequest{Type: EventTypeWebhook})
+					_, _ = worker.HandleEvent(context.Background(), agui.EventRequest{Type: agui.EventTypeWebhook})
 				}()
 			}
 
@@ -58,18 +61,19 @@ var _ = Describe("BackgroundWorker", func() {
 		It("should return error when pool is full", func() {
 			block := make(chan struct{})
 			// Handler blocks until we release it
-			handler := func(ctx context.Context, req ChatRequest) {
+			handler := &aguifakes.FakeExpert{}
+			handler.HandleStub = func(ctx context.Context, req agui.ChatRequest) {
 				<-block
 			}
 
-			worker := NewBackgroundWorker(handler, 1)
+			worker := agui.NewBackgroundWorker(handler, 1)
 
 			// 1. Fill the slot
-			_, err := worker.HandleEvent(context.Background(), EventRequest{Type: EventTypeWebhook})
+			_, err := worker.HandleEvent(context.Background(), agui.EventRequest{Type: agui.EventTypeWebhook})
 			Expect(err).NotTo(HaveOccurred())
 
 			// 2. Try to add another (should fail immediately)
-			_, err = worker.HandleEvent(context.Background(), EventRequest{Type: EventTypeWebhook})
+			_, err = worker.HandleEvent(context.Background(), agui.EventRequest{Type: agui.EventTypeWebhook})
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("background worker pool is full"))
 
@@ -82,13 +86,14 @@ var _ = Describe("BackgroundWorker", func() {
 	Describe("WaitForCompletion", func() {
 		It("should wait for all tasks to finish", func() {
 			var finished int32
-			handler := func(ctx context.Context, req ChatRequest) {
+			handler := &aguifakes.FakeExpert{}
+			handler.HandleStub = func(ctx context.Context, req agui.ChatRequest) {
 				time.Sleep(50 * time.Millisecond)
 				atomic.StoreInt32(&finished, 1)
 			}
 
-			worker := NewBackgroundWorker(handler, 1)
-			_, err := worker.HandleEvent(context.Background(), EventRequest{Type: EventTypeWebhook})
+			worker := agui.NewBackgroundWorker(handler, 1)
+			_, err := worker.HandleEvent(context.Background(), agui.EventRequest{Type: agui.EventTypeWebhook})
 			Expect(err).NotTo(HaveOccurred())
 
 			// This should block until the handler sleeps and sets finished=1

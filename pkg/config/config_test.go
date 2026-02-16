@@ -11,47 +11,27 @@ import (
 
 var _ = Describe("LoadGenieConfig", func() {
 	var (
-		validYamlPath   string
-		validTomlPath   string
-		invalidPath     string
-		nonExistentPath string
+		validYamlPath string
+		validTomlPath string
+		invalidPath   string
 	)
 
 	BeforeEach(func() {
 		validYamlPath = filepath.Join("testdata", "valid.yaml")
 		validTomlPath = filepath.Join("testdata", "valid.toml")
 		invalidPath = filepath.Join("testdata", "invalid.yaml")
-		nonExistentPath = filepath.Join("testdata", "non_existent.yaml")
-	})
-
-	It("should return default values when path is empty", func() {
-		cfg, err := config.LoadGenieConfig("")
-		Expect(err).ToNot(HaveOccurred())
-		Expect(cfg.Ops.MaxPages).To(Equal(5))
-		Expect(cfg.Ops.EnableVerification).To(BeTrue())
-		Expect(cfg.SecOps.SeverityThresholds.Medium).To(Equal(42))
 	})
 
 	It("should load values from YAML file", func() {
 		cfg, err := config.LoadGenieConfig(validYamlPath)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(cfg.Ops.MaxPages).To(Equal(10))
-		Expect(cfg.Ops.EnableVerification).To(BeFalse())
-		Expect(cfg.SecOps.SeverityThresholds.Medium).To(Equal(20))
+		Expect(cfg.ModelConfig.Providers).To(HaveLen(1))
 	})
 
 	It("should load values from TOML file", func() {
 		cfg, err := config.LoadGenieConfig(validTomlPath)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(cfg.Ops.MaxPages).To(Equal(8))
-		Expect(cfg.Ops.EnableVerification).To(BeTrue())
-		Expect(cfg.SecOps.SeverityThresholds.Medium).To(Equal(30))
-	})
-
-	It("should return defaults when file does not exist", func() {
-		cfg, err := config.LoadGenieConfig(nonExistentPath)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(cfg.Ops.MaxPages).To(Equal(5))
+		Expect(cfg.ModelConfig.Providers).To(HaveLen(1))
 	})
 
 	It("should error when file content is invalid", func() {
@@ -60,12 +40,12 @@ var _ = Describe("LoadGenieConfig", func() {
 	})
 
 	It("should expand environment variables", func() {
-		os.Setenv("TEST_MAX_PAGES", "20")
-		defer os.Unsetenv("TEST_MAX_PAGES")
+		os.Setenv("TEST_PROVIDER", "openai")
+		defer os.Unsetenv("TEST_PROVIDER")
 
 		path := filepath.Join("testdata", "env_vars.yaml")
 		cfg, err := config.LoadGenieConfig(path)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(cfg.Ops.MaxPages).To(Equal(20))
+		Expect(cfg.ModelConfig.Providers[0].Provider).To(Equal("openai"))
 	})
 })

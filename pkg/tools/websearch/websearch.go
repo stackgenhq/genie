@@ -40,15 +40,19 @@ type searchTool struct {
 	cfg      Config
 	backend  tool.Tool // the active provider's tool (DDG, Google, or Bing)
 	provider string    // normalised provider name
+	ddgOpts  []DDGOption
 }
 
 // NewTool creates a new web search tool configured to use a single provider.
 // When Provider is empty it defaults to DuckDuckGo which requires no API keys.
 // If the selected provider is missing credentials, it logs a warning and falls back to DuckDuckGo.
-func NewTool(cfg Config) tool.CallableTool {
+//
+// Optional DDGOptions can be provided to configure the fallback DuckDuckGo tool (e.g. for testing).
+func NewTool(cfg Config, opts ...DDGOption) tool.CallableTool {
 	s := &searchTool{
 		cfg:      cfg,
 		provider: normaliseProvider(cfg.Provider),
+		ddgOpts:  opts,
 	}
 
 	// Try to initialise the selected provider; fall back to DuckDuckGo
@@ -65,7 +69,7 @@ func NewTool(cfg Config) tool.CallableTool {
 	}
 	if s.backend == nil {
 		s.provider = ProviderDuckDuckGo
-		s.backend = NewDDGTool()
+		s.backend = NewDDGTool(opts...)
 	}
 
 	return function.NewFunctionTool(
@@ -106,24 +110,18 @@ func (s *searchTool) Search(ctx context.Context, req SearchRequest) (string, err
 
 	// Fallback to DuckDuckGo
 	// We instantiate a fresh DDG tool for the fallback to ensure clean state
-	ddgTool := NewDDGTool()
-
-	// inline fallback logic to reuse common code? No, let's just call the tool directly.
-	// But we need to define s.backend for searchBackend to work if we reused it.
-	// Simpler: just duplicate the small marshalling logic or extract a pure helper that takes a tool.
-	// Let's use a dedicated helper for the fallback to keep it clean.
-	return s.fallbackSearchDDG(ctx, req, log, ddgTool)
+	// but pass any original options (e.g. for testing)
+	return s.fallbackSearchDDG(ctx, req, log, s.ddgOpts...)
 }
 
-func (s *searchTool) fallbackSearchDDG(ctx context.Context, req SearchRequest, log *slog.Logger, t tool.Tool) (string, error) {
+func (s *searchTool) fallbackSearchDDG(ctx context.Context, req SearchRequest, log *slog.Logger, opts ...DDGOption) (string, error) {
 	log.Info("Searching with DuckDuckGo (Fallback)", "query", req.Query)
 	input := map[string]string{"query": req.Query}
 	inputBytes, _ := json.Marshal(input)
 
-	callable, ok := t.(tool.CallableTool)
-	if !ok {
-		return "", fmt.Errorf("duckduckgo fallback tool is not callable")
-	}
+	// Instantiate a fresh DDG tool for the fallback to ensure clean state
+	// Pass any options (e.g. for testing)
+	callable := NewDDGTool(opts...)
 	res, err := callable.Call(ctx, inputBytes)
 	if err != nil {
 		return "", fmt.Errorf("fallback search failed: %w", err)

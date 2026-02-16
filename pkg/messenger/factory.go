@@ -1,13 +1,16 @@
 package messenger
 
 import (
+	"context"
 	"fmt"
+
+	"github.com/appcd-dev/go-lib/logger"
 )
 
 // NewFromConfig creates a Messenger from a Config, selecting the appropriate
 // adapter based on the Platform field. Returns an error if the platform is
 // unknown or the required config fields are missing.
-func newFromConfig(cfg Config, opts ...Option) (Messenger, error) {
+func (cfg Config) newFromConfig(ctx context.Context, opts ...Option) (Messenger, error) {
 	if !cfg.enabled() {
 		return nil, fmt.Errorf("messenger: no platform configured")
 	}
@@ -17,6 +20,7 @@ func newFromConfig(cfg Config, opts ...Option) (Messenger, error) {
 		opts = append([]Option{WithMessageBuffer(cfg.BufferSize)}, opts...)
 	}
 
+	logger.GetLogger(ctx).Info("Initializing Messenger", "platform", cfg.Platform)
 	switch cfg.Platform {
 	case PlatformSlack:
 		return newSlackFromConfig(cfg.Slack, opts...)
@@ -137,4 +141,5 @@ var adapterFactories = map[Platform]AdapterFactory{}
 // Called by adapter sub-packages in their init() functions.
 func RegisterAdapter(platform Platform, factory AdapterFactory) {
 	adapterFactories[platform] = factory
+	logger.GetLogger(context.Background()).Debug("Registered messenger adapter", "platform", platform)
 }

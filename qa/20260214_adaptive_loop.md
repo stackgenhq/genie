@@ -46,7 +46,7 @@ The agent is capable of handling ambiguous or multi-part requests that require "
 - Tail the server logs
 
 ### Act
-Type and send: `Research the current directory structure, create a plan to reorganize the 'cmd' folder into a cleaner layout, and write that plan to 'refactor_plan.md'. Do not actually move any files yet.`
+Type and send: `Research the current directory structure, create a plan to reorganize the 'cmd' folder into a cleaner layout, and write that plan to 'refactor_plan_<YYYYMMDD>.md'. Do not actually move any files yet.`
 
 ### Assert
 - The agent visibly progresses through multiple steps (e.g., `ls -R`, then `read_file`, then `write_file`)

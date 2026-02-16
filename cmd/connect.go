@@ -108,15 +108,16 @@ func (c *connectCmd) run(cmd *cobra.Command, _ []string) error {
 			continue
 		}
 
-		// Read SSE events from the response stream.
-		if err := readSSEStream(resp.Body); err != nil {
+		// Read SSE events from the response stream and capture thread ID.
+		newThreadID, err := readSSEStream(resp.Body)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "\033[31mStream error: %v\033[0m\n", err)
 		}
 		resp.Body.Close()
 
 		// Preserve thread ID from the first response for conversation continuity.
-		if threadID == "" {
-			threadID = input.ThreadID
+		if threadID == "" && newThreadID != "" {
+			threadID = newThreadID
 		}
 
 		fmt.Println() // blank line between responses
@@ -127,10 +128,15 @@ func (c *connectCmd) run(cmd *cobra.Command, _ []string) error {
 }
 
 // readSSEStream reads an SSE response body and prints text content deltas
-// and run lifecycle events to stdout.
-func readSSEStream(r io.Reader) error {
+// and run lifecycle events to stdout. Returns the thread ID if found.
+func readSSEStream(r io.Reader) (string, error) {
 	scanner := bufio.NewScanner(r)
+	// Increase buffer size to handle reasonably large SSE payloads (e.g. tool outputs) without excessive memory use.
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 256*1024)
+
 	var eventType string
+	var threadID string
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -151,18 +157,32 @@ func readSSEStream(r io.Reader) error {
 				if err := json.Unmarshal([]byte(data), &payload); err == nil {
 					fmt.Print(payload.Delta)
 				}
+			case "RUN_STARTED":
+				// Attempt to extract thread ID from metadata if available.
+				var payload struct {
+					ThreadID string `json:"thread_id"`
+					ThreadId string `json:"threadId"` // try both casings
+				}
+				if err := json.Unmarshal([]byte(data), &payload); err == nil {
+					if payload.ThreadID != "" {
+						threadID = payload.ThreadID
+					} else if payload.ThreadId != "" {
+						threadID = payload.ThreadId
+					}
+				}
+
 			case "RUN_FINISHED":
 				// Run complete — done streaming.
-				return nil
+				return threadID, nil
 			case "RUN_ERROR":
 				var payload struct {
 					Message string `json:"message"`
 				}
 				if err := json.Unmarshal([]byte(data), &payload); err == nil {
-					return fmt.Errorf("agent error: %s", payload.Message)
+					return threadID, fmt.Errorf("agent error: %s", payload.Message)
 				}
 			}
 		}
 	}
-	return scanner.Err()
+	return threadID, scanner.Err()
 }

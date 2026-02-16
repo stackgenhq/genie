@@ -147,7 +147,7 @@ func (e *LocalExecutor) Execute(ctx context.Context, req ExecuteRequest) (Execut
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
 	}
 
-	logr.Debug("executing script", "interpreter", interpreter, "args", cmdArgs)
+	logr.Info("executing script", "interpreter", interpreter, "args", cmdArgs)
 
 	// Capture output
 	output, err := cmd.CombinedOutput()
@@ -180,6 +180,7 @@ func (e *LocalExecutor) Execute(ctx context.Context, req ExecuteRequest) (Execut
 		response.Error = fmt.Sprintf("script exited with code %d", exitCode)
 	}
 
+	logr.Info("execution completed", "exit_code", exitCode)
 	return response, nil
 }
 

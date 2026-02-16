@@ -35,8 +35,11 @@ type langfusePromptsResponse struct {
 
 //go:generate go tool counterfeiter -generate
 
+// Client defines the interface for fetching prompts from Langfuse.
+//
 //counterfeiter:generate . Client
 type Client interface {
+	// GetPrompt returns the prompt template by name, or the default if not found/disabled.
 	GetPrompt(ctx context.Context, name, defaultPrompt string) string
 }
 

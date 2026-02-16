@@ -2,6 +2,7 @@ package agui
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/appcd-dev/go-lib/logger"
@@ -39,7 +40,10 @@ func rateLimitMiddleware(rl *ipRateLimiter) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ip := r.RemoteAddr // includes port, but that's fine for server-side limiting
 			if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-				ip = fwd
+				// X-Forwarded-For can contain multiple IPs (client, proxy1, proxy2...).
+				// We take the first one (client IP).
+				parts := strings.Split(fwd, ",")
+				ip = strings.TrimSpace(parts[0])
 			}
 
 			if !rl.get(ip).Allow() {

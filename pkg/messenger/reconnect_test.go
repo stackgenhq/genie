@@ -103,7 +103,6 @@ var _ = Describe("ReceiveWithReconnect", func() {
 
 		// Send on second connection after reconnect.
 		// Wait briefly for the reconnect goroutine to call Receive() again.
-		time.Sleep(50 * time.Millisecond)
 		ch2 <- messenger.IncomingMessage{
 			Platform: "test",
 			Content:  messenger.MessageContent{Text: "msg2"},
@@ -125,8 +124,6 @@ var _ = Describe("ReceiveWithReconnect", func() {
 
 		relay := messenger.ReceiveWithReconnect(ctx, mock, 10*time.Millisecond, 50*time.Millisecond)
 
-		// After backoff retry, this message should be forwarded.
-		time.Sleep(50 * time.Millisecond) // wait for retry
 		ch <- messenger.IncomingMessage{
 			Platform: "test",
 			Content:  messenger.MessageContent{Text: "after-retry"},

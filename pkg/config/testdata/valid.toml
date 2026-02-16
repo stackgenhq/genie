@@ -1,8 +1,2 @@
-[ops]
-max_pages = 8
-enable_verification = true
-
-[secops.severity_thresholds]
-high = 0
-medium = 30
-low = 10
+[[model_config.providers]]
+provider = "openai"

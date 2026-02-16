@@ -1,4 +1,4 @@
-package agui
+package agui_test
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/appcd-dev/genie/pkg/agui"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -17,8 +18,8 @@ var _ = Describe("DDoS Protection Middleware", func() {
 
 	// Helper: create a simple server with the given config and a handler that
 	// writes a single text chunk, optionally sleeping to simulate work.
-	newTestServer := func(cfg ServerConfig, sleepDur time.Duration) *Server {
-		handler := func(ctx context.Context, req ChatRequest) {
+	newTestServer := func(cfg agui.ServerConfig, sleepDur time.Duration) *agui.Server {
+		handler := func(ctx context.Context, req agui.ChatRequest) {
 			if sleepDur > 0 {
 				select {
 				case <-time.After(sleepDur):
@@ -26,29 +27,29 @@ var _ = Describe("DDoS Protection Middleware", func() {
 					return
 				}
 			}
-			req.EventChan <- TextMessageStartMsg{
-				Type:      EventTextMessageStart,
+			req.EventChan <- agui.TextMessageStartMsg{
+				Type:      agui.EventTextMessageStart,
 				MessageID: "msg-1",
 			}
-			req.EventChan <- AgentStreamChunkMsg{
-				Type:      EventTextMessageContent,
+			req.EventChan <- agui.AgentStreamChunkMsg{
+				Type:      agui.EventTextMessageContent,
 				MessageID: "msg-1",
 				Content:   "Hello",
 				Delta:     true,
 			}
-			req.EventChan <- TextMessageEndMsg{
-				Type:      EventTextMessageEnd,
+			req.EventChan <- agui.TextMessageEndMsg{
+				Type:      agui.EventTextMessageEnd,
 				MessageID: "msg-1",
 			}
 		}
-		return cfg.NewServer(handler, nil)
+		return cfg.NewServer(&mockExpert{handler: handler}, nil)
 	}
 
 	validBody := `{"messages":[{"role":"user","content":"hi"}]}`
 
 	Describe("Rate Limiter", func() {
 		It("should allow requests within the burst limit", func() {
-			srv := newTestServer(ServerConfig{
+			srv := newTestServer(agui.ServerConfig{
 				RateLimit: 0.1, // very slow refill
 				RateBurst: 3,   // allow burst of 3
 			}, 0)
@@ -63,7 +64,7 @@ var _ = Describe("DDoS Protection Middleware", func() {
 		})
 
 		It("should return 429 after burst is exhausted", func() {
-			srv := newTestServer(ServerConfig{
+			srv := newTestServer(agui.ServerConfig{
 				RateLimit: 0.001, // almost no refill
 				RateBurst: 2,
 			}, 0)
@@ -89,7 +90,7 @@ var _ = Describe("DDoS Protection Middleware", func() {
 		})
 
 		It("should track IPs independently", func() {
-			srv := newTestServer(ServerConfig{
+			srv := newTestServer(agui.ServerConfig{
 				RateLimit: 0.001,
 				RateBurst: 1,
 			}, 0)
@@ -122,7 +123,7 @@ var _ = Describe("DDoS Protection Middleware", func() {
 		})
 
 		It("should use X-Forwarded-For header when present", func() {
-			srv := newTestServer(ServerConfig{
+			srv := newTestServer(agui.ServerConfig{
 				RateLimit: 0.001,
 				RateBurst: 1,
 			}, 0)
@@ -147,7 +148,7 @@ var _ = Describe("DDoS Protection Middleware", func() {
 		})
 
 		It("should not rate limit when disabled (RateLimit=0)", func() {
-			srv := newTestServer(ServerConfig{RateLimit: 0}, 0)
+			srv := newTestServer(agui.ServerConfig{RateLimit: 0}, 0)
 			handler := srv.Handler()
 
 			for i := 0; i < 10; i++ {
@@ -163,7 +164,7 @@ var _ = Describe("DDoS Protection Middleware", func() {
 	Describe("Concurrency Limiter", func() {
 		It("should return 503 when all slots are occupied", func() {
 			// Max 1 concurrent, handler sleeps so the slot stays occupied
-			srv := newTestServer(ServerConfig{MaxConcurrent: 1}, 500*time.Millisecond)
+			srv := newTestServer(agui.ServerConfig{MaxConcurrent: 1}, 500*time.Millisecond)
 			handler := srv.Handler()
 
 			var wg sync.WaitGroup
@@ -203,7 +204,7 @@ var _ = Describe("DDoS Protection Middleware", func() {
 		})
 
 		It("should release slots after request completes", func() {
-			srv := newTestServer(ServerConfig{MaxConcurrent: 1}, 0)
+			srv := newTestServer(agui.ServerConfig{MaxConcurrent: 1}, 0)
 			handler := srv.Handler()
 
 			// First request completes
@@ -222,7 +223,7 @@ var _ = Describe("DDoS Protection Middleware", func() {
 		})
 
 		It("should not limit when disabled (MaxConcurrent=0)", func() {
-			srv := newTestServer(ServerConfig{MaxConcurrent: 0}, 0)
+			srv := newTestServer(agui.ServerConfig{MaxConcurrent: 0}, 0)
 			handler := srv.Handler()
 
 			for i := 0; i < 5; i++ {
@@ -237,7 +238,7 @@ var _ = Describe("DDoS Protection Middleware", func() {
 
 	Describe("Max Body Size", func() {
 		It("should reject oversized request bodies", func() {
-			srv := newTestServer(ServerConfig{MaxBodyBytes: 100}, 0) // 100 bytes max
+			srv := newTestServer(agui.ServerConfig{MaxBodyBytes: 100}, 0) // 100 bytes max
 			handler := srv.Handler()
 
 			// A body larger than 100 bytes
@@ -250,7 +251,7 @@ var _ = Describe("DDoS Protection Middleware", func() {
 		})
 
 		It("should allow normal-sized request bodies", func() {
-			srv := newTestServer(ServerConfig{MaxBodyBytes: 1 << 20}, 0) // 1 MB
+			srv := newTestServer(agui.ServerConfig{MaxBodyBytes: 1 << 20}, 0) // 1 MB
 			handler := srv.Handler()
 
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(validBody))
@@ -261,7 +262,7 @@ var _ = Describe("DDoS Protection Middleware", func() {
 		})
 
 		It("should not limit when disabled (MaxBodyBytes=0)", func() {
-			srv := newTestServer(ServerConfig{MaxBodyBytes: 0}, 0)
+			srv := newTestServer(agui.ServerConfig{MaxBodyBytes: 0}, 0)
 			handler := srv.Handler()
 
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(validBody))
@@ -274,7 +275,7 @@ var _ = Describe("DDoS Protection Middleware", func() {
 
 	Describe("Health endpoint bypass", func() {
 		It("should not rate-limit the health check endpoint", func() {
-			srv := newTestServer(ServerConfig{
+			srv := newTestServer(agui.ServerConfig{
 				RateLimit: 0.001,
 				RateBurst: 1,
 			}, 0)
@@ -294,3 +295,12 @@ var _ = Describe("DDoS Protection Middleware", func() {
 		})
 	})
 })
+
+type mockExpert struct {
+	handler func(context.Context, agui.ChatRequest)
+}
+
+func (m *mockExpert) Handle(ctx context.Context, req agui.ChatRequest) {
+	m.handler(ctx, req)
+}
+func (m *mockExpert) Resume() string { return "" }
