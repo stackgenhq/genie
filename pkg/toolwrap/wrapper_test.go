@@ -54,6 +54,23 @@ func (f *fakeNonCallableTool) Declaration() *tool.Declaration {
 	return &tool.Declaration{Name: f.name}
 }
 
+// ctxCapturingTool is a callable tool that captures the context it receives,
+// allowing tests to inspect how the wrapper enriches context for downstream tools.
+type ctxCapturingTool struct {
+	name        string
+	result      string
+	capturedCtx context.Context
+}
+
+func (f *ctxCapturingTool) Declaration() *tool.Declaration {
+	return &tool.Declaration{Name: f.name}
+}
+
+func (f *ctxCapturingTool) Call(ctx context.Context, _ []byte) (any, error) {
+	f.capturedCtx = ctx
+	return f.result, nil
+}
+
 var _ = Describe("Wrapper", func() {
 	var (
 		ctx            context.Context
@@ -587,5 +604,74 @@ var _ = Describe("Service.Wrap", func() {
 		svc := &toolwrap.Service{}
 		wrapped := svc.Wrap(nil, toolwrap.WrapRequest{})
 		Expect(wrapped).To(BeEmpty())
+	})
+})
+
+// ── ThreadID / RunID context propagation tests ───────────────────────────────
+
+var _ = Describe("Wrapper threadID/runID context propagation", func() {
+	It("should propagate struct-level ThreadID and RunID into the tool context", func() {
+		ct := &ctxCapturingTool{name: "run_shell", result: "ok"}
+		wrapper := &toolwrap.Wrapper{
+			Tool:     ct,
+			ThreadID: "struct-thread",
+			RunID:    "struct-run",
+		}
+
+		_, err := wrapper.Call(context.Background(), []byte(`{}`))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(agui.ThreadIDFromContext(ct.capturedCtx)).To(Equal("struct-thread"))
+		Expect(agui.RunIDFromContext(ct.capturedCtx)).To(Equal("struct-run"))
+	})
+
+	It("should fall back to context values when struct fields are empty", func() {
+		ct := &ctxCapturingTool{name: "run_shell", result: "ok"}
+		wrapper := &toolwrap.Wrapper{
+			Tool:     ct,
+			ThreadID: "", // empty struct field
+			RunID:    "", // empty struct field
+		}
+
+		// Simulate the AG-UI handler injecting values into the parent context
+		parentCtx := agui.WithThreadID(context.Background(), "ctx-thread")
+		parentCtx = agui.WithRunID(parentCtx, "ctx-run")
+
+		_, err := wrapper.Call(parentCtx, []byte(`{}`))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(agui.ThreadIDFromContext(ct.capturedCtx)).To(Equal("ctx-thread"))
+		Expect(agui.RunIDFromContext(ct.capturedCtx)).To(Equal("ctx-run"))
+	})
+
+	It("should not overwrite context values that are already set", func() {
+		ct := &ctxCapturingTool{name: "run_shell", result: "ok"}
+		wrapper := &toolwrap.Wrapper{
+			Tool:     ct,
+			ThreadID: "struct-thread",
+			RunID:    "struct-run",
+		}
+
+		// Context already has values — they should be preserved (not overwritten)
+		parentCtx := agui.WithThreadID(context.Background(), "ctx-thread")
+		parentCtx = agui.WithRunID(parentCtx, "ctx-run")
+
+		_, err := wrapper.Call(parentCtx, []byte(`{}`))
+		Expect(err).NotTo(HaveOccurred())
+		// Context values already present → wrapper does not overwrite
+		Expect(agui.ThreadIDFromContext(ct.capturedCtx)).To(Equal("ctx-thread"))
+		Expect(agui.RunIDFromContext(ct.capturedCtx)).To(Equal("ctx-run"))
+	})
+
+	It("should leave context empty when neither struct nor context has values", func() {
+		ct := &ctxCapturingTool{name: "run_shell", result: "ok"}
+		wrapper := &toolwrap.Wrapper{
+			Tool:     ct,
+			ThreadID: "",
+			RunID:    "",
+		}
+
+		_, err := wrapper.Call(context.Background(), []byte(`{}`))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(agui.ThreadIDFromContext(ct.capturedCtx)).To(Equal(""))
+		Expect(agui.RunIDFromContext(ct.capturedCtx)).To(Equal(""))
 	})
 })

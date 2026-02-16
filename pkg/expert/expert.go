@@ -187,7 +187,7 @@ func (e *expert) getRunner(ctx context.Context, req Request) (runner.Runner, err
 		if decl.InputSchema != nil {
 			schemaType = decl.InputSchema.Type
 		}
-		logr.Info("tool declaration",
+		logr.Debug("tool declaration",
 			"index", i,
 			"name", decl.Name,
 			"description_len", len(decl.Description),

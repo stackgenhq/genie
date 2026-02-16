@@ -1,0 +1,160 @@
+# Example Configuration with Remote Skills
+
+# Using skills roots (supports single or multiple paths)
+skills_roots = [
+  "/Users/sabithks/src/github.com/appcd-dev/genie/examples/skills", # Local skills directory
+]
+
+[db_config]
+db_file = "./.genie.db"
+
+# Genie Configuration — Feb 2026
+# Model providers mapped to task types based on open benchmarks.
+# Multiple entries per provider are supported; each entry is the
+# "best available" model for the given task type.
+
+[model_config]
+
+# ── Anthropic ───────────────────────────────────────────────────────
+# Opus 4.5 → planning (SWE-bench Verified: 80.9%, #1)
+# Best for: complex refactoring, multi-file changes, architecture decisions
+[[model_config.providers]]
+provider = "anthropic"
+model_name = "claude-opus-4-5-20251101"
+token = "${ANTHROPIC_API_KEY}"
+good_for_task = "planning"
+
+# Gemini 3 Flash → tool_calling (fastest, cheapest)
+# Best for: file operations, math, summarization, simple sub-tasks
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "tool_calling"
+
+# Sonnet 4.5 → terminal_calling (Terminal Bench 2.0: 61.3%, #1)
+# Best for: shell scripting, CLI usage, system administration
+[[model_config.providers]]
+provider = "anthropic"
+model_name = "claude-sonnet-4-5-20250929"
+token = "${ANTHROPIC_API_KEY}"
+good_for_task = "terminal_calling"
+
+# ── OpenAI ──────────────────────────────────────────────────────────
+# GPT-5.2 → novel_reasoning (ARC-AGI 2: 72.9%, #1)
+# Best for: novel problem-solving, pattern recognition, creative solutions
+[[model_config.providers]]
+provider = "openai"
+model_name = "gpt-5.2"
+token = "${OPENAI_API_KEY}"
+good_for_task = "novel_reasoning"
+
+# GPT-5.2 → long_horizon_autonomy (METR: 137.3 min, #1)
+# Best for: extended autonomous agents, multi-step workflows
+[[model_config.providers]]
+provider = "openai"
+model_name = "gpt-5.2"
+token = "${OPENAI_API_KEY}"
+good_for_task = "long_horizon_autonomy"
+
+# GPT-5.2 → mathematical (AIME 2025: 100%)
+# Best for: math proofs, quantitative analysis, algorithmic optimization
+[[model_config.providers]]
+provider = "openai"
+model_name = "gpt-5.2"
+token = "${OPENAI_API_KEY}"
+good_for_task = "mathematical"
+
+# ── Google ──────────────────────────────────────────────────────────
+# Gemini 3 Pro → scientific_reasoning (GPQA Diamond: 93.8% w/ Deep Think)
+# Best for: PhD-level analysis, research tasks, domain expertise
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-pro-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "scientific_reasoning"
+
+# Gemini 3 Pro → general_task (HLE: 41.0% w/ Deep Think, #1)
+# Best for: general knowledge, broad reasoning, interdisciplinary tasks
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-pro-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "general_task"
+
+# Gemini 3 Flash → efficiency (fastest throughput, lowest cost)
+# Best for: high-volume processing, cost-sensitive operations
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "efficiency"
+
+# Gemini 3 Flash → frontdesk (request classification / triage)
+# Best for: intent detection, request routing, simple salutation responses
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "frontdesk"
+
+# ── Application Settings ────────────────────────────────────────────
+
+[ops]
+max_pages = 5
+enable_verification = true
+max_verification_runs = 3
+
+[secops]
+scanner = "snyk"
+
+[secops.severity_thresholds]
+high = 0
+medium = 42
+low = -1
+
+# ── GitHub (SCM) ────────────────────────────────────────────────────────
+# Source-code management: list repos, get/create pull requests
+[scm]
+provider = "github"
+token = "${GITHUB_TOKEN}"
+# baseurl = "https://github.example.com/api/v3"  # uncomment for GitHub Enterprise
+
+# ── Linear (PM) ─────────────────────────────────────────────────────────
+# Project management: get/create/assign issues
+[pm]
+provider = "linear"
+api_token = "${LINEAR_API_KEY}"
+# base_url = ""  # optional override
+
+# ── Gmail (Email) ───────────────────────────────────────────────────────
+# Send and read email via Gmail SMTP + IMAP
+# Use a Google App Password: https://myaccount.google.com/apppasswords
+[email]
+provider = "smtp"
+host = "smtp.gmail.com"
+port = 587
+username = "${GMAIL_ADDRESS}"
+password = "${GMAIL_APP_PASSWORD}"
+imaphost = "imap.gmail.com"
+imapport = 993
+
+# ── Vector Memory (Ollama) ──────────────────────────────────────────────
+# Local embedding-backed memory for conversation context and code recall.
+# Requires: ollama serve && ollama pull nomic-embed-text
+[vector_memory]
+embedding_provider = "ollama"
+ollama_url = "http://localhost:11434"
+ollama_model = "nomic-embed-text"
+persistence_dir = "~/.genie/vector_store"
+
+# ── AG-UI Server ────────────────────────────────────────────────────────
+# Browser-based chat interface served over HTTP/SSE.
+# The server runs in the foreground when `genie grant` is invoked.
+[agui]
+port = 8080
+cors_origins = ["https://appcd-dev.github.io"]
+
+
+[hitl]
+always_allowed = ["run_shell"]

@@ -270,7 +270,7 @@ config_sections:
     tables:
       - columns: [Key, Type, Default, Description]
         rows:
-          - ["read_only_tools", "string[]", "`[]`", "List of tools that trigger an approval request, e.g. `['browser_click', 'run_command']`. Use `['*']` to require approval for <strong>all</strong> tools."]
+          - ["always_allowed", "string[]", "`[]`", "List of tools that trigger an approval request, e.g. `['browser_click', 'run_command']`. Use `['*']` to require approval for <strong>all</strong> tools."]
 
 # ═══════════════════════════════════════════════════════════
 # TAB 2: HOW-TO

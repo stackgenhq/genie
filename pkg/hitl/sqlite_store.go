@@ -15,7 +15,7 @@ import (
 const allTools = "*"
 
 type Config struct {
-	AlwaysAllowed []string `yaml:"read_only_tools" toml:"read_only_tools" json:"read_only_tools"`
+	AlwaysAllowed []string `yaml:"always_allowed" toml:"always_allowed" json:"always_allowed"`
 }
 
 func DefaultConfig() Config {

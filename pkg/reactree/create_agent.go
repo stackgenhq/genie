@@ -27,8 +27,8 @@ type CreateAgentRequest struct {
 	Goal              string                 `json:"goal" jsonschema:"description=The goal or task for the sub-agent to accomplish,required"`
 	ToolNames         []string               `json:"tool_names,omitempty" jsonschema:"description=Names of tools to give the sub-agent. If empty all tools are provided."`
 	TaskType          modelprovider.TaskType `json:"task_type,omitempty" jsonschema:"description=Type of task for the sub-agent to accomplish, Should be one of efficiency/long_horizon_autonomy/mathematical/general_task/novel_reasoning/scientific_reasoning/terminal_calling/planning,required"`
-	MaxToolIterations int                    `json:"max_tool_iterations,omitempty" jsonschema:"description=Maximum number of tool iterations for the sub-agent,required"`
-	MaxLLMCalls       int                    `json:"max_llm_calls,omitempty" jsonschema:"description=Maximum number of LLM calls for the sub-agent,required"`
+	MaxToolIterations int                    `json:"max_tool_iterations,omitempty" jsonschema:"description=Maximum number of tool iterations for the sub-agent. Keep a minimum of 15,required"`
+	MaxLLMCalls       int                    `json:"max_llm_calls,omitempty" jsonschema:"description=Maximum number of LLM calls for the sub-agent. Keep a minimum of 20,required"`
 }
 
 // CreateAgentResponse is the output for the create_agent tool.
@@ -85,6 +85,7 @@ func NewCreateAgentTool(
 				"terminal_calling (CLI), novel_reasoning (creative). "+
 				"Give only needed tools. Batch related work into one agent; "+
 				"spawn parallel agents for independent tasks.\n\n"+
+				"Be generous with max_tool_iterations and max_llm_calls\n\n"+
 				"Available tools: %s",
 			strings.Join(toolList, ", "),
 		)),
@@ -144,11 +145,11 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 			Output: fmt.Sprintf("failed to get model: %v", err),
 		}, nil
 	}
-	if req.MaxToolIterations == 0 {
-		req.MaxToolIterations = 14
+	if req.MaxToolIterations < 15 {
+		req.MaxToolIterations = 15
 	}
-	if req.MaxLLMCalls == 0 {
-		req.MaxLLMCalls = 12
+	if req.MaxLLMCalls < 20 {
+		req.MaxLLMCalls = 20
 	}
 
 	// Base instruction

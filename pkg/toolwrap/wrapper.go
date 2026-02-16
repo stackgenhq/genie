@@ -128,15 +128,29 @@ func (w *Wrapper) Call(ctx context.Context, jsonArgs []byte) (output any, err er
 	// create_agent) can propagate HITL values to sub-agent tool wrappers.
 	// The trpc-agent runner does not guarantee the AG-UI enriched context
 	// flows through to tool Call methods, so we inject them explicitly here.
+	//
+	// Resolve effective values: prefer struct fields (set per-request via
+	// WrapRequest), fall back to values already in the incoming context
+	// (set by the AG-UI handler in server_expert.go). This ensures
+	// propagation even when the parent expert doesn't pass threadID/runID
+	// through WrapRequest.
 	toolCtx := ctx
 	if w.EventChan != nil && agui.EventChanFromContext(toolCtx) == nil {
 		toolCtx = agui.WithEventChan(toolCtx, w.EventChan)
 	}
-	if w.ThreadID != "" && agui.ThreadIDFromContext(toolCtx) == "" {
-		toolCtx = agui.WithThreadID(toolCtx, w.ThreadID)
+	effectiveThreadID := w.ThreadID
+	if effectiveThreadID == "" {
+		effectiveThreadID = agui.ThreadIDFromContext(ctx)
 	}
-	if w.RunID != "" && agui.RunIDFromContext(toolCtx) == "" {
-		toolCtx = agui.WithRunID(toolCtx, w.RunID)
+	if effectiveThreadID != "" && agui.ThreadIDFromContext(toolCtx) == "" {
+		toolCtx = agui.WithThreadID(toolCtx, effectiveThreadID)
+	}
+	effectiveRunID := w.RunID
+	if effectiveRunID == "" {
+		effectiveRunID = agui.RunIDFromContext(ctx)
+	}
+	if effectiveRunID != "" && agui.RunIDFromContext(toolCtx) == "" {
+		toolCtx = agui.WithRunID(toolCtx, effectiveRunID)
 	}
 
 	if ct, ok := w.Tool.(tool.CallableTool); ok {

@@ -41,7 +41,7 @@
         pm: { provider: '', api_token: 'PM_API_TOKEN', base_url: '', email: '' },
         browser: { blocked_domains: [] },
         email: { provider: '', host: '', port: 587, username: '', password: '', imap_host: '', imap_port: 993 },
-        hitl: { read_only_tools: [] },
+        hitl: { always_allowed: [] },
         db_config: { db_file: '' },
         agui: { port: 8080, cors_origins: ['https://appcd-dev.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576 }
     };
@@ -448,7 +448,7 @@
         c.innerHTML = '';
         var h = state.hitl;
         c.appendChild(el('div', { className: 'space-y-4' }, [
-            fieldText('Read-Only Tools (comma-separated)', (h.read_only_tools || []).join(', '), function (v) { h.read_only_tools = splitCSV(v); renderOutput(); }, 'read_file, list_file', 'Tools that require explicit human approval before execution')
+            fieldText('Read-Only Tools (comma-separated)', (h.always_allowed || []).join(', '), function (v) { h.always_allowed = splitCSV(v); renderOutput(); }, 'read_file, list_file', 'Tools that require explicit human approval before execution')
         ]));
     }
 
@@ -652,9 +652,9 @@
 
     function hitlToToml(lines) {
         var h = state.hitl;
-        if (!hasItems(h.read_only_tools)) return;
+        if (!hasItems(h.always_allowed)) return;
         lines.push('[hitl]');
-        lines.push('read_only_tools = [' + h.read_only_tools.filter(Boolean).map(q).join(', ') + ']');
+        lines.push('always_allowed = [' + h.always_allowed.filter(Boolean).map(q).join(', ') + ']');
         lines.push('');
     }
 
@@ -867,10 +867,10 @@
 
     function hitlToYaml(lines) {
         var h = state.hitl;
-        if (!hasItems(h.read_only_tools)) return;
+        if (!hasItems(h.always_allowed)) return;
         lines.push('hitl:');
-        lines.push('  read_only_tools:');
-        h.read_only_tools.filter(Boolean).forEach(function (t) { lines.push('    - ' + t); });
+        lines.push('  always_allowed:');
+        h.always_allowed.filter(Boolean).forEach(function (t) { lines.push('    - ' + t); });
         lines.push('');
     }
 
