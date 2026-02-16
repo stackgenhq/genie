@@ -25,18 +25,28 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+type Config struct {
+	DBFile string `json:"db_file" toml:"db_file" yaml:"db_file"`
+}
+
+func DefaultConfig() Config {
+	return Config{
+		DBFile: defaultPath(),
+	}
+}
+
 // DefaultPath returns the default database file path: ~/.genie/genie.db.
 // It creates the ~/.genie directory if it does not exist.
-func DefaultPath() (string, error) {
+func defaultPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("failed to determine home directory: %w", err)
+		return "genie.db"
 	}
 	dir := filepath.Join(home, ".genie")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("failed to create %s: %w", dir, err)
+		return "genie.db"
 	}
-	return filepath.Join(dir, "genie.db"), nil
+	return filepath.Join(dir, "genie.db")
 }
 
 // Open opens (or creates) a SQLite database at dbPath using GORM.

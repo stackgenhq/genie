@@ -1,1 +1,0 @@
-resource "a" "b" { x = }

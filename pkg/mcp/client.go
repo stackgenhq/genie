@@ -102,7 +102,7 @@ func (c *Client) initializeServer(ctx context.Context, config MCPServerConfig) (
 }
 
 // convertAndFilterTools converts MCP tools to trpc-agent-go tools and applies filtering.
-// It wraps each MCP tool using mcputils.MCPTool and filters based on include/exclude lists.
+// It wraps each MCP tool using MCPTool and filters based on include/exclude lists.
 //
 // Note: This is a simplified implementation. Full MCP tool integration will be available
 // when trpc-agent-go releases its MCP package or when we fully integrate with mark3labs/mcp-go.

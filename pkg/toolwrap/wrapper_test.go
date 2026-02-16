@@ -445,6 +445,9 @@ var _ = Describe("Wrapper", func() {
 var _ = Describe("Wrapper human approval gate", func() {
 	It("should skip approval for readonly tools and execute immediately", func() {
 		store := &hitlfakes.FakeApprovalStore{}
+		store.IsAllowedStub = func(name string) bool {
+			return name == "read_file"
+		}
 		ft := &fakeTool{name: "read_file", result: "file-content"}
 		eventChan := make(chan interface{}, 10)
 

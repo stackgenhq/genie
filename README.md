@@ -4,20 +4,21 @@ Generative Engine for Natural Intent Execution
 
 > **"Your intent is my command. YOU get a stack! YOU get a stack!"**
 
-`genie` is the world’s first **Agentic IaC CLI**, powered by [Stackgen](https://stackgen.com). We’re moving beyond the era of manual configuration and into the era of **Intent-to-Infrastructure**.
+`genie` is the **Enterprise Agentic Platform**, powered by [Stackgen](https://stackgen.com). We’re moving beyond the era of manual configuration.
 
 Stop writing YAML. Stop debugging Terraform modules. Just tell `genie` what you need, and consider it granted.
 
 ---
 
-## ✨ The Stackgen Magic
+## ✨ Enterprise Differentiators
 
-`genie` doesn't just "template" files. It uses Stackgen’s core engine to understand your application’s requirements and synthesize a bespoke, production-ready stack.
+`genie` is a platform designed for reliability, compliance, and scale.
 
-* **Intent-Based:** "I need a scalable Node.js API on AWS with a Redis cache." Done.
-* **DevEx 2.0:** Built for developers who want to ship, not for "YAML plumbers."
-* **Agentic Intelligence:** The CLI understands context, security best practices, and cost-optimization automatically.
-* **Zero Bottlenecks:** No more waiting for the DevOps team to "bless" your infrastructure. `genie` generates it pre-blessed.
+*   **ReAcTree Execution Engine**: A deterministic, multi-stage reasoning engine that ensures verifiable plans.
+*   **Infrastructure Automation**: Powered by Stackgen, Genie synthesizes production-ready Terraform and Pulumi from natural language.
+*   **Governance & Audit**: Built-in Human-in-the-Loop (HITL) guardrails and immutable audit logs ensure strict compliance.
+*   **Multi-Model Routing**: Intelligently routes tasks to the best model (OpenAI, Gemini, Anthropic, Ollama, HuggingFace) for cost and performance.
+*   **Enterprise Integrations**: Seamlessly integrates with **OpsVerse ObserveNow** for full-stack observability and **Aiden** for automated incident response.
 
 ---
 
@@ -50,7 +51,7 @@ genie grant
 
 ## 🛠 Commands
 
-| `genie` or `genie grant` | Interactive Intent-to-Infrastructure wizard. | "Your wish is my command." |
+| `genie` or `genie grant` | Interactive Infrastructure Automation wizard. | "Your wish is my command." |
 
 ---
 
@@ -75,12 +76,17 @@ Configuration values matching the pattern `${VAR_NAME}` will be automatically ex
 Check out [config.toml.example](./config.toml.example) for a full example of available options.
 
 ```toml
-[ops]
-max_pages = 5
-enable_verification = true
+[[model_config]]
+provider = "openai"
+model_name = "gpt-5.2"
+token = "${OPENAI_API_KEY}"
+good_for_task = "planning"
 
-[secops.severity_thresholds]
-medium = 10
+[[model_config]]
+provider = "ollama"
+model_name = "llama3"
+host = "http://localhost:11434"
+good_for_task = "tool_calling"
 
 # Skills: Enable reusable agent capabilities
 skills_roots = ["./skills"]  # Paths to skills directories
@@ -136,7 +142,7 @@ skills_roots = ["./skills"]  # Paths to skills directories
 
 ## 🤝 Join the Movement
 
-We are redefining DevEx. If you want to contribute to the **Agentic IaC** revolution, check out our [contribution guidelines](./CONTRIBUTING.md).
+We are redefining Agents. If you want to contribute to the **Agentic IaC** revolution, check out our [contribution guidelines](./CONTRIBUTING.md).
 
 1. Fork the repo.
 2. Create your "Wish" (feature branch).

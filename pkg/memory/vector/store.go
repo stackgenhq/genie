@@ -28,6 +28,15 @@ type Config struct {
 	OllamaModel       string `yaml:"ollama_model" toml:"ollama_model"`
 }
 
+func DefaultConfig() Config {
+	return Config{
+		EmbeddingProvider: "dummy",
+		APIKey:            os.Getenv("OPENAI_API_KEY"),
+		OllamaURL:         os.Getenv("OLLAMA_URL"),
+		OllamaModel:       os.Getenv("OLLAMA_MODEL"),
+	}
+}
+
 // CanInitialize checks if the config can be used to initialize a vector store.
 func (c Config) CanInitialize() bool {
 	return c.EmbeddingProvider != "" || c.APIKey != "" || c.OllamaURL != ""

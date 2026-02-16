@@ -60,13 +60,13 @@ func (r rootCmd) command(ctx context.Context) (*cobra.Command, error) {
 	// rootCmd represents the base command when called without any subcommands
 	rootCmd := &cobra.Command{
 		Use:   "genie",
-		Short: "The world's first Agentic IaC CLI",
-		Long: `🧞 genie - Your intent is my command!
+		Short: "The Enterprise Agentic Platform",
+		Long: `🧞 Genie - Your intent is my command!
 
-genie is the world's first Agentic IaC CLI, powered by Stackgen. We're moving 
-beyond the era of manual configuration and into the era of Intent-to-Infrastructure.
+genie is the Enterprise Agentic Infrastructure Automation CLI, powered by Stackgen. We're moving 
+beyond the era of manual configuration.
 
-Stop writing YAML. Stop debugging Terraform modules. Just tell genie what you need, 
+Just tell genie what you need, 
 and consider it granted.
 
 Built with ✨ by Stackgen (https://stackgen.com)

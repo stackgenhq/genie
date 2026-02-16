@@ -25,7 +25,6 @@ setup: clean deps generate go/tv ## Setup the environment
 go/tv:
 ifneq ($(CI),true)
 	@go get github.com/appcd-dev/go-lib@main
-	@go get github.com/appcd-dev/cce@main
 endif
 	@go mod tidy
 	@go mod vendor

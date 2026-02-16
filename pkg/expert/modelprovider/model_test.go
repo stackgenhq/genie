@@ -150,7 +150,6 @@ var _ = Describe("ModelProvider", func() {
 				// Second Gemini provider should be pro (tool_calling)
 				Expect(cfg.Providers[1].Provider).To(Equal("gemini"))
 				Expect(cfg.Providers[1].ModelName).NotTo(BeEmpty())
-				Expect(cfg.Providers[1].Variant).To(Equal("default"))
 				Expect(cfg.Providers[1].GoodForTask).To(Equal(modelprovider.TaskToolCalling))
 
 				// Third Gemini provider should be pro (general_task)

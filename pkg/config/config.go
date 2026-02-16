@@ -9,6 +9,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/browser"
+	"github.com/appcd-dev/genie/pkg/db"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/hitl"
 	"github.com/appcd-dev/genie/pkg/mcp"
@@ -34,6 +35,7 @@ type GenieConfig struct {
 	Email        email.Config              `yaml:"email" toml:"email"`
 	AGUI         agui.ServerConfig         `yaml:"agui" toml:"agui"`
 	HITL         hitl.Config               `yaml:"hitl" toml:"hitl"`
+	DBConfig     db.Config                 `yaml:"db_config" toml:"db_config"`
 }
 
 func LoadGenieConfig(path string) (GenieConfig, error) {
@@ -46,12 +48,10 @@ func LoadGenieConfig(path string) (GenieConfig, error) {
 			GoogleCX:     os.Getenv("GOOGLE_CSE_ID"),
 			BingAPIKey:   os.Getenv("BING_API_KEY"),
 		},
-		VectorMemory: vector.Config{
-			EmbeddingProvider: "dummy", // Default
-			APIKey:            os.Getenv("OPENAI_API_KEY"),
-		},
-		AGUI: agui.DefaultServerConfig(),
-		HITL: hitl.DefaultConfig(),
+		VectorMemory: vector.DefaultConfig(),
+		AGUI:         agui.DefaultServerConfig(),
+		HITL:         hitl.DefaultConfig(),
+		DBConfig:     db.DefaultConfig(),
 	}
 
 	// Override VectorMemory provider default if env vars present

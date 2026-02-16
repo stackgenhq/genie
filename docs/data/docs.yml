@@ -35,10 +35,11 @@ config_sections:
     tables:
       - columns: [Key, Type, Description]
         rows:
-          - ["provider", "string", "AI provider — `openai`, `gemini`, or `anthropic`"]
-          - ["model_name", "string", "Specific model, e.g. `gpt-5.2`, `gemini-3-flash-preview`, `claude-sonnet-4.5`"]
-          - ["variant", "string", "Usually `default` — use `azure` for Azure-hosted OpenAI"]
+          - ["provider", "string", "AI provider — `openai`, `gemini`, `anthropic`, `ollama`, `huggingface`"]
+          - ["model_name", "string", "Specific model, e.g. `gpt-5.2`, `gemini-3-flash`, `deepseek-chat`"]
+          - ["variant", "string", "Provider variant: `openai` (default), `hunyuan`, `deepseek`, `qwen`, or `azure`"]
           - ["token", "string", "API key — use `${OPENAI_API_KEY}` to read from environment"]
+          - ["host", "string", "Base URL for self-hosted or compatible APIs (Ollama, OpenAI, HuggingFace)"]
           - ["good_for_task", "string", "What this model excels at: `planning`, `tool_calling`, `efficiency`, `scientific_reasoning`"]
 
   - id: agui
@@ -434,6 +435,13 @@ architecture:
 # TAB 4: FAQ
 # ═══════════════════════════════════════════════════════════
 faq:
+  - q: How is Genie different from other AI assistants?
+    a: >
+      Most assistants are "Personal AI" designed for open-ended chats. 
+      <strong>Genie is an Enterprise Agentic Platform</strong> engineered for infrastructure and extensive coding workflows.
+      It uses the <strong>ReAcTree</strong> engine for deterministic execution, includes built-in <strong>Security/Audit</strong> layers,
+      and follows strict engineering standards (DDD, linting).
+
   - q: Which AI providers does Genie support?
     a: >
       Genie works with <strong>OpenAI</strong>, <strong>Google Gemini</strong>, and <strong>Anthropic Claude</strong>.

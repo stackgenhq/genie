@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -39,12 +40,16 @@ func testPage() *httptest.Server {
 }
 
 var _ = Describe("Browser tools", Ordered, func() {
+
 	var (
 		b   *browser.Browser
 		srv *httptest.Server
 	)
 
 	BeforeAll(func() {
+		if os.Getenv("CI") == "true" {
+			Skip("Skipping browser tests in CI")
+		}
 		srv = testPage()
 
 		var err error

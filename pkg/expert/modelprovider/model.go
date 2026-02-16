@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/appcd-dev/go-lib/logger"
 	"github.com/appcd-dev/go-lib/osutils"
@@ -11,6 +12,8 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/model/anthropic"
 	"trpc.group/trpc-go/trpc-agent-go/model/gemini"
+	"trpc.group/trpc-go/trpc-agent-go/model/huggingface"
+	"trpc.group/trpc-go/trpc-agent-go/model/ollama"
 	"trpc.group/trpc-go/trpc-agent-go/model/openai"
 )
 
@@ -77,6 +80,7 @@ type ProviderConfig struct {
 	ModelName   string   `json:"model_name" yaml:"model_name" toml:"model_name"`
 	Variant     string   `json:"variant" yaml:"variant" toml:"variant"`
 	Token       string   `json:"token" yaml:"token" toml:"token"`
+	Host        string   `json:"host" yaml:"host" toml:"host"`
 	GoodForTask TaskType `json:"good_for_task" yaml:"good_for_task" toml:"good_for_task"`
 }
 
@@ -115,13 +119,17 @@ func (e *envBasedModelProvider) GetModel(ctx context.Context, taskType TaskType)
 		"used_fallback", usedFallback,
 	)
 
-	switch providerConfig.Provider {
+	switch strings.ToLower(providerConfig.Provider) {
 	case "openai":
-		opts := []openai.Option{
-			openai.WithVariant(openai.Variant(providerConfig.Variant)),
-		}
+		opts := []openai.Option{}
 		if providerConfig.Token != "" {
 			opts = append(opts, openai.WithAPIKey(providerConfig.Token))
+		}
+		if providerConfig.Host != "" {
+			opts = append(opts, openai.WithBaseURL(providerConfig.Host))
+		}
+		if providerConfig.Variant != "" {
+			opts = append(opts, openai.WithVariant(openai.Variant(providerConfig.Variant)))
 		}
 		return openai.New(providerConfig.ModelName, opts...), nil
 	case "gemini":
@@ -137,7 +145,25 @@ func (e *envBasedModelProvider) GetModel(ctx context.Context, taskType TaskType)
 		if providerConfig.Token != "" {
 			opts = append(opts, anthropic.WithAPIKey(providerConfig.Token))
 		}
+		if providerConfig.Host != "" {
+			opts = append(opts, anthropic.WithBaseURL(providerConfig.Host))
+		}
 		return anthropic.New(providerConfig.ModelName, opts...), nil
+	case "ollama":
+		opts := []ollama.Option{}
+		if providerConfig.Host != "" {
+			opts = append(opts, ollama.WithHost(providerConfig.Host))
+		}
+		return ollama.New(providerConfig.ModelName, opts...), nil
+	case "huggingface":
+		opts := []huggingface.Option{}
+		if providerConfig.Host != "" {
+			opts = append(opts, huggingface.WithBaseURL(providerConfig.Host))
+		}
+		if providerConfig.Token != "" {
+			opts = append(opts, huggingface.WithAPIKey(providerConfig.Token))
+		}
+		return huggingface.New(providerConfig.ModelName, opts...)
 	}
 	return nil, fmt.Errorf("unknown model provider: %s", providerConfig.Provider)
 }

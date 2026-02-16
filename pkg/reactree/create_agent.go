@@ -9,6 +9,7 @@ import (
 	"github.com/appcd-dev/genie/pkg/agentutils"
 	"github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
+	"github.com/appcd-dev/genie/pkg/reactree/memory"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
 	"github.com/appcd-dev/go-lib/logger"
 	"go.opentelemetry.io/otel"
@@ -22,10 +23,12 @@ import (
 
 // CreateAgentRequest is the input for the create_agent tool.
 type CreateAgentRequest struct {
-	AgentName string                 `json:"agent_name" jsonschema:"description=Name of the sub-agent,required"`
-	Goal      string                 `json:"goal" jsonschema:"description=The goal or task for the sub-agent to accomplish,required"`
-	ToolNames []string               `json:"tool_names,omitempty" jsonschema:"description=Names of tools to give the sub-agent. If empty all tools are provided."`
-	TaskType  modelprovider.TaskType `json:"task_type,omitempty" jsonschema:"description=Type of task for the sub-agent to accomplish, Should be one of efficiency/long_horizon_autonomy/mathematical/general_task/novel_reasoning/scientific_reasoning/terminal_calling/planning,required"`
+	AgentName         string                 `json:"agent_name" jsonschema:"description=Name of the sub-agent,required"`
+	Goal              string                 `json:"goal" jsonschema:"description=The goal or task for the sub-agent to accomplish,required"`
+	ToolNames         []string               `json:"tool_names,omitempty" jsonschema:"description=Names of tools to give the sub-agent. If empty all tools are provided."`
+	TaskType          modelprovider.TaskType `json:"task_type,omitempty" jsonschema:"description=Type of task for the sub-agent to accomplish, Should be one of efficiency/long_horizon_autonomy/mathematical/general_task/novel_reasoning/scientific_reasoning/terminal_calling/planning,required"`
+	MaxToolIterations int                    `json:"max_tool_iterations,omitempty" jsonschema:"description=Maximum number of tool iterations for the sub-agent,required"`
+	MaxLLMCalls       int                    `json:"max_llm_calls,omitempty" jsonschema:"description=Maximum number of LLM calls for the sub-agent,required"`
 }
 
 // CreateAgentResponse is the output for the create_agent tool.
@@ -43,7 +46,8 @@ type createAgentTool struct {
 	toolRegistry  map[string]tool.Tool
 	// toolWrapSvc wraps sub-agent tools with HITL approval, audit logging,
 	// and caching. When nil, sub-agent tools execute without HITL gating.
-	toolWrapSvc *toolwrap.Service
+	toolWrapSvc   *toolwrap.Service
+	workingMemory *memory.WorkingMemory
 }
 
 // NewCreateAgentTool creates a tool that spawns sub-agents with dynamic tool
@@ -56,23 +60,20 @@ func NewCreateAgentTool(
 	modelProvider modelprovider.ModelProvider,
 	summarizer agentutils.Summarizer,
 	toolRegistry ToolRegistry,
-	toolWrapSvc ...*toolwrap.Service) tool.Tool {
+	workingMemory *memory.WorkingMemory,
+	toolWrapSvc *toolwrap.Service) tool.Tool {
 	// Build description listing available tools
 	var toolList []string
 	for name := range toolRegistry {
 		toolList = append(toolList, name)
 	}
 
-	var svc *toolwrap.Service
-	if len(toolWrapSvc) > 0 {
-		svc = toolWrapSvc[0]
-	}
-
 	t := &createAgentTool{
 		modelProvider: modelProvider,
 		summarizer:    summarizer,
 		toolRegistry:  toolRegistry,
-		toolWrapSvc:   svc,
+		toolWrapSvc:   toolWrapSvc,
+		workingMemory: workingMemory,
 	}
 
 	return function.NewFunctionTool(
@@ -143,24 +144,50 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 			Output: fmt.Sprintf("failed to get model: %v", err),
 		}, nil
 	}
+	if req.MaxToolIterations == 0 {
+		req.MaxToolIterations = 14
+	}
+	if req.MaxLLMCalls == 0 {
+		req.MaxLLMCalls = 12
+	}
+
+	// Base instruction
+	instruction := "You are a focused sub-agent. Complete the given task using ONLY your available tools. " +
+		"Be concise — return the essential result without commentary. " +
+		"If working memory already contains relevant data, use it instead of re-reading files. " +
+		"IMPORTANT: save_file, read_file, and list_file only accept RELATIVE paths under the workspace directory. " +
+		"Do NOT pass absolute paths (e.g. /tmp/foo) to these tools — use run_shell instead for absolute paths. " +
+		"Do not rewrite the same file multiple times unless fixing an error. Write files once and move to the next task. " +
+		"ERROR BUDGET: If a command or tool call fails 3 times consecutively, stop and report the failure rather than retrying."
+
+	// Inject shared working memory context so sub-agent knows what has been done
+	if t.workingMemory != nil {
+		snapshot := t.workingMemory.Snapshot()
+		if len(snapshot) > 0 {
+			instruction += "\n\nSHARED WORKING MEMORY (Read-Only):\n"
+			for k, v := range snapshot {
+				// Truncate values if they are too long to fit in context efficiently
+				val := v
+				if len(val) > 200 {
+					val = val[:197] + "..."
+				}
+				instruction += fmt.Sprintf("- %s: %s\n", k, val)
+			}
+		}
+	}
 
 	// Create a fresh sub-agent with only the selected tools
 	subAgent := llmagent.New(
 		req.AgentName,
 		llmagent.WithModel(modelToUse),
 		llmagent.WithTools(selectedTools),
-		llmagent.WithInstruction("You are a focused sub-agent. Complete the given task using ONLY your available tools. "+
-			"Be concise — return the essential result without commentary. "+
-			"If working memory already contains relevant data, use it instead of re-reading files. "+
-			"IMPORTANT: save_file, read_file, and list_file only accept RELATIVE paths under the workspace directory. "+
-			"Do NOT pass absolute paths (e.g. /tmp/foo) to these tools — use run_shell instead for absolute paths. "+
-			"ERROR BUDGET: If a command or tool call fails 3 times consecutively, stop and report the failure rather than retrying."),
+		llmagent.WithInstruction(instruction),
 		llmagent.WithDescription("Focused sub-agent for delegated tasks"),
 		llmagent.WithEnableParallelTools(true),
-		llmagent.WithMaxLLMCalls(10),
+		llmagent.WithMaxLLMCalls(req.MaxLLMCalls),
 		llmagent.WithAddCurrentTime(true),
 		llmagent.WithTimeFormat(time.RFC3339),
-		llmagent.WithMaxToolIterations(8),
+		llmagent.WithMaxToolIterations(req.MaxToolIterations),
 	)
 
 	// Run via a one-shot runner with isolated session

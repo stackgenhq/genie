@@ -20,7 +20,7 @@ jobs:
     container:
       image: goreleaser/goreleaser-cross:latest
     env:
-      GOPRIVATE: "github.com/appcd-dev/go-lib,github.com/appcd-dev/cce"
+      GOPRIVATE: "github.com/appcd-dev/go-lib"
     steps:
       - name: Checkout
         uses: actions/checkout@v6

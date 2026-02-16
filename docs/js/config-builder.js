@@ -42,6 +42,7 @@
         browser: { blocked_domains: [] },
         email: { provider: '', host: '', port: 587, username: '', password: '', imap_host: '', imap_port: 993 },
         hitl: { read_only_tools: [] },
+        db_config: { db_file: '' },
         agui: { port: 8080, cors_origins: ['https://appcd-dev.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576 }
     };
 
@@ -191,6 +192,7 @@
         renderBrowser();
         renderEmail();
         renderHITL();
+        renderDBConfig();
         renderAGUI();
         renderOutput();
     }
@@ -450,6 +452,17 @@
         ]));
     }
 
+    // ── DB Config ──
+    function renderDBConfig() {
+        var c = $('db-config-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var d = state.db_config;
+        c.appendChild(el('div', { className: 'space-y-4' }, [
+            fieldText('Database File Path', d.db_file, function (v) { d.db_file = v; renderOutput(); }, '~/.genie/genie.db', 'Path to the SQLite database file')
+        ]));
+    }
+
     // ── AGUI ──
     function renderAGUI() {
         var c = $('agui-body');
@@ -589,6 +602,7 @@
         browserToToml(lines);
         emailToToml(lines);
         hitlToToml(lines);
+        dbConfigToToml(lines);
         aguiToToml(lines);
         return lines.join('\n');
     }
@@ -641,6 +655,14 @@
         if (!hasItems(h.read_only_tools)) return;
         lines.push('[hitl]');
         lines.push('read_only_tools = [' + h.read_only_tools.filter(Boolean).map(q).join(', ') + ']');
+        lines.push('');
+    }
+
+    function dbConfigToToml(lines) {
+        var d = state.db_config;
+        if (!d.db_file) return;
+        lines.push('[db_config]');
+        lines.push('db_file = ' + q(d.db_file));
         lines.push('');
     }
 
@@ -786,6 +808,7 @@
         browserToYaml(lines);
         emailToYaml(lines);
         hitlToYaml(lines);
+        dbConfigToYaml(lines);
         aguiToYaml(lines);
         return lines.join('\n');
     }
@@ -797,6 +820,14 @@
         lines.push('  provider: ' + s.provider);
         if (s.token) lines.push('  token: ' + yq('${' + s.token + '}'));
         if (s.base_url) lines.push('  base_url: ' + yq(s.base_url));
+        lines.push('');
+    }
+
+    function dbConfigToYaml(lines) {
+        var d = state.db_config;
+        if (!d.db_file) return;
+        lines.push('db_config:');
+        lines.push('  db_file: ' + yq(d.db_file));
         lines.push('');
     }
 

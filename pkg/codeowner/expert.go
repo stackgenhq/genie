@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/appcd-dev/genie/pkg/agentutils"
 	"github.com/appcd-dev/genie/pkg/audit"
@@ -85,17 +84,11 @@ type codeOwner struct {
 	tools           reactree.ToolRegistry
 	auditor         audit.Auditor
 	resume          string
-	resumeMu        sync.RWMutex
 }
 
 // Resume returns a natural language description of the agent's capabilities.
 func (c *codeOwner) Resume() string {
-	c.resumeMu.RLock()
-	defer c.resumeMu.RUnlock()
-	if c.resume != "" {
-		return c.resume
-	}
-	return ""
+	return c.resume
 }
 
 // NewCodeOwner creates a new codeOwner with an integrated ReAcTree executor.
@@ -186,19 +179,17 @@ func NewCodeOwner(
 	allTools = append(allTools, tools...)
 
 	// Initialize file tools scoped to the working directory.
-	if workingDirectory != "" {
-		if ts, err := file.NewToolSet(file.WithBaseDir(workingDirectory)); err == nil {
-			allTools = append(allTools, ts.Tools(ctx)...)
-		}
-
-		// Initialize local code executor for shell access (bash only for now)
-		// This enables sub-agents to run verification commands like 'go test' or 'terraform validate'.
-		exec := local.New(local.WithWorkDir(workingDirectory))
-
-		// Use ShellTool which wraps the code executor
-		codeTool := NewShellTool(exec)
-		allTools = append(allTools, codeTool)
+	if ts, err := file.NewToolSet(file.WithBaseDir(workingDirectory)); err == nil {
+		allTools = append(allTools, ts.Tools(ctx)...)
 	}
+
+	// Initialize local code executor for shell access (bash only for now)
+	// This enables sub-agents to run verification commands like 'go test' or 'terraform validate'.
+	exec := local.New(local.WithWorkDir(workingDirectory))
+
+	// Use ShellTool which wraps the code executor
+	codeTool := NewShellTool(exec)
+	allTools = append(allTools, codeTool)
 	if vectorStore != nil {
 		allTools = append(allTools, vector.NewMemoryStoreTool(vectorStore))
 		allTools = append(allTools, vector.NewMemorySearchTool(vectorStore))
@@ -222,8 +213,7 @@ func NewCodeOwner(
 	)
 	createAgentTool := reactree.NewCreateAgentTool(
 		modelProvider, summarizer, toolRegistry,
-		// Pass the toolwrap.Service so sub-agent tools go through HITL
-		// approval, audit logging, and file-read caching.
+		wm,
 		toolWrapSvc,
 	)
 
@@ -253,9 +243,7 @@ func NewCodeOwner(
 	}
 	go func(ctx context.Context) {
 		res := codeOwner.createResume(ctx, summarizer, toolRegistry)
-		codeOwner.resumeMu.Lock()
 		codeOwner.resume = res
-		codeOwner.resumeMu.Unlock()
 	}(context.WithoutCancel(ctx))
 	return codeOwner, nil
 }

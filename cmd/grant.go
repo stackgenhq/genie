@@ -69,7 +69,7 @@ func NewGrantCommand(rootOpts *rootCmdOption) *grantCmd {
 func (g *grantCmd) command() (*cobra.Command, error) {
 	cmd := &cobra.Command{
 		Use:   "grant",
-		Short: "Interactive Intent-to-Infrastructure wizard",
+		Short: "Automation wizard",
 		Long: `Grant your infrastructure wish! This command launches an interactive wizard
 that helps you describe your application requirements and generates production-ready
 infrastructure code using Stackgen's agentic intelligence.
@@ -147,11 +147,7 @@ func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
 	// Open central database (GORM + SQLite) for persistent features.
 	// Must be initialized before NewCodeOwner so the approval store is
 	// available for sub-agent HITL gating via create_agent.
-	dbPath, err := geniedb.DefaultPath()
-	if err != nil {
-		return fmt.Errorf("database path: %w", err)
-	}
-	gormDB, err := geniedb.Open(dbPath)
+	gormDB, err := geniedb.Open(genieCfg.DBConfig.DBFile)
 	if err != nil {
 		return fmt.Errorf("database open: %w", err)
 	}
@@ -163,7 +159,7 @@ func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
 	if err := geniedb.AutoMigrate(gormDB); err != nil {
 		return fmt.Errorf("database migrate: %w", err)
 	}
-	logger.Info("Central database opened", "path", dbPath)
+	logger.Info("Central database opened", "path", genieCfg.DBConfig.DBFile)
 
 	// HITL approval store for human-in-the-loop tool approval.
 	var approvalStore = genieCfg.HITL.NewStore(gormDB)
@@ -253,8 +249,9 @@ func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
 	// Print startup banner.
 	fmt.Fprintf(os.Stderr, "\n🧞 Genie AG-UI server starting on :%d\n", genieCfg.AGUI.Port)
 	fmt.Fprintf(os.Stderr, "   Working directory: %s\n", g.rootOpts.workingDir)
-	fmt.Fprintf(os.Stderr, "   Database:          %s\n", dbPath)
-	fmt.Fprintf(os.Stderr, "   Health check:      http://localhost:%d/health\n\n", genieCfg.AGUI.Port)
+	fmt.Fprintf(os.Stderr, "   Database:          %s\n", genieCfg.DBConfig.DBFile)
+	fmt.Fprintf(os.Stderr, "   Health check:      http://localhost:%d/health\n", genieCfg.AGUI.Port)
+	fmt.Fprintf(os.Stderr, "   Resume:            http://localhost:%d/resume\n\n", genieCfg.AGUI.Port)
 
 	// Start AG-UI HTTP/SSE server — blocks until context is cancelled.
 	aguiServer := genieCfg.AGUI.NewServer(httpHandler, approvalStore)
