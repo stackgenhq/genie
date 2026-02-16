@@ -251,7 +251,7 @@ func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "   Working directory: %s\n", g.rootOpts.workingDir)
 	fmt.Fprintf(os.Stderr, "   Database:          %s\n", genieCfg.DBConfig.DBFile)
 	fmt.Fprintf(os.Stderr, "   Health check:      http://localhost:%d/health\n", genieCfg.AGUI.Port)
-	fmt.Fprintf(os.Stderr, "   Resume:            http://localhost:%d/resume\n\n", genieCfg.AGUI.Port)
+	fmt.Fprintf(os.Stderr, "   Resume:            http://localhost:%d/api/v1/resume\n\n", genieCfg.AGUI.Port)
 
 	// Start AG-UI HTTP/SSE server — blocks until context is cancelled.
 	aguiServer := genieCfg.AGUI.NewServer(httpHandler, approvalStore)

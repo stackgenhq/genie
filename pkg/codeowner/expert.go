@@ -5,7 +5,6 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/appcd-dev/genie/pkg/agentutils"
@@ -16,6 +15,7 @@ import (
 	"github.com/appcd-dev/genie/pkg/langfuse"
 	"github.com/appcd-dev/genie/pkg/memory/vector"
 	"github.com/appcd-dev/genie/pkg/messenger"
+	"github.com/appcd-dev/genie/pkg/osutils"
 	"github.com/appcd-dev/genie/pkg/reactree"
 	rtmemory "github.com/appcd-dev/genie/pkg/reactree/memory"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
@@ -241,16 +241,21 @@ func NewCodeOwner(
 		tools:           codeOwnerTools,
 		auditor:         auditor,
 	}
-	go func(ctx context.Context) {
-		res := codeOwner.createResume(ctx, summarizer, toolRegistry)
-		codeOwner.resume = res
-	}(context.WithoutCancel(ctx))
+	codeOwner.resume, err = codeOwner.createResume(ctx, summarizer, toolRegistry, fullPersona)
+	if err != nil {
+		logger.GetLogger(ctx).Warn("failed to create the resume", "error", err)
+	}
 	return codeOwner, nil
 }
 
 // createResume generates a natural-language resume for the codeOwner agent
 // based on the tools available to both the main agent and its subagents.
-func (c *codeOwner) createResume(ctx context.Context, summarizer agentutils.Summarizer, registry reactree.ToolRegistry) string {
+func (c *codeOwner) createResume(
+	ctx context.Context,
+	summarizer agentutils.Summarizer,
+	registry reactree.ToolRegistry,
+	fullPersona string,
+) (string, error) {
 	logger := logger.GetLogger(ctx)
 	// use the front desk expert to check on available tools and then create a resume
 	result, err := summarizer.Summarize(ctx, agentutils.SummarizeRequest{
@@ -262,19 +267,17 @@ func (c *codeOwner) createResume(ctx context.Context, summarizer agentutils.Summ
 - Give some examples of what you can do.
 - Keep it short and concise.
 
-Available Subagent Tools:
+Persona:
 %s
 
-Available Main Agent Tools:
-%s
-
-`, registry.String(), c.tools),
+Available Skills:
+%s`, fullPersona, registry.String()),
 	})
 	if err != nil {
 		logger.Error("error creating resume", "error", err)
-		return ""
+		return "", fmt.Errorf("error creating resume: %w", err)
 	}
-	return result
+	return result, nil
 }
 
 // Close releases resources held by the codeOwner, including the conversation
@@ -550,7 +553,12 @@ func loadAgentsGuide(dir string) string {
 	if dir == "" {
 		return ""
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "Agents.md"))
+	// case insensitive search for agents.mds
+	agentsFile, err := osutils.FindFileCaseInsensitive(dir, "agents.md")
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(agentsFile)
 	if err != nil {
 		return ""
 	}
