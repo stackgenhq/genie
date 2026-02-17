@@ -412,22 +412,94 @@ howto_guides:
     title: Chat Platform Setup
     desc: >
       Wire Genie into Slack, Discord, Telegram, Teams, Google Chat, or WhatsApp so your team can
-      interact directly.
+      interact directly. When Human-in-the-Loop (HITL) approval is enabled, each platform shows
+      tool arguments using its native rich formatting — Block Kit in Slack, Adaptive Cards in Teams,
+      Cards v2 in Google Chat, and structured text elsewhere.
     code: |
-      # Example: Slack (Socket Mode)
+      # ─── Slack (Socket Mode — recommended) ────────────────
+      # 1. Create a Slack app at https://api.slack.com/apps
+      # 2. Enable Socket Mode (Settings → Socket Mode → Toggle On)
+      # 3. Generate an App-Level Token (xapp-...) with connections:write
+      # 4. Add Bot Token Scopes: chat:write, app_mentions:read, im:history
+      # 5. Install the app to your workspace
+      # 6. Copy the Bot User Token (xoxb-...)
+
       [messenger]
       platform = "slack"
-      buffer_size = 100
 
       [messenger.slack]
-      app_token = "${SLACK_APP_TOKEN}"
-      bot_token = "${SLACK_BOT_TOKEN}"
+      app_token = "${SLACK_APP_TOKEN}"    # xapp-...
+      bot_token = "${SLACK_BOT_TOKEN}"    # xoxb-...
 
-      # Steps:
-      # 1. Create app at api.slack.com/apps
-      # 2. Enable Socket Mode
-      # 3. Add bot scopes: chat:write
-      # 4. Install to your workspace
+      # Genie sends HITL approvals as Slack Block Kit messages
+      # with formatted code blocks and Approve/Reject/Revisit buttons.
+
+      # ─── Discord ──────────────────────────────────────────
+      # 1. Create an application at https://discord.com/developers
+      # 2. Add a Bot under the Bot tab
+      # 3. Enable Message Content Intent
+      # 4. Copy the Bot Token
+      # 5. Invite bot with: OAuth2 → URL Generator → bot (Send Messages)
+
+      [messenger]
+      platform = "discord"
+
+      [messenger.discord]
+      bot_token = "${DISCORD_BOT_TOKEN}"
+
+      # ─── Telegram ─────────────────────────────────────────
+      # 1. Message @BotFather on Telegram
+      # 2. /newbot → follow prompts → copy the token
+
+      [messenger]
+      platform = "telegram"
+
+      [messenger.telegram]
+      token = "${TELEGRAM_BOT_TOKEN}"
+
+      # ─── Microsoft Teams ──────────────────────────────────
+      # 1. Register a Bot at https://dev.botframework.com
+      # 2. Create an Azure Bot resource (or App Registration)
+      # 3. Note the App ID and generate a client secret
+      # 4. Configure the messaging endpoint to point to Genie
+
+      [messenger]
+      platform = "teams"
+
+      [messenger.teams]
+      app_id = "${TEAMS_APP_ID}"
+      app_password = "${TEAMS_APP_PASSWORD}"
+      listen_addr = ":3978"              # webhook endpoint
+
+      # Genie sends HITL approvals as Adaptive Cards with
+      # formatted arguments and styled action buttons.
+
+      # ─── Google Chat ──────────────────────────────────────
+      # 1. Create a Google Cloud project
+      # 2. Enable the Google Chat API
+      # 3. Create a Service Account and download the JSON key
+      # 4. Configure the Chat app in the API console
+
+      [messenger]
+      platform = "googlechat"
+
+      [messenger.googlechat]
+      credentials_file = "/path/to/service-account.json"
+      listen_addr = ":8080"              # webhook endpoint
+
+      # Genie sends HITL approvals as Cards v2 with headers,
+      # code-formatted arguments, and instructional footers.
+
+      # ─── WhatsApp ─────────────────────────────────────────
+      # 1. Uses the whatsmeow library (no Meta Cloud API needed)
+      # 2. On first run, scan the QR code to link your device
+      # 3. Session is persisted to store_path for reconnection
+
+      [messenger]
+      platform = "whatsapp"
+
+      [messenger.whatsapp]
+      store_path = "/var/lib/genie/whatsapp"
 
   - step: 6
     title: Using Environment Variables

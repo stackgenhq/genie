@@ -6,7 +6,11 @@
 package hitl
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -39,6 +43,33 @@ type ApprovalRequest struct {
 	CreatedAt  time.Time      `json:"created_at"`
 	ResolvedAt *time.Time     `json:"resolved_at,omitempty"`
 	ResolvedBy string         `json:"resolved_by,omitempty"`
+}
+
+func (a ApprovalRequest) String() string {
+	// Pretty-print JSON args for readability.
+	prettyArgs := a.Args
+	if json.Valid([]byte(a.Args)) {
+		var buf bytes.Buffer
+		if err := json.Indent(&buf, []byte(a.Args), "", "  "); err == nil {
+			prettyArgs = buf.String()
+		}
+	}
+	var sb strings.Builder
+	sb.WriteString("⚠️ **Approval Required**\n")
+	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	fmt.Fprintf(&sb, "🔧 **Tool**: `%s`\n\n", a.ToolName)
+
+	if a.Feedback != "" {
+		fmt.Fprintf(&sb, "💡 **Why**: %s\n\n", a.Feedback)
+	}
+
+	sb.WriteString("📋 **Arguments**:\n")
+	sb.WriteString("```\n")
+	sb.WriteString(prettyArgs)
+	sb.WriteString("\n```\n")
+	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	sb.WriteString("Reply **Yes** to approve, **No** to reject, or send any other message as feedback to have the agent revisit its approach.")
+	return sb.String()
 }
 
 // CreateRequest contains the fields needed to create a new approval request.

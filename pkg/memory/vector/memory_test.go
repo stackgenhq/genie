@@ -32,10 +32,10 @@ var _ = Describe("Vector Store", func() {
 		})
 
 		It("should add and retrieve documents", func() {
-			err = store.Add(ctx, "1", "The sky is blue", map[string]string{"type": "fact"})
+			err = store.Add(ctx, vector.BatchItem{ID: "1", Text: "The sky is blue", Metadata: map[string]string{"type": "fact"}})
 			Expect(err).NotTo(HaveOccurred())
 
-			err = store.Add(ctx, "2", "Apples are red", map[string]string{"type": "fact"})
+			err = store.Add(ctx, vector.BatchItem{ID: "2", Text: "Apples are red", Metadata: map[string]string{"type": "fact"}})
 			Expect(err).NotTo(HaveOccurred())
 
 			results, err := store.Search(ctx, "The sky is blue", 1)
@@ -68,7 +68,7 @@ var _ = Describe("Vector Store", func() {
 			store1, err := cfg.NewStore(ctx)
 			Expect(err).NotTo(HaveOccurred())
 
-			err = store1.Add(ctx, "persist-1", "Go is great", map[string]string{"lang": "go"})
+			err = store1.Add(ctx, vector.BatchItem{ID: "persist-1", Text: "Go is great", Metadata: map[string]string{"lang": "go"}})
 			Expect(err).NotTo(HaveOccurred())
 
 			// Create store 2 from the same directory — should restore.

@@ -236,5 +236,11 @@ func (m *Messenger) messageCreate(_ *discordgo.Session, event *discordgo.Message
 	}
 }
 
+// FormatApproval returns the request unchanged — Discord does not use
+// rich card formatting for approval notifications.
+func (m *Messenger) FormatApproval(req messenger.SendRequest, _ messenger.ApprovalInfo) messenger.SendRequest {
+	return req
+}
+
 // Compile-time interface compliance check.
 var _ messenger.Messenger = (*Messenger)(nil)

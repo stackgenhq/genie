@@ -143,7 +143,7 @@ func buildAgentPrompt(ctx context.Context, goal string, wm *memory.WorkingMemory
 	// Include adaptive-loop iteration context (accumulated output from prior iterations).
 	// This takes priority over previousStageOutput when both are present.
 	if iterationContext != "" {
-		sb.WriteString(fmt.Sprintf("## Progress So Far (iteration %d)\n", iterationCount))
+		fmt.Fprintf(&sb, "## Progress So Far (iteration %d)\n", iterationCount)
 		sb.WriteString("The following was already accomplished in prior iterations. " +
 			"DO NOT repeat tool calls or research already done. " +
 			"Use the gathered information to produce a COMPLETE response that FULLY " +
@@ -207,7 +207,7 @@ func buildAgentPrompt(ctx context.Context, goal string, wm *memory.WorkingMemory
 	if len(episodes) > 0 {
 		sb.WriteString("## Relevant Past Experiences\n")
 		for _, ep := range episodes {
-			sb.WriteString(fmt.Sprintf("### Goal: %s (outcome: %s)\n%s\n\n", ep.Goal, ep.Status, ep.Trajectory))
+			fmt.Fprintf(&sb, "### Goal: %s (outcome: %s)\n%s\n\n", ep.Goal, ep.Status, ep.Trajectory)
 		}
 	}
 

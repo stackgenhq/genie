@@ -149,6 +149,9 @@ func (s *stubMessenger) Receive(_ context.Context) (<-chan messenger.IncomingMes
 	return make(chan messenger.IncomingMessage), nil
 }
 func (s *stubMessenger) Platform() messenger.Platform { return "stub" }
+func (s *stubMessenger) FormatApproval(req messenger.SendRequest, _ messenger.ApprovalInfo) messenger.SendRequest {
+	return req
+}
 
 func (s *stubMessenger) Close() error { return nil }
 

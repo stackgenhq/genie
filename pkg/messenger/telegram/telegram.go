@@ -251,5 +251,11 @@ func (m *Messenger) defaultHandler(ctx context.Context, _ *tgbot.Bot, update *tg
 	}
 }
 
+// FormatApproval returns the request unchanged — Telegram does not use
+// rich card formatting for approval notifications.
+func (m *Messenger) FormatApproval(req messenger.SendRequest, _ messenger.ApprovalInfo) messenger.SendRequest {
+	return req
+}
+
 // Compile-time interface compliance check.
 var _ messenger.Messenger = (*Messenger)(nil)

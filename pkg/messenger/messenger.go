@@ -164,4 +164,24 @@ type Messenger interface {
 
 	// Platform returns the platform identifier for this adapter.
 	Platform() Platform
+
+	// FormatApproval enriches a SendRequest with platform-specific rich
+	// formatting (e.g. Slack Block Kit, Google Chat Cards v2, Teams Adaptive
+	// Cards) for the given approval. Adapters that do not support rich
+	// formatting should return the request unchanged.
+	FormatApproval(req SendRequest, info ApprovalInfo) SendRequest
+}
+
+// ApprovalInfo carries the data needed by adapters to render a rich approval
+// notification. Defined here (not in the hitl package) to avoid a circular
+// dependency between messenger and hitl.
+type ApprovalInfo struct {
+	// ID is the unique approval identifier.
+	ID string
+	// ToolName is the tool that requires approval.
+	ToolName string
+	// Args is the pretty-printed JSON arguments.
+	Args string
+	// Feedback is the optional justification / reason for the call.
+	Feedback string
 }

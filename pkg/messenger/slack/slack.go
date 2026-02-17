@@ -25,6 +25,7 @@ package slack
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -139,6 +140,8 @@ func (m *Messenger) Disconnect(ctx context.Context) error {
 }
 
 // Send delivers a message to a Slack channel or thread.
+// If req.Metadata["blocks"] contains a []slack.Block, the message is sent
+// with Block Kit formatting (the text field is used as the plaintext fallback).
 func (m *Messenger) Send(ctx context.Context, req messenger.SendRequest) (messenger.SendResponse, error) {
 	m.mu.RLock()
 	connected := m.connected
@@ -156,6 +159,10 @@ func (m *Messenger) Send(ctx context.Context, req messenger.SendRequest) (messen
 		opts = append(opts, slack.MsgOptionTS(req.ThreadID))
 	}
 
+	if blocks := extractBlocks(req.Metadata); len(blocks) > 0 {
+		opts = append(opts, slack.MsgOptionBlocks(blocks...))
+	}
+
 	channelID, ts, _, err := m.api.SendMessageContext(ctx, req.Channel.ID, opts...)
 	if err != nil {
 		return messenger.SendResponse{}, fmt.Errorf("%w: %s", messenger.ErrSendFailed, err)
@@ -165,6 +172,36 @@ func (m *Messenger) Send(ctx context.Context, req messenger.SendRequest) (messen
 		MessageID: channelID + ":" + ts,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+// extractBlocks converts metadata["blocks"] into typed []slack.Block.
+// It accepts both typed []slack.Block (pass-through) and generic []any / []map[string]any
+// (JSON round-tripped into SDK types). Returns nil if no valid blocks are found.
+func extractBlocks(metadata map[string]any) []slack.Block {
+	if metadata == nil {
+		return nil
+	}
+
+	raw, ok := metadata["blocks"]
+	if !ok {
+		return nil
+	}
+
+	switch b := raw.(type) {
+	case []slack.Block:
+		return b
+	default:
+		// JSON round-trip []any / []map[string]any into SDK types.
+		data, err := json.Marshal(b)
+		if err != nil {
+			return nil
+		}
+		var blocks slack.Blocks
+		if json.Unmarshal(data, &blocks) != nil {
+			return nil
+		}
+		return blocks.BlockSet
+	}
 }
 
 // Receive returns a channel of incoming messages from Slack.
@@ -247,6 +284,98 @@ func (m *Messenger) handleEventsAPI(ctx context.Context, event slackevents.Event
 			}
 		}
 	}
+}
+
+// FormatApproval builds a Slack Block Kit message for an approval notification.
+// This satisfies the messenger.ApprovalFormatter interface, keeping all
+// Slack-specific formatting inside the Slack adapter.
+func (m *Messenger) FormatApproval(req messenger.SendRequest, info messenger.ApprovalInfo) messenger.SendRequest {
+	// Plaintext fallback (used in push notifications and unfurls).
+	req.Content = messenger.MessageContent{
+		Text: fmt.Sprintf("⚠️ Approval Required — %s\nArgs:\n%s", info.ToolName, info.Args),
+	}
+
+	blocks := []any{
+		// Header
+		map[string]any{
+			"type": "header",
+			"text": map[string]any{
+				"type": "plain_text",
+				"text": fmt.Sprintf("⚠️ Approval Required — %s", info.ToolName),
+			},
+		},
+	}
+
+	// Justification section
+	if info.Feedback != "" {
+		blocks = append(blocks, map[string]any{
+			"type": "section",
+			"text": map[string]any{
+				"type": "mrkdwn",
+				"text": fmt.Sprintf("💡 *Why*: %s", info.Feedback),
+			},
+		})
+	}
+
+	// Args as a code block section
+	blocks = append(blocks, map[string]any{
+		"type": "section",
+		"text": map[string]any{
+			"type": "mrkdwn",
+			"text": fmt.Sprintf("📋 *Arguments*:\n```%s```", info.Args),
+		},
+	})
+
+	// Divider before actions
+	blocks = append(blocks, map[string]any{
+		"type": "divider",
+	})
+
+	// Action buttons
+	blocks = append(blocks, map[string]any{
+		"type":     "actions",
+		"block_id": "approval_" + info.ID,
+		"elements": []any{
+			map[string]any{
+				"type":      "button",
+				"text":      map[string]any{"type": "plain_text", "text": "✅ Approve"},
+				"style":     "primary",
+				"action_id": "approve_" + info.ID,
+				"value":     info.ID,
+			},
+			map[string]any{
+				"type":      "button",
+				"text":      map[string]any{"type": "plain_text", "text": "🔄 Revisit"},
+				"action_id": "revisit_" + info.ID,
+				"value":     info.ID,
+			},
+			map[string]any{
+				"type":      "button",
+				"text":      map[string]any{"type": "plain_text", "text": "❌ Reject"},
+				"style":     "danger",
+				"action_id": "reject_" + info.ID,
+				"value":     info.ID,
+			},
+		},
+	})
+
+	// Context footer
+	blocks = append(blocks, map[string]any{
+		"type": "context",
+		"elements": []any{
+			map[string]any{
+				"type": "mrkdwn",
+				"text": "You can also reply *Yes* to approve, *No* to reject, or type feedback to revisit.",
+			},
+		},
+	})
+
+	if req.Metadata == nil {
+		req.Metadata = make(map[string]any)
+	}
+	req.Metadata["blocks"] = blocks
+
+	return req
 }
 
 // Compile-time interface compliance check.

@@ -15,6 +15,11 @@ import (
 )
 
 var _ = Describe("DDoS Protection Middleware", func() {
+	// var fakeExpert agui.Expert
+
+	// BeforeEach(func() {
+	// 	fakeExpert = &aguifakes.FakeExpert{}
+	// })
 
 	// Helper: create a simple server with the given config and a handler that
 	// writes a single text chunk, optionally sleeping to simulate work.
@@ -303,4 +308,4 @@ type mockExpert struct {
 func (m *mockExpert) Handle(ctx context.Context, req agui.ChatRequest) {
 	m.handler(ctx, req)
 }
-func (m *mockExpert) Resume() string { return "" }
+func (m *mockExpert) Resume(ctx context.Context) string { return "" }

@@ -20,22 +20,25 @@ import (
 // after the first TEXT_MESSAGE_END, all subsequent text message events are
 // suppressed while tool calls and stage progress events pass through.
 func NewChatHandlerFromCodeOwner(
-	resume string,
+	resumeFunc func(ctx context.Context) string,
 	chatFunc func(ctx context.Context, message string, agentsMessage chan<- interface{}) error,
 ) Expert {
 	return expert{
-		resume:   resume,
-		chatFunc: chatFunc,
+		resumeFunc: resumeFunc,
+		chatFunc:   chatFunc,
 	}
 }
 
 type expert struct {
-	resume   string
-	chatFunc func(ctx context.Context, message string, agentsMessage chan<- interface{}) error
+	resumeFunc func(ctx context.Context) string
+	chatFunc   func(ctx context.Context, message string, agentsMessage chan<- interface{}) error
 }
 
-func (e expert) Resume() string {
-	return e.resume
+func (e expert) Resume(ctx context.Context) string {
+	if e.resumeFunc == nil {
+		return ""
+	}
+	return e.resumeFunc(ctx)
 }
 
 func (e expert) Handle(ctx context.Context, req ChatRequest) {

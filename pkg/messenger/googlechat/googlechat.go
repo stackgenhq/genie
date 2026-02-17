@@ -26,6 +26,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"os"
 	"sync"
@@ -194,6 +195,8 @@ func (m *Messenger) Disconnect(ctx context.Context) error {
 }
 
 // Send delivers a message to a Google Chat space.
+// If req.Metadata["cards_v2"] contains a []*chat.CardWithId, the message is sent
+// with Cards v2 formatting (the text field is used as the plaintext fallback).
 func (m *Messenger) Send(ctx context.Context, req messenger.SendRequest) (messenger.SendResponse, error) {
 	m.mu.RLock()
 	connected := m.connected
@@ -213,6 +216,10 @@ func (m *Messenger) Send(ctx context.Context, req messenger.SendRequest) (messen
 		}
 	}
 
+	if cards := extractCardsV2(req.Metadata); len(cards) > 0 {
+		gcMsg.CardsV2 = cards
+	}
+
 	result, err := m.chatSvc.Spaces.Messages.Create(req.Channel.ID, gcMsg).Context(ctx).Do()
 	if err != nil {
 		return messenger.SendResponse{}, fmt.Errorf("%w: %s", messenger.ErrSendFailed, err)
@@ -222,6 +229,36 @@ func (m *Messenger) Send(ctx context.Context, req messenger.SendRequest) (messen
 		MessageID: result.Name,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+// extractCardsV2 converts metadata["cards_v2"] into typed []*chat.CardWithId.
+// It accepts both typed []*chat.CardWithId (pass-through) and generic []any / []map[string]any
+// (JSON round-tripped into SDK types). Returns nil if no valid cards are found.
+func extractCardsV2(metadata map[string]any) []*chat.CardWithId {
+	if metadata == nil {
+		return nil
+	}
+
+	raw, ok := metadata["cards_v2"]
+	if !ok {
+		return nil
+	}
+
+	switch c := raw.(type) {
+	case []*chat.CardWithId:
+		return c
+	default:
+		// JSON round-trip []any / []map[string]any into SDK types.
+		data, err := json.Marshal(c)
+		if err != nil {
+			return nil
+		}
+		var cards []*chat.CardWithId
+		if json.Unmarshal(data, &cards) != nil {
+			return nil
+		}
+		return cards
+	}
 }
 
 // Receive returns a channel of incoming messages from Google Chat.
@@ -313,6 +350,70 @@ func (m *Messenger) convertAndPublish(ctx context.Context, event chatEvent) {
 		logger.GetLogger(ctx).With("platform", "googlechat").Warn("incoming message buffer full, dropping message",
 			"space", spaceName, "user", senderID)
 	}
+}
+
+// FormatApproval builds a Google Chat Cards v2 message for an approval notification.
+// This satisfies the messenger.ApprovalFormatter interface, keeping all
+// Google Chat-specific formatting inside the adapter.
+func (m *Messenger) FormatApproval(req messenger.SendRequest, info messenger.ApprovalInfo) messenger.SendRequest {
+	sections := []any{
+		// Args section
+		map[string]any{
+			"header": "📋 Arguments",
+			"widgets": []any{
+				map[string]any{
+					"textParagraph": map[string]any{
+						"text": fmt.Sprintf("<pre>%s</pre>", html.EscapeString(info.Args)),
+					},
+				},
+			},
+		},
+	}
+
+	// Justification section (if present)
+	if info.Feedback != "" {
+		sections = append([]any{
+			map[string]any{
+				"header": "💡 Justification",
+				"widgets": []any{
+					map[string]any{
+						"textParagraph": map[string]any{
+							"text": html.EscapeString(info.Feedback),
+						},
+					},
+				},
+			},
+		}, sections...)
+	}
+
+	// Footer section with reply instructions
+	sections = append(sections, map[string]any{
+		"widgets": []any{
+			map[string]any{
+				"textParagraph": map[string]any{
+					"text": "<i>Reply <b>Yes</b> to approve, <b>No</b> to reject, or type feedback to revisit.</i>",
+				},
+			},
+		},
+	})
+
+	card := map[string]any{
+		"cardId": "approval_" + info.ID,
+		"card": map[string]any{
+			"header": map[string]any{
+				"title":    fmt.Sprintf("⚠️ Approval Required — %s", info.ToolName),
+				"subtitle": "Tool approval request",
+			},
+			"sections": sections,
+		},
+	}
+
+	if req.Metadata == nil {
+		req.Metadata = make(map[string]any)
+	}
+	req.Metadata["cards_v2"] = []any{card}
+
+	return req
 }
 
 // Compile-time interface compliance check.

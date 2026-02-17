@@ -3,6 +3,7 @@ package vector
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,22 +11,45 @@ import (
 
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/document"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/embedder"
+	geminiembed "trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/gemini"
+	hfembed "trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/huggingface"
 	openaiembed "trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/openai"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/inmemory"
 )
 
+//go:generate go tool counterfeiter -generate
+
+//counterfeiter:generate . IStore
+type IStore interface {
+	Search(ctx context.Context, query string, limit int) ([]SearchResult, error)
+	Add(ctx context.Context, items ...BatchItem) error
+	Delete(ctx context.Context, ids ...string) error
+	Close(ctx context.Context) error
+}
+
+// BatchItem represents a single document to be stored via Add.
+type BatchItem struct {
+	ID       string
+	Text     string
+	Metadata map[string]string
+}
+
 // Config holds the configuration for the vector store.
-// It supports OpenAI, Ollama (via OpenAI-compatible endpoint), and a
-// deterministic dummy embedder for development and testing.
+// It supports OpenAI, Ollama (via OpenAI-compatible endpoint), HuggingFace
+// Text-Embeddings-Inference, Gemini, and a deterministic dummy embedder
+// for development and testing.
 type Config struct {
 	// PersistenceDir is the directory where the vector store snapshot is
 	// saved as a JSON file. If empty, the store is ephemeral (in-memory only).
 	PersistenceDir    string `yaml:"persistence_dir" toml:"persistence_dir"`
-	EmbeddingProvider string `yaml:"embedding_provider" toml:"embedding_provider"` // "openai", "ollama", "dummy"
+	EmbeddingProvider string `yaml:"embedding_provider" toml:"embedding_provider"` // "openai", "ollama", "huggingface", "gemini", "dummy"
 	APIKey            string `yaml:"api_key" toml:"api_key"`
 	OllamaURL         string `yaml:"ollama_url" toml:"ollama_url"`
 	OllamaModel       string `yaml:"ollama_model" toml:"ollama_model"`
+	HuggingFaceURL    string `yaml:"huggingface_url" toml:"huggingface_url"`
+	GeminiAPIKey      string `yaml:"gemini_api_key" toml:"gemini_api_key"`
+	GeminiModel       string `yaml:"gemini_model" toml:"gemini_model"`
 }
 
 func DefaultConfig() Config {
@@ -34,12 +58,15 @@ func DefaultConfig() Config {
 		APIKey:            os.Getenv("OPENAI_API_KEY"),
 		OllamaURL:         os.Getenv("OLLAMA_URL"),
 		OllamaModel:       os.Getenv("OLLAMA_MODEL"),
+		HuggingFaceURL:    os.Getenv("HUGGINGFACE_URL"),
+		GeminiAPIKey:      os.Getenv("GOOGLE_API_KEY"),
+		GeminiModel:       os.Getenv("GEMINI_EMBED_MODEL"),
 	}
 }
 
 // CanInitialize checks if the config can be used to initialize a vector store.
 func (c Config) CanInitialize() bool {
-	return c.EmbeddingProvider != "" || c.APIKey != "" || c.OllamaURL != ""
+	return c.EmbeddingProvider != "" || c.APIKey != "" || c.OllamaURL != "" || c.HuggingFaceURL != "" || c.GeminiAPIKey != ""
 }
 
 // snapshotFile is the filename used to persist the vector store state.
@@ -49,10 +76,17 @@ const snapshotFile = "vector_store.json"
 // It contains the matched document content, its metadata and
 // the cosine similarity score (0.0–1.0, higher is more similar).
 type SearchResult struct {
-	ID       string         `json:"id"`
-	Content  string         `json:"content"`
-	Metadata map[string]any `json:"metadata,omitempty"`
-	Score    float64        `json:"score"`
+	ID       string            `json:"id"`
+	Content  string            `json:"content"`
+	Metadata map[string]string `json:"metadata,omitempty"`
+	Score    float64           `json:"score"`
+}
+
+type SearchResults []SearchResult
+
+func (s SearchResult) String() string {
+	// create LLM friendly search result that includes type and Content
+	return fmt.Sprintf("Type: %s\nContent: %s\nMetadata: %v", s.Metadata["type"], s.Content, s.Metadata)
 }
 
 // persistedEntry is the on-disk representation of a stored document
@@ -75,8 +109,8 @@ type Store struct {
 
 // NewStore creates a new vector store backed by trpc-agent-go/knowledge.
 // If cfg.PersistenceDir is set, existing data is loaded from disk.
-func (cfg Config) NewStore(_ context.Context) (*Store, error) {
-	emb, err := buildEmbedder(cfg)
+func (cfg Config) NewStore(ctx context.Context) (*Store, error) {
+	emb, err := buildEmbedder(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create embedder: %w", err)
 	}
@@ -99,38 +133,37 @@ func (cfg Config) NewStore(_ context.Context) (*Store, error) {
 	return s, nil
 }
 
-// Add stores a text with metadata under the given id.
-// The text is embedded and stored in the vector store for later retrieval.
-// If persistence is configured, the store is snapshotted to disk afterwards.
-func (s *Store) Add(ctx context.Context, id string, text string, metadata map[string]string) error {
-	embedding, err := s.embedder.GetEmbedding(ctx, text)
-	if err != nil {
-		return fmt.Errorf("failed to generate embedding: %w", err)
-	}
+// Add stores one or more documents in the vector store. Each item is
+// embedded and stored, and a single disk snapshot is taken at the end.
+// Using variadic args makes this efficient for both single inserts and
+// bulk ingestion (e.g. runbook loading).
+func (s *Store) Add(ctx context.Context, items ...BatchItem) error {
+	for _, item := range items {
+		embedding, err := s.embedder.GetEmbedding(ctx, item.Text)
+		if err != nil {
+			return fmt.Errorf("failed to generate embedding for %s: %w", item.ID, err)
+		}
 
-	// Convert map[string]string → map[string]any for the document model.
-	meta := make(map[string]any, len(metadata))
-	for k, v := range metadata {
-		meta[k] = v
-	}
+		meta := make(map[string]any, len(item.Metadata))
+		for k, v := range item.Metadata {
+			meta[k] = v
+		}
 
-	doc := &document.Document{
-		ID:       id,
-		Content:  text,
-		Metadata: meta,
-	}
+		doc := &document.Document{
+			ID:       item.ID,
+			Content:  item.Text,
+			Metadata: meta,
+		}
 
-	if err := s.vs.Add(ctx, doc, embedding); err != nil {
-		return fmt.Errorf("failed to store document: %w", err)
-	}
-
-	// Best-effort persist after every write.
-	if s.persistDir != "" {
-		if err := s.saveSnapshot(ctx); err != nil {
-			return fmt.Errorf("failed to save snapshot: %w", err)
+		if err := s.vs.Add(ctx, doc, embedding); err != nil {
+			return fmt.Errorf("failed to store document %s: %w", item.ID, err)
 		}
 	}
 
+	// Single snapshot after all documents are added.
+	if err := s.saveSnapshot(ctx); err != nil {
+		return fmt.Errorf("failed to save snapshot: %w", err)
+	}
 	return nil
 }
 
@@ -153,14 +186,47 @@ func (s *Store) Search(ctx context.Context, query string, limit int) ([]SearchRe
 
 	results := make([]SearchResult, 0, len(res.Results))
 	for _, r := range res.Results {
+		// Convert map[string]any → map[string]string (we only store strings via Add).
+		meta := make(map[string]string, len(r.Document.Metadata))
+		for k, v := range r.Document.Metadata {
+			meta[k] = fmt.Sprintf("%v", v)
+		}
 		results = append(results, SearchResult{
 			ID:       r.Document.ID,
 			Content:  r.Document.Content,
-			Metadata: r.Document.Metadata,
+			Metadata: meta,
 			Score:    r.Score,
 		})
 	}
 	return results, nil
+}
+
+// Delete removes one or more documents by their IDs from the vector store.
+// A single snapshot is taken at the end. Errors from individual deletes
+// are collected but do not stop processing of remaining items.
+func (s *Store) Delete(ctx context.Context, ids ...string) error {
+	var errs []error
+	for _, id := range ids {
+		if err := s.vs.Delete(ctx, id); err != nil {
+			errs = append(errs, fmt.Errorf("failed to delete %s: %w", id, err))
+		}
+	}
+
+	// Single snapshot after all deletes.
+	if err := s.saveSnapshot(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("failed to save snapshot after delete: %w", err))
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
+}
+
+// Close flushes any pending state to disk (if persistence is configured).
+// It is safe to call multiple times.
+func (s *Store) Close(ctx context.Context) error {
+	return s.saveSnapshot(ctx)
 }
 
 // snapshotPath returns the full path to the snapshot file.
@@ -170,6 +236,9 @@ func (s *Store) snapshotPath() string {
 
 // saveSnapshot writes all documents and their embeddings to a JSON file.
 func (s *Store) saveSnapshot(ctx context.Context) error {
+	if s.persistDir == "" {
+		return nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -230,7 +299,9 @@ func (s *Store) loadSnapshot() error {
 }
 
 // buildEmbedder constructs the appropriate embedder based on configuration.
-func buildEmbedder(cfg Config) (embedder.Embedder, error) {
+// It accepts a context because the Gemini embedder requires one for client
+// initialization.
+func buildEmbedder(ctx context.Context, cfg Config) (embedder.Embedder, error) {
 	switch cfg.EmbeddingProvider {
 	case "openai":
 		if cfg.APIKey == "" {
@@ -256,6 +327,28 @@ func buildEmbedder(cfg Config) (embedder.Embedder, error) {
 			openaiembed.WithBaseURL(ollamaURL+"/v1"),
 			openaiembed.WithModel(model),
 		), nil
+
+	case "huggingface":
+		hfURL := cfg.HuggingFaceURL
+		if hfURL == "" {
+			hfURL = hfembed.DefaultBaseURL
+		}
+		return hfembed.New(
+			hfembed.WithBaseURL(hfURL),
+		), nil
+
+	case "gemini":
+		apiKey := cfg.GeminiAPIKey
+		if apiKey == "" {
+			return nil, fmt.Errorf("gemini provider requested but no API key found (set GOOGLE_API_KEY)")
+		}
+		opts := []geminiembed.Option{
+			geminiembed.WithAPIKey(apiKey),
+		}
+		if cfg.GeminiModel != "" {
+			opts = append(opts, geminiembed.WithModel(cfg.GeminiModel))
+		}
+		return geminiembed.New(ctx, opts...)
 
 	default:
 		// Deterministic, non-semantic embedder for testing/dev.

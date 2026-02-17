@@ -27,7 +27,7 @@
         skills_roots: ['./skills'],
         mcp_servers: [],
         web_search: { provider: 'duckduckgo', google_api_key: 'GOOGLE_API_KEY', google_cx: 'GOOGLE_CSE_ID', bing_api_key: 'BING_API_KEY' },
-        vector_memory: { persistence_dir: '', embedding_provider: 'dummy', api_key: 'OPENAI_API_KEY', ollama_url: '', ollama_model: '' },
+        vector_memory: { persistence_dir: '', embedding_provider: 'dummy', api_key: 'OPENAI_API_KEY', ollama_url: '', ollama_model: '', huggingface_url: '', gemini_api_key: 'GOOGLE_API_KEY', gemini_model: '' },
         messenger: {
             platform: '', buffer_size: 100,
             slack: { app_token: 'SLACK_APP_TOKEN', bot_token: 'SLACK_BOT_TOKEN' },
@@ -44,7 +44,8 @@
         hitl: { always_allowed: [] },
         db_config: { db_file: '' },
         agui: { port: 8080, cors_origins: ['https://appcd-dev.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576 },
-        langfuse: { public_key: 'LANGFUSE_PUBLIC_KEY', secret_key: 'LANGFUSE_SECRET_KEY', host: 'https://cloud.langfuse.com', enable_prompts: false }
+        langfuse: { public_key: 'LANGFUSE_PUBLIC_KEY', secret_key: 'LANGFUSE_SECRET_KEY', host: 'https://cloud.langfuse.com', enable_prompts: false },
+        runbook: { runbook_paths: [], max_content_size: 0 }
     };
 
     var PROVIDERS = ['openai', 'gemini', 'anthropic'];
@@ -56,7 +57,7 @@
     var TASK_TYPES = ['tool_calling', 'planning', 'terminal_calling', 'scientific_reasoning',
         'novel_reasoning', 'general_task', 'mathematical', 'long_horizon_autonomy', 'efficiency'];
     var MCP_TRANSPORTS = ['stdio', 'streamable_http', 'sse'];
-    var EMBED_PROVIDERS = ['dummy', 'openai', 'ollama'];
+    var EMBED_PROVIDERS = ['dummy', 'openai', 'ollama', 'huggingface', 'gemini'];
     var PLATFORMS = ['', 'slack', 'discord', 'telegram', 'teams', 'googlechat', 'whatsapp'];
 
     var SEARCH_PROVIDERS = ['duckduckgo', 'google', 'bing'];
@@ -184,6 +185,7 @@
         renderProviders();
 
         renderSkills();
+        renderRunbook();
         renderMCP();
         renderWebSearch();
         renderVectorMemory();
@@ -332,13 +334,22 @@
         if (!c) return;
         c.innerHTML = '';
         var vm = state.vector_memory;
-        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
-            fieldSelect('Embedding Provider', vm.embedding_provider, EMBED_PROVIDERS, function (v) { vm.embedding_provider = v; renderAll(); }, 'How Genie creates memory embeddings — OpenAI is best quality, Ollama is free/local'),
-            fieldText('Persistence Dir', vm.persistence_dir, function (v) { vm.persistence_dir = v; renderOutput(); }, './data/vectors', 'Where to save memory on disk — leave empty for in-memory only (lost on restart)'),
-            vm.embedding_provider === 'openai' ? fieldEnvVar('API Key', vm.api_key, function (v) { vm.api_key = v; renderOutput(); }, 'OPENAI_API_KEY', 'OpenAI API key used to generate text embeddings') : null,
-            vm.embedding_provider === 'ollama' ? fieldText('Ollama URL', vm.ollama_url, function (v) { vm.ollama_url = v; renderOutput(); }, 'http://localhost:11434', 'Address of your locally running Ollama server') : null,
-            vm.embedding_provider === 'ollama' ? fieldText('Ollama Model', vm.ollama_model, function (v) { vm.ollama_model = v; renderOutput(); }, 'nomic-embed-text', 'Which Ollama model to use for embeddings') : null
-        ]));
+        var fields = [
+            fieldSelect('Embedding Provider', vm.embedding_provider, EMBED_PROVIDERS, function (v) { vm.embedding_provider = v; renderAll(); }, 'How Genie creates memory embeddings — OpenAI is best quality, Gemini is great, HuggingFace TEI is self-hosted, Ollama is free/local'),
+            fieldText('Persistence Dir', vm.persistence_dir, function (v) { vm.persistence_dir = v; renderOutput(); }, './data/vectors', 'Where to save memory on disk — leave empty for in-memory only (lost on restart)')
+        ];
+        if (vm.embedding_provider === 'openai') {
+            fields.push(fieldEnvVar('API Key', vm.api_key, function (v) { vm.api_key = v; renderOutput(); }, 'OPENAI_API_KEY', 'OpenAI API key used to generate text embeddings'));
+        } else if (vm.embedding_provider === 'ollama') {
+            fields.push(fieldText('Ollama URL', vm.ollama_url, function (v) { vm.ollama_url = v; renderOutput(); }, 'http://localhost:11434', 'Address of your locally running Ollama server'));
+            fields.push(fieldText('Ollama Model', vm.ollama_model, function (v) { vm.ollama_model = v; renderOutput(); }, 'nomic-embed-text', 'Which Ollama model to use for embeddings'));
+        } else if (vm.embedding_provider === 'huggingface') {
+            fields.push(fieldText('HuggingFace TEI URL', vm.huggingface_url, function (v) { vm.huggingface_url = v; renderOutput(); }, 'http://localhost:8080', 'Address of your HuggingFace Text-Embeddings-Inference server'));
+        } else if (vm.embedding_provider === 'gemini') {
+            fields.push(fieldEnvVar('Google API Key', vm.gemini_api_key, function (v) { vm.gemini_api_key = v; renderOutput(); }, 'GOOGLE_API_KEY', 'Google API key for Gemini embedding models'));
+            fields.push(fieldText('Gemini Model', vm.gemini_model, function (v) { vm.gemini_model = v; renderOutput(); }, 'gemini-embedding-exp-03-07', 'Which Gemini model to use for embeddings (leave empty for default)'));
+        }
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
     }
 
     // ── Messenger ──
@@ -465,6 +476,30 @@
         ]));
     }
 
+    // ── Runbooks ──
+    function renderRunbook() {
+        var c = $('runbook-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var rb = state.runbook;
+        var paths = rb.runbook_paths || [];
+        paths.forEach(function (p, i) {
+            var inp = el('input', { className: 'form-input', type: 'text', value: p, placeholder: './runbooks/deploy.md or /abs/path' });
+            inp.addEventListener('input', function () { rb.runbook_paths[i] = this.value; renderOutput(); });
+            c.appendChild(el('div', { className: 'flex items-center gap-2 mb-2' }, [
+                inp,
+                el('button', { className: 'btn-remove', onClick: function () { rb.runbook_paths.splice(i, 1); renderAll(); } }, '✕')
+            ]));
+        });
+        c.appendChild(
+            el('button', { className: 'btn-add mt-1', onClick: function () { rb.runbook_paths.push(''); renderAll(); } }, '+ Add Path')
+        );
+        c.appendChild(el('div', { className: 'mt-4' }, [
+            fieldNumber('Max Content Size (bytes)', rb.max_content_size, function (v) { rb.max_content_size = v; renderOutput(); }, 0, 1048576, 'Max bytes per runbook file (0 = default 50 KB). Files exceeding this are truncated')
+        ]));
+        c.appendChild(el('p', { className: 'text-xs text-gray-400 mt-2' }, 'Tip: files in <code>.genie/runbooks/</code> are auto-discovered without config'));
+    }
+
     // ── AGUI ──
     function renderAGUI() {
         var c = $('agui-body');
@@ -521,6 +556,15 @@
         lines.push('');
     }
 
+    function runbookToToml(lines) {
+        var rb = state.runbook;
+        if (!hasItems(rb.runbook_paths) && !rb.max_content_size) return;
+        lines.push('[runbook]');
+        if (hasItems(rb.runbook_paths)) lines.push('runbook_paths = [' + rb.runbook_paths.filter(Boolean).map(q).join(', ') + ']');
+        if (rb.max_content_size > 0) lines.push('max_content_size = ' + rb.max_content_size);
+        lines.push('');
+    }
+
     function mcpToToml(lines) {
         state.mcp_servers.forEach(function (srv) {
             lines.push('[[mcp.servers]]');
@@ -557,6 +601,9 @@
         if (vm.api_key) lines.push('api_key = ' + q('${' + vm.api_key + '}'));
         if (vm.ollama_url) lines.push('ollama_url = ' + q(vm.ollama_url));
         if (vm.ollama_model) lines.push('ollama_model = ' + q(vm.ollama_model));
+        if (vm.huggingface_url) lines.push('huggingface_url = ' + q(vm.huggingface_url));
+        if (vm.gemini_api_key) lines.push('gemini_api_key = ' + q('${' + vm.gemini_api_key + '}'));
+        if (vm.gemini_model) lines.push('gemini_model = ' + q(vm.gemini_model));
         lines.push('');
     }
 
@@ -621,6 +668,7 @@
         dbConfigToToml(lines);
         aguiToToml(lines);
         langfuseToToml(lines);
+        runbookToToml(lines);
         return lines.join('\n');
     }
 
@@ -734,6 +782,18 @@
         lines.push('');
     }
 
+    function runbookToYaml(lines) {
+        var rb = state.runbook;
+        if (!hasItems(rb.runbook_paths) && !rb.max_content_size) return;
+        lines.push('runbook:');
+        if (hasItems(rb.runbook_paths)) {
+            lines.push('  runbook_paths:');
+            rb.runbook_paths.filter(Boolean).forEach(function (p) { lines.push('    - ' + yq(p)); });
+        }
+        if (rb.max_content_size > 0) lines.push('  max_content_size: ' + rb.max_content_size);
+        lines.push('');
+    }
+
     function mcpToYaml(lines) {
         if (state.mcp_servers.length === 0) return;
         lines.push('mcp:');
@@ -781,6 +841,9 @@
         if (vm.api_key) lines.push('  api_key: ' + yq('${' + vm.api_key + '}'));
         if (vm.ollama_url) lines.push('  ollama_url: ' + yq(vm.ollama_url));
         if (vm.ollama_model) lines.push('  ollama_model: ' + vm.ollama_model);
+        if (vm.huggingface_url) lines.push('  huggingface_url: ' + yq(vm.huggingface_url));
+        if (vm.gemini_api_key) lines.push('  gemini_api_key: ' + yq('${' + vm.gemini_api_key + '}'));
+        if (vm.gemini_model) lines.push('  gemini_model: ' + vm.gemini_model);
         lines.push('');
     }
 
@@ -839,6 +902,7 @@
         hitlToYaml(lines);
         dbConfigToYaml(lines);
         aguiToYaml(lines);
+        runbookToYaml(lines);
         return lines.join('\n');
     }
 

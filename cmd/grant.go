@@ -131,7 +131,7 @@ func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
 	}
 
 	// Vector memory
-	var store *vector.Store
+	var store vector.IStore
 	if genieCfg.VectorMemory.CanInitialize() {
 		store, err = genieCfg.VectorMemory.NewStore(ctx)
 		if err != nil {
@@ -180,7 +180,7 @@ func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
 		tools = append(tools, messenger.NewSendMessageTool(g.msgr))
 	}
 
-	g.codeOwner, err = codeowner.NewCodeOwner(ctx, modelProvider, g.rootOpts.workingDir, tools, store, auditor, approvalStore, memorySvc)
+	g.codeOwner, err = codeowner.NewCodeOwner(ctx, modelProvider, g.rootOpts.workingDir, tools, store, auditor, approvalStore, memorySvc, genieCfg.Runbook)
 	if err != nil {
 		return err
 	}
@@ -230,7 +230,7 @@ func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
 		<-chatDone
 		return nil
 	}
-	httpHandler := agui.NewChatHandlerFromCodeOwner(g.codeOwner.Resume(), chatHandler)
+	httpHandler := agui.NewChatHandlerFromCodeOwner(g.codeOwner.Resume, chatHandler)
 
 	// Start listening for incoming messenger messages (Slack, Teams, etc.).
 	if g.msgr != nil {
@@ -258,6 +258,7 @@ func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "   Database:          %s\n", genieCfg.DBConfig.DBFile)
 	fmt.Fprintf(os.Stderr, "   Audit log:         %s\n", g.opts.AuditLogPath)
 	fmt.Fprintf(os.Stderr, "   Health check:      http://localhost:%d/health\n", genieCfg.AGUI.Port)
+	fmt.Fprintf(os.Stderr, "   UI:                http://localhost:%d/ui/\n", genieCfg.AGUI.Port)
 	fmt.Fprintf(os.Stderr, "   Resume:            http://localhost:%d/api/v1/resume\n\n", genieCfg.AGUI.Port)
 
 	// Start AG-UI HTTP/SSE server — blocks until context is cancelled.

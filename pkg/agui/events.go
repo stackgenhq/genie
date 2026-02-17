@@ -122,7 +122,7 @@ func (w *BackgroundWorker) runAgent(ctx context.Context, req EventRequest, runID
 }
 
 func (s *Server) handleResumeEndpoint(w http.ResponseWriter, r *http.Request) {
-	resume := s.chatHandler.Resume()
+	resume := s.chatHandler.Resume(r.Context())
 	if resume == "" {
 		http.Error(w, "Resume not available", http.StatusNotFound)
 		return

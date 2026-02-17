@@ -32,7 +32,7 @@ func (r MemoryStoreResponse) MarshalJSON() ([]byte, error) {
 
 // NewMemoryStoreTool creates a tool that stores text into the vector memory.
 // The tool generates a UUID for each stored document and returns it in the response.
-func NewMemoryStoreTool(store *Store) tool.Tool {
+func NewMemoryStoreTool(store IStore) tool.Tool {
 	s := &memoryStoreTool{store: store}
 	return function.NewFunctionTool(
 		s.execute,
@@ -42,12 +42,12 @@ func NewMemoryStoreTool(store *Store) tool.Tool {
 }
 
 type memoryStoreTool struct {
-	store *Store
+	store IStore
 }
 
 func (t *memoryStoreTool) execute(ctx context.Context, req MemoryStoreRequest) (MemoryStoreResponse, error) {
 	id := uuid.New().String()
-	if err := t.store.Add(ctx, id, req.Text, req.Metadata); err != nil {
+	if err := t.store.Add(ctx, BatchItem{ID: id, Text: req.Text, Metadata: req.Metadata}); err != nil {
 		return MemoryStoreResponse{}, fmt.Errorf("failed to store memory: %w", err)
 	}
 	return MemoryStoreResponse{
@@ -66,9 +66,9 @@ type MemorySearchRequest struct {
 
 // MemorySearchResultItem represents a single search result from the memory_search tool.
 type MemorySearchResultItem struct {
-	Content    string         `json:"content"`
-	Metadata   map[string]any `json:"metadata,omitempty"`
-	Similarity float64        `json:"similarity"`
+	Content    string            `json:"content"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
+	Similarity float64           `json:"similarity"`
 }
 
 // MemorySearchResponse is the output for the memory_search tool.
@@ -86,7 +86,7 @@ func (r MemorySearchResponse) MarshalJSON() ([]byte, error) {
 // NewMemorySearchTool creates a tool that searches the vector memory.
 // It embeds the query text and performs cosine similarity search across
 // all stored documents, returning the most relevant results.
-func NewMemorySearchTool(store *Store) tool.Tool {
+func NewMemorySearchTool(store IStore) tool.Tool {
 	s := &memorySearchTool{store: store}
 	return function.NewFunctionTool(
 		s.execute,
@@ -96,7 +96,7 @@ func NewMemorySearchTool(store *Store) tool.Tool {
 }
 
 type memorySearchTool struct {
-	store *Store
+	store IStore
 }
 
 func (t *memorySearchTool) execute(ctx context.Context, req MemorySearchRequest) (MemorySearchResponse, error) {

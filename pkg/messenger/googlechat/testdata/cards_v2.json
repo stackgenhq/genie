@@ -1,0 +1,34 @@
+{
+    "cards_v2": [
+        {
+            "cardId": "approval_test-001",
+            "card": {
+                "header": {
+                    "title": "⚠️ Approval Required — write_file",
+                    "subtitle": "Tool approval request"
+                },
+                "sections": [
+                    {
+                        "header": "📋 Arguments",
+                        "widgets": [
+                            {
+                                "textParagraph": {
+                                    "text": "<pre>{\"path\": \"/tmp/test.txt\"}</pre>"
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "widgets": [
+                            {
+                                "textParagraph": {
+                                    "text": "<i>Reply <b>Yes</b> to approve, <b>No</b> to reject, or type feedback to revisit.</i>"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    ]
+}

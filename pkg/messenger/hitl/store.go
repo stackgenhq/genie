@@ -1,8 +1,9 @@
 package hitl
 
 import (
+	"bytes"
 	"context"
-	"fmt"
+	"encoding/json"
 	"strings"
 	"sync"
 
@@ -110,24 +111,32 @@ func (s *NotifierStore) notifyMessenger(ctx context.Context, senderCtx string, a
 
 	channelID := parts[2]
 
-	msgText := fmt.Sprintf(
-		"⚠️ **Approval Required**\n"+
-			"Tool: `%s`\n"+
-			"Args: ```%s```\n\n"+
-			"Reply **Yes** to approve, **No** to reject, or send any other message as feedback to have the agent revisit its approach.",
-		approval.ToolName,
-		approval.Args,
-	)
-
-	// Append justification if the LLM provided one (via _justification field).
-	if approval.Feedback != "" {
-		msgText += fmt.Sprintf("\n\n💡 **Why**: %s", approval.Feedback)
+	// Pretty-print JSON args for readability.
+	prettyArgs := approval.Args
+	if json.Valid([]byte(approval.Args)) {
+		var buf bytes.Buffer
+		if err := json.Indent(&buf, []byte(approval.Args), "", "  "); err == nil {
+			prettyArgs = buf.String()
+		}
 	}
 
-	_, err := s.messenger.Send(ctx, messenger.SendRequest{
+	sendReq := messenger.SendRequest{
 		Channel: messenger.Channel{ID: channelID},
-		Content: messenger.MessageContent{Text: msgText},
+	}
+
+	// All platforms get plaintext content as a baseline.
+	sendReq.Content = messenger.MessageContent{Text: approval.String()}
+
+	// Let the adapter format the approval with platform-native constructs
+	// (Slack blocks, Google Chat cards, etc.). Text-only adapters return req unchanged.
+	sendReq = s.messenger.FormatApproval(sendReq, messenger.ApprovalInfo{
+		ID:       approval.ID,
+		ToolName: approval.ToolName,
+		Args:     prettyArgs,
+		Feedback: approval.Feedback,
 	})
+
+	_, err := s.messenger.Send(ctx, sendReq)
 	if err != nil {
 		// Best-effort notification; log failure but don't fail the underlying operation.
 		logger.GetLogger(ctx).Warn("failed to send hitl notification", "error", err)

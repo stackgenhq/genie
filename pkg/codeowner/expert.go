@@ -3,8 +3,10 @@ package codeowner
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,7 +22,9 @@ import (
 	"github.com/appcd-dev/genie/pkg/osutils"
 	"github.com/appcd-dev/genie/pkg/reactree"
 	rtmemory "github.com/appcd-dev/genie/pkg/reactree/memory"
+	"github.com/appcd-dev/genie/pkg/runbook"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
+	"github.com/appcd-dev/genie/pkg/ttlcache"
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor/local"
 	"trpc.group/trpc-go/trpc-agent-go/memory"
 	"trpc.group/trpc-go/trpc-agent-go/model"
@@ -63,7 +67,7 @@ type CodeQuestion struct {
 type CodeOwner interface {
 	Chat(ctx context.Context, req CodeQuestion, outputChan chan<- string) error
 	Close() error
-	Resume() string
+	Resume(ctx context.Context) string
 }
 
 // requestCategory represents the front desk classification result.
@@ -84,12 +88,15 @@ type codeOwner struct {
 	memoryUserKey   memory.UserKey
 	tools           reactree.ToolRegistry
 	auditor         audit.Auditor
-	resume          string
+	resume          *ttlcache.Item[string]
+	resumeCancel    context.CancelFunc
+	vectorStore     vector.IStore
 }
 
 // Resume returns a natural language description of the agent's capabilities.
-func (c *codeOwner) Resume() string {
-	return c.resume
+func (c *codeOwner) Resume(ctx context.Context) string {
+	result, _ := c.resume.GetValue(ctx)
+	return result
 }
 
 // NewCodeOwner creates a new codeOwner with an integrated ReAcTree executor.
@@ -98,15 +105,18 @@ func (c *codeOwner) Resume() string {
 // hierarchical task decomposition for complex queries when activated.
 // The approvalStore enables HITL approval gating for sub-agent tool calls;
 // when nil, sub-agents execute tools without requiring human approval.
+// The runbookCfg enables loading customer-provided instructional runbooks
+// that get injected into the agent's system prompt.
 func NewCodeOwner(
 	ctx context.Context,
 	modelProvider modelprovider.ModelProvider,
 	workingDirectory string,
 	tools []tool.Tool,
-	vectorStore *vector.Store,
+	vectorStore vector.IStore,
 	auditor audit.Auditor,
 	approvalStore hitl.ApprovalStore,
 	memorySvc memory.Service,
+	runbookCfg runbook.Config,
 ) (CodeOwner, error) {
 	// Build the persona prompt, appending project-level coding standards if available.
 	fullPersona := langfuse.GetPrompt(ctx, "genie_codeowner_persona", persona)
@@ -115,6 +125,26 @@ func NewCodeOwner(
 		logger.GetLogger(ctx).Info("Agents.md loaded and appended to persona")
 	} else {
 		logger.GetLogger(ctx).Debug("Agents.md not found or empty")
+	}
+
+	// Load customer runbooks into the vector store for semantic search.
+	// Instead of bloating the persona prompt, runbook content is indexed
+	// individually and made available via the search_runbook tool.
+	runbookLoader := runbook.NewLoader(workingDirectory, runbookCfg, vectorStore)
+	if count, err := runbookLoader.Load(ctx); err != nil {
+		logger.GetLogger(ctx).Warn("failed to load runbooks", "error", err)
+	} else if count > 0 {
+		fullPersona += "\n\n## Runbooks\n\nCustomer-provided runbooks are available. " +
+			"Use the `search_runbook` tool to find relevant deployment procedures, " +
+			"troubleshooting playbooks, coding standards, and other operational instructions " +
+			"before taking action."
+
+		// Start a file watcher to keep runbooks in sync with the vector store.
+		if watcher, err := runbook.NewWatcher(runbookLoader, vectorStore, runbookLoader.WatchDirs()); err != nil {
+			logger.GetLogger(ctx).Warn("failed to start runbook watcher", "error", err)
+		} else {
+			go watcher.Start(ctx)
+		}
 	}
 
 	expertBio := expert.ExpertBio{
@@ -198,17 +228,19 @@ func NewCodeOwner(
 		local.WithCleanTempFiles(true),
 	)
 
-	// Use ShellTool which wraps the code executor
-	codeTool := NewShellTool(exec)
-	allTools = append(allTools, codeTool)
+	allTools = append(allTools,
+		// Use ShellTool which wraps the code executor
+		NewShellTool(exec),
+		// Add the summarize_content tool so agents can invoke summarization on demand.
+		agentutils.NewSummarizerTool(summarizer),
+	)
 	if vectorStore != nil {
-		allTools = append(allTools, vector.NewMemoryStoreTool(vectorStore))
-		allTools = append(allTools, vector.NewMemorySearchTool(vectorStore))
+		allTools = append(allTools,
+			vector.NewMemoryStoreTool(vectorStore),
+			vector.NewMemorySearchTool(vectorStore),
+			runbook.NewSearchTool(vectorStore),
+		)
 	}
-
-	// Add the summarize_content tool so agents can invoke summarization on demand.
-	summarizeTool := agentutils.NewSummarizerTool(summarizer)
-	allTools = append(allTools, summarizeTool)
 
 	// Create the create_agent tool for dynamic sub-agent spawning.
 	// Sub-agents have access to the full tool set via the registry,
@@ -240,7 +272,8 @@ func NewCodeOwner(
 			codeOwnerTools[toolName] = tool
 		}
 	}
-	logger.GetLogger(ctx).Info("CodeOwner tool registry initialized", "count", len(codeOwnerTools))
+	logger := logger.GetLogger(ctx).With("fn", "createOrchestrator")
+	logger.Info("CodeOwner tool registry initialized", "count", len(codeOwnerTools))
 
 	codeOwner := &codeOwner{
 		expert:          exp,
@@ -251,16 +284,35 @@ func NewCodeOwner(
 		memoryUserKey:   memoryUserKey,
 		tools:           codeOwnerTools,
 		auditor:         auditor,
+		vectorStore:     vectorStore,
 	}
-	codeOwner.resume, err = codeOwner.createResume(ctx, summarizer, toolRegistry, fullPersona)
-	if err != nil {
-		logger.GetLogger(ctx).Warn("failed to create the resume", "error", err)
-	}
+	// keep updating the resume less than 24 hours
+	// Create a dedicated context for the background refresher that we can cancel on Close()
+	resumeCtx, resumeCancel := context.WithCancel(context.Background())
+	codeOwner.resumeCancel = resumeCancel
+
+	codeOwner.resume = ttlcache.NewItem(func(ctx context.Context) (string, error) {
+		return codeOwner.createResume(ctx, summarizer, toolRegistry, fullPersona)
+	}, 24*time.Hour)
+
+	// Use WithoutCancel to detach from startup context, but we use our own resumeCtx
+	// which we control via Close().
+	go func() {
+		if err := codeOwner.resume.KeepItFresh(resumeCtx); err != nil && !errors.Is(err, context.Canceled) {
+			// context.Canceled is expected on Close()
+			logger.Error("failed to keep resume fresh", "err", err)
+		}
+	}()
 	return codeOwner, nil
 }
 
 // createResume generates a natural-language resume for the codeOwner agent
-// based on the tools available to both the main agent and its subagents.
+// based on the tools available to both the main agent and its subagents,
+// enriched with recent accomplishments from the vector memory store.
+// Accomplishments act as confidence-building evidence that demonstrate
+// the agent's track record to users. Without this, the resume would be
+// purely theoretical ("I can do X") rather than evidence-based
+// ("I have done X, Y, Z").
 func (c *codeOwner) createResume(
 	ctx context.Context,
 	summarizer agentutils.Summarizer,
@@ -269,6 +321,18 @@ func (c *codeOwner) createResume(
 ) (string, error) {
 	logger := logger.GetLogger(ctx)
 	logger.Info("building my resume")
+
+	// Retrieve recent accomplishments from vector memory to enrich the resume.
+	accomplishments := c.recallAccomplishments(ctx)
+
+	accomplishmentsSection := ""
+	if accomplishments != "" {
+		accomplishmentsSection = fmt.Sprintf(`
+
+Recent Accomplishments (things I have successfully done):
+%s`, accomplishments)
+	}
+
 	// use the front desk expert to check on available tools and then create a resume
 	result, err := summarizer.Summarize(ctx, agentutils.SummarizeRequest{
 		RequiredOutputFormat: agentutils.OutputFormatMarkdown,
@@ -278,12 +342,13 @@ func (c *codeOwner) createResume(
 - You are trying to sell yourself to the user.
 - Give some examples of what you can do.
 - Keep it short and concise.
+- If accomplishments are available, highlight them as proof of your capabilities.
 
 Persona:
 %s
 
 Available Skills:
-%s`, fullPersona, registry.String()),
+%s%s`, fullPersona, registry.String(), accomplishmentsSection),
 	})
 	if err != nil {
 		logger.Error("error creating resume", "error", err)
@@ -295,6 +360,9 @@ Available Skills:
 // Close releases resources held by the codeOwner, including the conversation
 // history memory service. Callers should defer Close() after NewcodeOwner.
 func (c *codeOwner) Close() error {
+	if c.resumeCancel != nil {
+		c.resumeCancel()
+	}
 	if c.memorySvc != nil {
 		return c.memorySvc.Close()
 	}
@@ -448,6 +516,10 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 	// Store the conversation turn in memory for future recall (best-effort).
 	c.storeConversation(ctx, req.Question, res.Output, req.SenderContext)
 
+	// Persist a concise accomplishment so the agent's resume can reference
+	// real work it has completed, boosting user confidence.
+	c.storeAccomplishment(ctx, req.Question, res)
+
 	// Audit: log complete conversation turn
 	c.auditor.Log(ctx, audit.LogRequest{
 		EventType: audit.EventConversation,
@@ -527,6 +599,89 @@ func (c *codeOwner) storeConversation(ctx context.Context, question, answer, sen
 
 	key := c.memoryKeyForSender(senderID)
 	_ = c.memorySvc.AddMemory(ctx, key, summary, topics)
+}
+
+// recallAccomplishments searches the vector store for recent accomplishments
+// and formats them as a bulleted list for inclusion in the agent's resume.
+// Returns an empty string if no accomplishments are found or the vector store
+// is not configured. Without this, the resume would lack evidence-based
+// confidence signals.
+func (c *codeOwner) recallAccomplishments(ctx context.Context) string {
+	if c.vectorStore == nil {
+		return ""
+	}
+
+	// Search for "accomplishment" but fetch more results (50) to allow for
+	// post-filtering by metadata. The vector store's Search method is
+	// semantic, so it might return other document types that are semantically
+	// similar but not actual accomplishments.
+	results, err := c.vectorStore.Search(ctx, rtmemory.AccomplishmentType, 50)
+	if err != nil {
+		logger.GetLogger(ctx).Warn("failed to search accomplishments for resume", "error", err)
+		return ""
+	}
+
+	if len(results) == 0 {
+		return ""
+	}
+
+	// Sort by score descending to surface the most relevant accomplishments.
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
+	})
+
+	// Limit to top 5 accomplishments to keep the resume concise.
+	limit := 5
+	if len(results) < limit {
+		limit = len(results)
+	}
+
+	var sb strings.Builder
+	for i := 0; i < limit; i++ {
+		// Only include entries tagged as accomplishments.
+		if entryType, ok := results[i].Metadata["type"]; ok && entryType == rtmemory.AccomplishmentType {
+			sb.WriteString("- ")
+			sb.WriteString(results[i].Content)
+			sb.WriteString("\n")
+		}
+	}
+	return sb.String()
+}
+
+// storeAccomplishment persists a concise summary of a successfully completed
+// task into the vector store. These entries are later retrieved by
+// recallAccomplishments to enrich the agent's resume with evidence of real
+// work. Without this, the agent would have no way to demonstrate its track
+// record to users.
+func (c *codeOwner) storeAccomplishment(ctx context.Context, question string, res reactree.TreeResult) {
+	if c.vectorStore == nil {
+		return
+	}
+
+	// Only store as an accomplishment if the tree completed successfully
+	// and produced non-empty output. We intentionally avoid filtering on
+	// output text (e.g. checking for "error") because valid accomplishments
+	// often mention errors they fixed (e.g. "Fixed error handling in auth").
+	if res.Status != reactree.Success || strings.TrimSpace(res.Output) == "" {
+		return
+	}
+
+	// Build a concise accomplishment summary from the Q&A turn.
+	summary := fmt.Sprintf("Q: %s\nA: %s",
+		toolwrap.TruncateForAudit(question, 200),
+		toolwrap.TruncateForAudit(res.Output, 500))
+
+	metadata := map[string]string{
+		"type": rtmemory.AccomplishmentType,
+	}
+
+	if err := c.vectorStore.Add(ctx, vector.BatchItem{
+		ID:       fmt.Sprintf("%s-%d", rtmemory.AccomplishmentType, time.Now().UnixNano()),
+		Text:     summary,
+		Metadata: metadata,
+	}); err != nil {
+		logger.GetLogger(ctx).Warn("failed to store accomplishment", "error", err)
+	}
 }
 
 // memoryKeyForSender returns a memory.UserKey scoped to the given sender.

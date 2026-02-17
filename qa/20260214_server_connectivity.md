@@ -22,7 +22,7 @@ source .env
 
 ### Act
 ```bash
-./build/genie grant --audit-log-path ./audit.log
+./build/genie grant
 ```
 
 ### Assert

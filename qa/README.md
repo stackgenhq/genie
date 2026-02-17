@@ -33,6 +33,8 @@ Each test follows the **Arrange / Act / Assert** pattern and documents:
 | Audit Logging | [20260214_audit_logging.md](20260214_audit_logging.md) |
 | Summarizer | [20260214_summarizer.md](20260214_summarizer.md) |
 | Human-in-the-Loop (HITL) | [20260214_hitl.md](20260214_hitl.md) |
+| Embedding Providers (HuggingFace & Gemini) | [20260217_embedding_providers.md](20260217_embedding_providers.md) |
+| Runbooks | [20260217_runbooks.md](20260217_runbooks.md) |
 
 ---
 

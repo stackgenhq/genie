@@ -9,6 +9,7 @@ require (
 	github.com/chromedp/chromedp v0.14.2
 	github.com/drone/go-scm v0.0.0-00010101000000-000000000000
 	github.com/emersion/go-imap v1.2.1
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-chi/chi/v5 v5.2.4
 	github.com/go-telegram/bot v1.18.0
 	github.com/google/uuid v1.6.0
@@ -33,7 +34,9 @@ require (
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.1
 	modernc.org/sqlite v1.45.0
-	trpc.group/trpc-go/trpc-agent-go v1.5.1-0.20260213075829-fd2e4a85e54f
+	trpc.group/trpc-go/trpc-agent-go v1.5.1-0.20260217140857-7458387542dc
+	trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/gemini v1.5.1-0.20260217140857-7458387542dc
+	trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/huggingface v1.5.1-0.20260217140857-7458387542dc
 	trpc.group/trpc-go/trpc-agent-go/model/anthropic v1.5.1-0.20260213075829-fd2e4a85e54f
 	trpc.group/trpc-go/trpc-agent-go/model/gemini v1.5.1-0.20260213075829-fd2e4a85e54f
 	trpc.group/trpc-go/trpc-agent-go/model/ollama v1.5.0
@@ -123,6 +126,7 @@ require (
 	github.com/vektah/gqlparser/v2 v2.5.27 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
+	github.com/yuin/goldmark v1.4.13 // indirect
 	go.mau.fi/libsignal v0.2.1 // indirect
 	go.mau.fi/util v0.9.5 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect

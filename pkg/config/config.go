@@ -16,6 +16,7 @@ import (
 	"github.com/appcd-dev/genie/pkg/mcp"
 	"github.com/appcd-dev/genie/pkg/memory/vector"
 	"github.com/appcd-dev/genie/pkg/messenger"
+	"github.com/appcd-dev/genie/pkg/runbook"
 	"github.com/appcd-dev/genie/pkg/tools/email"
 	"github.com/appcd-dev/genie/pkg/tools/pm"
 	"github.com/appcd-dev/genie/pkg/tools/scm"
@@ -40,6 +41,7 @@ type GenieConfig struct {
 	HITL     hitl.Config       `yaml:"hitl" toml:"hitl"`
 	DBConfig db.Config         `yaml:"db_config" toml:"db_config"`
 	Langfuse langfuse.Config   `yaml:"langfuse" toml:"langfuse"`
+	Runbook  runbook.Config    `yaml:"runbook" toml:"runbook"`
 }
 
 func LoadGenieConfig(path string) (GenieConfig, error) {
@@ -59,9 +61,16 @@ func LoadGenieConfig(path string) (GenieConfig, error) {
 		Langfuse:     langfuse.DefaultConfig(),
 	}
 
-	// Override VectorMemory provider default if env vars present
+	// Override VectorMemory provider default if env vars present.
+	// Priority: openai > gemini > huggingface.
 	if cfg.VectorMemory.APIKey != "" {
 		cfg.VectorMemory.EmbeddingProvider = "openai"
+	}
+	if cfg.VectorMemory.GeminiAPIKey != "" && cfg.VectorMemory.EmbeddingProvider == "dummy" {
+		cfg.VectorMemory.EmbeddingProvider = "gemini"
+	}
+	if cfg.VectorMemory.HuggingFaceURL != "" && cfg.VectorMemory.EmbeddingProvider == "dummy" {
+		cfg.VectorMemory.EmbeddingProvider = "huggingface"
 	}
 
 	if path == "" {

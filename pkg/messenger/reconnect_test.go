@@ -49,6 +49,9 @@ func (m *mockReconnectMessenger) Receive(_ context.Context) (<-chan messenger.In
 }
 
 func (m *mockReconnectMessenger) Platform() messenger.Platform { return "test" }
+func (m *mockReconnectMessenger) FormatApproval(req messenger.SendRequest, _ messenger.ApprovalInfo) messenger.SendRequest {
+	return req
+}
 
 func (m *mockReconnectMessenger) Close() error { return nil }
 

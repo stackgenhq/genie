@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -32,7 +35,7 @@ type ChatRequest struct {
 //counterfeiter:generate . Expert
 type Expert interface {
 	Handle(ctx context.Context, req ChatRequest)
-	Resume() string
+	Resume(ctx context.Context) string
 }
 
 // Message represents a message in the AG-UI RunAgentInput.
@@ -179,7 +182,35 @@ func (s *Server) Handler() http.Handler {
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck
 	})
 
+	// Serve static documentation from local docs/ directory at /ui
+	// Serve documentation via reverse proxy to GitHub Pages
+	// This ensures users always see the latest docs without needing local files.
+	r.Handle("/ui/*", http.StripPrefix("/ui", newDocsProxy()))
+
 	return r
+}
+
+// newDocsProxy creates a reverse proxy to the Genie GitHub Pages documentation.
+func newDocsProxy() *httputil.ReverseProxy {
+	docsURL, _ := url.Parse("https://appcd-dev.github.io/stackgen-genie/")
+	proxy := httputil.NewSingleHostReverseProxy(docsURL)
+
+	// Modify the director to rewrite the path correctly
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.Host = docsURL.Host
+
+		// The incoming request path is /foo (stripped of /ui)
+		// We want to map it to /stackgen-genie/foo and prevent path traversal.
+		req.URL.Path = path.Join("/stackgen-genie", req.URL.Path)
+		if !strings.HasPrefix(req.URL.Path, "/stackgen-genie") {
+			req.URL.Path = "/stackgen-genie/"
+		} else if req.URL.Path == "/stackgen-genie" {
+			req.URL.Path = "/stackgen-genie/"
+		}
+	}
+	return proxy
 }
 
 // Start starts the HTTP server and blocks until the context is cancelled.

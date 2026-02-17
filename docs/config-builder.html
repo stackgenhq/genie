@@ -96,6 +96,25 @@
                     <div id="skills-body" class="config-section-body"></div>
                 </div>
 
+                <!-- Runbooks -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('runbook-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">📖</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Runbooks</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Customer-provided instruction files
+                                    injected into the agent persona</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="runbook-body" class="config-section-body"></div>
+                </div>
+
                 <!-- MCP -->
                 <div class="config-section">
                     <div class="config-section-header" onclick="toggleSection('mcp-body')">
@@ -150,7 +169,6 @@
                     <div id="vector-body" class="config-section-body"></div>
                 </div>
 
-                <!-- Messenger -->
                 <div class="config-section">
                     <div class="config-section-header" onclick="toggleSection('messenger-body')">
                         <div class="flex items-center gap-3">
@@ -316,6 +334,7 @@
                     </div>
                     <div id="langfuse-body" class="config-section-body"></div>
                 </div>
+
 
             </div>
 
