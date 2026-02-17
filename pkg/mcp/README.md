@@ -9,7 +9,7 @@ The MCP package uses [mark3labs/mcp-go](https://github.com/mark3labs/mcp-go) for
 ## Features
 
 - **Multiple Transport Support**: stdio, streamable_http, and sse
-- **Tool Filtering**: Include/exclude specific tools using whitelist/blacklist patterns
+- **Tool Filtering**: Include/exclude specific tools using allowlist/blocklist patterns
 - **Configuration-Driven**: TOML/YAML configuration for easy setup
 - **trpc-agent-go Compatible**: Tools work seamlessly with trpc-agent-go agents
 - **Multiple Servers**: Connect to multiple MCP servers simultaneously
@@ -26,7 +26,7 @@ transport = "stdio"
 command = "go"
 args = ["run", "./mcp-server/main.go"]
 timeout = "10s"
-include_tools = ["echo", "add"]  # Optional: whitelist specific tools
+include_tools = ["echo", "add"]  # Optional: allowlist specific tools
 
 # HTTP streaming transport with headers
 [[mcp.servers]]
@@ -118,7 +118,7 @@ tools := client.GetTools()
 ### Tool Filtering
 
 ```go
-// Include only specific tools (whitelist)
+// Include only specific tools (allowlist)
 config := mcp.MCPServerConfig{
     Name:      "server",
     Transport: "stdio",
@@ -126,7 +126,7 @@ config := mcp.MCPServerConfig{
     IncludeTools: []string{"tool1", "tool2"},
 }
 
-// Exclude specific tools (blacklist)
+// Exclude specific tools (blocklist)
 config := mcp.MCPServerConfig{
     Name:      "server",
     Transport: "stdio",
@@ -171,8 +171,8 @@ client, err := mcp.NewClient(ctx, config)
 | `args` | []string | No | Command arguments for stdio transport |
 | `timeout` | duration | No | Connection timeout (default: 10s) |
 | `headers` | map[string]string | No | Custom HTTP headers for HTTP/SSE transports |
-| `include_tools` | []string | No | Whitelist of tool names to include |
-| `exclude_tools` | []string | No | Blacklist of tool names to exclude |
+| `include_tools` | []string | No | allowlist of tool names to include |
+| `exclude_tools` | []string | No | blocklist of tool names to exclude |
 
 ## Troubleshooting
 

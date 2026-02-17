@@ -38,11 +38,11 @@ type MCPServerConfig struct {
 	// Headers are custom HTTP headers (optional for HTTP/SSE transports)
 	Headers map[string]string `yaml:"headers,omitempty" toml:"headers,omitempty"`
 
-	// IncludeTools is a list of tool names to include (whitelist)
+	// IncludeTools is a list of tool names to include (allowlist)
 	// If specified, only these tools will be available
 	IncludeTools []string `yaml:"include_tools,omitempty" toml:"include_tools,omitempty"`
 
-	// ExcludeTools is a list of tool names to exclude (blacklist)
+	// ExcludeTools is a list of tool names to exclude (blocklist)
 	// If specified, these tools will be filtered out
 	ExcludeTools []string `yaml:"exclude_tools,omitempty" toml:"exclude_tools,omitempty"`
 

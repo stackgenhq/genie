@@ -108,8 +108,8 @@ config_sections:
           - ["args", "string[]", "Extra command arguments"]
           - ["server_url", "string", "URL for HTTP/SSE transports"]
           - ["headers", "map", "Custom HTTP headers like `Authorization`"]
-          - ["include_tools", "string[]", "Whitelist — only use these tools"]
-          - ["exclude_tools", "string[]", "Blacklist — block these tools"]
+          - ["include_tools", "string[]", "Allowlist — only use these tools"]
+          - ["exclude_tools", "string[]", "Blocklist — block these tools"]
           - ["session_reconnect", "int", "Auto-reconnect retries (`0` = off)"]
       - label: Retry Configuration
         columns: [Key, Type, Default, Description]
@@ -329,6 +329,58 @@ config_sections:
           - ["secret_key", "string", "—", "Langfuse Secret Key (use `${LANGFUSE_SECRET_KEY}`)"]
           - ["host", "string", "`https://cloud.langfuse.com`", "Langfuse API host (change for self-hosted)"]
           - ["enable_prompts", "bool", "`false`", "If true, Genie fetches prompt templates from Langfuse instead of using built-ins"]
+
+  - id: runbook
+    icon: "📓"
+    name: runbook
+    sidebar_desc: Custom Instructions
+    detail_title: "📓 runbook"
+    detail_desc: >
+      <strong>Customer-Defined Instructions & Playbooks.</strong><br>
+      Runbooks let you provide structured instructions that Genie must follow — deployment procedures,
+      coding standards, troubleshooting playbooks, or team-specific workflows. Files are loaded from
+      configured paths or the convention directory (<code>.genie/runbooks/</code>) and ingested into
+      a vector store for semantic search via the <code>search_runbook</code> tool.<br><br>
+      <strong>Convention over Configuration:</strong> simply drop <code>.md</code>, <code>.txt</code>, <code>.json</code>,
+      or <code>.csv</code> files into <code>.genie/runbooks/</code> — no config needed.
+      A file watcher automatically picks up changes (create, modify, delete) with debounced batching.
+    tables:
+      - columns: [Key, Type, Default, Description]
+        rows:
+          - ["runbook_paths", "string[]", "`[]`", "File paths or directories containing runbook files. Both absolute and relative paths supported."]
+    subsections:
+      - label: Auto-Discovery
+        columns: [Feature, Detail]
+        rows:
+          - ["Convention directory", "`<project>/.genie/runbooks/` is auto-discovered without any configuration"]
+          - ["Supported formats", "`.md`, `.txt`, `.json`, `.csv` (any format registered in the document reader)"]
+          - ["Recursive loading", "Subdirectories within runbook paths are loaded recursively"]
+          - ["Deduplication", "Files found in both convention dir and config paths are loaded only once"]
+      - label: File Watcher
+        columns: [Feature, Detail]
+        rows:
+          - ["Live reload", "File creates, modifications, and deletes are detected automatically"]
+          - ["Debouncing", "Events are buffered for 500ms to batch bulk updates (e.g. `git pull`)"]
+          - ["Subdirectory watch", "New subdirectories created at runtime are automatically watched"]
+      - label: Vector Search
+        columns: [Feature, Detail]
+        rows:
+          - ["Tool", "`search_runbook` — semantic search across all loaded runbook content"]
+          - ["Metadata", "Each document is tagged with `type=runbook` and `source=<filename>`"]
+          - ["Stable IDs", "Documents use relative-path-based IDs to prevent collisions"]
+    code_example:
+      label: Example TOML
+      code: |
+        # Option 1: Convention directory (zero config)
+        # Just create .genie/runbooks/ and drop files in.
+
+        # Option 2: Explicit paths
+        [runbook]
+        runbook_paths = [
+          "./docs/runbooks",
+          "/shared/team-playbooks",
+          "./CODING_STANDARDS.md"
+        ]
 
 # ═══════════════════════════════════════════════════════════
 # TAB 2: HOW-TO

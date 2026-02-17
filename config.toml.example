@@ -40,8 +40,8 @@ transport = "stdio"
 command = "go"
 args = ["run", "./mcp-server/main.go"]
 timeout = "10s"
-include_tools = ["echo", "add"]  # Optional: whitelist specific tools
-# exclude_tools = ["dangerous_tool"]  # Optional: blacklist specific tools
+include_tools = ["echo", "add"]  # Optional: allowlist specific tools
+# exclude_tools = ["dangerous_tool"]  # Optional: blocklist specific tools
 session_reconnect = 3  # Optional: enable session reconnection with max 3 attempts
 
 # Example 2: HTTP streaming transport with headers

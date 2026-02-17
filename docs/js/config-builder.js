@@ -45,7 +45,7 @@
         db_config: { db_file: '' },
         agui: { port: 8080, cors_origins: ['https://appcd-dev.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576 },
         langfuse: { public_key: 'LANGFUSE_PUBLIC_KEY', secret_key: 'LANGFUSE_SECRET_KEY', host: 'https://cloud.langfuse.com', enable_prompts: false },
-        runbook: { runbook_paths: [], max_content_size: 0 }
+        runbook: { runbook_paths: [] }
     };
 
     var PROVIDERS = ['openai', 'gemini', 'anthropic'];
@@ -494,9 +494,6 @@
         c.appendChild(
             el('button', { className: 'btn-add mt-1', onClick: function () { rb.runbook_paths.push(''); renderAll(); } }, '+ Add Path')
         );
-        c.appendChild(el('div', { className: 'mt-4' }, [
-            fieldNumber('Max Content Size (bytes)', rb.max_content_size, function (v) { rb.max_content_size = v; renderOutput(); }, 0, 1048576, 'Max bytes per runbook file (0 = default 50 KB). Files exceeding this are truncated')
-        ]));
         c.appendChild(el('p', { className: 'text-xs text-gray-400 mt-2' }, 'Tip: files in <code>.genie/runbooks/</code> are auto-discovered without config'));
     }
 
@@ -558,10 +555,9 @@
 
     function runbookToToml(lines) {
         var rb = state.runbook;
-        if (!hasItems(rb.runbook_paths) && !rb.max_content_size) return;
+        if (!hasItems(rb.runbook_paths)) return;
         lines.push('[runbook]');
         if (hasItems(rb.runbook_paths)) lines.push('runbook_paths = [' + rb.runbook_paths.filter(Boolean).map(q).join(', ') + ']');
-        if (rb.max_content_size > 0) lines.push('max_content_size = ' + rb.max_content_size);
         lines.push('');
     }
 
@@ -784,13 +780,12 @@
 
     function runbookToYaml(lines) {
         var rb = state.runbook;
-        if (!hasItems(rb.runbook_paths) && !rb.max_content_size) return;
+        if (!hasItems(rb.runbook_paths)) return;
         lines.push('runbook:');
         if (hasItems(rb.runbook_paths)) {
             lines.push('  runbook_paths:');
             rb.runbook_paths.filter(Boolean).forEach(function (p) { lines.push('    - ' + yq(p)); });
         }
-        if (rb.max_content_size > 0) lines.push('  max_content_size: ' + rb.max_content_size);
         lines.push('');
     }
 
