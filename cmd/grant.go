@@ -69,9 +69,9 @@ func (g *grantCmd) command() (*cobra.Command, error) {
 	cmd := &cobra.Command{
 		Use:   "grant",
 		Short: "Automation wizard",
-		Long: `Grant your infrastructure wish! This command launches an interactive wizard
-that helps you describe your application requirements and generates production-ready
-infrastructure code using Stackgen's agentic intelligence.
+		Long: `Grant your wish! This command launches an interactive wizard
+that helps you describe your goals and executes them using Stackgen's
+agentic intelligence.
 
 Examples:
   genie grant`,

@@ -65,14 +65,11 @@ func (r rootCmd) command(ctx context.Context) (*cobra.Command, error) {
 		Short: "The Enterprise Agentic Platform",
 		Long: `🧞 Genie - Your intent is my command!
 
-genie is the Enterprise Agentic Infrastructure Automation CLI, powered by Stackgen. We're moving 
-beyond the era of manual configuration.
-
-Just tell genie what you need, 
-and consider it granted.
+genie is an Enterprise Agentic Platform powered by Stackgen. Describe what you need —
+across code, operations, security, and beyond — and let genie plan and execute it.
 
 Built with ✨ by Stackgen (https://stackgen.com)
-Infrastructure is hard. Being a Genie is easy.`,
+Complex tasks are hard. Being a Genie is easy.`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			return r.init(cmd.Context())
 		},

@@ -2,11 +2,9 @@
 
 Generative Engine for Natural Intent Execution
 
-> **"Your intent is my command. YOU get a stack! YOU get a stack!"**
+> **"Your intent is my command."**
 
-`genie` is the **Enterprise Agentic Platform**, powered by [Stackgen](https://stackgen.com). We’re moving beyond the era of manual configuration.
-
-Stop writing YAML. Stop debugging Terraform modules. Just tell `genie` what you need, and consider it granted.
+`genie` is an **Enterprise Agentic Platform** powered by [Stackgen](https://stackgen.com). Describe what you need — across code, operations, security, and beyond — and let `genie` plan and execute it.
 
 ---
 
@@ -15,10 +13,11 @@ Stop writing YAML. Stop debugging Terraform modules. Just tell `genie` what you 
 `genie` is a platform designed for reliability, compliance, and scale.
 
 *   **ReAcTree Execution Engine**: A deterministic, multi-stage reasoning engine that ensures verifiable plans.
-*   **Infrastructure Automation**: Powered by Stackgen, Genie synthesizes production-ready Terraform and Pulumi from natural language.
+*   **Agentic Execution**: Plans, decomposes, and executes complex multi-step tasks autonomously with sub-agent orchestration.
 *   **Governance & Audit**: Built-in Human-in-the-Loop (HITL) guardrails and immutable audit logs ensure strict compliance.
 *   **Multi-Model Routing**: Intelligently routes tasks to the best model (OpenAI, Gemini, Anthropic, Ollama, HuggingFace) for cost and performance.
 *   **Enterprise Integrations**: Seamlessly integrates with **OpsVerse ObserveNow** for full-stack observability and **Aiden** for automated incident response.
+*   **Skills & MCP**: Extensible via a file-based skills system and full MCP protocol support.
 
 ---
 
@@ -37,27 +36,27 @@ Ready to see the magic? Run the interactive wizard:
 
 ```bash
 genie
-
 ```
 
 Or use the explicit command:
 
 ```bash
 genie grant
-
 ```
 
 ---
 
 ## 🛠 Commands
 
-| `genie` or `genie grant` | Interactive Infrastructure Automation wizard. | "Your wish is my command." |
+| Command | Description |
+|---|---|
+| `genie` or `genie grant` | Interactive agentic wizard. |
 
 ---
 
 ## ⚙️ Configuration
 
-`genie` supports configuration via **YAML** or **TOML** files. You can customize the behavior of the Architect, Operations (IaC generation), and Security checks.
+`genie` supports configuration via **YAML** or **TOML** files. You can customize model routing, tool access, security policies, and more.
 
 By default, `genie` looks for `.genie.yaml`, `.genie.yml`, `genie.yaml`, or `genie.yml` in the current directory, and then falling back to `$HOME/.genie.yaml`.
 
@@ -132,26 +131,25 @@ skills_roots = ["./skills"]  # Paths to skills directories
 ## 📖 The "Genie" Workflow
 
 1. **Rub the Lamp:** Call `genie` (or `genie grant`).
-2. **Speak your Intent:** Describe your app (Language, Cloud, Database, Traffic expectations).
-3. **Receive the Gift:** `genie` synthesizes the Terraform/Pulumi code using Stackgen’s agentic logic.
-4. **Ship it:** Deploy immediately with built-in guardrails.
+2. **Speak your Intent:** Describe what you want to accomplish.
+3. **Watch the Magic:** `genie` plans, decomposes, and executes using multi-model orchestration.
+4. **Review & Ship:** Approve results through HITL guardrails and deploy with confidence.
 
-> **Why call it Genie?** Because at Stackgen, we believe infrastructure should be so easy it feels like magic. We’re being **Gen-erous** with the power of the cloud.
+> **Why call it Genie?** Because at Stackgen, we believe complex tasks should feel like magic. Just express your intent and consider it granted.
 
 ---
 
 ## 🤝 Join the Movement
 
-We are redefining Agents. If you want to contribute to the **Agentic IaC** revolution, check out our [contribution guidelines](./CONTRIBUTING.md).
+We are redefining agentic automation. If you want to contribute, check out our [contribution guidelines](./CONTRIBUTING.md).
 
 1. Fork the repo.
-2. Create your "Wish" (feature branch).
+2. Create your feature branch.
 3. Submit a PR.
 
 ---
 
 **Built with ✨ by [Stackgen](https://stackgen.com).**
-*Infrastructure is hard. Being a Genie is easy.*
+*Complex tasks are hard. Being a Genie is easy.*
 
 ---
-
