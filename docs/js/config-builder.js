@@ -816,7 +816,7 @@
         if (mapped.length === 0) return;
         lines.push('[security.secrets]');
         mapped.forEach(function (s) {
-            lines.push(s.name + ' = ' + q(s.url));
+            lines.push(q(s.name) + ' = ' + q(s.url));
         });
         lines.push('');
     }

@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/appcd-dev/genie/pkg/agui"
@@ -72,6 +73,9 @@ type Application struct {
 	// pendingReplays holds approvals recovered during Bootstrap that can be
 	// replayed once the chat handler is available in Start().
 	pendingReplays []hitl.ReplayableApproval
+
+	// replayWG tracks outstanding replayOnApproval goroutines for graceful drain.
+	replayWG sync.WaitGroup
 }
 
 // NewApplication creates a new Application with validated parameters.
@@ -206,7 +210,11 @@ func (a *Application) Start(ctx context.Context) error {
 	// the original user question through the background worker.
 	for _, ra := range a.pendingReplays {
 		ra := ra // capture loop variable
-		go a.replayOnApproval(ctx, ra, bgWorker)
+		a.replayWG.Add(1)
+		go func() {
+			defer a.replayWG.Done()
+			a.replayOnApproval(ctx, ra, bgWorker)
+		}()
 	}
 	a.pendingReplays = nil // don't replay twice
 
@@ -242,6 +250,9 @@ func (a *Application) Start(ctx context.Context) error {
 // Close releases all resources acquired during Bootstrap. Safe to call
 // even if Bootstrap was only partially successful.
 func (a *Application) Close() {
+	// Drain outstanding replay goroutines before closing resources.
+	a.replayWG.Wait()
+
 	if a.auditor != nil {
 		_ = a.auditor.Close()
 	}

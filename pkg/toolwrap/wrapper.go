@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/audit"
@@ -46,6 +47,9 @@ type Wrapper struct {
 	// ThreadID and RunID identify the current AG-UI session for the approval request.
 	ThreadID string
 	RunID    string
+
+	// callMu protects callHistory and semanticCache from concurrent access.
+	callMu sync.Mutex
 
 	// callHistory tracks recent tool call fingerprints (toolName:args) to detect
 	// infinite loops where the LLM repeatedly calls the same tool with identical
@@ -97,42 +101,16 @@ func (w *Wrapper) Call(ctx context.Context, jsonArgs []byte) (output any, err er
 
 	toolName := w.Tool.Declaration().Name
 
-	// Loop detection.
-	fingerprint := toolName + ":" + string(jsonArgs)
-	if w.isLooping(fingerprint) {
-		logr.Warn("loop detected — same tool+args called consecutively",
-			"tool", toolName, "times", maxConsecutiveRepeatCalls)
-		return nil, fmt.Errorf(
-			"loop detected: tool %s has been called with identical arguments %d times consecutively. "+
-				"Stop calling this tool and summarize the results you already have",
-			toolName, maxConsecutiveRepeatCalls)
-	}
-	w.recordCall(fingerprint)
+	// --- Pre-execution checks (each may short-circuit) ---
 
-	// Semantic dedup: for idempotent tools (e.g. create_recurring_task), check
-	// if a call with the same semantic key (e.g. task name) already succeeded.
-	// This prevents wasted HITL approval rounds when the LLM varies non-key
-	// arguments like action text across iterations.
-	//
-	// NOTE: The semantic cache is intentionally global (not per-thread):
-	// the currently-configured tools (create_recurring_task) are idempotent
-	// across sessions — creating the same task name always produces the same
-	// result. This differs from the approval cache, which is session-scoped
-	// because approval decisions are user-specific.
-	if semKey, ok := semanticKey(toolName, jsonArgs); ok {
-		if w.semanticCache == nil {
-			w.semanticCache = ttlcache.NewTTLMap[any](maxSemanticCacheSize, semanticCacheTTL)
-		}
-		if cached, hit := w.semanticCache.Get(semKey); hit {
-			logr.Debug("semantic cache hit — returning cached tool result", "key", semKey)
-			responseStr, truncated := truncateResponse(fmt.Sprintf("%v", cached))
-			w.logResult(logr, toolName, jsonArgs, responseStr, truncated, nil)
-			w.emitToolResponse(toolName, responseStr, nil)
-			return cached, nil
-		}
+	if err := w.checkLoopDetection(toolName, jsonArgs); err != nil {
+		return nil, err
 	}
 
-	// File-cache check (read_file, list_file, read_multiple_files).
+	if cached, ok := w.checkSemanticCache(logr, toolName, jsonArgs); ok {
+		return cached, nil
+	}
+
 	if cached, ok := w.checkFileCache(logr, toolName, jsonArgs); ok {
 		w.emitToolResponse(toolName, fmt.Sprintf("%v", cached), nil)
 		return cached, nil
@@ -149,7 +127,8 @@ func (w *Wrapper) Call(ctx context.Context, jsonArgs []byte) (output any, err er
 		return nil, err
 	}
 
-	// Execute the tool.
+	// --- Execute ---
+
 	toolCtx := w.enrichContext(ctx)
 	ct, ok := w.Tool.(tool.CallableTool)
 	if !ok {
@@ -157,29 +136,96 @@ func (w *Wrapper) Call(ctx context.Context, jsonArgs []byte) (output any, err er
 	}
 	output, err = ct.Call(toolCtx, jsonArgs)
 
-	// Cache successful file reads.
+	// --- Post-execution ---
+
+	w.postProcess(ctx, logr, toolName, jsonArgs, output, err)
+	return output, err
+}
+
+// checkLoopDetection detects consecutive identical tool calls. Returns an
+// error when the loop threshold is reached, nil otherwise.
+func (w *Wrapper) checkLoopDetection(toolName string, jsonArgs []byte) error {
+	fingerprint := toolName + ":" + string(jsonArgs)
+	w.callMu.Lock()
+	looping := w.isLooping(fingerprint)
+	if !looping {
+		w.recordCall(fingerprint)
+	}
+	w.callMu.Unlock()
+	if looping {
+		return fmt.Errorf(
+			"loop detected: tool %s has been called with identical arguments %d times consecutively. "+
+				"Stop calling this tool and summarize the results you already have",
+			toolName, maxConsecutiveRepeatCalls)
+	}
+	return nil
+}
+
+// checkSemanticCache checks whether an idempotent tool call has a cached
+// result (e.g. create_recurring_task with the same name). Returns the
+// cached value and true on hit, emitting the appropriate events.
+func (w *Wrapper) checkSemanticCache(logr interface {
+	Debug(msg string, keysAndValues ...any)
+	Error(msg string, keysAndValues ...any)
+}, toolName string, jsonArgs []byte) (any, bool) {
+	semKey, ok := semanticKey(toolName, jsonArgs)
+	if !ok {
+		return nil, false
+	}
+
+	w.callMu.Lock()
+	if w.semanticCache == nil {
+		w.semanticCache = ttlcache.NewTTLMap[any](maxSemanticCacheSize, semanticCacheTTL)
+	}
+	cached, hit := w.semanticCache.Get(semKey)
+	w.callMu.Unlock()
+
+	if !hit {
+		return nil, false
+	}
+
+	logr.Debug("semantic cache hit — returning cached tool result", "key", semKey)
+	responseStr, truncated := truncateResponse(fmt.Sprintf("%v", cached))
+	w.logResult(logr, toolName, jsonArgs, responseStr, truncated, nil)
+	w.emitToolResponse(toolName, responseStr, nil)
+	return cached, true
+}
+
+// postProcess handles all post-execution bookkeeping: caching results,
+// invalidating stale file reads, truncating output, logging, auditing,
+// and emitting the response event.
+func (w *Wrapper) postProcess(ctx context.Context, logr interface {
+	Debug(msg string, keysAndValues ...any)
+	Error(msg string, keysAndValues ...any)
+}, toolName string, jsonArgs []byte, output any, err error) {
 	if err == nil {
 		w.storeFileCache(logr, toolName, jsonArgs, output)
+		w.storeSemanticCache(logr, toolName, jsonArgs, output)
 	}
+	w.invalidateFileCacheOnWrite(toolName, jsonArgs)
 
-	// Cache successful idempotent tool calls by semantic key.
-	if err == nil {
-		if semKey, ok := semanticKey(toolName, jsonArgs); ok {
-			if w.semanticCache == nil {
-				w.semanticCache = ttlcache.NewTTLMap[any](maxSemanticCacheSize, semanticCacheTTL)
-			}
-			w.semanticCache.Set(semKey, output)
-			logr.Debug("semantic cache stored", "key", semKey, "ttl", semanticCacheTTL)
-		}
-	}
-
-	// Post-processing: truncate, log, audit, emit.
 	responseStr, truncated := truncateResponse(fmt.Sprintf("%v", output))
 	w.logResult(logr, toolName, jsonArgs, responseStr, truncated, err)
 	w.auditToolCall(ctx, toolName, jsonArgs, responseStr, truncated, err)
 	w.emitToolResponse(toolName, responseStr, err)
+}
 
-	return output, err
+// storeSemanticCache persists a successful idempotent tool result under its
+// semantic key so that duplicate calls within the TTL hit the cache.
+func (w *Wrapper) storeSemanticCache(logr interface {
+	Debug(msg string, keysAndValues ...any)
+}, toolName string, jsonArgs []byte, output any) {
+	semKey, ok := semanticKey(toolName, jsonArgs)
+	if !ok {
+		return
+	}
+	w.callMu.Lock()
+	if w.semanticCache == nil {
+		w.semanticCache = ttlcache.NewTTLMap[any](maxSemanticCacheSize, semanticCacheTTL)
+	}
+	w.semanticCache.Set(semKey, output)
+	w.callMu.Unlock()
+	logr.Debug("semantic cache stored", "key", semKey, "ttl", semanticCacheTTL)
 }
 
 // requireApproval blocks on human approval for non-readonly tools. It checks
@@ -262,19 +308,23 @@ func (w *Wrapper) requireApproval(ctx context.Context, logr interface {
 }
 
 // emitApprovalRequest sends a TOOL_APPROVAL_REQUEST event to the UI. Falls
-// back to context EventChan for sub-agent tool calls.
+// back to context EventChan for sub-agent tool calls. Uses a non-blocking
+// send to prevent deadlock if the channel consumer is slow.
 func (w *Wrapper) emitApprovalRequest(ctx context.Context, approvalID, toolName, args, justification string) {
 	evChan := w.EventChan
 	if evChan == nil {
 		evChan = agui.EventChanFromContext(ctx)
 	}
 	if evChan != nil {
-		evChan <- agui.ToolApprovalRequestMsg{
+		select {
+		case evChan <- agui.ToolApprovalRequestMsg{
 			Type:          agui.EventToolApprovalRequest,
 			ApprovalID:    approvalID,
 			ToolName:      toolName,
 			Arguments:     args,
 			Justification: justification,
+		}:
+		case <-ctx.Done():
 		}
 	}
 }
@@ -314,14 +364,14 @@ func (w *Wrapper) effectiveRunID(ctx context.Context) string {
 }
 
 // truncateResponse caps a response string at maxToolResultSize, respecting
-// multi-byte character boundaries. Returns the (possibly truncated) string
-// and whether truncation occurred.
+// multi-byte character boundaries using utf8.RuneStart. Returns the
+// (possibly truncated) string and whether truncation occurred.
 func truncateResponse(s string) (string, bool) {
 	if len(s) <= maxToolResultSize {
 		return s, false
 	}
 	end := maxToolResultSize
-	for end > 0 && (s[end]&0xC0) == 0x80 {
+	for end > 0 && !utf8.RuneStart(s[end]) {
 		end--
 	}
 	return s[:end] + "\n... [truncated - full output saved to file]", true
@@ -449,6 +499,37 @@ func (w *Wrapper) storeFileCache(logr interface {
 	logr.Debug("file result cached in working memory", "key", key)
 }
 
+// writableFileTools maps write tool names to the JSON key containing the
+// file path that should be invalidated in the file cache.
+var writableFileTools = map[string]string{
+	"write_file":   "file_name",
+	"edit_file":    "file_name",
+	"replace_file": "file_name",
+}
+
+// invalidateFileCacheOnWrite evicts any cached read_file result for the
+// same path when a write tool modifies a file. Without this, subsequent
+// read_file calls would return stale content from WorkingMemory.
+func (w *Wrapper) invalidateFileCacheOnWrite(toolName string, jsonArgs []byte) {
+	if w.WorkingMemory == nil {
+		return
+	}
+	pathKey, ok := writableFileTools[toolName]
+	if !ok {
+		return
+	}
+	path := gjson.GetBytes(jsonArgs, pathKey)
+	if !path.Exists() {
+		return
+	}
+	// Evict the cached read for this file by storing an empty sentinel.
+	// WorkingMemory has no Delete — an empty value effectively invalidates
+	// the entry since the cached reader returns "" which differs from the
+	// original file content.
+	cacheKey := fmt.Sprintf("tool:read_file:%s", path.String())
+	w.WorkingMemory.Store(cacheKey, "")
+}
+
 // TruncateForAudit truncates a string to maxLen runes for audit log metadata.
 // Appends "…" when truncated to signal the value was trimmed.
 func TruncateForAudit(s string, maxLen int) string {
@@ -463,6 +544,7 @@ func TruncateForAudit(s string, maxLen int) string {
 // entries in callHistory all match the given fingerprint. Combined with the
 // current call this means the tool would have been invoked
 // maxConsecutiveRepeatCalls times consecutively with the same arguments.
+// Caller must hold w.callMu.
 func (w *Wrapper) isLooping(fingerprint string) bool {
 	n := len(w.callHistory)
 	needed := maxConsecutiveRepeatCalls - 1
@@ -479,6 +561,7 @@ func (w *Wrapper) isLooping(fingerprint string) bool {
 
 // recordCall appends a fingerprint to callHistory and trims the slice to the
 // most recent 10 entries to bound memory usage.
+// Caller must hold w.callMu.
 func (w *Wrapper) recordCall(fingerprint string) {
 	w.callHistory = append(w.callHistory, fingerprint)
 	const maxHistory = 10

@@ -43,7 +43,8 @@ type Scheduler struct {
 	stopCh         chan struct{}
 	cancelFn       context.CancelFunc // cancels the ticker loop context on Stop()
 	tickerInterval time.Duration
-	inFlight       sync.Map // per-task in-flight guard (taskID → struct{})
+	inFlight       sync.Map       // per-task in-flight guard (taskID → struct{})
+	wg             sync.WaitGroup // tracks in-flight executeAndAdvance goroutines
 }
 
 // NewScheduler creates a Scheduler with the given store, configuration, and
@@ -110,18 +111,22 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	logr.Info("Cron scheduler started", "task_count", len(tasks))
 
-	// Start the ticker goroutine with a dedicated cancellable context so it
-	// is not tied to the caller's initialization context lifetime but still
-	// receives a cancellation signal when Stop() is called.
-	loopCtx, cancelFn := context.WithCancel(context.Background())
+	// Start the ticker goroutine with a dedicated cancellable context.
+	// We derive from a background context but inject the caller's logger args
+	// so structured logging works inside the ticker loop.
+	loopCtx := logger.WithArgs(context.Background(), "fn", "cron.Scheduler.tickLoop")
+	loopCtx, cancelFn := context.WithCancel(loopCtx)
 	s.cancelFn = cancelFn
 	go s.tickLoop(loopCtx)
 	return nil
 }
 
 // tickLoop runs every minute, queries the DB for due tasks, dispatches them,
-// records history, and computes the next run time.
+// records history, and computes the next run time. It also performs periodic
+// history cleanup to prevent unbounded cron_history table growth.
 func (s *Scheduler) tickLoop(ctx context.Context) {
+	log := logger.GetLogger(ctx).With("fn", "cron.Scheduler.tickLoop")
+
 	// Sleep until the next minute boundary so ticks align to :00 seconds.
 	now := time.Now()
 	nextMinute := now.Truncate(s.tickerInterval).Add(s.tickerInterval)
@@ -136,6 +141,10 @@ func (s *Scheduler) tickLoop(ctx context.Context) {
 	ticker := time.NewTicker(s.tickerInterval)
 	defer ticker.Stop()
 
+	// Cleanup old history entries every hour.
+	cleanupTicker := time.NewTicker(time.Hour)
+	defer cleanupTicker.Stop()
+
 	// Run immediately at the first aligned minute.
 	s.checkAndDispatch(ctx)
 
@@ -147,6 +156,12 @@ func (s *Scheduler) tickLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.checkAndDispatch(ctx)
+		case <-cleanupTicker.C:
+			if deleted, err := s.store.CleanupHistory(ctx, 30*24*time.Hour); err != nil {
+				log.Warn("Failed to cleanup cron history", "error", err)
+			} else if deleted > 0 {
+				log.Info("Cleaned up old cron history entries", "deleted", deleted)
+			}
 		}
 	}
 }
@@ -190,8 +205,10 @@ func (s *Scheduler) checkAndDispatch(ctx context.Context) {
 		s.inFlight.Store(taskKey, struct{}{})
 
 		wg.Add(1)
+		s.wg.Add(1) // also track on struct-level WaitGroup for Stop() draining
 		go func() {
 			defer wg.Done()
+			defer s.wg.Done()
 			defer s.inFlight.Delete(taskKey)
 			if err := s.executeAndAdvance(ctx, task); err != nil {
 				log.Warn("failed to execute the task", "task", task.Action, "error", err)
@@ -227,7 +244,10 @@ func (s *Scheduler) executeAndAdvance(ctx context.Context, task CronTask) error 
 		Payload: payload,
 	})
 
-	// Update history.
+	// Update history with dispatch outcome.
+	// NOTE: This records whether the task was successfully *enqueued* to the
+	// background worker, not whether the agent completed the task. Full
+	// execution tracking would require a callback from the background worker.
 	if history != nil {
 		status := db.CronStatusSuccess
 		errMsg := ""
@@ -268,11 +288,12 @@ func (s *Scheduler) computeAndSetNextRun(ctx context.Context, task CronTask, fro
 	return s.store.SetNextRun(ctx, task.ID, nextTick)
 }
 
-// Stop gracefully shuts down the ticker. Safe to call multiple times.
+// Stop gracefully shuts down the ticker and waits for in-flight task
+// goroutines to complete. Safe to call multiple times.
 func (s *Scheduler) Stop() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if !s.running {
+		s.mu.Unlock()
 		return nil
 	}
 	close(s.stopCh)
@@ -280,6 +301,10 @@ func (s *Scheduler) Stop() error {
 		s.cancelFn() // cancel the ticker loop context so in-flight DB/dispatch calls unblock
 	}
 	s.running = false
+	s.mu.Unlock()
+
+	// Wait for in-flight executeAndAdvance goroutines to drain.
+	s.wg.Wait()
 	return nil
 }
 
