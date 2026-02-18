@@ -14,3 +14,5 @@ build
 audit.log
 **/.genie.db*
 **/*genie_audit.ndjson
+examples/**/*.sh
+examples/**/.genie/*

@@ -17,10 +17,26 @@ import (
 	"github.com/appcd-dev/genie/pkg/osutils"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/time/rate"
 )
 
+type HealthResult struct {
+	Healthy      bool   `json:"healthy"`
+	LastError    string `json:"last_error,omitempty"`
+	FailureCount int    `json:"failure_count"`
+	Name         string `json:"name"`
+}
+
 //go:generate go tool counterfeiter -generate
+//counterfeiter:generate . BGWorker
+
+// BGWorker is an interface for background workers that can be started and stopped.
+type BGWorker interface {
+	Start(ctx context.Context) error
+	HealthCheck(ctx context.Context) []HealthResult
+	Stop() error
+}
 
 // ChatRequest bundles the inputs for a single AG-UI chat invocation.
 type ChatRequest struct {
@@ -112,18 +128,25 @@ type Server struct {
 
 	// Background worker for events and heartbeats
 	bgWorker *BackgroundWorker
+	workers  []BGWorker
 }
 
 // NewServer creates a new AG-UI HTTP server.
-func (c ServerConfig) NewServer(handler Expert, approvalStore hitl.ApprovalStore) *Server {
+// The bgWorker is created by the caller so it can also be shared with the cron
+// scheduler dispatcher, keeping dependency wiring in one place.
+func (c ServerConfig) NewServer(
+	handler Expert,
+	approvalStore hitl.ApprovalStore,
+	bgWorker *BackgroundWorker,
+	workers ...BGWorker,
+) *Server {
 	s := &Server{
 		chatHandler:   handler,
 		port:          c.Port,
 		corsOrigins:   c.CORSOrigins,
 		approvalStore: approvalStore,
-		// Background worker for events and heartbeats
-		bgWorker: NewBackgroundWorker(handler, 2), // Default to 2 concurrent background tasks
-		// DDoS protection
+		bgWorker:      bgWorker,
+		workers:       workers,
 		maxConcurrent: c.MaxConcurrent,
 		maxBodyBytes:  c.MaxBodyBytes,
 	}
@@ -185,28 +208,28 @@ func (s *Server) Handler() http.Handler {
 	// Serve static documentation from local docs/ directory at /ui
 	// Serve documentation via reverse proxy to GitHub Pages
 	// This ensures users always see the latest docs without needing local files.
+	r.Handle("/ui", http.RedirectHandler("/ui/", http.StatusMovedPermanently))
 	r.Handle("/ui/*", http.StripPrefix("/ui", newDocsProxy()))
 
 	return r
 }
 
 // newDocsProxy creates a reverse proxy to the Genie GitHub Pages documentation.
+// It sanitises the proxied path to prevent traversal attacks: all requests are
+// forced under /stackgen-genie/ regardless of what the client sends.
 func newDocsProxy() *httputil.ReverseProxy {
 	docsURL, _ := url.Parse("https://appcd-dev.github.io/stackgen-genie/")
 	proxy := httputil.NewSingleHostReverseProxy(docsURL)
 
-	// Modify the director to rewrite the path correctly
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
 		req.Host = docsURL.Host
-
-		// The incoming request path is /foo (stripped of /ui)
-		// We want to map it to /stackgen-genie/foo and prevent path traversal.
-		req.URL.Path = path.Join("/stackgen-genie", req.URL.Path)
+		// Sanitise the path and re-apply the /stackgen-genie/ prefix so
+		// cleaned paths like "/" (from "/ui/../") cannot escape.
+		cleaned := path.Clean(req.URL.Path)
+		req.URL.Path = path.Join("/stackgen-genie", cleaned)
 		if !strings.HasPrefix(req.URL.Path, "/stackgen-genie") {
-			req.URL.Path = "/stackgen-genie/"
-		} else if req.URL.Path == "/stackgen-genie" {
 			req.URL.Path = "/stackgen-genie/"
 		}
 	}
@@ -226,6 +249,14 @@ func (s *Server) Start(ctx context.Context) error {
 	// Graceful shutdown on context cancellation
 	go func() {
 		<-ctx.Done()
+
+		// Stop workers (e.g. cron scheduler) first.
+		for _, w := range s.workers {
+			if err := w.Stop(); err != nil {
+				logger.Warn("Failed to stop worker", "error", err)
+			}
+		}
+
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
@@ -237,6 +268,13 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}()
 
+	// Start the cron scheduler if configured.
+	for _, w := range s.workers {
+		if err := w.Start(ctx); err != nil {
+			logger.Warn("Failed to start worker", "error", err)
+		}
+	}
+
 	// Start Heartbeat ticker (every 10 minutes)
 	// This simulates the "Heartbeat" feature from OpenClaw
 	go func() {
@@ -247,18 +285,7 @@ func (s *Server) Start(ctx context.Context) error {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if s.bgWorker != nil {
-					logger.Info("Triggering scheduled heartbeat event")
-					req := EventRequest{
-						Type:    EventTypeHeartbeat,
-						Source:  "system_ticker",
-						Payload: json.RawMessage(`{"message": "Scheduled maintenance check"}`),
-					}
-					// Use a detached context for the trigger itself, but HandleEvent handles its own context
-					if _, err := s.bgWorker.HandleEvent(ctx, req); err != nil {
-						logger.Warn("Failed to trigger heartbeat", "error", err)
-					}
-				}
+				s.handleHeartbeat(ctx)
 			}
 		}
 	}()
@@ -268,6 +295,62 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("AG-UI HTTP server error: %w", err)
 	}
 	return nil
+}
+
+// handleHeartbeat dispatches a heartbeat event and checks cron task health.
+func (s *Server) handleHeartbeat(ctx context.Context) {
+	logger := logger.GetLogger(ctx).With("fn", "server.heartbeat")
+	logger.Info("Triggering scheduled heartbeat event")
+	if s.bgWorker == nil {
+		logger.Warn("bgWorker is nil, skipping heartbeat dispatch")
+		return
+	}
+	errGroup, egCtx := errgroup.WithContext(ctx)
+	errGroup.Go(func() error {
+		req := EventRequest{
+			Type:    EventTypeHeartbeat,
+			Source:  "system_ticker",
+			Payload: json.RawMessage(`{"message": "Scheduled maintenance check"}`),
+		}
+		if _, err := s.bgWorker.HandleEvent(egCtx, req); err != nil {
+			logger.Warn("Failed to trigger heartbeat", "error", err)
+		}
+		return nil
+	})
+
+	errGroup.Go(func() error {
+		// Check worker health during heartbeat; dispatch failures through
+		// bgWorker so the messaging tool can send notifications.
+		for _, w := range s.workers {
+			for _, r := range w.HealthCheck(egCtx) {
+				if r.Healthy {
+					continue
+				}
+				logger.Warn("Worker unhealthy",
+					"name", r.Name,
+					"failures", r.FailureCount,
+					"last_error", r.LastError,
+				)
+				payload, _ := json.Marshal(map[string]interface{}{
+					"message":       fmt.Sprintf("Worker %q is unhealthy (%d failures): %s", r.Name, r.FailureCount, r.LastError),
+					"worker":        r.Name,
+					"failure_count": r.FailureCount,
+					"last_error":    r.LastError,
+				})
+				if _, err := s.bgWorker.HandleEvent(egCtx, EventRequest{
+					Type:    EventTypeHeartbeat,
+					Source:  "health:" + r.Name,
+					Payload: payload,
+				}); err != nil {
+					logger.Warn("Failed to dispatch health alert", "worker", r.Name, "error", err)
+				}
+			}
+		}
+		return nil
+	})
+	if err := errGroup.Wait(); err != nil {
+		logger.Warn("Failed to trigger heartbeat", "error", err)
+	}
 }
 
 // handleRun processes an AG-UI run request.

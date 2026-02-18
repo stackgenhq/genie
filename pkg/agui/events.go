@@ -6,10 +6,15 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/google/uuid"
 )
+
+// bgWorkerTimeout is the maximum duration a background agent run is allowed
+// to execute. After this, the context is cancelled and the worker slot freed.
+const bgWorkerTimeout = 10 * time.Minute
 
 // EventType defines the type of event (e.g., webhook, heartbeat).
 type EventType string
@@ -28,11 +33,12 @@ type EventRequest struct {
 
 // BackgroundWorker handles background agent execution.
 type BackgroundWorker struct {
-	chatHandler Expert
-	mu          sync.Mutex
-	active      int
-	max         int
-	wg          sync.WaitGroup
+	chatHandler   Expert
+	mu            sync.Mutex
+	active        int
+	max           int
+	wg            sync.WaitGroup
+	activeSources map[string]bool // tracks in-flight sources to prevent duplicate dispatch
 }
 
 // NewBackgroundWorker creates a worker with a concurrency limit.
@@ -41,8 +47,9 @@ func NewBackgroundWorker(handler Expert, maxConcurrent int) *BackgroundWorker {
 		maxConcurrent = 1
 	}
 	return &BackgroundWorker{
-		chatHandler: handler,
-		max:         maxConcurrent,
+		chatHandler:   handler,
+		max:           maxConcurrent,
+		activeSources: make(map[string]bool),
 	}
 }
 
@@ -51,10 +58,19 @@ func NewBackgroundWorker(handler Expert, maxConcurrent int) *BackgroundWorker {
 func (w *BackgroundWorker) HandleEvent(ctx context.Context, req EventRequest) (string, error) {
 	w.mu.Lock()
 	if w.active >= w.max {
+		active := w.active
 		w.mu.Unlock()
-		return "", fmt.Errorf("background worker pool is full")
+		return "", fmt.Errorf("background worker pool is full (%d/%d)", active, w.max)
+	}
+	// Prevent duplicate in-flight dispatches from the same source (e.g. same cron task).
+	if req.Source != "" && w.activeSources[req.Source] {
+		w.mu.Unlock()
+		return "", fmt.Errorf("source %q already has an active run", req.Source)
 	}
 	w.active++
+	if req.Source != "" {
+		w.activeSources[req.Source] = true
+	}
 	w.wg.Add(1)
 	w.mu.Unlock()
 
@@ -64,11 +80,18 @@ func (w *BackgroundWorker) HandleEvent(ctx context.Context, req EventRequest) (s
 		defer func() {
 			w.mu.Lock()
 			w.active--
+			if req.Source != "" {
+				delete(w.activeSources, req.Source)
+			}
 			w.mu.Unlock()
 			w.wg.Done()
 		}()
-		// Use a detached context because the HTTP request context will be cancelled
-		w.runAgent(context.Background(), req, runID)
+		// Use a detached context with timeout. The HTTP request context
+		// would be cancelled immediately, but we still need a timeout
+		// so that hung LLM calls don't block worker slots forever.
+		runCtx, cancel := context.WithTimeout(context.Background(), bgWorkerTimeout)
+		defer cancel()
+		w.runAgent(runCtx, req, runID)
 	}()
 
 	return runID, nil
@@ -111,14 +134,18 @@ func (w *BackgroundWorker) runAgent(ctx context.Context, req EventRequest, runID
 		EventChan: eventChan,
 	}
 
-	// This blocks until the agent completes
+	// This blocks until the agent completes (or context is cancelled by timeout).
 	w.chatHandler.Handle(ctx, chatReq)
 
 	// Close channel to signal drainer to exit
 	close(eventChan)
 	wg.Wait()
 
-	logr.Info("Background agent run completed", "threadID", threadID)
+	if ctx.Err() != nil {
+		logr.Warn("Background agent run terminated by timeout", "threadID", threadID, "error", ctx.Err())
+	} else {
+		logr.Info("Background agent run completed", "threadID", threadID)
+	}
 }
 
 func (s *Server) handleResumeEndpoint(w http.ResponseWriter, r *http.Request) {

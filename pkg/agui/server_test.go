@@ -306,7 +306,8 @@ var _ = Describe("AG-UI Server", func() {
 					MessageID: "msg-1",
 				}
 			}
-			server = agui.ServerConfig{}.NewServer(handler, nil)
+			bgw := agui.NewBackgroundWorker(handler, 2)
+			server = agui.ServerConfig{}.NewServer(handler, nil, bgw)
 		})
 
 		It("should stream SSE events for a valid POST", func() {
@@ -399,7 +400,7 @@ var _ = Describe("AG-UI Server", func() {
 		It("should add CORS headers when origin matches", func() {
 			handler := &aguifakes.FakeExpert{}
 			server := agui.ServerConfig{CORSOrigins: []string{"http://localhost:3000"}}.NewServer(
-				handler, nil,
+				handler, nil, nil,
 			)
 
 			req := httptest.NewRequest(http.MethodOptions, "/", nil)
@@ -414,7 +415,7 @@ var _ = Describe("AG-UI Server", func() {
 		It("should not add CORS headers when no origins configured", func() {
 			handler := &aguifakes.FakeExpert{}
 			server := agui.ServerConfig{}.NewServer(
-				handler, nil,
+				handler, nil, nil,
 			)
 
 			reqBody := `{"messages":[{"role":"user","content":"hello"}]}`
@@ -441,7 +442,7 @@ var _ = Describe("AG-UI Server", func() {
 				}
 				<-ctx.Done()
 			}
-			server := agui.ServerConfig{}.NewServer(handler, nil)
+			server := agui.ServerConfig{}.NewServer(handler, nil, nil)
 
 			reqBody := `{"messages":[{"role":"user","content":"hello"}]}`
 			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -479,7 +480,7 @@ var _ = Describe("AG-UI Server", func() {
 					Delta:     true,
 				}
 			}
-			server := agui.ServerConfig{}.NewServer(handler, nil)
+			server := agui.ServerConfig{}.NewServer(handler, nil, nil)
 
 			reqBody := `{"threadId":"t1","runId":"r1","messages":[{"role":"user","content":"test"}]}`
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(reqBody))

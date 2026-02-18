@@ -280,7 +280,24 @@
                     <div id="hitl-body" class="config-section-body"></div>
                 </div>
 
-                <!-- DB Config -->
+                <!-- Security -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('security-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">🔐</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Enterprise Secret Vault</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Cloud-native secret management (GCP, AWS,
+                                    Azure)</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="security-body" class="config-section-body"></div>
+                </div>
                 <div class="config-section">
                     <div class="config-section-header" onclick="toggleSection('db-config-body')">
                         <div class="flex items-center gap-3">
@@ -333,6 +350,24 @@
                         </svg>
                     </div>
                     <div id="langfuse-body" class="config-section-body"></div>
+                </div>
+
+                <!-- Cron -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('cron-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">⏰</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Cron Scheduler</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Recurring scheduled tasks</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="cron-body" class="config-section-body"></div>
                 </div>
 
 

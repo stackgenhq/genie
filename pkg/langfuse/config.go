@@ -1,15 +1,19 @@
 package langfuse
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/appcd-dev/genie/pkg/httputil"
+	"github.com/appcd-dev/genie/pkg/security"
 	"github.com/appcd-dev/genie/pkg/ttlcache"
 )
 
+// Config holds the configuration for the Langfuse integration, which
+// provides observability and tracing for LLM interactions.
 type Config struct {
 	PublicKey     string `json:"public_key" toml:"public_key" yaml:"public_key"`
 	SecretKey     string `json:"secret_key" toml:"secret_key" yaml:"secret_key"`
@@ -17,11 +21,21 @@ type Config struct {
 	EnablePrompts bool   `json:"enable_prompts" toml:"enable_prompts" yaml:"enable_prompts"`
 }
 
-func DefaultConfig() Config {
+// DefaultConfig builds the default Langfuse configuration by resolving
+// credentials through the given SecretProvider. Without a SecretProvider,
+// callers can pass security.NewEnvProvider() to preserve the legacy
+// os.Getenv behavior.
+func DefaultConfig(ctx context.Context, sp security.SecretProvider) Config {
+	// Helper to resolve a secret, ignoring errors (treat as empty).
+	get := func(name string) string {
+		v, _ := sp.GetSecret(ctx, name)
+		return v
+	}
+
 	return Config{
-		PublicKey:     os.Getenv("LANGFUSE_PUBLIC_KEY"),
-		SecretKey:     os.Getenv("LANGFUSE_SECRET_KEY"),
-		Host:          os.Getenv("LANGFUSE_HOST"),
+		PublicKey:     get("LANGFUSE_PUBLIC_KEY"),
+		SecretKey:     get("LANGFUSE_SECRET_KEY"),
+		Host:          get("LANGFUSE_HOST"),
 		EnablePrompts: os.Getenv("LANGFUSE_ENABLE_PROMPTS") == "true",
 	}
 }

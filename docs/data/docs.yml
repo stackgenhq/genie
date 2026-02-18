@@ -312,6 +312,56 @@ config_sections:
         rows:
           - ["always_allowed", "string[]", "`[]`", "List of tools that trigger an approval request, e.g. `['browser_click', 'run_command']`. Use `['*']` to require approval for <strong>all</strong> tools."]
 
+  - id: security
+    icon: "🔐"
+    name: security
+    sidebar_desc: Enterprise Secret Vault
+    detail_title: "🔐 security"
+    detail_desc: >
+      <strong>Zero-Trust Secret Management.</strong><br>
+      Eliminate hardcoded API keys and plaintext environment variables. Genie's enterprise security layer
+      resolves secrets at runtime from <strong>GCP Secret Manager</strong>, <strong>AWS Secrets Manager</strong>,
+      <strong>Azure Key Vault</strong>, <strong>HashiCorp Vault</strong>, etcd, or file-based stores —
+      with automatic fallback to <code>os.Getenv</code> for local development and backward compatibility.<br><br>
+      Built on <a href="https://gocloud.dev/howto/runtimevar/" target="_blank" class="text-purple-500 hover:text-purple-600">gocloud.dev/runtimevar</a>,
+      secrets are lazily loaded, cached, and thread-safe. Your credentials never touch config files or source control.
+    tables:
+      - columns: [Key, Type, Default, Description]
+        rows:
+          - ["secrets", "map[string]string", "`{}`", "Maps secret names to runtimevar URLs, e.g. `OPENAI_API_KEY = 'gcpsecretmanager://projects/p/secrets/s?decoder=string'`"]
+    subsections:
+      - label: Supported Backends
+        columns: [Backend, URL Scheme, Example]
+        rows:
+          - ["GCP Secret Manager", "`gcpsecretmanager://`", "`gcpsecretmanager://projects/p/secrets/s?decoder=string`"]
+          - ["AWS Secrets Manager", "`awssecretsmanager://`", "`awssecretsmanager://my-secret?region=us-east-1&decoder=string`"]
+          - ["AWS Parameter Store", "`awsparamstore://`", "`awsparamstore://my-param?region=us-east-1&decoder=string`"]
+          - ["Azure Key Vault", "`azurekeyvault://`", "`azurekeyvault://vault.vault.azure.net/secrets/name?decoder=string`"]
+          - ["HashiCorp Vault", "via runtimevar driver", "Configurable via third-party runtimevar driver"]
+          - ["etcd", "`etcd://`", "`etcd://my-key?decoder=string`"]
+          - ["File (watched)", "`file://`", "`file:///etc/secrets/api-key?decoder=string`"]
+          - ["Constant (testing)", "`constant://`", "`constant://?val=test-value&decoder=string`"]
+      - label: Key Features
+        columns: [Feature, Detail]
+        rows:
+          - ["Zero-config fallback", "Without any `[security]` section, all secrets resolve from environment variables"]
+          - ["Lazy loading", "runtimevar connections are opened on first access and cached for subsequent calls"]
+          - ["Thread-safe", "Double-checked locking with `sync.RWMutex` for concurrent access"]
+          - ["Testable", "counterfeiter-generated fakes for easy mocking in unit tests"]
+          - ["Cloud-agnostic", "Powered by Go CDK — switch backends by changing a URL, zero code changes"]
+    code_example:
+      label: Example TOML
+      code: |
+        # Map secret names to cloud secret store URLs.
+        # Any secret NOT listed here falls back to os.Getenv.
+        [security.secrets]
+        OPENAI_API_KEY    = "gcpsecretmanager://projects/my-project/secrets/openai-key?decoder=string"
+        ANTHROPIC_API_KEY = "awssecretsmanager://anthropic-key?region=us-east-1&decoder=string"
+        LANGFUSE_SECRET   = "azurekeyvault://my-vault.vault.azure.net/secrets/langfuse?decoder=string"
+
+        # For local dev, just set env vars — no config changes needed.
+        # export OPENAI_API_KEY="sk-..."
+
   - id: langfuse
     icon: "🪢"
     name: langfuse
@@ -381,6 +431,51 @@ config_sections:
           "/shared/team-playbooks",
           "./CODING_STANDARDS.md"
         ]
+
+  - id: cron
+    icon: "⏰"
+    name: cron
+    sidebar_desc: Scheduled Tasks
+    detail_title: "⏰ cron"
+    detail_desc: >
+      <strong>Recurring Scheduled Tasks.</strong><br>
+      Cron lets Genie execute actions on a schedule — health checks, status reports, cache warming,
+      or any prompt you'd like repeated at regular intervals. Tasks are persisted in the database so
+      they survive restarts, and a background polling scheduler dispatches due tasks through the same
+      pipeline as webhooks and heartbeats.<br><br>
+      Define tasks in your config for static schedules, or use the <code>create_recurring_task</code>
+      tool to let the agent dynamically create new recurring tasks at runtime.
+    tables:
+      - columns: [Key, Type, Default, Description]
+        rows:
+          - ["enabled", "bool", "`false`", "Master switch — set to `true` to activate the scheduler"]
+    subsections:
+      - label: Task Definition
+        columns: [Key, Type, Description]
+        rows:
+          - ["name", "string", "Unique task name (used as the upsert key)"]
+          - ["expression", "string", "Standard 5-field cron expression, e.g. `*/5 * * * *`"]
+          - ["action", "string", "The prompt sent to the Genie agent on each execution"]
+      - label: Runtime Tool
+        columns: [Tool, Description]
+        rows:
+          - ["`create_recurring_task`", "Lets the agent dynamically create recurring tasks via LLM tool call"]
+    code_example:
+      label: Example TOML
+      code: |
+        [cron]
+        enabled = true
+        failure_threshold = 5
+
+        [[cron.tasks]]
+        name = "daily-standup-summary"
+        expression = "0 9 * * 1-5"    # 9 AM weekdays
+        action = "Summarize yesterday's git commits and open PRs"
+
+        [[cron.tasks]]
+        name = "health-check"
+        expression = "*/10 * * * *"   # every 10 minutes
+        action = "Check cluster health and report any anomalies"
 
 # ═══════════════════════════════════════════════════════════
 # TAB 2: HOW-TO
@@ -554,9 +649,56 @@ howto_guides:
       store_path = "/var/lib/genie/whatsapp"
 
   - step: 6
+    title: Setting Up Cron Tasks
+    desc: >
+      Schedule recurring tasks that Genie executes automatically — great for daily reports,
+      periodic health checks, or cache maintenance.
+    code: |
+      # .genie.toml
+      [cron]
+      enabled = true
+
+      [[cron.tasks]]
+      name = "morning-digest"
+      expression = "0 9 * * 1-5"          # 9 AM weekdays
+      action = "Summarize overnight alerts and open PRs"
+
+      [[cron.tasks]]
+      name = "dependency-check"
+      expression = "0 0 * * 0"            # Sunday midnight
+      action = "Audit npm and go.mod for outdated dependencies"
+
+      # The agent can also create tasks dynamically:
+      # "Create a recurring task to check disk usage every hour"
+      # → uses the create_recurring_task tool
+
+  - step: 7
+    title: Enterprise Secret Management
+    desc: >
+      Eliminate hardcoded credentials with cloud-native secret resolution.
+      Genie's <code>[security]</code> section maps secret names to
+      <a href="https://gocloud.dev/howto/runtimevar/" target="_blank" class="text-purple-500 hover:text-purple-600">Go CDK runtimevar</a>
+      URLs — supporting GCP, AWS, Azure, and more. Unmapped secrets
+      automatically fall back to environment variables.
+    code: |
+      # .genie.toml — enterprise secret management
+
+      # Map secrets to cloud providers
+      [security.secrets]
+      OPENAI_API_KEY    = "gcpsecretmanager://projects/prod/secrets/openai?decoder=string"
+      ANTHROPIC_API_KEY = "awssecretsmanager://anthropic-prod?region=us-east-1&decoder=string"
+      LANGFUSE_SECRET   = "azurekeyvault://vault.vault.azure.net/secrets/langfuse?decoder=string"
+
+      # For local development — just use env vars (no config needed)
+      # export OPENAI_API_KEY="sk-..."
+      # export ANTHROPIC_API_KEY="sk-ant-..."
+      genie grant
+
+  - step: 8
     title: Using Environment Variables
     desc: >
-      Keep API keys and secrets out of your config files using the <code>${ENV_VAR}</code> pattern.
+      For simpler setups, keep API keys out of config files using <code>${ENV_VAR}</code> interpolation.
+      This is the zero-config approach that works everywhere.
     code: |
       # In .genie.toml — reference env vars
       [[model_config]]
@@ -604,9 +746,23 @@ architecture:
         - ["`SSEWriter`", "`sse.go`", "Writes `event: TYPE\\ndata: JSON\\n\\n` with auto-flush"]
         - ["`MapEvent`", "`event_mapper.go`", "Converts internal events → AG-UI wire JSON"]
         - ["`EventAdapter`", "`adapter.go`", "Converts trpc-agent-go `*event.Event` → typed TUI messages"]
-        - ["`BackgroundWorker`", "`events.go`", "Worker pool for event-driven agent runs (webhooks, heartbeats)"]
+        - ["`BackgroundWorker`", "`events.go`", "Worker pool for event-driven agent runs (webhooks, heartbeats, cron)"]
         - ["`ipRateLimiter`", "`ratelimit.go`", "Per-IP token-bucket rate limiting middleware"]
         - ["Dedup filter", "`server_expert.go`", "Suppresses multi-stage text replays via cumulative content tracking"]
+
+    - title: "⏰ Cron Scheduler (pkg/cron)"
+      desc: >
+        DB-polling cron scheduler that checks every minute for tasks whose <code>NextRunAt</code> has
+        passed. Dispatches due tasks through the <code>BackgroundWorker</code> pipeline, records execution
+        history, and computes the next run time. The database is the single source of truth, making the
+        scheduler naturally restart-safe.
+      columns: [Component, File, Purpose]
+      rows:
+        - ["`Scheduler`", "`scheduler.go`", "Ticker loop, dispatch gating with mutex, health checks"]
+        - ["`Store`", "`store.go`", "GORM-backed persistence for tasks and history (SQLite/Postgres)"]
+        - ["`createRecurringTaskTool`", "`tool.go`", "LLM tool for dynamic task creation at runtime"]
+        - ["`CleanupHistory`", "`store.go`", "Periodic pruning of old cron history entries"]
+        - ["`HealthCheck`", "`scheduler.go`", "Aggregates recent failures per task for monitoring"]
 
     - title: "🧑‍💻 CodeOwner Expert (pkg/codeowner)"
       desc: >
@@ -650,9 +806,11 @@ architecture:
     rows:
       - ["`POST`", "`/`", "AG-UI run endpoint — accepts `RunAgentInput`, streams SSE events"]
       - ["`POST`", "`/approve`", "HITL approval — resolve a pending tool call (approved/rejected)"]
-      - ["`POST`", "`/api/v1/events`", "Event gateway — accepts webhook/heartbeat events for background processing"]
+      - ["`POST`", "`/api/v1/events`", "Event gateway — accepts webhook/heartbeat/cron events for background processing"]
       - ["`GET`", "`/api/v1/resume`", "Returns the agent's natural-language capability resume"]
       - ["`GET`", "`/health`", "Health check — returns `{\"status\": \"ok\"}`"]
+      - ["`GET`", "`/api/v1/cron/tasks`", "List all cron tasks (planned)"]
+      - ["`GET`", "`/api/v1/cron/history`", "View cron execution history (planned)"]
 
   debugging:
     title: Debugging Scenarios
@@ -698,8 +856,20 @@ faq:
 
   - q: How do I keep API keys out of my config file?
     a: >
-      Don't paste keys directly! Use <code>${ENV_VAR}</code> in your config, and Genie will read
-      them from your environment variables.
+      Don't paste keys directly! Use <code>${ENV_VAR}</code> in your config for simple setups.
+      For production, use the <code>[security.secrets]</code> section to resolve secrets from
+      <strong>GCP Secret Manager</strong>, <strong>AWS Secrets Manager</strong>, or <strong>Azure Key Vault</strong>.
+      Genie uses <a href="https://gocloud.dev/howto/runtimevar/" class="text-purple-500">Go CDK runtimevar</a>
+      URLs — just change a URL to switch secret backends, zero code changes.
+
+  - q: Does Genie support cloud secret stores?
+    a: >
+      Yes! Genie's enterprise security layer supports <strong>GCP Secret Manager</strong>,
+      <strong>AWS Secrets Manager</strong>, <strong>AWS Parameter Store</strong>,
+      <strong>Azure Key Vault</strong>, <strong>etcd</strong>, and file-based secrets.
+      Add a <code>[security.secrets]</code> section to your config that maps secret names to
+      runtimevar URLs. Any secret without a mapping automatically falls back to <code>os.Getenv</code>,
+      so local development works with zero configuration.
 
   - q: What's the difference between Skills and MCP?
     a: >

@@ -3,11 +3,10 @@ package modelprovider
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/appcd-dev/genie/pkg/logger"
-	"github.com/appcd-dev/genie/pkg/osutils"
+	"github.com/appcd-dev/genie/pkg/security"
 	"google.golang.org/genai"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/model/anthropic"
@@ -21,18 +20,35 @@ type ModelConfig struct {
 	Providers ProviderConfigs `json:"providers" yaml:"providers" toml:"providers"`
 }
 
-func DefaultModelConfig() ModelConfig {
+// DefaultModelConfig builds the default model configuration by resolving
+// API keys through the given SecretProvider. Each provider is added only
+// if its API key is present. Without a SecretProvider, callers can pass
+// security.NewEnvProvider() to preserve the legacy os.Getenv behavior.
+func DefaultModelConfig(ctx context.Context, sp security.SecretProvider) ModelConfig {
+	// Helper to resolve a secret, ignoring errors (treat as empty).
+	get := func(name string) string {
+		v, _ := sp.GetSecret(ctx, name)
+		return v
+	}
+	getWithDefault := func(name, defaultValue string) string {
+		v := get(name)
+		if v == "" {
+			return defaultValue
+		}
+		return v
+	}
+
 	// add each provider and their default model if env variables are available
 	result := ModelConfig{}
-	if os.Getenv("OPENAI_API_KEY") != "" {
+	if get("OPENAI_API_KEY") != "" {
 		result.Providers = append(result.Providers, ProviderConfig{
 			Provider:    "openai",
-			ModelName:   osutils.Getenv("OPENAI_MODEL", "gpt-5.2"),
+			ModelName:   getWithDefault("OPENAI_MODEL", "gpt-5.2"),
 			Variant:     "default",
 			GoodForTask: TaskEfficiency,
 		})
 	}
-	if os.Getenv("GEMINI_API_KEY") != "" || os.Getenv("GOOGLE_API_KEY") != "" {
+	if get("GEMINI_API_KEY") != "" || get("GOOGLE_API_KEY") != "" {
 		// Flash model for lightweight front desk classification / triage
 		result.Providers = append(result.Providers, ProviderConfig{
 			Provider:    "gemini",
@@ -41,19 +57,19 @@ func DefaultModelConfig() ModelConfig {
 		})
 		result.Providers = append(result.Providers, ProviderConfig{
 			Provider:    "gemini",
-			ModelName:   osutils.Getenv("GOOGLE_MODEL", "gemini-3-pro-preview"),
+			ModelName:   getWithDefault("GOOGLE_MODEL", "gemini-3-pro-preview"),
 			GoodForTask: TaskToolCalling,
 		})
 		result.Providers = append(result.Providers, ProviderConfig{
 			Provider:    "gemini",
-			ModelName:   osutils.Getenv("GOOGLE_MODEL", "gemini-3-pro-preview"),
+			ModelName:   getWithDefault("GOOGLE_MODEL", "gemini-3-pro-preview"),
 			GoodForTask: TaskGeneralTask,
 		})
 	}
-	if os.Getenv("ANTHROPIC_API_KEY") != "" {
+	if get("ANTHROPIC_API_KEY") != "" {
 		result.Providers = append(result.Providers, ProviderConfig{
 			Provider:    "anthropic",
-			ModelName:   osutils.Getenv("ANTHROPIC_MODEL", "claude-opus-4-5-20251101"),
+			ModelName:   getWithDefault("ANTHROPIC_MODEL", "claude-opus-4-5-20251101"),
 			Variant:     "default",
 			GoodForTask: TaskPlanning,
 		})

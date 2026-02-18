@@ -26,23 +26,32 @@ const (
 	StatusApproved ApprovalStatus = "approved"
 	// StatusRejected means the human rejected the tool call.
 	StatusRejected ApprovalStatus = "rejected"
+	// StatusExpired means the request was orphaned by a server restart and
+	// automatically expired during startup recovery.
+	StatusExpired ApprovalStatus = "expired"
 )
+
+func (a ApprovalStatus) String() string {
+	return string(a)
+}
 
 // ApprovalRequest represents a pending or resolved tool approval.
 // Each non-readonly tool call creates one ApprovalRequest before execution.
 // Without this struct the system would have no way to track or persist
 // individual approval decisions across requests.
 type ApprovalRequest struct {
-	ID         string         `json:"id"`
-	ThreadID   string         `json:"thread_id"`
-	RunID      string         `json:"run_id"`
-	ToolName   string         `json:"tool_name"`
-	Args       string         `json:"args"`
-	Status     ApprovalStatus `json:"status"`
-	Feedback   string         `json:"feedback,omitempty"`
-	CreatedAt  time.Time      `json:"created_at"`
-	ResolvedAt *time.Time     `json:"resolved_at,omitempty"`
-	ResolvedBy string         `json:"resolved_by,omitempty"`
+	ID            string         `json:"id"`
+	ThreadID      string         `json:"thread_id"`
+	RunID         string         `json:"run_id"`
+	ToolName      string         `json:"tool_name"`
+	Args          string         `json:"args"`
+	Status        ApprovalStatus `json:"status"`
+	Feedback      string         `json:"feedback,omitempty"`
+	CreatedAt     time.Time      `json:"created_at"`
+	ResolvedAt    *time.Time     `json:"resolved_at,omitempty"`
+	ResolvedBy    string         `json:"resolved_by,omitempty"`
+	SenderContext string         `json:"sender_context,omitempty"` // originating sender for replay
+	Question      string         `json:"question,omitempty"`       // original user question for replay
 }
 
 func (a ApprovalRequest) String() string {
@@ -74,10 +83,27 @@ func (a ApprovalRequest) String() string {
 
 // CreateRequest contains the fields needed to create a new approval request.
 type CreateRequest struct {
-	ThreadID string
-	RunID    string
-	ToolName string
-	Args     string
+	ThreadID      string
+	RunID         string
+	ToolName      string
+	Args          string
+	SenderContext string // originating sender (e.g. "slack:U123:C456")
+	Question      string // original user question — needed for replay-on-resume
+}
+
+// ReplayableApproval describes a recovered pending approval that can be
+// replayed through the chat handler once it's resolved.
+type ReplayableApproval struct {
+	ApprovalID    string
+	Question      string
+	SenderContext string
+}
+
+// RecoverResult holds the outcome of RecoverPending.
+type RecoverResult struct {
+	Expired    int                  // approvals that were too old and marked expired
+	Recovered  int                  // approvals that had waiter channels re-registered
+	Replayable []ReplayableApproval // recent approvals with a saved question, eligible for replay
 }
 
 // ResolveRequest contains the fields needed to resolve (approve/reject) a request.
@@ -104,6 +130,11 @@ type ApprovalStore interface {
 	// context is cancelled. Returns the resolved ApprovalRequest.
 	WaitForResolution(ctx context.Context, approvalID string) (ApprovalRequest, error)
 
+	// RecoverPending handles approvals left in "pending" state after a restart.
+	// Approvals older than maxAge are marked as expired; recent ones get their
+	// waiter channels re-registered so they can still be resolved via the API.
+	RecoverPending(ctx context.Context, maxAge time.Duration) (RecoverResult, error)
+
 	// Close releases any resources held by the store.
 	Close() error
 
@@ -120,6 +151,7 @@ var defaultReadOnlyTools = []string{
 	"summarize_content",
 	"web_search",
 	"search_content",
+	"search_runbook",
 	"search_file",
 	"create_agent", // orchestration — sub-agent tools get their own HITL
 }

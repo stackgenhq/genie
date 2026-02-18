@@ -98,20 +98,6 @@ model_name = "gemini-3-flash-preview"
 token = "${GEMINI_API_KEY}"
 good_for_task = "frontdesk"
 
-# ── Application Settings ────────────────────────────────────────────
-
-[ops]
-max_pages = 5
-enable_verification = true
-max_verification_runs = 3
-
-[secops]
-scanner = "snyk"
-
-[secops.severity_thresholds]
-high = 0
-medium = 42
-low = -1
 
 # ── GitHub (SCM) ────────────────────────────────────────────────────────
 # Source-code management: list repos, get/create pull requests
@@ -146,7 +132,7 @@ imapport = 993
 embedding_provider = "ollama"
 ollama_url = "http://localhost:11434"
 ollama_model = "nomic-embed-text"
-persistence_dir = "~/.genie/vector_store"
+persistence_dir = "${PWD}/.genie/vector_store"
 
 # ── AG-UI Server ────────────────────────────────────────────────────────
 # Browser-based chat interface served over HTTP/SSE.
@@ -158,3 +144,6 @@ cors_origins = ["https://appcd-dev.github.io"]
 
 [hitl]
 always_allowed = ["run_shell"]
+
+[runbook]
+runbook_paths = ["${PWD}/runbooks/"]

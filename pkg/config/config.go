@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/browser"
+	"github.com/appcd-dev/genie/pkg/cron"
 	"github.com/appcd-dev/genie/pkg/db"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/hitl"
@@ -17,6 +19,7 @@ import (
 	"github.com/appcd-dev/genie/pkg/memory/vector"
 	"github.com/appcd-dev/genie/pkg/messenger"
 	"github.com/appcd-dev/genie/pkg/runbook"
+	"github.com/appcd-dev/genie/pkg/security"
 	"github.com/appcd-dev/genie/pkg/tools/email"
 	"github.com/appcd-dev/genie/pkg/tools/pm"
 	"github.com/appcd-dev/genie/pkg/tools/scm"
@@ -42,23 +45,34 @@ type GenieConfig struct {
 	DBConfig db.Config         `yaml:"db_config" toml:"db_config"`
 	Langfuse langfuse.Config   `yaml:"langfuse" toml:"langfuse"`
 	Runbook  runbook.Config    `yaml:"runbook" toml:"runbook"`
+	Cron     cron.Config       `yaml:"cron" toml:"cron"`
+	Security security.Config   `yaml:"security" toml:"security"`
 }
 
-func LoadGenieConfig(path string) (GenieConfig, error) {
+// LoadGenieConfig loads the Genie configuration from a file, resolving
+// secret-dependent defaults through the given SecretProvider. Passing
+// security.NewEnvProvider() preserves the legacy os.Getenv behavior.
+func LoadGenieConfig(ctx context.Context, sp security.SecretProvider, path string) (GenieConfig, error) {
+	// Helper to resolve a secret, ignoring errors (treat as empty).
+	get := func(name string) string {
+		v, _ := sp.GetSecret(ctx, name)
+		return v
+	}
+
 	// Start with defaults
 	cfg := GenieConfig{
-		ModelConfig: modelprovider.DefaultModelConfig(),
+		ModelConfig: modelprovider.DefaultModelConfig(ctx, sp),
 		WebSearch: websearch.Config{
-			Provider:     os.Getenv("GENIE_SEARCH_PROVIDER"),
-			GoogleAPIKey: os.Getenv("GOOGLE_API_KEY"),
-			GoogleCX:     os.Getenv("GOOGLE_CSE_ID"),
-			BingAPIKey:   os.Getenv("BING_API_KEY"),
+			Provider:     get("GENIE_SEARCH_PROVIDER"),
+			GoogleAPIKey: get("GOOGLE_API_KEY"),
+			GoogleCX:     get("GOOGLE_CSE_ID"),
+			BingAPIKey:   get("BING_API_KEY"),
 		},
-		VectorMemory: vector.DefaultConfig(),
+		VectorMemory: vector.DefaultConfig(ctx, sp),
 		AGUI:         agui.DefaultServerConfig(),
 		HITL:         hitl.DefaultConfig(),
 		DBConfig:     db.DefaultConfig(),
-		Langfuse:     langfuse.DefaultConfig(),
+		Langfuse:     langfuse.DefaultConfig(ctx, sp),
 	}
 
 	// Override VectorMemory provider default if env vars present.
@@ -75,7 +89,7 @@ func LoadGenieConfig(path string) (GenieConfig, error) {
 
 	if path == "" {
 		// If no config file, check for SKILLS_ROOT environment variable
-		if skillsRoot := os.Getenv("SKILLS_ROOT"); skillsRoot != "" {
+		if skillsRoot := get("SKILLS_ROOT"); skillsRoot != "" {
 			cfg.SkillsRoots = []string{skillsRoot}
 		}
 		return cfg, nil
@@ -120,7 +134,7 @@ func LoadGenieConfig(path string) (GenieConfig, error) {
 
 	// If skills roots not set in config, check environment variable
 	if len(cfg.SkillsRoots) == 0 {
-		if skillsRoot := os.Getenv("SKILLS_ROOT"); skillsRoot != "" {
+		if skillsRoot := get("SKILLS_ROOT"); skillsRoot != "" {
 			cfg.SkillsRoots = []string{skillsRoot}
 		}
 	}

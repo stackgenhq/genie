@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
+	"github.com/appcd-dev/genie/pkg/security"
 )
 
 var _ = Describe("ModelProvider", func() {
@@ -91,7 +92,7 @@ var _ = Describe("ModelProvider", func() {
 			})
 
 			It("should return an error", func() {
-				cfg := modelprovider.DefaultModelConfig()
+				cfg := modelprovider.DefaultModelConfig(context.Background(), security.NewEnvProvider())
 				Expect(cfg.Providers).To(BeEmpty())
 			})
 		})
@@ -105,7 +106,7 @@ var _ = Describe("ModelProvider", func() {
 			})
 
 			It("should return a config with OpenAI provider using default model", func() {
-				cfg := modelprovider.DefaultModelConfig()
+				cfg := modelprovider.DefaultModelConfig(context.Background(), security.NewEnvProvider())
 				Expect(cfg.Providers).To(HaveLen(1))
 				Expect(cfg.Providers[0].Provider).To(Equal("openai"))
 				Expect(cfg.Providers[0].ModelName).To(Equal("gpt-5.2"))
@@ -123,7 +124,7 @@ var _ = Describe("ModelProvider", func() {
 			})
 
 			It("should return a config with OpenAI provider using custom model", func() {
-				cfg := modelprovider.DefaultModelConfig()
+				cfg := modelprovider.DefaultModelConfig(context.Background(), security.NewEnvProvider())
 				Expect(cfg.Providers).To(HaveLen(1))
 				Expect(cfg.Providers[0].Provider).To(Equal("openai"))
 				Expect(cfg.Providers[0].ModelName).To(Equal("gpt-4-turbo"))
@@ -139,7 +140,7 @@ var _ = Describe("ModelProvider", func() {
 			})
 
 			It("should return a config with Gemini provider using default model", func() {
-				cfg := modelprovider.DefaultModelConfig()
+				cfg := modelprovider.DefaultModelConfig(context.Background(), security.NewEnvProvider())
 				Expect(cfg.Providers).To(HaveLen(3)) // flash + pro (tool_calling) + pro (general_task)
 
 				// First Gemini provider should be flash (frontdesk)
@@ -167,7 +168,7 @@ var _ = Describe("ModelProvider", func() {
 			})
 
 			It("should return a config with Gemini provider using default model", func() {
-				cfg := modelprovider.DefaultModelConfig()
+				cfg := modelprovider.DefaultModelConfig(context.Background(), security.NewEnvProvider())
 				Expect(cfg.Providers).To(HaveLen(3)) // flash + pro (tool_calling) + pro (general_task)
 				Expect(cfg.Providers[0].Provider).To(Equal("gemini"))
 				Expect(cfg.Providers[0].ModelName).To(Equal("gemini-3-flash-preview"))
@@ -186,7 +187,7 @@ var _ = Describe("ModelProvider", func() {
 			})
 
 			It("should return a config with Gemini provider using custom model", func() {
-				cfg := modelprovider.DefaultModelConfig()
+				cfg := modelprovider.DefaultModelConfig(context.Background(), security.NewEnvProvider())
 				Expect(cfg.Providers).To(HaveLen(3)) // flash + custom pro (tool_calling) + custom pro (general_task)
 				Expect(cfg.Providers[0].Provider).To(Equal("gemini"))
 				Expect(cfg.Providers[0].ModelName).To(Equal("gemini-3-flash-preview"))
@@ -207,7 +208,7 @@ var _ = Describe("ModelProvider", func() {
 			})
 
 			It("should return a config with both providers", func() {
-				cfg := modelprovider.DefaultModelConfig()
+				cfg := modelprovider.DefaultModelConfig(context.Background(), security.NewEnvProvider())
 				Expect(cfg.Providers).To(HaveLen(4)) // openai + gemini-flash + gemini-pro (tool_calling) + gemini-pro (general_task)
 
 				// First provider should be OpenAI
@@ -239,7 +240,7 @@ var _ = Describe("ModelProvider", func() {
 			})
 
 			It("should return a config with both providers", func() {
-				cfg := modelprovider.DefaultModelConfig()
+				cfg := modelprovider.DefaultModelConfig(context.Background(), security.NewEnvProvider())
 				Expect(cfg.Providers).To(HaveLen(4)) // openai + gemini-flash + gemini-pro (tool_calling) + gemini-pro (general_task)
 				Expect(cfg.Providers[0].Provider).To(Equal("openai"))
 				Expect(cfg.Providers[1].Provider).To(Equal("gemini"))
@@ -263,7 +264,7 @@ var _ = Describe("ModelProvider", func() {
 				})
 
 				It("should return a config with Anthropic provider using default model", func() {
-					cfg := modelprovider.DefaultModelConfig()
+					cfg := modelprovider.DefaultModelConfig(context.Background(), security.NewEnvProvider())
 					Expect(cfg.Providers).To(HaveLen(1))
 					Expect(cfg.Providers[0].Provider).To(Equal("anthropic"))
 					Expect(cfg.Providers[0].ModelName).To(Equal("claude-opus-4-5-20251101"))
@@ -287,7 +288,7 @@ var _ = Describe("ModelProvider", func() {
 				})
 
 				It("should return a config with Anthropic provider using custom model", func() {
-					cfg := modelprovider.DefaultModelConfig()
+					cfg := modelprovider.DefaultModelConfig(context.Background(), security.NewEnvProvider())
 					Expect(cfg.Providers).To(HaveLen(1))
 					Expect(cfg.Providers[0].Provider).To(Equal("anthropic"))
 					Expect(cfg.Providers[0].ModelName).To(Equal("claude-3-opus-20240229"))
@@ -311,7 +312,7 @@ var _ = Describe("ModelProvider", func() {
 				})
 
 				It("should return a config with all providers", func() {
-					cfg := modelprovider.DefaultModelConfig()
+					cfg := modelprovider.DefaultModelConfig(context.Background(), security.NewEnvProvider())
 					Expect(cfg.Providers).To(HaveLen(5)) // openai + gemini-flash + gemini-pro (tool_calling) + gemini-pro (general_task) + anthropic
 
 					// First provider should be OpenAI

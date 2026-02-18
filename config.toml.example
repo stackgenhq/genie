@@ -94,3 +94,17 @@ max_backoff = "8s"
 # api_token = "${PM_API_TOKEN}" # API token for authentication
 # base_url = "https://mycompany.atlassian.net" # Jira: required; Linear/Asana: optional
 # email = "you@company.com"     # Jira only: email for Basic auth
+
+# Cron (recurring scheduled tasks)
+# [cron]
+# enabled = true
+#
+# [[cron.tasks]]
+# name = "daily-health-check"
+# expression = "0 9 * * *"             # Every day at 9 AM
+# action = "Run a full health check on all services and report any issues"
+#
+# [[cron.tasks]]
+# name = "weekly-dependency-scan"
+# expression = "0 0 * * 1"             # Every Monday at midnight
+# action = "Scan all project dependencies for security vulnerabilities and outdated packages"

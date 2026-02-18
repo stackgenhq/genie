@@ -686,6 +686,132 @@ var _ = Describe("Wrapper human approval gate", func() {
 	})
 })
 
+// ── Session-Scoped Approval Cache ────────────────────────────────────────────
+
+var _ = Describe("Wrapper session approval cache", func() {
+	It("should auto-approve second call with same tool+args without re-prompting", func() {
+		store := &hitlfakes.FakeApprovalStore{}
+		store.CreateStub = func(_ context.Context, req hitl.CreateRequest) (hitl.ApprovalRequest, error) {
+			return hitl.ApprovalRequest{
+				ID:       "cache-" + req.ToolName,
+				ToolName: req.ToolName,
+				Status:   hitl.StatusPending,
+			}, nil
+		}
+		store.WaitForResolutionStub = func(_ context.Context, _ string) (hitl.ApprovalRequest, error) {
+			return hitl.ApprovalRequest{Status: hitl.StatusApproved}, nil
+		}
+
+		ft := &fakeTool{name: "search_runbook", result: "runbook-content"}
+		eventChan := make(chan interface{}, 20)
+
+		wrapper := &toolwrap.Wrapper{
+			Tool:          ft,
+			EventChan:     eventChan,
+			ApprovalStore: store,
+			ThreadID:      "session-1",
+			RunID:         "run-1",
+		}
+
+		args := []byte(`{"query":"cpu usage"}`)
+
+		// First call — should create approval and wait
+		result, err := wrapper.Call(context.Background(), args)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result).To(Equal("runbook-content"))
+		Expect(store.CreateCallCount()).To(Equal(1))
+		Expect(store.WaitForResolutionCallCount()).To(Equal(1))
+
+		// Second call — same tool+args → should be auto-approved (no new Create)
+		result, err = wrapper.Call(context.Background(), args)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result).To(Equal("runbook-content"))
+		Expect(store.CreateCallCount()).To(Equal(1))            // still 1
+		Expect(store.WaitForResolutionCallCount()).To(Equal(1)) // still 1
+		Expect(ft.callCount).To(Equal(2))                       // tool called both times
+	})
+
+	It("should NOT auto-approve when args differ", func() {
+		store := &hitlfakes.FakeApprovalStore{}
+		store.CreateStub = func(_ context.Context, req hitl.CreateRequest) (hitl.ApprovalRequest, error) {
+			return hitl.ApprovalRequest{
+				ID:       "cache-" + req.ToolName,
+				ToolName: req.ToolName,
+				Status:   hitl.StatusPending,
+			}, nil
+		}
+		store.WaitForResolutionStub = func(_ context.Context, _ string) (hitl.ApprovalRequest, error) {
+			return hitl.ApprovalRequest{Status: hitl.StatusApproved}, nil
+		}
+
+		ft := &fakeTool{name: "search_runbook", result: "runbook-content"}
+		eventChan := make(chan interface{}, 20)
+
+		wrapper := &toolwrap.Wrapper{
+			Tool:          ft,
+			EventChan:     eventChan,
+			ApprovalStore: store,
+			ThreadID:      "session-1",
+			RunID:         "run-1",
+		}
+
+		// First call with args A
+		_, err := wrapper.Call(context.Background(), []byte(`{"query":"cpu usage"}`))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(store.CreateCallCount()).To(Equal(1))
+
+		// Second call with args B → different fingerprint → should prompt again
+		_, err = wrapper.Call(context.Background(), []byte(`{"query":"memory usage"}`))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(store.CreateCallCount()).To(Equal(2)) // new approval created
+		Expect(store.WaitForResolutionCallCount()).To(Equal(2))
+	})
+
+	It("should NOT cache rejected approvals", func() {
+		callCount := 0
+		store := &hitlfakes.FakeApprovalStore{}
+		store.CreateStub = func(_ context.Context, req hitl.CreateRequest) (hitl.ApprovalRequest, error) {
+			return hitl.ApprovalRequest{
+				ID:       "rej-" + req.ToolName,
+				ToolName: req.ToolName,
+				Status:   hitl.StatusPending,
+			}, nil
+		}
+		store.WaitForResolutionStub = func(_ context.Context, _ string) (hitl.ApprovalRequest, error) {
+			callCount++
+			if callCount == 1 {
+				return hitl.ApprovalRequest{Status: hitl.StatusRejected}, nil
+			}
+			return hitl.ApprovalRequest{Status: hitl.StatusApproved}, nil
+		}
+
+		ft := &fakeTool{name: "run_shell", result: "output"}
+		eventChan := make(chan interface{}, 20)
+
+		wrapper := &toolwrap.Wrapper{
+			Tool:          ft,
+			EventChan:     eventChan,
+			ApprovalStore: store,
+			ThreadID:      "session-1",
+			RunID:         "run-1",
+		}
+
+		args := []byte(`{"cmd":"ls"}`)
+
+		// First call — rejected
+		_, err := wrapper.Call(context.Background(), args)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("rejected"))
+		Expect(store.CreateCallCount()).To(Equal(1))
+
+		// Second call — same args; rejection should NOT have been cached
+		result, err := wrapper.Call(context.Background(), args)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result).To(Equal("output"))
+		Expect(store.CreateCallCount()).To(Equal(2)) // prompted again
+	})
+})
+
 // ── Service.Wrap tests ───────────────────────────────────────────────────────
 
 var _ = Describe("Service.Wrap", func() {

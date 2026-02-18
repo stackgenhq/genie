@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/appcd-dev/genie/pkg/hitl"
 	"github.com/appcd-dev/genie/pkg/logger"
@@ -145,4 +146,9 @@ func (s *NotifierStore) notifyMessenger(ctx context.Context, senderCtx string, a
 
 func (s *NotifierStore) IsAllowed(toolName string) bool {
 	return s.realStore.IsAllowed(toolName)
+}
+
+// RecoverPending delegates to the real store.
+func (s *NotifierStore) RecoverPending(ctx context.Context, maxAge time.Duration) (hitl.RecoverResult, error) {
+	return s.realStore.RecoverPending(ctx, maxAge)
 }

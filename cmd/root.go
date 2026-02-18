@@ -16,6 +16,7 @@ import (
 	"github.com/appcd-dev/genie/pkg/config"
 	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/osutils"
+	"github.com/appcd-dev/genie/pkg/security"
 	"github.com/spf13/cobra"
 )
 
@@ -94,8 +95,8 @@ Complex tasks are hard. Being a Genie is easy.`,
 	return rootCmd, nil
 }
 
-func (opts rootCmdOption) genieCfg() (config.GenieConfig, error) {
-	genieCfg, err := config.LoadGenieConfig(opts.cfgFilePath())
+func (opts rootCmdOption) genieCfg(ctx context.Context) (config.GenieConfig, error) {
+	genieCfg, err := config.LoadGenieConfig(ctx, security.NewEnvProvider(), opts.cfgFilePath())
 	if err != nil {
 		return config.GenieConfig{}, err
 	}

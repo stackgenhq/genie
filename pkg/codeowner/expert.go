@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/appcd-dev/genie/pkg/agentutils"
 	"github.com/appcd-dev/genie/pkg/audit"
@@ -28,6 +29,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor/local"
 	"trpc.group/trpc-go/trpc-agent-go/memory"
 	"trpc.group/trpc-go/trpc-agent-go/model"
+	"trpc.group/trpc-go/trpc-agent-go/telemetry/trace"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/file"
 )
@@ -76,6 +78,7 @@ type requestCategory string
 const (
 	categoryRefuse     requestCategory = "REFUSE"
 	categorySalutation requestCategory = "SALUTATION"
+	categoryOutOfScope requestCategory = "OUT_OF_SCOPE"
 	categoryComplex    requestCategory = "COMPLEX"
 )
 
@@ -167,7 +170,7 @@ func NewCodeOwner(
 	frontDeskBio := expert.ExpertBio{
 		Personality: classifyPrompt,
 		Name:        "front-desk",
-		Description: "Classifies incoming requests to determine routing",
+		Description: "Classifies incoming requests to determine routing. Validate against the agents personality and make the judgement accordingly",
 	}
 	frontDeskExp, err := frontDeskBio.ToExpert(ctx, modelProvider, &toolwrap.Service{
 		Auditor:       auditor,
@@ -370,6 +373,11 @@ func (c *codeOwner) Close() error {
 }
 
 func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<- string) error {
+	// Create a parent span so all sub-operations (recall, tree execution,
+	// store, audit) are children of a single Langfuse trace.
+	ctx, chatSpan := trace.Tracer.Start(ctx, "codeowner.chat")
+	defer chatSpan.End()
+
 	logr := logger.GetLogger(ctx).With("fn", "codeExpert.Chat")
 	logr.Info("codeOwner.Chat invoked", "question", toolwrap.TruncateForAudit(req.Question, 100), "sender", req.SenderContext)
 
@@ -388,14 +396,29 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 		Actor:     "front-desk",
 		Action:    string(category),
 		Metadata: map[string]interface{}{
-			"question":       toolwrap.TruncateForAudit(req.Question, 200),
+			"question":       req.Question,
 			"sender_context": req.SenderContext,
 		},
 	})
 
 	switch category {
 	case categoryRefuse:
-		outputChan <- "I'm sorry, I can't help with that request."
+		outputChan <- "🚫 Whoa there! That's a no-go zone for me. " +
+			"I'm here to build cool things, not blow them up! " +
+			"Got something constructive? I'm all ears 👂"
+		return nil
+
+	case categoryOutOfScope:
+		resume := c.Resume(ctx)
+		if resume == "" {
+			resume = "a mysterious specialist whose talents are yet to be discovered"
+		}
+		outputChan <- fmt.Sprintf(
+			"🙈 Wrong person! I appreciate the confidence, but that's not really my thing.\n\n"+
+				"I'm more of a:\n\n%s\n\n"+
+				"Try me with something in my wheelhouse — I promise I'm great at it! 🚀",
+			resume,
+		)
 		return nil
 
 	case categorySalutation:
@@ -497,6 +520,10 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 
 	logr.Info("codeOwner: starting tree execution", "numTools", len(tools))
 
+	// Stash the original question in context so toolwrap can persist it in
+	// the approval row — needed for replay-on-resume after server restart.
+	runCtx = toolwrap.WithOriginalQuestion(runCtx, req.Question)
+
 	// Execute using ReAcTree for structured reasoning and task decomposition
 	res, err := c.treeExecutor.Run(runCtx, reactree.TreeRequest{
 		Goal:          message,
@@ -526,8 +553,8 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 		Actor:     "code-owner",
 		Action:    "chat_turn_completed",
 		Metadata: map[string]interface{}{
-			"question":       toolwrap.TruncateForAudit(req.Question, 200),
-			"answer":         toolwrap.TruncateForAudit(res.Output, 500),
+			"question":       req.Question,
+			"answer":         res.Output,
 			"sender_context": req.SenderContext,
 		},
 	})
@@ -733,11 +760,32 @@ func loadAgentsGuide(dir string) string {
 }
 
 // classifyRequest uses the front desk expert (a fast, lightweight model) to classify
-// the incoming request into one of three categories: REFUSE, SALUTATION, or COMPLEX.
-// On any error or unexpected response, defaults to categoryComplex (fail-open).
+// the incoming request into one of four categories: REFUSE, SALUTATION, OUT_OF_SCOPE,
+// or COMPLEX. The agent's resume is injected so the classifier can determine whether
+// the request is within scope. On any error or unexpected response, defaults to
+// categoryComplex (fail-open).
 func (c *codeOwner) classifyRequest(ctx context.Context, question string) (requestCategory, error) {
+	resume := c.Resume(ctx)
+	message := question
+	if resume != "" {
+		// Cap the resume to avoid exceeding the lightweight classifier
+		// model's context window. 2000 chars is enough for the classifier
+		// to determine scope without risking token overflow.
+		const maxResumeLen = 2000
+		if len(resume) > maxResumeLen {
+			// Truncate at a valid UTF-8 boundary to avoid producing
+			// garbled multi-byte characters at the cut point.
+			cut := maxResumeLen
+			for cut > 0 && !utf8.RuneStart(resume[cut]) {
+				cut--
+			}
+			resume = resume[:cut] + "\n...(truncated)"
+		}
+		message = fmt.Sprintf("## User Message\n%s\n\n## Agent Resume\n%s", question, resume)
+	}
+
 	resp, err := c.frontDeskExpert.Do(ctx, expert.Request{
-		Message:  question,
+		Message:  message,
 		TaskType: modelprovider.TaskEfficiency,
 		Mode: expert.ExpertConfig{
 			MaxLLMCalls:       1,
@@ -758,6 +806,8 @@ func (c *codeOwner) classifyRequest(ctx context.Context, question string) (reque
 		return categoryRefuse, nil
 	case strings.Contains(normalized, string(categorySalutation)):
 		return categorySalutation, nil
+	case strings.Contains(normalized, string(categoryOutOfScope)):
+		return categoryOutOfScope, nil
 	case strings.Contains(normalized, string(categoryComplex)):
 		return categoryComplex, nil
 	default:

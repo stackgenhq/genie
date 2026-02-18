@@ -244,7 +244,7 @@ func (e *expert) Do(ctx context.Context, req Request) (Response, error) {
 		Metadata: map[string]interface{}{
 			"task_type":  string(taskType),
 			"session_id": e.sessionID,
-			"message":    toolwrap.TruncateForAudit(req.Message, 500),
+			"message":    req.Message,
 		},
 	})
 

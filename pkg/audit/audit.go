@@ -46,7 +46,7 @@ type LogRequest struct {
 	EventType EventType
 	Actor     string
 	Action    string
-	Metadata  map[string]interface{}
+	Metadata  map[string]any
 }
 
 // Auditor defines the interface for audit logging.

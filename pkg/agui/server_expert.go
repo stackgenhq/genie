@@ -4,9 +4,44 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/appcd-dev/genie/pkg/logger"
 )
+
+// significantWords extracts lowercased words of length ≥ 4 from text,
+// returning them as a set. Short words (articles, prepositions) are
+// excluded to focus on meaningful content that distinguishes messages.
+func significantWords(text string) map[string]struct{} {
+	words := make(map[string]struct{})
+	for _, w := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		if len(w) >= 4 {
+			words[w] = struct{}{}
+		}
+	}
+	return words
+}
+
+// jaccardSimilarity computes |A ∩ B| / |A ∪ B| for two word sets.
+// Returns 0 if both sets are empty.
+func jaccardSimilarity(a, b map[string]struct{}) float64 {
+	if len(a) == 0 && len(b) == 0 {
+		return 0
+	}
+	intersection := 0
+	for w := range a {
+		if _, ok := b[w]; ok {
+			intersection++
+		}
+	}
+	union := len(a) + len(b) - intersection
+	if union == 0 {
+		return 0
+	}
+	return float64(intersection) / float64(union)
+}
 
 // NewChatHandlerFromCodeOwner creates a ChatHandler that bridges the AG-UI
 // server to the existing codeOwner.Chat() pipeline.
@@ -56,20 +91,32 @@ func (e expert) Handle(ctx context.Context, req ChatRequest) {
 	// Dedup filter: reads TUI messages from rawEventChan, suppresses
 	// multi-stage text replays, and forwards everything else.
 	//
-	// The trpc-agent library streams individual content deltas during LLM
-	// generation and then replays the full accumulated text as a single
-	// chunk. The ReAcTree may also run the same expert across stages which
-	// can trigger another replay of all content.
+	// Duplicate text arises from two sources:
+	//  1. Within a single messageID: the trpc-agent library replays the
+	//     accumulated text as a single chunk after streaming deltas.
+	//  2. Across messageIDs: each expert.Do() call creates a new EventAdapter
+	//     (and thus new messageIDs), but the parent agent, sub-agent, and
+	//     adaptive-loop iterations all echo similar task-result summaries.
 	//
-	// We suppress duplicates by tracking per-messageID cumulative content.
-	// If a chunk's text is already contained in what we've sent, it's a
-	// replay and gets dropped.
+	// We handle (1) via per-messageID prefix checking, and (2) via
+	// word-overlap similarity: when a text message completes, we record its
+	// significant words. If a subsequent message's word set overlaps ≥50%
+	// with any previously-completed message (Jaccard similarity), the
+	// entire lifecycle (START → chunks → END) is suppressed. This catches
+	// LLM rephrasings of the same tool result across pipeline stages.
 	converterDone := make(chan struct{})
 	go func() {
 		defer close(converterDone)
 
 		sentStart := make(map[string]bool)     // messageId → true after first START
 		sentContent := make(map[string]string) // messageId → all content sent so far
+		suppressed := make(map[string]bool)    // messageId → true if this msg is being suppressed
+
+		// Global: word sets from completed messages, used for cross-message dedup.
+		type completedMsg struct {
+			words map[string]struct{}
+		}
+		var completedMsgs []completedMsg
 
 		for raw := range rawEventChan {
 			select {
@@ -85,24 +132,68 @@ func (e expert) Handle(ctx context.Context, req ChatRequest) {
 					continue // suppress duplicate START for same messageId
 				}
 				sentStart[evt.MessageID] = true
-				req.EventChan <- evt
+				// Don't emit yet — buffer until we see some content and can
+				// decide if this message is a cross-message duplicate.
+				// We'll emit it on the first non-suppressed chunk.
 
 			case AgentStreamChunkMsg:
+				// Per-messageID replay suppression (source 1).
 				prior := sentContent[evt.MessageID]
-				// The final accumulated replay contains text we've
-				// already streamed as individual deltas. Detect this by
-				// checking if the prior content already starts with the
-				// incoming chunk (replay of earlier deltas) or if the
-				// incoming chunk is longer than a typical delta and is a
-				// prefix of or equal to the accumulated text.
 				if len(evt.Content) > 0 && strings.HasPrefix(prior, evt.Content) {
-					continue // already sent — suppress replay
+					continue // already sent within this message — suppress replay
 				}
 				sentContent[evt.MessageID] = prior + evt.Content
+
+				// Cross-message dedup (source 2): once we've accumulated
+				// enough content (>120 chars to avoid false positives on
+				// short common prefixes), check if this message's word
+				// set overlaps significantly with a previously-completed
+				// message.
+				accumulated := sentContent[evt.MessageID]
+				if !suppressed[evt.MessageID] && len(accumulated) > 120 {
+					newWords := significantWords(accumulated)
+					for _, prev := range completedMsgs {
+						if jaccardSimilarity(newWords, prev.words) >= 0.50 {
+							suppressed[evt.MessageID] = true
+							logger.GetLogger(ctx).Debug("agui: suppressing similar cross-message duplicate",
+								"messageID", evt.MessageID,
+								"matchLen", len(accumulated))
+							break
+						}
+					}
+				}
+				if suppressed[evt.MessageID] {
+					continue
+				}
+
+				// Lazily emit the START event on first non-suppressed chunk.
+				if prior == "" {
+					req.EventChan <- TextMessageStartMsg{
+						Type:      EventTextMessageStart,
+						MessageID: evt.MessageID,
+					}
+				}
 				req.EventChan <- evt
 
 			case TextMessageEndMsg:
-				req.EventChan <- evt
+				content := sentContent[evt.MessageID]
+				if !suppressed[evt.MessageID] && content != "" {
+					// Only emit END if we actually sent content chunks.
+					// If START was buffered but no chunks arrived, suppress
+					// the entire lifecycle to avoid blank UI bubbles.
+					req.EventChan <- evt
+				}
+				// Record completed content for cross-message dedup,
+				// but only if it has meaningful length.
+				if len(content) > 80 {
+					completedMsgs = append(completedMsgs, completedMsg{
+						words: significantWords(content),
+					})
+				}
+				// Clean up per-message tracking.
+				delete(sentContent, evt.MessageID)
+				delete(suppressed, evt.MessageID)
+				delete(sentStart, evt.MessageID)
 
 			case AgentReasoningMsg:
 				req.EventChan <- evt

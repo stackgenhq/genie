@@ -80,13 +80,15 @@ func (s *gormStore) IsAllowed(toolName string) bool {
 func (s *gormStore) Create(ctx context.Context, req CreateRequest) (ApprovalRequest, error) {
 	now := time.Now().UTC()
 	row := db.Approval{
-		ID:        uuid.NewString(),
-		ThreadID:  req.ThreadID,
-		RunID:     req.RunID,
-		ToolName:  req.ToolName,
-		Args:      req.Args,
-		Status:    string(StatusPending),
-		CreatedAt: now,
+		ID:            uuid.NewString(),
+		ThreadID:      req.ThreadID,
+		RunID:         req.RunID,
+		ToolName:      req.ToolName,
+		Args:          req.Args,
+		Status:        string(StatusPending),
+		CreatedAt:     now,
+		SenderContext: req.SenderContext,
+		Question:      req.Question,
 	}
 
 	if err := retrier.Retry(ctx, func() error {
@@ -135,8 +137,11 @@ func (s *gormStore) Resolve(ctx context.Context, req ResolveRequest) error {
 }
 
 // WaitForResolution blocks until the approval is resolved or ctx is cancelled.
-// It first checks the DB (in case it was resolved before we started waiting),
-// then waits on the in-process channel.
+// It uses a hybrid approach: primarily the in-process channel for instant
+// notification, with a DB polling fallback every 5s. The polling fallback
+// ensures resolution is detected even if the waiter channel was lost (e.g.
+// after a server restart where RecoverPending re-registered the channel but
+// the Resolve call arrived before the channel was set up).
 func (s *gormStore) WaitForResolution(ctx context.Context, approvalID string) (ApprovalRequest, error) {
 	// Fast path: check if already resolved.
 	approval, err := s.get(ctx, approvalID)
@@ -151,13 +156,27 @@ func (s *gormStore) WaitForResolution(ctx context.Context, approvalID string) (A
 	chRaw, _ := s.waiters.LoadOrStore(approvalID, make(chan struct{}))
 	ch := chRaw.(chan struct{})
 
-	// Wait for signal or context cancellation.
-	select {
-	case <-ch:
-		// Re-read from DB to get the resolved state.
-		return s.get(ctx, approvalID)
-	case <-ctx.Done():
-		return ApprovalRequest{}, ctx.Err()
+	// Hybrid wait: channel notification + DB polling fallback.
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ch:
+			// Channel signalled — re-read from DB to get resolved state.
+			return s.get(ctx, approvalID)
+		case <-ticker.C:
+			// Polling fallback — detect resolution even without channel signal.
+			a, pollErr := s.get(ctx, approvalID)
+			if pollErr != nil {
+				return ApprovalRequest{}, pollErr
+			}
+			if a.Status != StatusPending {
+				return a, nil
+			}
+		case <-ctx.Done():
+			return ApprovalRequest{}, ctx.Err()
+		}
 	}
 }
 
@@ -190,19 +209,74 @@ func (s *gormStore) Close() error {
 // domain type.
 func toApprovalRequest(row db.Approval) ApprovalRequest {
 	return ApprovalRequest{
-		ID:         row.ID,
-		ThreadID:   row.ThreadID,
-		RunID:      row.RunID,
-		ToolName:   row.ToolName,
-		Args:       row.Args,
-		Status:     ApprovalStatus(row.Status),
-		Feedback:   row.Feedback,
-		CreatedAt:  row.CreatedAt,
-		ResolvedAt: row.ResolvedAt,
-		ResolvedBy: row.ResolvedBy,
+		ID:            row.ID,
+		ThreadID:      row.ThreadID,
+		RunID:         row.RunID,
+		ToolName:      row.ToolName,
+		Args:          row.Args,
+		Status:        ApprovalStatus(row.Status),
+		Feedback:      row.Feedback,
+		CreatedAt:     row.CreatedAt,
+		ResolvedAt:    row.ResolvedAt,
+		ResolvedBy:    row.ResolvedBy,
+		SenderContext: row.SenderContext,
+		Question:      row.Question,
 	}
 }
 
 func (s *gormStore) ReadOnlyTools() []string {
 	return s.cfg.readOnlyTools()
+}
+
+// RecoverPending handles approvals left in "pending" state from a previous
+// server instance. Approvals older than maxAge are marked as "expired";
+// more recent ones get fresh waiter channels registered so they can still
+// be resolved via the HTTP API.
+func (s *gormStore) RecoverPending(ctx context.Context, maxAge time.Duration) (RecoverResult, error) {
+	var pending []db.Approval
+	if err := s.db.WithContext(ctx).
+		Where("status = ?", string(StatusPending)).
+		Find(&pending).Error; err != nil {
+		return RecoverResult{}, fmt.Errorf("failed to query pending approvals: %w", err)
+	}
+
+	if len(pending) == 0 {
+		return RecoverResult{}, nil
+	}
+
+	cutoff := time.Now().UTC().Add(-maxAge)
+	now := time.Now().UTC()
+	var result RecoverResult
+
+	for _, row := range pending {
+		if row.CreatedAt.Before(cutoff) {
+			// Too old — expire it.
+			s.db.WithContext(ctx).
+				Model(&db.Approval{}).
+				Where("id = ? AND status = ?", row.ID, StatusPending).
+				Updates(map[string]interface{}{
+					"status":      StatusExpired,
+					"resolved_at": now,
+					"resolved_by": "system:startup-recovery",
+					"feedback":    "Expired: server restarted while approval was pending",
+				})
+			result.Expired++
+		} else {
+			// Recent — re-register waiter channel so it can still be resolved.
+			s.waiters.LoadOrStore(row.ID, make(chan struct{}))
+			result.Recovered++
+
+			// If the original user question was saved, mark this approval
+			// as replayable so the bootstrap can spawn a waiter goroutine.
+			if row.Question != "" {
+				result.Replayable = append(result.Replayable, ReplayableApproval{
+					ApprovalID:    row.ID,
+					Question:      row.Question,
+					SenderContext: row.SenderContext,
+				})
+			}
+		}
+	}
+
+	return result, nil
 }

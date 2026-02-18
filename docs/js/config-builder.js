@@ -45,7 +45,9 @@
         db_config: { db_file: '' },
         agui: { port: 8080, cors_origins: ['https://appcd-dev.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576 },
         langfuse: { public_key: 'LANGFUSE_PUBLIC_KEY', secret_key: 'LANGFUSE_SECRET_KEY', host: 'https://cloud.langfuse.com', enable_prompts: false },
-        runbook: { runbook_paths: [] }
+        runbook: { runbook_paths: [] },
+        cron: { enabled: false, tasks: [] },
+        security: { secrets: [] }
     };
 
     var PROVIDERS = ['openai', 'gemini', 'anthropic'];
@@ -195,9 +197,11 @@
         renderBrowser();
         renderEmail();
         renderHITL();
+        renderSecurity();
         renderDBConfig();
         renderAGUI();
         renderLangfuse();
+        renderCron();
         renderOutput();
     }
 
@@ -465,6 +469,31 @@
         ]));
     }
 
+    // ── Security ──
+    function renderSecurity() {
+        var c = $('security-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var sec = state.security;
+        sec.secrets.forEach(function (s, i) {
+            var row = el('div', { className: 'repeatable-item' }, [
+                el('div', { className: 'flex items-center justify-between mb-3' }, [
+                    el('span', { className: 'text-sm font-semibold text-gray-600' }, 'Secret #' + (i + 1) + (s.name ? ' — ' + s.name : '')),
+                    el('button', { className: 'btn-remove', onClick: function () { sec.secrets.splice(i, 1); renderAll(); } }, '✕')
+                ]),
+                el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+                    fieldText('Secret Name', s.name, function (v) { s.name = v; renderOutput(); }, 'OPENAI_API_KEY', 'The env var name this maps to'),
+                    fieldText('Runtimevar URL', s.url, function (v) { s.url = v; renderOutput(); }, 'gcpsecretmanager://projects/p/secrets/s?decoder=string', 'Go CDK runtimevar URL for this secret')
+                ])
+            ]);
+            c.appendChild(row);
+        });
+        c.appendChild(
+            el('button', { className: 'btn-add mt-2', onClick: function () { sec.secrets.push({ name: '', url: '' }); renderAll(); } }, '+ Add Secret Mapping')
+        );
+        c.appendChild(el('p', { className: 'text-xs text-gray-400 mt-2' }, 'Tip: secrets not listed here automatically fall back to <code>os.Getenv</code>'));
+    }
+
     // ── DB Config ──
     function renderDBConfig() {
         var c = $('db-config-body');
@@ -525,6 +554,35 @@
             fieldText('Host', l.host, function (v) { l.host = v; renderOutput(); }, 'https://cloud.langfuse.com', 'Langfuse API host (default: cloud)'),
             fieldToggle('Enable Prompt Management', l.enable_prompts, function (v) { l.enable_prompts = v; renderOutput(); }, 'Enable prompt management integration')
         ]));
+    }
+
+    // ── Cron ──
+    function renderCron() {
+        var c = $('cron-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var cr = state.cron;
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+            fieldToggle('Enabled', cr.enabled, function (v) { cr.enabled = v; renderAll(); }, 'Master switch — enable/disable the cron scheduler')
+        ]));
+        if (cr.enabled) {
+            cr.tasks.forEach(function (t, i) {
+                c.appendChild(el('div', { className: 'repeatable-item' }, [
+                    el('div', { className: 'flex items-center justify-between mb-3' }, [
+                        el('span', { className: 'text-sm font-semibold text-gray-600' }, 'Task #' + (i + 1) + (t.name ? ' — ' + t.name : '')),
+                        el('button', { className: 'btn-remove', onClick: function () { cr.tasks.splice(i, 1); renderAll(); } }, '✕')
+                    ]),
+                    el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+                        fieldText('Name', t.name, function (v) { t.name = v; renderOutput(); }, 'daily-report', 'Unique task identifier'),
+                        fieldText('Expression', t.expression, function (v) { t.expression = v; renderOutput(); }, '0 9 * * 1-5', 'Standard 5-field cron expression'),
+                        fieldText('Action', t.action, function (v) { t.action = v; renderOutput(); }, 'Summarize open PRs', 'Prompt sent to the agent on each execution')
+                    ])
+                ]));
+            });
+            c.appendChild(
+                el('button', { className: 'btn-add mt-2', onClick: function () { cr.tasks.push({ name: '', expression: '', action: '' }); renderAll(); } }, '+ Add Task')
+            );
+        }
     }
 
     /* ================================================================
@@ -664,7 +722,9 @@
         dbConfigToToml(lines);
         aguiToToml(lines);
         langfuseToToml(lines);
+        securityToToml(lines);
         runbookToToml(lines);
+        cronToToml(lines);
         return lines.join('\n');
     }
 
@@ -748,6 +808,34 @@
         lines.push('max_concurrent = ' + a.max_concurrent);
         lines.push('max_body_bytes = ' + a.max_body_bytes);
         lines.push('');
+    }
+
+    function securityToToml(lines) {
+        var sec = state.security;
+        var mapped = sec.secrets.filter(function (s) { return s.name && s.url; });
+        if (mapped.length === 0) return;
+        lines.push('[security.secrets]');
+        mapped.forEach(function (s) {
+            lines.push(s.name + ' = ' + q(s.url));
+        });
+        lines.push('');
+    }
+
+    function cronToToml(lines) {
+        var cr = state.cron;
+        if (!cr.enabled) return;
+        lines.push('[cron]');
+        lines.push('enabled = true');
+
+        lines.push('');
+        cr.tasks.forEach(function (t) {
+            if (!t.name && !t.expression && !t.action) return;
+            lines.push('[[cron.tasks]]');
+            if (t.name) lines.push('name = ' + q(t.name));
+            if (t.expression) lines.push('expression = ' + q(t.expression));
+            if (t.action) lines.push('action = ' + q(t.action));
+            lines.push('');
+        });
     }
 
     /* ================================================================
@@ -897,7 +985,9 @@
         hitlToYaml(lines);
         dbConfigToYaml(lines);
         aguiToYaml(lines);
+        securityToYaml(lines);
         runbookToYaml(lines);
+        cronToYaml(lines);
         return lines.join('\n');
     }
 
@@ -985,6 +1075,36 @@
         if (l.secret_key) lines.push('  secret_key: ' + yq('${' + l.secret_key + '}'));
         if (l.host) lines.push('  host: ' + yq(l.host));
         if (l.enable_prompts) lines.push('  enable_prompts: true');
+        lines.push('');
+    }
+
+    function cronToYaml(lines) {
+        var cr = state.cron;
+        if (!cr.enabled) return;
+        lines.push('cron:');
+        lines.push('  enabled: true');
+
+        if (cr.tasks.length > 0) {
+            lines.push('  tasks:');
+            cr.tasks.forEach(function (t) {
+                if (!t.name && !t.expression && !t.action) return;
+                lines.push('    - name: ' + yq(t.name));
+                if (t.expression) lines.push('      expression: ' + yq(t.expression));
+                if (t.action) lines.push('      action: ' + yq(t.action));
+            });
+        }
+        lines.push('');
+    }
+
+    function securityToYaml(lines) {
+        var sec = state.security;
+        var mapped = sec.secrets.filter(function (s) { return s.name && s.url; });
+        if (mapped.length === 0) return;
+        lines.push('security:');
+        lines.push('  secrets:');
+        mapped.forEach(function (s) {
+            lines.push('    ' + s.name + ': ' + yq(s.url));
+        });
         lines.push('');
     }
 

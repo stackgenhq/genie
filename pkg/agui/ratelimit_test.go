@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/appcd-dev/genie/pkg/agui"
+	"github.com/appcd-dev/genie/pkg/hitl/hitlfakes"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -47,7 +48,10 @@ var _ = Describe("DDoS Protection Middleware", func() {
 				MessageID: "msg-1",
 			}
 		}
-		return cfg.NewServer(&mockExpert{handler: handler}, nil)
+		return cfg.NewServer(
+			&mockExpert{handler: handler},
+			&hitlfakes.FakeApprovalStore{},
+			nil)
 	}
 
 	validBody := `{"messages":[{"role":"user","content":"hi"}]}`

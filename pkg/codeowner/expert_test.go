@@ -80,6 +80,9 @@ var _ = Describe("CodeOwner", func() {
 				UserID:  "test",
 			},
 			auditor: &auditfakes.FakeAuditor{},
+			resume: ttlcache.NewItem(func(_ context.Context) (string, error) {
+				return "Kubernetes triage specialist with shell and kubectl tools.", nil
+			}, 5*time.Minute),
 		}
 	})
 
@@ -103,6 +106,33 @@ var _ = Describe("CodeOwner", func() {
 			cat, err := co.classifyRequest(ctx, "refactor the database layer")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cat).To(Equal(categoryComplex))
+		})
+
+		It("should return OUT_OF_SCOPE when classifier says OUT_OF_SCOPE", func() {
+			fakeFrontDeskExpert.DoReturns(fakeExpertResponse("OUT_OF_SCOPE"), nil)
+			cat, err := co.classifyRequest(ctx, "how to make mango juice")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cat).To(Equal(categoryOutOfScope))
+		})
+
+		It("should handle case-insensitive OUT_OF_SCOPE", func() {
+			fakeFrontDeskExpert.DoReturns(fakeExpertResponse("out_of_scope"), nil)
+			cat, err := co.classifyRequest(ctx, "recipe for pasta")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cat).To(Equal(categoryOutOfScope))
+		})
+
+		It("should inject resume into classifier message when resume is available", func() {
+			fakeFrontDeskExpert.DoReturns(fakeExpertResponse("COMPLEX"), nil)
+			_, err := co.classifyRequest(ctx, "check pod status")
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify the message sent to front desk includes the resume
+			Expect(fakeFrontDeskExpert.DoCallCount()).To(Equal(1))
+			_, req := fakeFrontDeskExpert.DoArgsForCall(0)
+			Expect(req.Message).To(ContainSubstring("## Agent Resume"))
+			Expect(req.Message).To(ContainSubstring("Kubernetes triage specialist"))
+			Expect(req.Message).To(ContainSubstring("check pod status"))
 		})
 
 		It("should handle case-insensitive classifier output", func() {
@@ -145,8 +175,46 @@ var _ = Describe("CodeOwner", func() {
 			}, outputChan)
 
 			Expect(err).NotTo(HaveOccurred())
-			Expect(outputChan).To(Receive(Equal("I'm sorry, I can't help with that request.")))
+			var msg string
+			Expect(outputChan).To(Receive(&msg))
+			Expect(msg).To(ContainSubstring("no-go zone"))
 			// Tree executor should NOT be called
+			Expect(fakeTreeExecutor.RunCallCount()).To(Equal(0))
+		})
+
+		It("should short-circuit with resume message for OUT_OF_SCOPE category", func() {
+			fakeFrontDeskExpert.DoReturns(fakeExpertResponse("OUT_OF_SCOPE"), nil)
+
+			outputChan := make(chan string, 10)
+			err := co.Chat(ctx, CodeQuestion{
+				Question: "how to make mango juice",
+			}, outputChan)
+
+			Expect(err).NotTo(HaveOccurred())
+			var msg string
+			Expect(outputChan).To(Receive(&msg))
+			Expect(msg).To(ContainSubstring("Wrong person"))
+			Expect(msg).To(ContainSubstring("Kubernetes triage specialist"))
+			// Tree executor should NOT be called
+			Expect(fakeTreeExecutor.RunCallCount()).To(Equal(0))
+		})
+
+		It("should use fallback message when resume is empty for OUT_OF_SCOPE", func() {
+			// Override resume to return empty
+			co.resume = ttlcache.NewItem(func(_ context.Context) (string, error) {
+				return "", nil
+			}, 5*time.Minute)
+			fakeFrontDeskExpert.DoReturns(fakeExpertResponse("OUT_OF_SCOPE"), nil)
+
+			outputChan := make(chan string, 10)
+			err := co.Chat(ctx, CodeQuestion{
+				Question: "how to make pasta",
+			}, outputChan)
+
+			Expect(err).NotTo(HaveOccurred())
+			var msg string
+			Expect(outputChan).To(Receive(&msg))
+			Expect(msg).To(ContainSubstring("mysterious specialist"))
 			Expect(fakeTreeExecutor.RunCallCount()).To(Equal(0))
 		})
 

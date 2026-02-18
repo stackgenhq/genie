@@ -71,6 +71,13 @@ func Open(dbPath string) (*gorm.DB, error) {
 		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
 	}
 
+	// Set busy timeout so concurrent writers retry instead of returning
+	// SQLITE_BUSY immediately. 5 seconds is generous for a local single-user DB.
+	if _, err := sqlDB.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		sqlDB.Close() //nolint:errcheck
+		return nil, fmt.Errorf("failed to set busy timeout: %w", err)
+	}
+
 	// Wrap with GORM using the sqlite dialector pointed at the existing connection.
 	dialector := sqlite.Dialector{
 		DriverName: "sqlite",
@@ -95,6 +102,8 @@ func AutoMigrate(db *gorm.DB) error {
 	return db.AutoMigrate(
 		&Approval{},
 		&Memory{},
+		&CronTask{},
+		&CronHistory{},
 	)
 }
 

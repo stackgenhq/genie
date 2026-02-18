@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/appcd-dev/genie/pkg/security"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/document"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/embedder"
 	geminiembed "trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/gemini"
@@ -52,21 +53,26 @@ type Config struct {
 	GeminiModel       string `yaml:"gemini_model" toml:"gemini_model"`
 }
 
-func DefaultConfig() Config {
+// DefaultConfig builds the default vector store configuration by resolving
+// API keys and endpoints through the given SecretProvider. Without a
+// SecretProvider, callers can pass security.NewEnvProvider() to preserve
+// the legacy os.Getenv behavior.
+func DefaultConfig(ctx context.Context, sp security.SecretProvider) Config {
+	// Helper to resolve a secret, ignoring errors (treat as empty).
+	get := func(name string) string {
+		v, _ := sp.GetSecret(ctx, name)
+		return v
+	}
+
 	return Config{
 		EmbeddingProvider: "dummy",
-		APIKey:            os.Getenv("OPENAI_API_KEY"),
-		OllamaURL:         os.Getenv("OLLAMA_URL"),
-		OllamaModel:       os.Getenv("OLLAMA_MODEL"),
-		HuggingFaceURL:    os.Getenv("HUGGINGFACE_URL"),
-		GeminiAPIKey:      os.Getenv("GOOGLE_API_KEY"),
-		GeminiModel:       os.Getenv("GEMINI_EMBED_MODEL"),
+		APIKey:            get("OPENAI_API_KEY"),
+		OllamaURL:         get("OLLAMA_URL"),
+		OllamaModel:       get("OLLAMA_MODEL"),
+		HuggingFaceURL:    get("HUGGINGFACE_URL"),
+		GeminiAPIKey:      get("GOOGLE_API_KEY"),
+		GeminiModel:       get("GEMINI_EMBED_MODEL"),
 	}
-}
-
-// CanInitialize checks if the config can be used to initialize a vector store.
-func (c Config) CanInitialize() bool {
-	return c.EmbeddingProvider != "" || c.APIKey != "" || c.OllamaURL != "" || c.HuggingFaceURL != "" || c.GeminiAPIKey != ""
 }
 
 // snapshotFile is the filename used to persist the vector store state.
