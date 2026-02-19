@@ -35,6 +35,12 @@ const maxToolResultSize = 80000
 // executing the tool again, breaking infinite loops.
 const maxConsecutiveRepeatCalls = 3
 
+// maxConsecutiveToolFailures is the number of consecutive failures (any args)
+// for the same tool that triggers a hard block. This prevents the LLM from
+// endlessly retrying a tool with slightly reworded arguments when the
+// underlying service (e.g. DuckDuckGo) is rate-limited or down.
+const maxConsecutiveToolFailures = 3
+
 type Wrapper struct {
 	tool.Tool
 	EventChan     chan<- interface{}
@@ -70,6 +76,11 @@ type Wrapper struct {
 	// skips the entire tool execution including HITL.
 	// Entries have a TTL so legitimate re-executions (minutes later) are not blocked.
 	semanticCache *ttlcache.TTLMap[any]
+
+	// failureCount tracks consecutive failures per tool name. When a tool
+	// fails maxConsecutiveToolFailures times in a row (regardless of args),
+	// further calls to that tool are blocked. A successful call resets the counter.
+	failureCount map[string]int
 }
 
 // semanticCacheTTL is how long a semantic cache entry stays valid.
@@ -107,6 +118,10 @@ func (w *Wrapper) Call(ctx context.Context, jsonArgs []byte) (output any, err er
 		return nil, err
 	}
 
+	if err := w.checkToolFailureLimit(toolName); err != nil {
+		return nil, err
+	}
+
 	if cached, ok := w.checkSemanticCache(logr, toolName, jsonArgs); ok {
 		return cached, nil
 	}
@@ -139,6 +154,7 @@ func (w *Wrapper) Call(ctx context.Context, jsonArgs []byte) (output any, err er
 	// --- Post-execution ---
 
 	w.postProcess(ctx, logr, toolName, jsonArgs, output, err)
+	w.recordToolOutcome(toolName, err)
 	return output, err
 }
 
@@ -159,6 +175,38 @@ func (w *Wrapper) checkLoopDetection(toolName string, jsonArgs []byte) error {
 			toolName, maxConsecutiveRepeatCalls)
 	}
 	return nil
+}
+
+// checkToolFailureLimit blocks a tool after maxConsecutiveToolFailures
+// consecutive failures, regardless of arguments. This catches the case where
+// the LLM varies arguments slightly (e.g. rephrasing a search query) but the
+// underlying service is rate-limited or down.
+func (w *Wrapper) checkToolFailureLimit(toolName string) error {
+	w.callMu.Lock()
+	count := w.failureCount[toolName]
+	w.callMu.Unlock()
+	if count >= maxConsecutiveToolFailures {
+		return fmt.Errorf(
+			"tool %s has failed %d times consecutively. The service may be rate-limited or down. "+
+				"Stop calling this tool and report the failure to the user",
+			toolName, count)
+	}
+	return nil
+}
+
+// recordToolOutcome updates the per-tool failure counter after a call.
+// Successful calls reset the counter; failures increment it.
+func (w *Wrapper) recordToolOutcome(toolName string, err error) {
+	w.callMu.Lock()
+	defer w.callMu.Unlock()
+	if w.failureCount == nil {
+		w.failureCount = make(map[string]int)
+	}
+	if err != nil {
+		w.failureCount[toolName]++
+	} else {
+		delete(w.failureCount, toolName)
+	}
 }
 
 // checkSemanticCache checks whether an idempotent tool call has a cached

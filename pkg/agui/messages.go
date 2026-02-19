@@ -17,6 +17,7 @@ const (
 	EventStepFinished            = "STEP_FINISHED" // Not currently used but good for completeness
 	EventCustom                  = "CUSTOM"
 	EventToolApprovalRequest     = "TOOL_APPROVAL_REQUEST"
+	EventClarificationRequest    = "CLARIFICATION_REQUEST"
 )
 
 // AGUIEvent is a common interface for all AG-UI events.
@@ -262,6 +263,21 @@ func (m ToolApprovalRequestMsg) AGUIType() string {
 		return m.Type
 	}
 	return EventToolApprovalRequest
+}
+
+// ClarificationRequestMsg asks the user a clarifying question.
+type ClarificationRequestMsg struct {
+	Type      string
+	RequestID string
+	Question  string
+	Context   string // optional: why the LLM needs this information
+}
+
+func (m ClarificationRequestMsg) AGUIType() string {
+	if m.Type != "" {
+		return m.Type
+	}
+	return EventClarificationRequest
 }
 
 // UserInputMsg represents input from the user (e.g. from stdin).

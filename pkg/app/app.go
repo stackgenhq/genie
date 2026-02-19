@@ -22,6 +22,7 @@ import (
 	"github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/audit"
 	"github.com/appcd-dev/genie/pkg/browser"
+	"github.com/appcd-dev/genie/pkg/clarify"
 	"github.com/appcd-dev/genie/pkg/codeowner"
 	"github.com/appcd-dev/genie/pkg/config"
 	"github.com/appcd-dev/genie/pkg/cron"
@@ -32,6 +33,7 @@ import (
 	"github.com/appcd-dev/genie/pkg/messenger"
 	messengerhitl "github.com/appcd-dev/genie/pkg/messenger/hitl"
 	"github.com/appcd-dev/genie/pkg/skills"
+
 	"github.com/appcd-dev/genie/pkg/tools/email"
 	"github.com/appcd-dev/genie/pkg/tools/networking"
 	"github.com/appcd-dev/genie/pkg/tools/pm"
@@ -76,6 +78,14 @@ type Application struct {
 
 	// replayWG tracks outstanding replayOnApproval goroutines for graceful drain.
 	replayWG sync.WaitGroup
+
+	// clarifyStore is shared between the ask_clarifying_question tool and
+	// the AG-UI server's /api/v1/clarify endpoint.
+	clarifyStore *clarify.Store
+
+	// pendingClarifications maps senderContext → clarification requestID
+	// so that messenger replies can be routed to clarifyStore.Respond.
+	pendingClarifications sync.Map
 }
 
 // NewApplication creates a new Application with validated parameters.
@@ -120,6 +130,9 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 	if a.msgr != nil {
 		log.Info("Messenger initialized", "platform", a.msgr.Platform())
 	}
+
+	// --- Clarify store ---
+	a.clarifyStore = clarify.NewStore()
 
 	// --- Tools ---
 	tools := a.initToolDeps(ctx)
@@ -226,7 +239,7 @@ func (a *Application) Start(ctx context.Context) error {
 	cronScheduler := a.cfg.Cron.NewScheduler(a.cronStore, dispatcher)
 
 	// --- AG-UI server ---
-	aguiServer := a.cfg.AGUI.NewServer(httpHandler, a.approvalStore, bgWorker, cronScheduler)
+	aguiServer := a.cfg.AGUI.NewServer(httpHandler, a.approvalStore, a.clarifyStore, bgWorker, cronScheduler)
 
 	// --- Messenger receive loop ---
 	if a.msgr != nil {
@@ -249,16 +262,20 @@ func (a *Application) Start(ctx context.Context) error {
 
 // Close releases all resources acquired during Bootstrap. Safe to call
 // even if Bootstrap was only partially successful.
-func (a *Application) Close() {
+func (a *Application) Close(ctx context.Context) {
+	logger := logger.GetLogger(ctx).With("fn", "app.Close")
 	// Drain outstanding replay goroutines before closing resources.
+	logger.Info("Waiting for replay goroutines to finish")
 	a.replayWG.Wait()
 
 	if a.auditor != nil {
-		_ = a.auditor.Close()
+		if err := a.auditor.Close(); err != nil {
+			logger.Warn("failed to close auditor", "error", err)
+		}
 	}
 	if a.codeOwner != nil {
 		if err := a.codeOwner.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to close code owner: %v\n", err)
+			logger.Warn("failed to close code owner", "error", err)
 		}
 	}
 	if a.mcpClient != nil {
@@ -269,12 +286,12 @@ func (a *Application) Close() {
 	}
 	if a.msgr != nil {
 		if err := a.msgr.Disconnect(context.Background()); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to disconnect messenger: %v\n", err)
+			logger.Warn("failed to disconnect messenger", "error", err)
 		}
 	}
 	if a.db != nil {
 		if err := geniedb.Close(a.db); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to close database: %v\n", err)
+			logger.Warn("failed to close database", "error", err)
 		}
 	}
 }
@@ -404,6 +421,57 @@ func (a *Application) initToolDeps(ctx context.Context) []tool.Tool {
 	}
 	log.Debug("Email tools initialized")
 
+	// Clarify tool — lets the LLM ask the user questions.
+	// The emitter bridges clarify → agui without an import cycle.
+	// It also forwards questions via the messenger when the conversation
+	// originated from a chat platform.
+	emitter := func(ctx context.Context, evt clarify.ClarificationEvent) error {
+		// AG-UI path: emit to the event channel for the SSE stream.
+		evChan := agui.EventChanFromContext(ctx)
+		if evChan != nil {
+			select {
+			case evChan <- agui.ClarificationRequestMsg{
+				Type:      agui.EventClarificationRequest,
+				RequestID: evt.RequestID,
+				Question:  evt.Question,
+				Context:   evt.Context,
+			}:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+
+		// Messenger path: forward question to the chat platform.
+		if a.msgr != nil {
+			senderCtx := messenger.SenderContextFrom(ctx)
+			if senderCtx != "" {
+				parts := strings.SplitN(senderCtx, ":", 3)
+				if len(parts) == 3 {
+					channelID := parts[2]
+					sendReq := messenger.SendRequest{
+						Channel: messenger.Channel{ID: channelID},
+						Content: messenger.MessageContent{
+							Text: fmt.Sprintf("❓ **Question from Genie**:\n%s\n\n_Reply with your answer._", evt.Question),
+						},
+					}
+					sendReq = a.msgr.FormatClarification(sendReq, messenger.ClarificationInfo{
+						RequestID: evt.RequestID,
+						Question:  evt.Question,
+						Context:   evt.Context,
+					})
+					if _, err := a.msgr.Send(ctx, sendReq); err != nil {
+						log.Warn("failed to send clarification via messenger", "error", err)
+					}
+					a.pendingClarifications.Store(senderCtx, evt.RequestID)
+				}
+			}
+		}
+
+		return nil
+	}
+	tools = append(tools, a.clarifyStore.NewTool(emitter))
+	log.Debug("Clarify tool initialized")
+
 	return tools
 }
 
@@ -454,6 +522,26 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 	log := logger.GetLogger(ctx).With("fn", "app.handleMessengerInput")
 
 	senderCtx := msg.String()
+
+	// Check for pending clarification reply first.
+	if reqID, ok := a.pendingClarifications.Load(senderCtx); ok {
+		if err := a.clarifyStore.Respond(reqID.(string), msg.Content.Text); err != nil {
+			log.Error("failed to respond to clarification via messenger", "error", err)
+			_, _ = a.msgr.Send(ctx, messenger.SendRequest{
+				Channel:  msg.Channel,
+				ThreadID: msg.ThreadID,
+				Content:  messenger.MessageContent{Text: fmt.Sprintf("⚠️ Failed to submit answer: %s", err)},
+			})
+		} else {
+			a.pendingClarifications.Delete(senderCtx)
+			_, _ = a.msgr.Send(ctx, messenger.SendRequest{
+				Channel:  msg.Channel,
+				ThreadID: msg.ThreadID,
+				Content:  messenger.MessageContent{Text: "✅ Answer received."},
+			})
+		}
+		return
+	}
 
 	// Check for interactive HITL reply (Yes/No/Revisit)
 	normalized := strings.TrimSpace(strings.ToLower(msg.Content.Text))

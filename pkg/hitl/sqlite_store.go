@@ -35,15 +35,25 @@ func (c Config) readOnlyTools() []string {
 }
 
 // IsAllowed checks if a tool is exempt from HITL approval.
-// If a tool is listed in ReadOnlyTools, it is considered safe and allowed to run
-// without human intervention.
+// Supports exact names (case-insensitive) and prefix wildcards:
+//   - "*" matches all tools (HITL fully disabled)
+//   - "browser_*" matches browser_navigate, browser_read_text, etc.
+//   - "read_file" matches only read_file (exact)
 func (c Config) IsAllowed(toolName string) bool {
-	for _, tool := range c.readOnlyTools() {
-		if tool == allTools {
-			// if the config has a wildcard, then all tools are allowed (HITL disabled)
+	lower := strings.ToLower(toolName)
+	for _, pattern := range c.readOnlyTools() {
+		if pattern == allTools {
 			return true
 		}
-		if strings.EqualFold(tool, toolName) {
+		lp := strings.ToLower(pattern)
+		if strings.HasSuffix(lp, "*") {
+			prefix := lp[:len(lp)-1]
+			if strings.HasPrefix(lower, prefix) {
+				return true
+			}
+			continue
+		}
+		if lp == lower {
 			return true
 		}
 	}

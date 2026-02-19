@@ -170,6 +170,11 @@ type Messenger interface {
 	// Cards) for the given approval. Adapters that do not support rich
 	// formatting should return the request unchanged.
 	FormatApproval(req SendRequest, info ApprovalInfo) SendRequest
+
+	// FormatClarification enriches a SendRequest with platform-specific rich
+	// formatting for a clarifying question posed by the agent.
+	// Adapters that do not support rich formatting should return the request unchanged.
+	FormatClarification(req SendRequest, info ClarificationInfo) SendRequest
 }
 
 // ApprovalInfo carries the data needed by adapters to render a rich approval
@@ -184,4 +189,15 @@ type ApprovalInfo struct {
 	Args string
 	// Feedback is the optional justification / reason for the call.
 	Feedback string
+}
+
+// ClarificationInfo carries data for rendering a clarifying-question
+// notification on a chat platform.
+type ClarificationInfo struct {
+	// RequestID is the unique clarification request identifier.
+	RequestID string
+	// Question is the question posed by the agent.
+	Question string
+	// Context is optional context explaining why the agent needs this info.
+	Context string
 }

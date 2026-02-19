@@ -172,6 +172,47 @@ var _ = Describe("FormatApproval", func() {
 	})
 })
 
+var _ = Describe("FormatClarification", func() {
+	var m *Messenger
+
+	BeforeEach(func() {
+		m = New(Config{})
+	})
+
+	It("returns the request unchanged (passthrough for now)", func() {
+		req := messenger.SendRequest{
+			Channel: messenger.Channel{ID: "C12345"},
+			Content: messenger.MessageContent{Text: "original text"},
+		}
+		info := messenger.ClarificationInfo{
+			RequestID: "clr-001",
+			Question:  "What is the target environment?",
+			Context:   "Deploying the application",
+		}
+
+		result := m.FormatClarification(req, info)
+
+		// Passthrough — content and metadata unchanged
+		Expect(result.Content.Text).To(Equal("original text"))
+		Expect(result.Metadata).To(BeNil())
+	})
+
+	It("preserves existing metadata", func() {
+		req := messenger.SendRequest{
+			Channel:  messenger.Channel{ID: "C12345"},
+			Content:  messenger.MessageContent{Text: "question text"},
+			Metadata: map[string]any{"key": "value"},
+		}
+		info := messenger.ClarificationInfo{
+			RequestID: "clr-002",
+			Question:  "Which region?",
+		}
+
+		result := m.FormatClarification(req, info)
+		Expect(result.Metadata).To(HaveKeyWithValue("key", "value"))
+	})
+})
+
 // loadGoldenBlocks reads a golden JSON file and returns the "blocks" value as []any.
 func loadGoldenBlocks(path string) []any {
 	data, err := os.ReadFile(path)

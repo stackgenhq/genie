@@ -531,6 +531,95 @@
             font-size: 0.75rem;
         }
 
+        /* Clarification card (LLM asking user a question) */
+        .clarify-card {
+            background: #eff6ff;
+            border: 1px solid #3b82f6;
+            border-radius: 0.75rem;
+            padding: 0.75rem 1rem;
+            margin: 0.5rem 0;
+            font-size: 0.8125rem;
+            animation: bubbleIn 0.3s ease-out;
+        }
+
+        .clarify-card .clarify-header {
+            font-weight: 600;
+            color: #1d4ed8;
+            font-size: 0.75rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .clarify-card .clarify-question {
+            color: #1e3a5f;
+            font-size: 0.875rem;
+            line-height: 1.5;
+            margin-bottom: 0.375rem;
+        }
+
+        .clarify-card .clarify-context {
+            font-size: 0.75rem;
+            color: #60a5fa;
+            background: rgba(59, 130, 246, 0.08);
+            border-left: 3px solid rgba(59, 130, 246, 0.4);
+            padding: 0.35rem 0.5rem;
+            margin-bottom: 0.5rem;
+            border-radius: 0 0.25rem 0.25rem 0;
+        }
+
+        .clarify-card .clarify-input {
+            width: 100%;
+            min-height: 2.5rem;
+            max-height: 6rem;
+            padding: 0.5rem 0.625rem;
+            border: 1px solid #93c5fd;
+            border-radius: 0.5rem;
+            background: #fff;
+            color: #1e3a5f;
+            font-size: 0.8125rem;
+            font-family: inherit;
+            resize: vertical;
+            outline: none;
+            transition: border-color 0.15s;
+            margin-bottom: 0.5rem;
+        }
+
+        .clarify-card .clarify-input:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .clarify-card .clarify-input::placeholder {
+            color: #93c5fd;
+        }
+
+        .clarify-card .btn-submit-clarify {
+            padding: 0.375rem 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid #3b82f6;
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: #fff;
+            transition: all 0.15s ease;
+        }
+
+        .clarify-card .btn-submit-clarify:hover:not(:disabled) {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            transform: scale(1.02);
+        }
+
+        .clarify-card .btn-submit-clarify:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .clarify-card .clarify-resolved {
+            font-weight: 600;
+            font-size: 0.75rem;
+            color: #16a34a;
+        }
+
         /* Thinking indicator */
         .thinking-indicator {
             display: flex;
@@ -1392,7 +1481,11 @@
 
                 case 'TOOL_CALL_START':
                     hideThinking();
-                    addToolCard(event.toolCallId, event.toolCallName, 'running');
+                    // Skip rendering generic tool card for ask_clarifying_question —
+                    // CLARIFICATION_REQUEST event renders a dedicated input form instead.
+                    if (event.toolCallName !== 'ask_clarifying_question') {
+                        addToolCard(event.toolCallId, event.toolCallName, 'running');
+                    }
                     break;
 
                 case 'TOOL_CALL_ARGS':
@@ -1443,6 +1536,11 @@
                 case 'TOOL_APPROVAL_REQUEST':
                     hideThinking();
                     addApprovalCard(event.approvalId, event.toolCallName, event.content, event.justification);
+                    break;
+
+                case 'CLARIFICATION_REQUEST':
+                    hideThinking();
+                    addClarificationCard(event.approvalId, event.content, event.message);
                     break;
             }
         }
@@ -1856,6 +1954,70 @@
             }
         }
 
+        // ── Clarification Card ──
+        function addClarificationCard(requestId, question, context) {
+            const div = document.createElement('div');
+            div.className = 'flex justify-start mb-3';
+            const contextHtml = context
+                ? `<div class="clarify-context">💡 ${escapeHtml(context)}</div>`
+                : '';
+            div.innerHTML = `
+        <div class="clarify-card" id="clarify-${requestId}">
+          <div class="clarify-header">❓ Genie needs your input</div>
+          <div class="clarify-question">${escapeHtml(question || 'Please provide more information.')}</div>
+          ${contextHtml}
+          <textarea class="clarify-input" id="clarify-input-${requestId}" placeholder="Type your answer…" rows="2"
+              onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();submitClarification('${requestId}')}"></textarea>
+          <div id="clarify-actions-${requestId}">
+            <button class="btn-submit-clarify" onclick="submitClarification('${requestId}')">📨 Submit Answer</button>
+          </div>
+        </div>
+      `;
+            messagesEl.appendChild(div);
+            scrollToBottom();
+            // Auto-focus the input
+            setTimeout(() => {
+                const inp = document.getElementById('clarify-input-' + requestId);
+                if (inp) inp.focus();
+            }, 100);
+        }
+
+        async function submitClarification(requestId) {
+            const inputEl = document.getElementById('clarify-input-' + requestId);
+            const actionsEl = document.getElementById('clarify-actions-' + requestId);
+            if (!inputEl || !actionsEl) return;
+
+            const answer = inputEl.value.trim();
+            if (!answer) {
+                inputEl.style.borderColor = '#ef4444';
+                inputEl.placeholder = 'Please type an answer before submitting…';
+                return;
+            }
+
+            // Disable input and button
+            inputEl.disabled = true;
+            actionsEl.querySelectorAll('button').forEach(btn => btn.disabled = true);
+
+            try {
+                const resp = await fetch(serverUrl + '/api/v1/clarify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ requestId, answer }),
+                });
+
+                if (!resp.ok) {
+                    const err = await resp.text();
+                    throw new Error(err);
+                }
+
+                actionsEl.innerHTML = '<span class="clarify-resolved">✅ Answer submitted</span>';
+                inputEl.style.display = 'none';
+            } catch (err) {
+                actionsEl.innerHTML = '<span style="color:#dc2626;font-size:0.75rem;font-weight:600">⚠️ Error: ' + escapeHtml(err.message) + '</span>';
+                inputEl.disabled = false;
+            }
+        }
+
         function addSystemMessage(text) {
             const div = document.createElement('div');
             div.className = 'flex justify-center mb-4';
@@ -2173,6 +2335,10 @@
         }
 
         function startNewChat() {
+            // Cancel any active SSE stream from the previous run
+            stopStreaming();
+            finishStreaming();
+
             threadId = crypto.randomUUID();
             runCounter = 0;
             currentAssistantBubble = null;

@@ -166,6 +166,36 @@ var _ = Describe("FormatApproval", func() {
 	})
 })
 
+var _ = Describe("FormatClarification", func() {
+	var m *Messenger
+
+	BeforeEach(func() {
+		var err error
+		m, err = New(Config{
+			AppID:       "test-app-id",
+			AppPassword: "test-app-password",
+			ListenAddr:  ":0",
+		})
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	It("returns the request unchanged (passthrough for now)", func() {
+		req := messenger.SendRequest{
+			Channel: messenger.Channel{ID: "conv-123"},
+			Content: messenger.MessageContent{Text: "original text"},
+		}
+		info := messenger.ClarificationInfo{
+			RequestID: "clr-001",
+			Question:  "What is the target environment?",
+			Context:   "Deploying the application",
+		}
+
+		result := m.FormatClarification(req, info)
+		Expect(result.Content.Text).To(Equal("original text"))
+		Expect(result.Metadata).To(BeNil())
+	})
+})
+
 // loadGoldenAttachments reads a golden JSON file and returns the "attachments" value as []any.
 func loadGoldenAttachments(path string) []any {
 	data, err := os.ReadFile(path)

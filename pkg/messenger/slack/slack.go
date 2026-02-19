@@ -378,5 +378,11 @@ func (m *Messenger) FormatApproval(req messenger.SendRequest, info messenger.App
 	return req
 }
 
+// FormatClarification returns the request unchanged for now.
+// TODO: add Slack Block Kit formatting for clarification questions.
+func (m *Messenger) FormatClarification(req messenger.SendRequest, _ messenger.ClarificationInfo) messenger.SendRequest {
+	return req
+}
+
 // Compile-time interface compliance check.
 var _ messenger.Messenger = (*Messenger)(nil)

@@ -11,6 +11,7 @@ import (
 	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/osutils"
 	rtmemory "github.com/appcd-dev/genie/pkg/reactree/memory"
+	"github.com/appcd-dev/genie/pkg/retrier"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
 	"github.com/google/uuid"
 	"trpc.group/trpc-go/trpc-agent-go/agent"
@@ -253,27 +254,48 @@ func (e *expert) Do(ctx context.Context, req Request) (Response, error) {
 		sessionID = req.SenderContext
 	}
 
-	event, err := e.runner.Run(ctx,
-		osutils.Getenv("USER", "anonymous"),
-		sessionID,
-		model.NewUserMessage(req.Message),
-		// Detached cancel is intentional: the runner's session service
-		// retains conversation history across HTTP requests. If the HTTP
-		// request context cancelled the runner, it would tear down the
-		// session prematurely, losing multi-turn chat history. The runner
-		// is reused (and re-cancelled) via expert.Do's lifecycle instead.
-		agent.WithDetachedCancel(true),
+	// Retry transient upstream LLM errors (503 / rate-limit / overloaded).
+	var evCh <-chan *event.Event
+	err := retrier.Retry(ctx, func() error {
+		var runErr error
+		evCh, runErr = e.runner.Run(ctx,
+			osutils.Getenv("USER", "anonymous"),
+			sessionID,
+			model.NewUserMessage(req.Message),
+			// Detached cancel is intentional: the runner's session service
+			// retains conversation history across HTTP requests. If the HTTP
+			// request context cancelled the runner, it would tear down the
+			// session prematurely, losing multi-turn chat history. The runner
+			// is reused (and re-cancelled) via expert.Do's lifecycle instead.
+			agent.WithDetachedCancel(true),
+		)
+		return runErr
+	},
+		retrier.WithAttempts(3),
+		retrier.WithBackoffDuration(5*time.Second),
+		retrier.WithRetryIf(IsTransientError),
+		retrier.WithOnRetry(func(attempt int, err error) {
+			logr.Warn("transient LLM error, will retry",
+				"attempt", attempt, "error", err.Error())
+		}),
 	)
 	if err != nil {
 		return HandleExpertError(ctx, err)
 	}
 	response := Response{}
-	for event := range event {
+	for ev := range evCh {
 		if req.ChoiceProcessor != nil {
-			req.ChoiceProcessor(event.Choices...)
+			req.ChoiceProcessor(ev.Choices...)
 		}
-		response.Choices = append(response.Choices, event.Choices...)
-		e.emitEventToTUI(ctx, event, req.EventChannel)
+		response.Choices = append(response.Choices, ev.Choices...)
+		e.emitEventToTUI(ctx, ev, req.EventChannel)
+
+		// Debug: log agent thought content for observability
+		for _, choice := range ev.Choices {
+			if choice.Message.Content != "" {
+				logr.Debug("agent thought", "content", toolwrap.TruncateForAudit(choice.Message.Content, 200))
+			}
+		}
 	}
 
 	// Audit: log LLM response

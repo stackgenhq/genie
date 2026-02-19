@@ -8,12 +8,15 @@ import (
 
 	"github.com/appcd-dev/genie/pkg/agentutils"
 	"github.com/appcd-dev/genie/pkg/agui"
+	"github.com/appcd-dev/genie/pkg/expert"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/reactree/memory"
+	"github.com/appcd-dev/genie/pkg/retrier"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
 	"go.opentelemetry.io/otel"
 	"trpc.group/trpc-go/trpc-agent-go/agent/llmagent"
+	"trpc.group/trpc-go/trpc-agent-go/event"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/runner"
 	"trpc.group/trpc-go/trpc-agent-go/session/inmemory"
@@ -29,8 +32,8 @@ type CreateAgentRequest struct {
 	Goal              string                 `json:"goal" jsonschema:"description=The goal or task for the sub-agent to accomplish,required"`
 	ToolNames         []string               `json:"tool_names,omitempty" jsonschema:"description=Names of tools to give the sub-agent. If empty all tools are provided."`
 	TaskType          modelprovider.TaskType `json:"task_type,omitempty" jsonschema:"description=Type of task for the sub-agent to accomplish, Should be one of efficiency/long_horizon_autonomy/mathematical/general_task/novel_reasoning/scientific_reasoning/terminal_calling/planning,required"`
-	MaxToolIterations int                    `json:"max_tool_iterations,omitempty" jsonschema:"description=Maximum number of tool iterations for the sub-agent. Keep a minimum of 15,required"`
-	MaxLLMCalls       int                    `json:"max_llm_calls,omitempty" jsonschema:"description=Maximum number of LLM calls for the sub-agent. Keep a minimum of 20,required"`
+	MaxToolIterations int                    `json:"max_tool_iterations,omitempty" jsonschema:"description=Maximum tool iterations. Scale to complexity: simple lookups 3-5 and file edits 10-15 and multi-step 15-25,required"`
+	MaxLLMCalls       int                    `json:"max_llm_calls,omitempty" jsonschema:"description=Maximum LLM calls. Scale to complexity: simple lookups 3-5 and file edits 10-15 and multi-step 15-25,required"`
 }
 
 // CreateAgentResponse is the output for the create_agent tool.
@@ -87,7 +90,9 @@ func NewCreateAgentTool(
 				"terminal_calling (CLI), novel_reasoning (creative). "+
 				"Give only needed tools. Batch related work into one agent; "+
 				"spawn parallel agents for independent tasks.\n\n"+
-				"Be generous with max_tool_iterations and max_llm_calls\n\n"+
+				"Set max_tool_iterations and max_llm_calls based on task complexity: "+
+				"simple lookups: 3-5, file edits: 10-15, multi-step: 15-25. "+
+				"Avoid excessive values — they waste time and money.\n\n"+
 				"Available tools: %s",
 			strings.Join(toolList, ", "),
 		)),
@@ -95,7 +100,7 @@ func NewCreateAgentTool(
 }
 
 func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (CreateAgentResponse, error) {
-	logr := logger.GetLogger(ctx).With("fn", "createAgentTool.execute", "goal", toolwrap.TruncateForAudit(req.Goal, 80))
+	logr := logger.GetLogger(ctx).With("fn", "createAgentTool.execute", "goal", toolwrap.TruncateForAudit(req.Goal, 80), "name", req.AgentName)
 	logr.Info("create_agent invoked", "tool_names", req.ToolNames, "task_type", req.TaskType)
 
 	// Select tools from registry
@@ -107,6 +112,24 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 	} else {
 		for _, name := range req.ToolNames {
 			if tl, ok := t.toolRegistry[name]; ok {
+				selectedTools = append(selectedTools, tl)
+			}
+		}
+	}
+
+	// Always inject ask_clarifying_question so sub-agents can ask the user
+	// for clarification when they encounter ambiguity mid-task.
+	const clarifyToolName = "ask_clarifying_question"
+	if len(req.ToolNames) > 0 { // only inject when specific tools were requested
+		hasClarify := false
+		for _, name := range req.ToolNames {
+			if name == clarifyToolName {
+				hasClarify = true
+				break
+			}
+		}
+		if !hasClarify {
+			if tl, ok := t.toolRegistry[clarifyToolName]; ok {
 				selectedTools = append(selectedTools, tl)
 			}
 		}
@@ -145,24 +168,44 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 			Output: fmt.Sprintf("failed to get model: %v", err),
 		}, nil
 	}
-	if req.MaxToolIterations < 15 {
-		req.MaxToolIterations = 15
+	// Apply reasonable defaults without overriding parent choice.
+	// Low minimums allow simple tasks (web search, single lookup) to
+	// finish quickly. Parent can always request higher limits.
+	if req.MaxToolIterations < 3 {
+		req.MaxToolIterations = 3
 	}
-	if req.MaxLLMCalls < 20 {
-		req.MaxLLMCalls = 20
+	if req.MaxLLMCalls < 8 {
+		req.MaxLLMCalls = 8
 	}
 
-	// Base instruction
+	// Build a set of available tool names for dynamic instruction generation.
+	availableToolNames := make(map[string]bool, len(selectedTools))
+	var toolNameList []string
+	for _, tl := range selectedTools {
+		name := tl.Declaration().Name
+		availableToolNames[name] = true
+		toolNameList = append(toolNameList, name)
+	}
+	logr.Info("sub-agent available tools", "tools", toolNameList)
+
+	// Base instruction — dynamically built based on available tools.
 	instruction := "You are a focused sub-agent. Complete the given task using ONLY your available tools. " +
 		"Be concise — return the essential result without commentary. " +
 		"If working memory already contains relevant data, use it instead of re-reading files. " +
-		"IMPORTANT: save_file, read_file, and list_file only accept RELATIVE paths under the workspace directory. " +
-		"Do NOT pass absolute paths (e.g. /tmp/foo) to these tools — use run_shell instead for absolute paths. " +
-		"Do not rewrite the same file multiple times unless fixing an error. Write files once and move to the next task. " +
-		"ERROR BUDGET: If a command or tool call fails 3 times consecutively, stop and report the failure rather than retrying. " +
+		"IMPORTANT: save_file, read_file, and list_file only accept RELATIVE paths under the workspace directory. "
+
+	instruction += "Do not rewrite the same file multiple times unless fixing an error. Write files once and move to the next task. " +
+		"ERROR BUDGET: If the same tool (e.g. web_search) fails 2 times — even with DIFFERENT arguments — " +
+		"stop calling that tool. Report the failure to the user instead of retrying with rephrased queries. " +
 		"ANTI-LOOP: After calling a tool, process its result immediately. " +
 		"NEVER call the same tool with the same arguments more than once — if you already received a result, use it directly. " +
-		"Once you have the data you need, summarize it and return your final answer. " +
+		"NEVER re-search with slightly different wording — if a search returned results, extract the answer from what you have. " +
+		"If a search FAILED due to errors or rate limits, do NOT retry with different wording. Report the failure. " +
+		"Once you have the data you need, summarize it and return your final answer. Do NOT repeat the answer more than once. " +
+		"DO NOT ASSUME: If the goal is ambiguous, critical details are missing (e.g. which environment, branch, or target), " +
+		"or multiple valid approaches exist, use ask_clarifying_question to ask the user before proceeding. " +
+		"Never guess or fill in blanks — ask first, act second. " +
+		"CRITICAL: You may ONLY call tools that are in your available tool set. Do NOT attempt to call tools that are not listed. " +
 		"JUSTIFICATION: When calling any tool, include a \"_justification\" field in the arguments explaining why this action is necessary."
 
 	// Inject shared working memory context so sub-agent knows what has been done
@@ -193,6 +236,9 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 		llmagent.WithAddCurrentTime(true),
 		llmagent.WithTimeFormat(time.RFC3339),
 		llmagent.WithMaxToolIterations(req.MaxToolIterations),
+		// Token optimization: Only include current request context, not full
+		// history, preventing unbounded context growth (50-70% savings).
+		llmagent.WithMessageFilterMode(llmagent.RequestContext),
 	)
 
 	// Run via a one-shot runner with isolated session
@@ -201,20 +247,39 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 		subAgent,
 		runner.WithSessionService(inmemory.NewSessionService()),
 	)
-	defer func() { _ = r.Close() }()
+	defer func(startTime time.Time) {
+		_ = r.Close()
+		logr.Info("sub-agent execution completed", "duration", time.Since(startTime).String())
+	}(time.Now())
 
 	// Explicitly start a span for the sub-agent execution to ensure proper
 	// nesting in traces. The tool invoker might not have propagated the
 	// tool span context correctly to the runner otherwise.
 	tracer := otel.Tracer("genie")
-	runCtx, span := tracer.Start(ctx, "sub-agent execution")
+	runCtx, span := tracer.Start(ctx, req.AgentName+" execution")
 	defer span.End()
 
-	evCh, err := r.Run(runCtx, "parent", req.AgentName, model.NewUserMessage(req.Goal))
-	if err != nil {
+	// Retry transient upstream LLM errors (503 / rate-limit / overloaded)
+	// so that temporary provider capacity issues don't fail the sub-agent.
+	var evCh <-chan *event.Event
+	var runErr error
+	runErr = retrier.Retry(runCtx, func() error {
+		var err error
+		evCh, err = r.Run(runCtx, "parent", req.AgentName, model.NewUserMessage(req.Goal))
+		return err
+	},
+		retrier.WithAttempts(3),
+		retrier.WithBackoffDuration(5*time.Second),
+		retrier.WithRetryIf(expert.IsTransientError),
+		retrier.WithOnRetry(func(attempt int, err error) {
+			logr.Warn("transient LLM error in sub-agent, retrying",
+				"attempt", attempt, "error", err.Error())
+		}),
+	)
+	if runErr != nil {
 		return CreateAgentResponse{
 			Status: "error",
-			Output: fmt.Sprintf("sub-agent failed to start: %v", err),
+			Output: fmt.Sprintf("sub-agent failed to start: %v", runErr),
 		}, nil
 	}
 
@@ -255,7 +320,9 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 	}
 
 	return CreateAgentResponse{
-		Output: result,
+		// Prefix tells the parent agent not to re-present this data, since
+		// the sub-agent already streamed it to the user during execution.
+		Output: "[SHOWN TO USER] Do not repeat; confirm completion or add NEW info only.\n" + result,
 		Status: "success",
 	}, nil
 }

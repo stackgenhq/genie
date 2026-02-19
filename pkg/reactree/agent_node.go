@@ -145,10 +145,12 @@ func buildAgentPrompt(ctx context.Context, goal string, wm *memory.WorkingMemory
 	if iterationContext != "" {
 		fmt.Fprintf(&sb, "## Progress So Far (iteration %d)\n", iterationCount)
 		sb.WriteString("The following was already accomplished in prior iterations. " +
+			"The results below were ALREADY SHOWN to the user via streaming. " +
+			"DO NOT repeat, rephrase, or re-output this data. " +
 			"DO NOT repeat tool calls or research already done. " +
-			"Use the gathered information to produce a COMPLETE response that FULLY " +
-			"addresses the original task. Do NOT just acknowledge the prior work — " +
-			"synthesize it into the final deliverable requested by the user.\n\n")
+			"If the task is complete based on the information below, say ONLY " +
+			"a brief confirmation like 'Done' or 'Here is the summary' without repeating the data. " +
+			"Only produce NEW information or actions not covered below.\n\n")
 		const maxIterCtx = 4000
 		if len(iterationContext) > maxIterCtx {
 			// Keep the tail (most recent work) rather than the head

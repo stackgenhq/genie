@@ -64,6 +64,44 @@ var _ = Describe("GORMStore", func() {
 			Expect(cfg.IsAllowed("write_file")).To(BeFalse())
 			Expect(cfg.IsAllowed("execute_code")).To(BeFalse())
 		})
+		It("should match prefix wildcards like browser_*", func() {
+			wcCfg := hitl.Config{
+				AlwaysAllowed: []string{"browser_*"},
+			}
+			Expect(wcCfg.IsAllowed("browser_navigate")).To(BeTrue())
+			Expect(wcCfg.IsAllowed("browser_read_text")).To(BeTrue())
+			Expect(wcCfg.IsAllowed("browser_click")).To(BeTrue())
+			// Should NOT match tools that don't start with the prefix
+			Expect(wcCfg.IsAllowed("run_shell")).To(BeFalse())
+			Expect(wcCfg.IsAllowed("write_file")).To(BeFalse())
+		})
+		It("should be case-insensitive for prefix wildcards", func() {
+			wcCfg := hitl.Config{
+				AlwaysAllowed: []string{"Browser_*"},
+			}
+			Expect(wcCfg.IsAllowed("browser_navigate")).To(BeTrue())
+			Expect(wcCfg.IsAllowed("BROWSER_READ_TEXT")).To(BeTrue())
+		})
+		It("should support mixing exact names and wildcards", func() {
+			mixCfg := hitl.Config{
+				AlwaysAllowed: []string{"run_shell", "browser_*"},
+			}
+			// Exact match
+			Expect(mixCfg.IsAllowed("run_shell")).To(BeTrue())
+			// Prefix wildcard match
+			Expect(mixCfg.IsAllowed("browser_navigate")).To(BeTrue())
+			// Neither
+			Expect(mixCfg.IsAllowed("write_file")).To(BeFalse())
+		})
+		It("should handle wildcard-only prefix (just the star suffix)", func() {
+			// "web_*" should match web_search but not websearch (no underscore)
+			wcCfg := hitl.Config{
+				AlwaysAllowed: []string{"web_*"},
+			}
+			Expect(wcCfg.IsAllowed("web_search")).To(BeTrue())
+			Expect(wcCfg.IsAllowed("web_browse")).To(BeTrue())
+			Expect(wcCfg.IsAllowed("websearch")).To(BeFalse())
+		})
 	})
 
 	Describe("Create", func() {

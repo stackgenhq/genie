@@ -172,6 +172,14 @@ func MapEvent(event interface{}, threadID, runID string) ([]byte, string, error)
 			Justification: e.Justification,
 		}
 
+	case ClarificationRequestMsg:
+		out = aguiEvent{
+			Type:       EventClarificationRequest,
+			ApprovalID: e.RequestID,
+			Content:    e.Question,
+			Message:    e.Context,
+		}
+
 	default:
 		return nil, "", fmt.Errorf("unsupported event type: %T", event)
 	}

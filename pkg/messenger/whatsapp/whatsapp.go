@@ -326,5 +326,11 @@ func (m *Messenger) FormatApproval(req messenger.SendRequest, _ messenger.Approv
 	return req
 }
 
+// FormatClarification returns the request unchanged — WhatsApp does not use
+// rich card formatting for clarification notifications.
+func (m *Messenger) FormatClarification(req messenger.SendRequest, _ messenger.ClarificationInfo) messenger.SendRequest {
+	return req
+}
+
 // Compile-time interface compliance check.
 var _ messenger.Messenger = (*Messenger)(nil)

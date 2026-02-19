@@ -152,6 +152,9 @@ func (s *stubMessenger) Platform() messenger.Platform { return "stub" }
 func (s *stubMessenger) FormatApproval(req messenger.SendRequest, _ messenger.ApprovalInfo) messenger.SendRequest {
 	return req
 }
+func (s *stubMessenger) FormatClarification(req messenger.SendRequest, _ messenger.ClarificationInfo) messenger.SendRequest {
+	return req
+}
 
 func (s *stubMessenger) Close() error { return nil }
 

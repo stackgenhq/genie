@@ -100,7 +100,7 @@ func (e expert) Handle(ctx context.Context, req ChatRequest) {
 	//
 	// We handle (1) via per-messageID prefix checking, and (2) via
 	// word-overlap similarity: when a text message completes, we record its
-	// significant words. If a subsequent message's word set overlaps ≥50%
+	// significant words. If a subsequent message's word set overlaps ≥40%
 	// with any previously-completed message (Jaccard similarity), the
 	// entire lifecycle (START → chunks → END) is suppressed. This catches
 	// LLM rephrasings of the same tool result across pipeline stages.
@@ -150,10 +150,10 @@ func (e expert) Handle(ctx context.Context, req ChatRequest) {
 				// set overlaps significantly with a previously-completed
 				// message.
 				accumulated := sentContent[evt.MessageID]
-				if !suppressed[evt.MessageID] && len(accumulated) > 120 {
+				if !suppressed[evt.MessageID] && len(accumulated) > 80 {
 					newWords := significantWords(accumulated)
 					for _, prev := range completedMsgs {
-						if jaccardSimilarity(newWords, prev.words) >= 0.50 {
+						if jaccardSimilarity(newWords, prev.words) >= 0.40 {
 							suppressed[evt.MessageID] = true
 							logger.GetLogger(ctx).Debug("agui: suppressing similar cross-message duplicate",
 								"messageID", evt.MessageID,
@@ -224,6 +224,10 @@ func (e expert) Handle(ctx context.Context, req ChatRequest) {
 
 			// ── HITL approval events: always pass through ──
 			case ToolApprovalRequestMsg:
+				req.EventChan <- evt
+
+			// ── Clarification events: always pass through ──
+			case ClarificationRequestMsg:
 				req.EventChan <- evt
 
 			default:

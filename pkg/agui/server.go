@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/appcd-dev/genie/pkg/clarify"
 	"github.com/appcd-dev/genie/pkg/hitl"
 	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/osutils"
@@ -127,8 +128,9 @@ type Server struct {
 	maxBodyBytes  int64          // 0 = unlimited
 
 	// Background worker for events and heartbeats
-	bgWorker *BackgroundWorker
-	workers  []BGWorker
+	bgWorker     *BackgroundWorker
+	workers      []BGWorker
+	clarifyStore *clarify.Store
 }
 
 // NewServer creates a new AG-UI HTTP server.
@@ -137,6 +139,7 @@ type Server struct {
 func (c ServerConfig) NewServer(
 	handler Expert,
 	approvalStore hitl.ApprovalStore,
+	clarifyStore *clarify.Store,
 	bgWorker *BackgroundWorker,
 	workers ...BGWorker,
 ) *Server {
@@ -149,6 +152,7 @@ func (c ServerConfig) NewServer(
 		workers:       workers,
 		maxConcurrent: c.MaxConcurrent,
 		maxBodyBytes:  c.MaxBodyBytes,
+		clarifyStore:  clarifyStore,
 	}
 
 	if c.RateLimit > 0 {
@@ -197,6 +201,7 @@ func (s *Server) Handler() http.Handler {
 	// Event Gateway endpoint
 	r.Post("/api/v1/events", s.handleEventsEndpoint)
 	r.Get("/api/v1/resume", s.handleResumeEndpoint)
+	r.Post("/api/v1/clarify", s.handleClarify)
 
 	// Health check
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -545,6 +550,44 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logr.Info("approval resolved", "approvalId", req.ApprovalID, "decision", req.Decision)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck
+}
+
+// clarifyRequest is the JSON body expected by the /api/v1/clarify endpoint.
+type clarifyRequest struct {
+	RequestID string `json:"requestId"`
+	Answer    string `json:"answer"`
+}
+
+// handleClarify delivers the user's answer to a pending clarification request.
+func (s *Server) handleClarify(w http.ResponseWriter, r *http.Request) {
+	logr := logger.GetLogger(r.Context()).With("fn", "agui.Server.handleClarify")
+
+	if s.clarifyStore == nil {
+		http.Error(w, `{"error":"clarification not available"}`, http.StatusServiceUnavailable)
+		return
+	}
+
+	var req clarifyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"invalid request body: %s"}`, err), http.StatusBadRequest)
+		return
+	}
+
+	if req.RequestID == "" || req.Answer == "" {
+		http.Error(w, `{"error":"requestId and answer are required"}`, http.StatusBadRequest)
+		return
+	}
+
+	if err := s.clarifyStore.Respond(req.RequestID, req.Answer); err != nil {
+		logr.Warn("failed to deliver clarification answer", "error", err, "requestId", req.RequestID)
+		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusNotFound)
+		return
+	}
+
+	logr.Info("clarification answered", "requestId", req.RequestID)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck

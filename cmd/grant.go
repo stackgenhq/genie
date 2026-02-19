@@ -92,7 +92,7 @@ func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("app init: %w", err)
 	}
-	defer application.Close()
+	defer application.Close(ctx)
 
 	if err := application.Bootstrap(ctx); err != nil {
 		return fmt.Errorf("bootstrap: %w", err)

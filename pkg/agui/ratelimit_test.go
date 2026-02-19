@@ -51,7 +51,7 @@ var _ = Describe("DDoS Protection Middleware", func() {
 		return cfg.NewServer(
 			&mockExpert{handler: handler},
 			&hitlfakes.FakeApprovalStore{},
-			nil)
+			nil, nil)
 	}
 
 	validBody := `{"messages":[{"role":"user","content":"hi"}]}`
