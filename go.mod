@@ -19,7 +19,7 @@ require (
 	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/infracloudio/msbotbuilder-go v0.2.5
 	github.com/jhillyerd/enmime v1.3.0
-	github.com/mark3labs/mcp-go v0.43.2
+	github.com/mark3labs/mcp-go v0.44.0
 	github.com/onsi/ginkgo/v2 v2.28.0
 	github.com/onsi/gomega v1.39.1
 	github.com/sirupsen/logrus v1.9.4
