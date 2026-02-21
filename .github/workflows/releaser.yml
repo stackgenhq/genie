@@ -21,7 +21,7 @@ jobs:
       image: goreleaser/goreleaser-cross:latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.2
         with:
           fetch-depth: 0
       - name: Cache Go modules
