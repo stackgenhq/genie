@@ -20,7 +20,7 @@ require (
 	github.com/infracloudio/msbotbuilder-go v0.2.5
 	github.com/jhillyerd/enmime v1.3.0
 	github.com/mark3labs/mcp-go v0.44.0
-	github.com/onsi/ginkgo/v2 v2.28.0
+	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
 	github.com/sirupsen/logrus v1.9.4
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
