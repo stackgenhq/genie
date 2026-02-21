@@ -117,7 +117,7 @@ require (
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.12.1-0.20251113130158-fd93bc43410d // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/olekukonko/tablewriter v0.0.5 // indirect
-	github.com/ollama/ollama v0.13.0 // indirect
+	github.com/ollama/ollama v0.14.0 // indirect
 	github.com/openai/openai-go v1.12.0 // indirect
 	github.com/panjf2000/ants/v2 v2.11.3 // indirect
 	github.com/petermattis/goid v0.0.0-20260113132338-7c7de50cc741 // indirect
