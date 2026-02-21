@@ -20,8 +20,8 @@ require (
 	github.com/infracloudio/msbotbuilder-go v0.2.5
 	github.com/jhillyerd/enmime v1.3.0
 	github.com/mark3labs/mcp-go v0.43.2
-	github.com/onsi/ginkgo/v2 v2.27.5
-	github.com/onsi/gomega v1.38.2
+	github.com/onsi/ginkgo/v2 v2.28.0
+	github.com/onsi/gomega v1.39.1
 	github.com/sirupsen/logrus v1.9.4
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/slack-go/slack v0.17.3
@@ -89,7 +89,7 @@ require (
 	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/google/pprof v0.0.0-20250403155104-27863c87afa6 // indirect
+	github.com/google/pprof v0.0.0-20260115054156-294ebfa9ad83 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.12 // indirect
 	github.com/googleapis/gax-go/v2 v2.17.0 // indirect
