@@ -80,6 +80,119 @@ Or use the explicit command:
 genie grant
 ```
 
+### Deploying on Cloud Instances (EC2, Azure VM, GCP Compute)
+
+Want to run Genie as a shared service for your team? Deploy it on a cloud instance with persistent storage and systemd management.
+
+#### Option 1: Docker Deployment (Recommended)
+
+```bash
+# 1. Install Docker on your instance
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+
+# 2. Create a config directory
+mkdir -p ~/.genie
+nano ~/.genie/genie.toml  # Add your configuration
+
+# 3. Run Genie with Docker
+docker run -d \
+  --name genie \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -v ~/.genie:/home/genie/.config \
+  -v /var/lib/genie/data:/workspace \
+  -e OPENAI_API_KEY="${OPENAI_API_KEY}" \
+  ghcr.io/stackgenhq/genie:latest grant
+```
+
+#### Option 2: Binary Installation with Systemd
+
+**For EC2 (Amazon Linux / Ubuntu):**
+
+```bash
+# 1. Download and install the binary
+curl -L https://github.com/appcd-dev/stackgen-genie/releases/latest/download/genie_Linux_x86_64.tar.gz -o genie.tar.gz
+tar xzf genie.tar.gz
+sudo mv genie /usr/local/bin/
+sudo chmod +x /usr/local/bin/genie
+
+# 2. Create a genie user
+sudo useradd -r -s /bin/false genie
+sudo mkdir -p /etc/genie /var/lib/genie
+sudo chown genie:genie /var/lib/genie
+
+# 3. Create configuration
+sudo nano /etc/genie/genie.toml
+# Add your model config, see config.toml.example
+
+# 4. Create systemd service
+sudo tee /etc/systemd/system/genie.service > /dev/null <<EOF
+[Unit]
+Description=Genie Agentic Platform
+After=network.target
+
+[Service]
+Type=simple
+User=genie
+Group=genie
+WorkingDirectory=/var/lib/genie
+Environment="OPENAI_API_KEY=your-key-here"
+ExecStart=/usr/local/bin/genie grant --config /etc/genie/genie.toml
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# 5. Start the service
+sudo systemctl daemon-reload
+sudo systemctl enable genie
+sudo systemctl start genie
+sudo systemctl status genie
+```
+
+#### Security Recommendations
+
+- **Use IAM roles** (AWS) or equivalent for secret management instead of hardcoded keys
+- **Configure firewall**: Only expose port 8080 to trusted IPs/VPCs
+- **Enable HTTPS**: Use a reverse proxy (nginx/caddy) with Let's Encrypt certificates
+- **Set rate limits**: Configure `[agui] rate_limit` and `max_concurrent` in your config
+- **Regular updates**: Set up automated security updates for your instance
+- **Use cloud secret managers**: Configure `[security.secrets]` for AWS Secrets Manager, GCP Secret Manager, or Azure Key Vault
+
+**Example with AWS Secrets Manager:**
+
+```toml
+[security.secrets]
+OPENAI_API_KEY = "awssecretsmanager://genie/openai?region=us-east-1&decoder=string"
+ANTHROPIC_API_KEY = "awssecretsmanager://genie/anthropic?region=us-east-1&decoder=string"
+```
+
+**Nginx reverse proxy example:**
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name genie.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/genie.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/genie.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://localhost:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
 ---
 
 ## 🛠 Commands

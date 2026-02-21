@@ -976,6 +976,176 @@ howto_guides:
       set -a && source .env && set +a
       genie grant
 
+  - step: 9
+    title: Deploying on Cloud Instances
+    desc: >
+      Run Genie as a persistent service on EC2, Azure VM, GCP Compute Engine, or any cloud instance.
+      Choose between Docker (simpler) or systemd (more control). Includes security hardening and
+      production-ready configuration.
+    code: |
+      # ═══════════════════════════════════════════════════════
+      # OPTION 1: Docker Deployment (Recommended)
+      # ═══════════════════════════════════════════════════════
+
+      # 1. Install Docker
+      curl -fsSL https://get.docker.com -o get-docker.sh
+      sudo sh get-docker.sh
+
+      # 2. Create config directory
+      mkdir -p ~/.genie
+      cat > ~/.genie/genie.toml <<EOF
+      [[model_config]]
+      provider = "openai"
+      model_name = "gpt-5.2"
+      token = "\${OPENAI_API_KEY}"
+      good_for_task = "planning"
+
+      [agui]
+      port = 8080
+      cors_origins = ["https://yourdomain.com"]
+      rate_limit = 0.5
+      max_concurrent = 5
+      EOF
+
+      # 3. Run Genie container with persistence
+      docker run -d \
+        --name genie \
+        --restart unless-stopped \
+        -p 8080:8080 \
+        -v ~/.genie:/home/genie/.config \
+        -v /var/lib/genie/data:/workspace \
+        -e OPENAI_API_KEY="\${OPENAI_API_KEY}" \
+        ghcr.io/stackgenhq/genie:latest grant
+
+      # Check logs
+      docker logs -f genie
+
+      # ═══════════════════════════════════════════════════════
+      # OPTION 2: Binary + Systemd (Production Setup)
+      # ═══════════════════════════════════════════════════════
+
+      # ─── EC2 / Amazon Linux / Ubuntu ───────────────────────
+      # 1. Download binary
+      curl -L https://github.com/appcd-dev/stackgen-genie/releases/latest/download/genie_Linux_x86_64.tar.gz -o genie.tar.gz
+      tar xzf genie.tar.gz
+      sudo mv genie /usr/local/bin/
+      sudo chmod +x /usr/local/bin/genie
+
+      # 2. Create genie user and directories
+      sudo useradd -r -s /bin/false genie
+      sudo mkdir -p /etc/genie /var/lib/genie
+      sudo chown genie:genie /var/lib/genie
+
+      # 3. Create configuration
+      sudo tee /etc/genie/genie.toml > /dev/null <<EOF
+      [[model_config]]
+      provider = "openai"
+      model_name = "gpt-5.2"
+      token = "\${OPENAI_API_KEY}"
+
+      [agui]
+      port = 8080
+      rate_limit = 0.5
+      max_concurrent = 5
+      EOF
+
+      # 4. Create systemd service
+      sudo tee /etc/systemd/system/genie.service > /dev/null <<EOF
+      [Unit]
+      Description=Genie Agentic Platform
+      After=network.target
+
+      [Service]
+      Type=simple
+      User=genie
+      Group=genie
+      WorkingDirectory=/var/lib/genie
+      Environment="OPENAI_API_KEY=your-key-here"
+      ExecStart=/usr/local/bin/genie grant --config /etc/genie/genie.toml
+      Restart=on-failure
+      RestartSec=10
+
+      [Install]
+      WantedBy=multi-user.target
+      EOF
+
+      # 5. Start and enable service
+      sudo systemctl daemon-reload
+      sudo systemctl enable genie
+      sudo systemctl start genie
+      sudo systemctl status genie
+
+      # View logs
+      sudo journalctl -u genie -f
+
+      # ═══════════════════════════════════════════════════════
+      # Security Hardening
+      # ═══════════════════════════════════════════════════════
+
+      # ─── Use Cloud Secret Managers ─────────────────────────
+      # AWS Secrets Manager (with IAM role on EC2)
+      [security.secrets]
+      OPENAI_API_KEY = "awssecretsmanager://genie/openai?region=us-east-1&decoder=string"
+      ANTHROPIC_API_KEY = "awssecretsmanager://genie/anthropic?region=us-east-1&decoder=string"
+
+      # GCP Secret Manager (with service account)
+      OPENAI_API_KEY = "gcpsecretmanager://projects/my-project/secrets/openai?decoder=string"
+
+      # Azure Key Vault (with managed identity)
+      OPENAI_API_KEY = "azurekeyvault://my-vault.vault.azure.net/secrets/openai?decoder=string"
+
+      # ─── Firewall Configuration ────────────────────────────
+      # EC2 Security Group: Only allow port 8080 from your IP/VPC
+      # UFW (Ubuntu):
+      sudo ufw allow from YOUR_IP to any port 8080
+      sudo ufw enable
+
+      # ─── HTTPS with Nginx Reverse Proxy ────────────────────
+      sudo apt install nginx certbot python3-certbot-nginx
+
+      # Create nginx config
+      sudo tee /etc/nginx/sites-available/genie <<EOF
+      server {
+          listen 80;
+          server_name genie.example.com;
+
+          location / {
+              proxy_pass http://localhost:8080;
+              proxy_http_version 1.1;
+              proxy_set_header Upgrade \$http_upgrade;
+              proxy_set_header Connection "upgrade";
+              proxy_set_header Host \$host;
+              proxy_set_header X-Real-IP \$remote_addr;
+              proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto \$scheme;
+          }
+      }
+      EOF
+
+      sudo ln -s /etc/nginx/sites-available/genie /etc/nginx/sites-enabled/
+      sudo certbot --nginx -d genie.example.com
+      sudo systemctl reload nginx
+
+      # ═══════════════════════════════════════════════════════
+      # Monitoring & Maintenance
+      # ═══════════════════════════════════════════════════════
+
+      # Check service status
+      sudo systemctl status genie
+
+      # View recent logs
+      sudo journalctl -u genie --since "1 hour ago"
+
+      # Restart service
+      sudo systemctl restart genie
+
+      # Update Genie binary
+      curl -L https://github.com/appcd-dev/stackgen-genie/releases/latest/download/genie_Linux_x86_64.tar.gz -o genie.tar.gz
+      tar xzf genie.tar.gz
+      sudo systemctl stop genie
+      sudo mv genie /usr/local/bin/
+      sudo systemctl start genie
+
 # ═══════════════════════════════════════════════════════════
 # TAB 3: ARCHITECTURE
 # ═══════════════════════════════════════════════════════════
