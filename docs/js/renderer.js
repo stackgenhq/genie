@@ -41,12 +41,12 @@
     /* ── Section Renderers ── */
 
     function renderConfigTab(sections) {
-        // Quick nav pills
-        var pills = '<section class="px-6 py-4"><div class="max-w-5xl mx-auto flex flex-wrap justify-center gap-2 fade-in">';
+        // Quick nav pills with better accessibility and mobile scroll
+        var pills = '<section class="px-4 md:px-6 py-4 md:py-6"><div class="max-w-5xl mx-auto"><div class="text-center mb-4"><p class="text-xs md:text-sm font-semibold text-gray-600 uppercase tracking-wide">Quick Navigation</p></div><div class="flex flex-wrap justify-center gap-2 fade-in overflow-x-auto">';
         sections.forEach(function (s) {
-            pills += '<a href="javascript:void(0)" onclick="showConfigSection(\'' + s.id + '\')" class="doc-pill">' + s.icon + ' ' + s.name + '</a>';
+            pills += '<a href="#config-' + s.id + '" onclick="showConfigSection(\'' + s.id + '\'); return false;" class="doc-pill" aria-label="Jump to ' + s.name + '">' + s.icon + ' ' + s.name + '</a>';
         });
-        pills += '</div></section>';
+        pills += '</div></div></section>';
 
         // Sidebar
         var sidebar = '';
@@ -57,11 +57,11 @@
             sidebar += '<div class="cfg-item-desc">' + s.sidebar_desc + '</div></div></div>';
         });
 
-        // Detail panels
+        // Detail panels with section anchors
         var panels = '';
         sections.forEach(function (s, i) {
-            panels += '<div id="detail-' + s.id + '" class="cfg-detail-panel' + (i === 0 ? ' active' : '') + '">';
-            panels += '<div class="detail-header"><h3>' + s.detail_title + '</h3>';
+            panels += '<div id="detail-' + s.id + '" class="cfg-detail-panel section-anchor' + (i === 0 ? ' active' : '') + '">';
+            panels += '<div id="config-' + s.id + '" class="detail-header"><h3>' + s.detail_title + '</h3>';
             panels += '<p>' + inlineCode(s.detail_desc) + '</p></div>';
 
             // Regular tables
@@ -89,17 +89,17 @@
         });
 
         return pills +
-            '<section class="py-4 px-6"><div class="max-w-6xl mx-auto"><div class="grid grid-cols-1 lg:grid-cols-12 gap-6">' +
-            '<div class="lg:col-span-4 xl:col-span-3"><div class="cfg-sidebar lg:sticky lg:top-20 space-y-1">' + sidebar + '</div></div>' +
-            '<div class="lg:col-span-8 xl:col-span-9"><div class="bg-white border border-gray-100 rounded-xl shadow-sm p-6 lg:sticky lg:top-20 overflow-y-auto" style="max-height: calc(100vh - 120px);">' +
+            '<section class="py-4 md:py-6 px-4 md:px-6 doc-section-wrapper"><div class="max-w-6xl mx-auto"><div class="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6">' +
+            '<div class="lg:col-span-4 xl:col-span-3"><div class="cfg-sidebar space-y-1"><div class="mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wide px-2 md:px-4">Configuration Sections</div>' + sidebar + '</div></div>' +
+            '<div class="lg:col-span-8 xl:col-span-9"><div class="bg-white border border-gray-100 rounded-xl shadow-sm p-4 md:p-8" style="min-height: 400px;">' +
             panels +
             '</div></div></div></div></section>';
     }
 
     function renderHowToTab(guides) {
-        var html = '<section class="py-8 px-6"><div class="max-w-4xl mx-auto">';
-        html += '<p class="text-sm text-gray-500 mb-6 text-center">Step-by-step guides to get up and running quickly.</p>';
-        html += '<div class="grid grid-cols-1 md:grid-cols-2 gap-5">';
+        var html = '<section class="py-6 md:py-8 px-4 md:px-6 doc-section-wrapper"><div class="max-w-4xl mx-auto">';
+        html += '<div class="text-center mb-6 md:mb-8"><h2 class="text-xl md:text-2xl font-bold mb-2">How-To Guides</h2><p class="text-xs md:text-sm text-gray-500">Step-by-step guides to get up and running quickly.</p></div>';
+        html += '<div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">';
         guides.forEach(function (g) {
             html += '<div class="howto-card">';
             html += '<div class="flex items-center gap-3 mb-3"><span class="step-number">' + g.step + '</span><h4>' + g.title + '</h4></div>';
@@ -122,14 +122,15 @@
     }
 
     function renderArchitectureTab(arch) {
-        var html = '<section class="py-12 px-6"><div class="max-w-5xl mx-auto fade-in">';
-        html += '<h2 class="text-3xl font-bold mb-8">' + arch.title + '</h2>';
+        var html = '<section class="py-8 md:py-12 px-4 md:px-6 doc-section-wrapper"><div class="max-w-5xl mx-auto fade-in">';
+        html += '<h2 class="text-2xl md:text-3xl font-bold mb-4 text-center">' + arch.title + '</h2>';
+        html += '<p class="text-sm md:text-base text-gray-500 text-center mb-6 md:mb-8">Understanding how Genie works under the hood</p>';
 
         // Overview
         if (arch.overview) {
-            html += '<h3 class="text-xl font-semibold mb-4">' + arch.overview.title + '</h3>';
-            html += '<p class="mb-4 text-sm text-gray-600">' + arch.overview.desc + '</p>';
-            html += '<pre class="bg-gray-50 p-4 rounded-lg overflow-x-auto text-xs font-mono mb-8">' + escapeHtml(arch.overview.diagram.trim()) + '</pre>';
+            html += '<h3 class="text-lg md:text-xl font-semibold mb-4">' + arch.overview.title + '</h3>';
+            html += '<p class="mb-4 text-xs md:text-sm text-gray-600">' + arch.overview.desc + '</p>';
+            html += '<pre class="bg-gray-50 p-3 md:p-4 rounded-lg overflow-x-auto text-xs font-mono mb-6 md:mb-8">' + escapeHtml(arch.overview.diagram.trim()) + '</pre>';
         }
 
         // Subsystems
@@ -181,7 +182,9 @@
     }
 
     function renderFaqTab(items) {
-        var html = '<section class="py-8 px-6"><div class="max-w-3xl mx-auto space-y-3">';
+        var html = '<section class="py-6 md:py-8 px-4 md:px-6 doc-section-wrapper"><div class="max-w-3xl mx-auto">';
+        html += '<div class="text-center mb-6 md:mb-8"><h2 class="text-xl md:text-2xl font-bold mb-2">Frequently Asked Questions</h2><p class="text-xs md:text-sm text-gray-500">Common questions and answers about Genie</p></div>';
+        html += '<div class="space-y-3">';
         items.forEach(function (item) {
             html += '<div class="faq-item">';
             html += '<div class="faq-question" onclick="this.parentElement.classList.toggle(\'open\')">';
@@ -190,7 +193,7 @@
             html += '<div class="faq-answer">' + item.a + '</div>';
             html += '</div>';
         });
-        html += '</div></section>';
+        html += '</div></div></section>';
         return html;
     }
 
@@ -209,15 +212,19 @@
         var container = document.getElementById('docs-content');
         if (!container) return;
 
-        // Header with tabs
-        var html = '<section class="relative pt-32 pb-4 px-6"><div class="max-w-5xl mx-auto text-center fade-in">';
-        html += '<h1 class="text-4xl md:text-5xl font-extrabold tracking-tight mb-3"><span class="gradient-text">' + data.header.title + '</span></h1>';
-        html += '<p class="text-base text-gray-500 max-w-xl mx-auto mb-8">' + data.header.subtitle + '</p>';
+        // Header with title
+        var html = '<section class="relative pt-20 md:pt-32 pb-6 md:pb-8 px-4 md:px-6"><div class="max-w-5xl mx-auto text-center fade-in">';
+        html += '<h1 class="text-3xl md:text-4xl lg:text-5xl font-extrabold tracking-tight mb-3"><span class="gradient-text">' + data.header.title + '</span></h1>';
+        html += '<p class="text-sm md:text-base text-gray-500 max-w-xl mx-auto mb-4">' + data.header.subtitle + '</p>';
+        html += '</div></section>';
+
+        // Sticky tabs navigation
+        html += '<div class="docs-header-sticky"><div class="max-w-5xl mx-auto px-4 md:px-6">';
         html += '<div class="docs-tabs">';
         data.header.tabs.forEach(function (tab) {
-            html += '<button class="docs-tab' + (tab.id === 'configuration' ? ' active' : '') + '" onclick="showTab(\'' + tab.id + '\')">' + tab.icon + ' ' + tab.label + '</button>';
+            html += '<button class="docs-tab' + (tab.id === 'configuration' ? ' active' : '') + '" onclick="showTab(\'' + tab.id + '\')" aria-label="' + tab.label + ' section">' + tab.icon + ' ' + tab.label + '</button>';
         });
-        html += '</div></div></section>';
+        html += '</div></div></div>';
 
         // Configuration section
         html += '<div id="section-configuration" class="docs-section active">' + renderConfigTab(data.config_sections) + '</div>';

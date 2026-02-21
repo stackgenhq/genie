@@ -24,9 +24,59 @@
     </script>
     <link rel="stylesheet" href="css/custom.css">
     <style>
+        /* Sticky header for better navigation */
+        .docs-header-sticky {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(130, 71, 231, 0.1);
+            padding: 1rem 0;
+            margin-bottom: 1rem;
+        }
+
+        /* Back to top button */
+        .back-to-top {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            width: 3rem;
+            height: 3rem;
+            background: linear-gradient(135deg, #8247E7 0%, #6d28d9 100%);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(130, 71, 231, 0.4);
+            opacity: 0;
+            transform: translateY(100px);
+            transition: all 0.3s ease;
+            z-index: 999;
+        }
+
+        .back-to-top.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .back-to-top:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 20px rgba(130, 71, 231, 0.5);
+        }
+
+        /* Improved section spacing */
+        .doc-section-wrapper {
+            padding: 2rem 0;
+        }
+
         /* Master-detail layout (config section) */
         .cfg-sidebar {
             min-height: 520px;
+            position: sticky;
+            top: 140px;
         }
 
         .cfg-item {
@@ -105,10 +155,145 @@
             color: #9ca3af;
             margin: 1rem 0 0.5rem;
         }
+
+        /* Scroll indicator for sections */
+        .scroll-indicator {
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 3px;
+            background: linear-gradient(135deg, #8247E7 0%, #6d28d9 100%);
+            z-index: 1000;
+            transition: width 0.2s ease;
+        }
+
+        /* Section anchors */
+        .section-anchor {
+            scroll-margin-top: 120px;
+        }
+
+        /* Improved table readability */
+        .config-table {
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            overflow: hidden;
+        }
+
+        /* Better mobile responsiveness */
+        @media (max-width: 768px) {
+            /* Header adjustments */
+            .docs-header-sticky {
+                padding: 0.75rem 0;
+                margin-bottom: 0.5rem;
+            }
+
+            /* Tabs container - allow horizontal scroll */
+            .docs-tabs {
+                width: 100%;
+                justify-content: flex-start;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none; /* Firefox */
+                padding: 0.25rem 0.5rem;
+            }
+
+            .docs-tabs::-webkit-scrollbar {
+                display: none; /* Chrome/Safari */
+            }
+
+            /* Tab buttons */
+            .docs-tab {
+                padding: 0.625rem 1.25rem;
+                font-size: 0.8125rem;
+                white-space: nowrap;
+                flex-shrink: 0;
+            }
+
+            /* Sidebar */
+            .cfg-sidebar {
+                position: static;
+                margin-bottom: 1rem;
+            }
+
+            /* Back to top button */
+            .back-to-top {
+                bottom: 1rem;
+                right: 1rem;
+                width: 2.5rem;
+                height: 2.5rem;
+            }
+
+            /* Section spacing */
+            .doc-section-wrapper {
+                padding: 1rem 0;
+            }
+
+            /* Title adjustments */
+            h1 {
+                font-size: 2rem !important;
+            }
+
+            h2 {
+                font-size: 1.5rem !important;
+            }
+
+            /* Detail panel */
+            .detail-header h3 {
+                font-size: 1rem;
+            }
+
+            /* Configuration item */
+            .cfg-item {
+                padding: 0.625rem 0.75rem;
+            }
+
+            .cfg-item-icon {
+                font-size: 1rem;
+                width: 1.5rem;
+            }
+
+            .cfg-item-name {
+                font-size: 0.75rem;
+            }
+
+            .cfg-item-desc {
+                font-size: 0.625rem;
+            }
+        }
+
+        /* Extra small screens */
+        @media (max-width: 480px) {
+            .docs-header-sticky {
+                padding: 0.5rem 0;
+            }
+
+            .docs-tab {
+                padding: 0.5rem 1rem;
+                font-size: 0.75rem;
+            }
+
+            .back-to-top {
+                width: 2rem;
+                height: 2rem;
+                bottom: 0.75rem;
+                right: 0.75rem;
+            }
+
+            h1 {
+                font-size: 1.75rem !important;
+            }
+
+            h2 {
+                font-size: 1.25rem !important;
+            }
+        }
     </style>
 </head>
 
 <body class="font-sans text-navy bg-white antialiased overflow-x-hidden">
+
+    <!-- Scroll progress indicator -->
+    <div class="scroll-indicator" id="scroll-indicator"></div>
 
     <!-- Nav -->
     <div id="nav-container"></div>
@@ -116,6 +301,13 @@
     <!-- Glow -->
     <div class="glow-blob glow-purple" style="width:500px;height:500px;top:-100px;left:-200px;"></div>
     <div class="glow-blob glow-blue" style="width:400px;height:400px;top:800px;right:-100px;"></div>
+
+    <!-- Back to Top Button -->
+    <div class="back-to-top" id="back-to-top" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"/>
+        </svg>
+    </div>
 
     <!-- Content rendered from data/docs.yml -->
     <div id="docs-content">
@@ -136,6 +328,59 @@
     <script src="https://cdn.jsdelivr.net/npm/js-yaml@4/dist/js-yaml.min.js"></script>
     <!-- Docs renderer (fetches data/docs.yml and renders the page) -->
     <script src="js/renderer.js"></script>
+    
+    <!-- Navigation enhancements -->
+    <script>
+        // Back to top button visibility
+        window.addEventListener('scroll', function() {
+            const backToTop = document.getElementById('back-to-top');
+            const scrollIndicator = document.getElementById('scroll-indicator');
+            
+            if (backToTop) {
+                if (window.pageYOffset > 300) {
+                    backToTop.classList.add('visible');
+                } else {
+                    backToTop.classList.remove('visible');
+                }
+            }
+            
+            // Update scroll progress indicator
+            if (scrollIndicator) {
+                const winScroll = document.body.scrollTop || document.documentElement.scrollTop;
+                const height = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+                const scrolled = (winScroll / height) * 100;
+                scrollIndicator.style.width = scrolled + '%';
+            }
+        });
+
+        // Smooth scroll to section with offset for sticky header
+        function scrollToSection(sectionId) {
+            const element = document.getElementById(sectionId);
+            if (element) {
+                const offset = 120;
+                const elementPosition = element.getBoundingClientRect().top;
+                const offsetPosition = elementPosition + window.pageYOffset - offset;
+                
+                window.scrollTo({
+                    top: offsetPosition,
+                    behavior: 'smooth'
+                });
+            }
+        }
+
+        // Add keyboard navigation (arrow keys for tabs)
+        document.addEventListener('keydown', function(e) {
+            const tabs = Array.from(document.querySelectorAll('.docs-tab'));
+            const activeTab = document.querySelector('.docs-tab.active');
+            const currentIndex = tabs.indexOf(activeTab);
+            
+            if (e.key === 'ArrowRight' && currentIndex < tabs.length - 1) {
+                tabs[currentIndex + 1].click();
+            } else if (e.key === 'ArrowLeft' && currentIndex > 0) {
+                tabs[currentIndex - 1].click();
+            }
+        });
+    </script>
 </body>
 
 </html>
