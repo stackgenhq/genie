@@ -16,7 +16,7 @@ RUN CGO_ENABLED=1 go build -mod=mod -trimpath \
     -o /usr/local/bin/genie .
 
 # ── Stage 2: Runtime ────────────────────────────────────────
-FROM alpine:3.21
+FROM alpine:3.23
 
 RUN apk add --no-cache ca-certificates
 
