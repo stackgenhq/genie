@@ -153,6 +153,9 @@ var defaultReadOnlyTools = []string{
 	"search_content",
 	"search_runbook",
 	"search_file",
+	"send_message",
 	"create_agent",            // orchestration — sub-agent tools get their own HITL
 	"ask_clarifying_question", // informational — asks user a question, no side effects
+	"check_budget",            // Pensieve — pure read, reports context event counts
+	"read_notes",              // Pensieve — pure read, lists saved notes
 }

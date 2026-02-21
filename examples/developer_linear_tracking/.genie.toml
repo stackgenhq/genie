@@ -32,13 +32,6 @@ token = "${GEMINI_API_KEY}"
 good_for_task = "efficiency"
 
 
-# ── Application Settings ────────────────────────────────────────────
-
-[ops]
-max_pages = 5
-enable_verification = true
-max_verification_runs = 3
-
 # ── GitHub (SCM) ────────────────────────────────────────────────────────
 # Source-code management: list repos, get/create pull requests
 [scm]

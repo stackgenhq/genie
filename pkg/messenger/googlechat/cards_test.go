@@ -168,7 +168,7 @@ var _ = Describe("FormatClarification", func() {
 		m = New(Config{})
 	})
 
-	It("returns the request unchanged (passthrough for now)", func() {
+	It("formats a rich Cards v2 clarification message", func() {
 		req := messenger.SendRequest{
 			Channel: messenger.Channel{ID: "spaces/test"},
 			Content: messenger.MessageContent{Text: "original text"},
@@ -180,8 +180,15 @@ var _ = Describe("FormatClarification", func() {
 		}
 
 		result := m.FormatClarification(req, info)
-		Expect(result.Content.Text).To(Equal("original text"))
-		Expect(result.Metadata).To(BeNil())
+
+		// cards_v2 metadata is populated
+		Expect(result.Metadata).To(HaveKey("cards_v2"))
+		cards, ok := result.Metadata["cards_v2"].([]any)
+		Expect(ok).To(BeTrue())
+		Expect(cards).To(HaveLen(1))
+
+		card := cards[0].(map[string]any)
+		Expect(card["cardId"]).To(Equal("clarify_clr-001"))
 	})
 })
 

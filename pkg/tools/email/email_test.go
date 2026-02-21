@@ -85,3 +85,36 @@ var _ = Describe("Email Tools", func() {
 		})
 	})
 })
+
+var _ = Describe("Config.New", func() {
+	It("should create an smtp service with provider 'smtp'", func() {
+		cfg := email.Config{Provider: "smtp"}
+		svc, err := cfg.New()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(svc).NotTo(BeNil())
+	})
+
+	It("should create an smtp service with empty provider (default)", func() {
+		cfg := email.Config{Provider: ""}
+		svc, err := cfg.New()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(svc).NotTo(BeNil())
+	})
+
+	It("should return error for unsupported provider", func() {
+		cfg := email.Config{Provider: "sparkpost"}
+		_, err := cfg.New()
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("unsupported"))
+	})
+})
+
+var _ = Describe("AllTools", func() {
+	It("should return 2 tools", func() {
+		svc := &mockService{}
+		tools := email.AllTools(svc)
+		Expect(tools).To(HaveLen(2))
+		Expect(tools[0].Declaration().Name).To(Equal("email_send"))
+		Expect(tools[1].Declaration().Name).To(Equal("email_read"))
+	})
+})

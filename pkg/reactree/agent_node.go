@@ -8,6 +8,7 @@ import (
 	"github.com/appcd-dev/genie/pkg/expert"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/logger"
+	"github.com/appcd-dev/genie/pkg/messenger"
 	"github.com/appcd-dev/genie/pkg/reactree/memory"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
 	"trpc.group/trpc-go/trpc-agent-go/graph"
@@ -29,6 +30,16 @@ type AgentNodeConfig struct {
 
 	// SenderContext identifies the user/channel for this request.
 	SenderContext string
+
+	// Attachments are file/media attachments from the incoming message.
+	// Image attachments are passed as multimodal content to the LLM.
+	Attachments []messenger.Attachment
+
+	// BudgetExhaustedTools lists tool names whose budget has been reached.
+	// The adaptive loop sets this when tools in ToolBudgets have hit their
+	// limits. A prompt hint is injected telling the LLM these tools are
+	// unavailable; the tools themselves are also stripped from the list.
+	BudgetExhaustedTools []string
 }
 
 // NewAgentNodeFunc creates a graph.NodeFunc that wraps an expert.Expert call.
@@ -48,13 +59,13 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 	}
 
 	return func(ctx context.Context, state graph.State) (any, error) {
-		logr := logger.GetLogger(ctx).With("fn", "agentNodeFunc", "goal", cfg.Goal)
 
 		// Read goal from state, falling back to config
 		goal := cfg.Goal
 		if stateGoal, ok := graph.GetStateValue[string](state, StateKeyGoal); ok && stateGoal != "" {
 			goal = stateGoal
 		}
+		logr := logger.GetLogger(ctx).With("fn", "agentNodeFunc", "goal", goal)
 
 		// Read previous stage output so this stage knows what was already done.
 		prevOutput, _ := graph.GetStateValue[string](state, StateKeyPreviousStageOutput)
@@ -64,7 +75,7 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 		iterationCount, _ := graph.GetStateValue[int](state, StateKeyIterationCount)
 
 		// Build prompt enriched with memory and previous stage context
-		prompt := buildAgentPrompt(ctx, goal, wm, ep, prevOutput, iterationCtx, iterationCount)
+		prompt := buildAgentPrompt(ctx, goal, wm, ep, prevOutput, iterationCtx, iterationCount, cfg.BudgetExhaustedTools)
 
 		logr.Info("agent node calling expert",
 			"prompt_length", len(prompt),
@@ -73,6 +84,11 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 			"has_iteration_ctx", iterationCtx != "",
 		)
 
+		// Inject the goal into the context so downstream tools (e.g.
+		// send_message) can record it in the reaction ledger for later
+		// correlation with user emoji reactions.
+		ctx = messenger.WithGoal(ctx, goal)
+
 		resp, err := cfg.Expert.Do(ctx, expert.Request{
 			Message:         prompt,
 			EventChannel:    cfg.EventChan,
@@ -80,6 +96,7 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 			WorkingMemory:   wm,
 			TaskType:        cfg.TaskType,
 			SenderContext:   cfg.SenderContext,
+			Attachments:     cfg.Attachments,
 		})
 		if err != nil {
 			logr.Error("agent node expert call failed", "error", err)
@@ -89,47 +106,82 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 			}, nil // Return state update, not error, so graph can continue
 		}
 
-		// Collect response text and count tool calls to detect early completion.
-		var responseText strings.Builder
+		// Count tool calls across ALL choices to detect terminal/budget state.
+		// But only use the LAST choice's text content as the output.
+		// The runner appends choices from every LLM generation in the session;
+		// earlier choices contain tool-call-only turns whose "content" includes
+		// echoed tool results (e.g. send_message's {"message_id":"...","status":"sent"})
+		// that would pollute the output if concatenated.
 		toolCallCount := 0
+		toolCallCounts := make(map[string]int) // per-tool call counts for budget tracking
+		allTerminal := true                    // true if every tool call is a "delivery" tool
 		for _, choice := range resp.Choices {
-			responseText.WriteString(choice.Message.Content)
 			toolCallCount += len(choice.Message.ToolCalls)
+			for _, tc := range choice.Message.ToolCalls {
+				if !isTerminalTool(tc.Function.Name) {
+					allTerminal = false
+				}
+				toolCallCounts[tc.Function.Name]++
+			}
 		}
-		output := responseText.String()
+		// Use only the last choice's content — the final LLM response after
+		// all tool calls have been processed within the runner session.
+		output := ""
+		if len(resp.Choices) > 0 {
+			output = resp.Choices[len(resp.Choices)-1].Message.Content
+		}
+
+		// Mark task as completed when:
+		//   a) No tool calls were made (agent concluded with just text), OR
+		//   b) ALL tool calls were "terminal" delivery tools (send_message,
+		//      ask_clarifying_question). These tools represent the agent's
+		//      final action — delivering a response to the user. Iterating
+		//      again only causes redundant "working on it" messages and
+		//      unnecessary follow-up questions.
+		taskCompleted := toolCallCount == 0 || (toolCallCount > 0 && allTerminal)
+
+		// Clear output when send_message was used — it already delivered the
+		// response to the user, so the runner text is just mangled JSON.
+		// For ask_clarifying_question, keep the output: the runner's final
+		// generation after the Q&A is the actual useful response.
+		if toolCallCounts["send_message"] > 0 && toolCallCounts["ask_clarifying_question"] == 0 {
+			output = ""
+		}
 
 		// Only store successful episodes in episodic memory.
-		// Skip error-like responses that would poison future context.
-		if !looksLikeError(output) {
+		// Skip when output is empty (terminal-only runs delivered via tool) or
+		// when output looks like an error (would poison future context).
+		if output != "" && !looksLikeError(output) {
 			// Cap trajectory to prevent large tool outputs from bloating
 			// future prompts when this episode is retrieved.
 			trajectory := output
-			const maxTrajectorySize = 500
-			if len(trajectory) > maxTrajectorySize {
-				trajectory = trajectory[:maxTrajectorySize] + "... (truncated)"
+			const maxTrajectoryRunes = 500
+			runes := []rune(trajectory)
+			if len(runes) > maxTrajectoryRunes {
+				trajectory = string(runes[:maxTrajectoryRunes]) + "... (truncated)"
 			}
 			ep.Store(ctx, memory.Episode{
 				Goal:       goal,
 				Trajectory: trajectory,
-				Status:     memory.EpisodeSuccess,
+				Status:     memory.EpisodePending,
 			})
-		} else {
+		} else if output != "" {
 			logr.Warn("skipping episodic memory storage for error-like output", "output_prefix", toolwrap.TruncateForAudit(output, 100))
 		}
 
-		// If zero tool calls were made, the agent concluded with just text.
-		// Mark the task as completed so the stage router can skip remaining stages.
-		taskCompleted := toolCallCount == 0
 		logr.Info("agent node completed",
 			"output_length", len(output),
 			"tool_call_count", toolCallCount,
+			"tool_call_counts", toolCallCounts,
+			"all_terminal", allTerminal,
 			"task_completed", taskCompleted,
 		)
 
 		return graph.State{
-			StateKeyNodeStatus:    Success,
-			StateKeyOutput:        output,
-			StateKeyTaskCompleted: taskCompleted,
+			StateKeyNodeStatus:     Success,
+			StateKeyOutput:         output,
+			StateKeyTaskCompleted:  taskCompleted,
+			StateKeyToolCallCounts: toolCallCounts,
 		}, nil
 	}
 }
@@ -137,7 +189,7 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 // buildAgentPrompt constructs the prompt for the expert, incorporating
 // working memory context, episodic memories, previous stage output, and
 // adaptive-loop iteration context.
-func buildAgentPrompt(ctx context.Context, goal string, wm *memory.WorkingMemory, ep memory.EpisodicMemory, previousStageOutput string, iterationContext string, iterationCount int) string {
+func buildAgentPrompt(ctx context.Context, goal string, wm *memory.WorkingMemory, ep memory.EpisodicMemory, previousStageOutput string, iterationContext string, iterationCount int, budgetExhaustedTools []string) string {
 	var sb strings.Builder
 
 	// Include adaptive-loop iteration context (accumulated output from prior iterations).
@@ -165,14 +217,19 @@ func buildAgentPrompt(ctx context.Context, goal string, wm *memory.WorkingMemory
 		sb.WriteString("## Previous Stage Output\n")
 		sb.WriteString("The following was already accomplished in the previous stage. " +
 			"DO NOT repeat this work. Build upon it instead.\n\n")
-		const maxPrevOutput = 2000
-		if len(previousStageOutput) > maxPrevOutput {
-			sb.WriteString(previousStageOutput[:maxPrevOutput])
-			sb.WriteString("\n... (truncated)\n")
-		} else {
-			sb.WriteString(previousStageOutput)
-		}
+		sb.WriteString(previousStageOutput)
 		sb.WriteString("\n\n")
+	}
+
+	// Inject a hard stop when tool budgets are exhausted.
+	// This supplements the tool removal: even if the LLM wanted to call them,
+	// the tools won't be available, but this hint steers it proactively.
+	if len(budgetExhaustedTools) > 0 {
+		sb.WriteString("## IMPORTANT: Tool Budget Exhausted\n")
+		fmt.Fprintf(&sb, "The following tools have been removed because their call budget is exhausted: %s. ",
+			strings.Join(budgetExhaustedTools, ", "))
+		sb.WriteString("Do NOT attempt to use them. " +
+			"Use sensible defaults for any remaining unknowns and proceed to complete the task immediately.\n\n")
 	}
 
 	// Include working memory context if available (capped to prevent prompt bloat)
@@ -218,4 +275,25 @@ func buildAgentPrompt(ctx context.Context, goal string, wm *memory.WorkingMemory
 	sb.WriteString(goal)
 
 	return sb.String()
+}
+
+// terminalTools are tools that represent the agent's final action — delivering
+// a response to the user via messaging. When an iteration's ONLY tool calls
+// are terminal tools, the adaptive loop should stop because there is no more
+// computational work to iterate on; the agent has already communicated its
+// answer (or asked for more info).
+var terminalTools = map[string]bool{
+	"send_message":            true,
+	"ask_clarifying_question": true,
+	// ask_clarifying_question IS terminal because the Q&A round-trip
+	// happens within the same runner session — the LLM asks, gets the
+	// answer via tool result, then produces its final response. Marking
+	// it terminal stops the adaptive loop from creating a new session
+	// (which loses the Q&A context and causes repeated questions).
+}
+
+// isTerminalTool returns true if the named tool is a "delivery" tool that
+// represents a final user-facing action.
+func isTerminalTool(name string) bool {
+	return terminalTools[name]
 }

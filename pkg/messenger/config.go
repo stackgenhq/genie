@@ -19,6 +19,12 @@ type Config struct {
 	// Defaults to DefaultMessageBufferSize if zero.
 	BufferSize int `yaml:"buffer_size" toml:"buffer_size"`
 
+	// AllowedSenders is an optional allowlist of sender IDs (phone numbers,
+	// usernames, or user IDs depending on platform) that the bot will respond
+	// to. When empty, the bot responds to all incoming messages.
+	// For WhatsApp: use phone numbers without '+' (e.g., "15551234567").
+	AllowedSenders []string `yaml:"allowed_senders" toml:"allowed_senders"`
+
 	// Slack holds Slack-specific configuration.
 	Slack SlackConfig `yaml:"slack" toml:"slack"`
 
@@ -36,6 +42,9 @@ type Config struct {
 
 	// WhatsApp holds WhatsApp Business-specific configuration.
 	WhatsApp WhatsAppConfig `yaml:"whatsapp" toml:"whatsapp"`
+
+	// AGUI holds AG-UI SSE adapter configuration.
+	AGUI AGUIConfig `yaml:"agui" toml:"agui"`
 }
 
 // SlackConfig holds Slack adapter settings.
@@ -83,9 +92,36 @@ type WhatsAppConfig struct {
 	StorePath string `yaml:"store_path" toml:"store_path"`
 }
 
+// AGUIConfig holds AG-UI SSE adapter settings. The adapter runs in-process
+// and requires no external credentials or tokens.
+type AGUIConfig struct{}
+
 // Enabled returns true if a messenger platform is configured.
 func (c Config) enabled() bool {
 	return c.Platform != ""
+}
+
+// IsSenderAllowed checks whether the given sender ID is permitted to interact
+// with the bot. When AllowedSenders is empty, all senders are allowed.
+// Entries ending with '*' are treated as prefix matches (e.g., "1555*"
+// matches any sender starting with "1555"). This enables operators to
+// restrict the bot to specific users, country codes, or area codes.
+func (c Config) IsSenderAllowed(senderID string) bool {
+	if len(c.AllowedSenders) == 0 {
+		return true
+	}
+	for _, allowed := range c.AllowedSenders {
+		if strings.HasSuffix(allowed, "*") {
+			if strings.HasPrefix(senderID, strings.TrimSuffix(allowed, "*")) {
+				return true
+			}
+			continue
+		}
+		if allowed == senderID {
+			return true
+		}
+	}
+	return false
 }
 
 func (c Config) InitMessenger(ctx context.Context) (Messenger, error) {
@@ -157,6 +193,8 @@ func (c Config) Validate() error {
 	case PlatformWhatsApp:
 		// WhatsApp uses QR code pairing at runtime; no token validation needed.
 		// store_path is optional (defaults to ~/.genie/whatsapp).
+	case PlatformAGUI:
+		// AGUI runs in-process; no external credentials required.
 	}
 
 	if len(errs) > 0 {

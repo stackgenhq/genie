@@ -32,12 +32,12 @@ var _ = Describe("ClientTool Adapter", func() {
 			},
 		}
 		// nil client is safe here because we only test metadata, not Call()
-		adapter = mcp.NewClientTool(nil, mockTool)
+		adapter = mcp.NewClientTool(nil, mockTool, "testserver")
 	})
 
 	Describe("Name", func() {
-		It("should return the MCP tool name", func() {
-			Expect(adapter.Name()).To(Equal("test_tool"))
+		It("should return the namespaced tool name", func() {
+			Expect(adapter.Name()).To(Equal("testserver_test_tool"))
 		})
 	})
 
@@ -51,7 +51,7 @@ var _ = Describe("ClientTool Adapter", func() {
 		It("should return a valid tool.Declaration", func() {
 			decl := adapter.Declaration()
 			Expect(decl).NotTo(BeNil())
-			Expect(decl.Name).To(Equal("test_tool"))
+			Expect(decl.Name).To(Equal("testserver_test_tool"))
 			Expect(decl.Description).To(Equal("A test tool for testing"))
 		})
 

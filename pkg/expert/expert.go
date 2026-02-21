@@ -9,15 +9,18 @@ import (
 	"github.com/appcd-dev/genie/pkg/audit"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/logger"
+	"github.com/appcd-dev/genie/pkg/messenger"
 	"github.com/appcd-dev/genie/pkg/osutils"
 	rtmemory "github.com/appcd-dev/genie/pkg/reactree/memory"
 	"github.com/appcd-dev/genie/pkg/retrier"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
 	"github.com/google/uuid"
-	"trpc.group/trpc-go/trpc-agent-go/agent"
 	"trpc.group/trpc-go/trpc-agent-go/agent/llmagent"
 	"trpc.group/trpc-go/trpc-agent-go/event"
 	"trpc.group/trpc-go/trpc-agent-go/runner"
+	"trpc.group/trpc-go/trpc-agent-go/session"
+	"trpc.group/trpc-go/trpc-agent-go/session/inmemory"
+	"trpc.group/trpc-go/trpc-agent-go/session/summary"
 
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
@@ -30,19 +33,34 @@ type ExpertBio struct {
 	Tools       []tool.Tool
 }
 
+// ExpertOption configures optional expert behavior.
+type ExpertOption func(*expert)
+
+// WithExpertSessionService injects a session.Service for persistent
+// conversation history. When set, the expert uses this service instead
+// of creating a new inmemory.SessionService per runner.
+func WithExpertSessionService(svc session.Service) ExpertOption {
+	return func(e *expert) { e.sessionSvc = svc }
+}
+
 func (e ExpertBio) ToExpert(
 	ctx context.Context,
 	modelProvider modelprovider.ModelProvider,
+	auditor audit.Auditor,
 	toolwrapSvc *toolwrap.Service,
+	expertOpts ...ExpertOption,
 ) (_ Expert, err error) {
-	expert := &expert{
+	exp := &expert{
 		bio:           e,
 		modelProvider: modelProvider,
 		eventAdapter:  agui.NewEventAdapter(e.Name),
-		auditor:       toolwrapSvc.Auditor,
+		auditor:       auditor,
 		toolwrapSvc:   toolwrapSvc,
 	}
-	return expert, nil
+	for _, o := range expertOpts {
+		o(exp)
+	}
+	return exp, nil
 }
 
 type Request struct {
@@ -66,6 +84,11 @@ type Request struct {
 	// SenderContext identifies the user/channel for this request.
 	// Used to isolate session history for multi-user environments.
 	SenderContext string
+
+	// Attachments holds file/media attachments from the incoming message.
+	// Image attachments with LocalPath are added as multimodal content parts
+	// so the LLM can "see" them. Other attachments are described textually.
+	Attachments []messenger.Attachment
 }
 
 func (r Request) mode() []llmagent.Option {
@@ -128,6 +151,10 @@ type expert struct {
 	// are passed via toolwrap.WrapRequest at runner creation time.
 	toolwrapSvc *toolwrap.Service
 
+	// sessionSvc is an optional injected session service for persistent
+	// conversation history. When nil, a new inmemory service is created.
+	sessionSvc session.Service
+
 	// runner is persisted across Do() calls so the in-memory session service
 	// retains conversation history for multi-turn chat.
 	runner       runner.Runner
@@ -161,9 +188,15 @@ func (e *expert) getRunner(ctx context.Context, req Request) (runner.Runner, err
 
 	// Combine tools and wrap them using the toolwrap service.
 	allTools := append(e.bio.Tools, req.AdditionalTools...)
+	origin := messenger.MessageOriginFrom(ctx)
+	logr.Info("wrapping tools with MessageOrigin",
+		"hasOrigin", origin != nil,
+		"origin", fmt.Sprintf("%v", origin),
+	)
 	wrappedTools := e.toolwrapSvc.Wrap(allTools, toolwrap.WrapRequest{
 		EventChan:     req.EventChannel,
 		WorkingMemory: req.WorkingMemory,
+		MessageOrigin: origin,
 	})
 
 	// Debug: Log tool definitions being sent
@@ -172,20 +205,6 @@ func (e *expert) getRunner(ctx context.Context, req Request) (runner.Runner, err
 		"additional_tools_count", len(req.AdditionalTools),
 		"total_tools", len(wrappedTools),
 	)
-	for i, t := range wrappedTools {
-		decl := t.Declaration()
-		schemaType := "nil"
-		if decl.InputSchema != nil {
-			schemaType = decl.InputSchema.Type
-		}
-		logr.Debug("tool declaration",
-			"index", i,
-			"name", decl.Name,
-			"description_len", len(decl.Description),
-			"has_input_schema", decl.InputSchema != nil,
-			"schema_type", schemaType,
-		)
-	}
 
 	opts := append(req.mode(),
 		llmagent.WithTools(wrappedTools),
@@ -198,7 +217,21 @@ func (e *expert) getRunner(ctx context.Context, req Request) (runner.Runner, err
 		e.bio.Name,
 		opts...,
 	)
-	return runner.NewRunner(e.bio.Name, theExpert), nil
+	// Use injected session service if available (DB-backed for persistence);
+	// otherwise fall back to inmemory.
+	sessionSvc := e.sessionSvc
+	if sessionSvc == nil {
+		sessionSvc = inmemory.NewSessionService(
+			inmemory.WithSummarizer(summary.NewSummarizer(
+				modelInstance,
+				summary.WithTokenThreshold(4000),
+				summary.WithName("expert-summarizer"),
+			)),
+		)
+	}
+	return runner.NewRunner(e.bio.Name, theExpert,
+		runner.WithSessionService(sessionSvc),
+	), nil
 }
 
 func (e *expert) Do(ctx context.Context, req Request) (Response, error) {
@@ -261,13 +294,7 @@ func (e *expert) Do(ctx context.Context, req Request) (Response, error) {
 		evCh, runErr = e.runner.Run(ctx,
 			osutils.Getenv("USER", "anonymous"),
 			sessionID,
-			model.NewUserMessage(req.Message),
-			// Detached cancel is intentional: the runner's session service
-			// retains conversation history across HTTP requests. If the HTTP
-			// request context cancelled the runner, it would tear down the
-			// session prematurely, losing multi-turn chat history. The runner
-			// is reused (and re-cancelled) via expert.Do's lifecycle instead.
-			agent.WithDetachedCancel(true),
+			buildUserMessage(req),
 		)
 		return runErr
 	},
@@ -334,4 +361,46 @@ func (e *expert) emitEventToTUI(ctx context.Context, event *event.Event, eventCh
 	for _, msg := range messages {
 		eventChan <- msg
 	}
+}
+
+// buildUserMessage constructs a model.Message from a Request. When the request
+// contains attachments with a local file path (e.g., WhatsApp downloads):
+//   - Images are embedded as visual ContentParts via AddImageFilePath (vision).
+//   - Other files (PDFs, documents) are embedded via AddFilePath (document input).
+//
+// Attachments without a LocalPath are already described textually in req.Message.
+func buildUserMessage(req Request) model.Message {
+	msg := model.NewUserMessage(req.Message)
+
+	for _, att := range req.Attachments {
+		if att.LocalPath == "" {
+			continue // No local file to embed — URL/text description already in message.
+		}
+		if isImageMIME(att.ContentType) {
+			// Embed image as visual content so the LLM can "see" it.
+			if err := msg.AddImageFilePath(att.LocalPath, "auto"); err != nil {
+				logger.GetLogger(context.Background()).Warn(
+					"failed to add image attachment to user message",
+					"path", att.LocalPath,
+					"error", err,
+				)
+			}
+		} else {
+			// Embed PDF / document / other file as file content.
+			if err := msg.AddFilePath(att.LocalPath); err != nil {
+				logger.GetLogger(context.Background()).Warn(
+					"failed to add file attachment to user message",
+					"path", att.LocalPath,
+					"error", err,
+				)
+			}
+		}
+	}
+
+	return msg
+}
+
+// isImageMIME returns true if the content type is an image.
+func isImageMIME(contentType string) bool {
+	return len(contentType) > 6 && contentType[:6] == "image/"
 }

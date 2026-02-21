@@ -118,7 +118,7 @@ func (c *Client) convertAndFilterTools(mcpClient *client.Client, mcpTools []mcp.
 
 		c.logger.Infof("Found tool %s from server %s", mcpTool.Name, config.Name)
 		// Wrap tool with ClientTool adapter
-		adapter := NewClientTool(mcpClient, mcpTool)
+		adapter := NewClientTool(mcpClient, mcpTool, config.Name)
 		tools = append(tools, adapter)
 	}
 

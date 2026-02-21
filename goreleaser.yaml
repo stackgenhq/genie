@@ -173,3 +173,27 @@ scoops:
     commit_author:
       name: stackgen-bot
       email: bot@stackgen.com
+
+changelog:
+  sort: asc
+  use: github
+  groups:
+    - title: "🚀 Features"
+      regexp: '^.*?feat(\([[:word:]]+\))?!?:.+$'
+      order: 0
+    - title: "🐛 Bug Fixes"
+      regexp: '^.*?fix(\([[:word:]]+\))?!?:.+$'
+      order: 1
+    - title: "🔒 Security"
+      regexp: '^.*?sec(\([[:word:]]+\))?!?:.+$'
+      order: 2
+    - title: "📖 Documentation"
+      regexp: '^.*?docs(\([[:word:]]+\))?!?:.+$'
+      order: 3
+    - title: "🧹 Other"
+      order: 999
+  filters:
+    exclude:
+      - "^Merge"
+      - "^chore\\(deps\\)"
+      - "^ci:"

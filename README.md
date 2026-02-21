@@ -23,11 +23,47 @@ Generative Engine for Natural Intent Execution
 
 ## 🚀 Get Started
 
+### Prerequisites
+
+- **Go 1.25+** (only for building from source)
+- **CGO enabled** — required for SQLite via GORM (`CGO_ENABLED=1` is set by default on most platforms)
+
 ### Installation
 
+**Homebrew (macOS / Linux):**
 ```bash
-# Get the genie out of the bottle
 brew install stackgenhq/homebrew-stackgen/genie
+```
+
+**Go install:**
+```bash
+CGO_ENABLED=1 go install -mod=mod github.com/appcd-dev/genie@latest
+```
+
+**Build from source:**
+```bash
+git clone https://github.com/appcd-dev/stackgen-genie.git
+cd stackgen-genie
+make build        # binary at build/genie
+make install      # install to $GOPATH/bin
+```
+
+**Docker:**
+```bash
+docker run --rm -it \
+  -v ~/.genie.toml:/home/genie/.genie.toml \
+  -v $(pwd):/workspace \
+  ghcr.io/stackgenhq/genie:latest grant
+```
+
+**GitHub Releases:**
+Download pre-built binaries for macOS, Linux, and Windows from the
+[Releases](https://github.com/appcd-dev/stackgen-genie/releases) page.
+
+**Windows (Scoop):**
+```powershell
+scoop bucket add stackgen https://github.com/stackgenhq/homebrew-stackgen
+scoop install genie
 ```
 
 ### Grant Your First Wish
@@ -66,9 +102,15 @@ You can also specify a config file explicitly:
 genie grant --config /path/to/my-config.toml
 ```
 
-### Environment Variables
+### Environment Variables & Secret Providers
 
-Configuration values matching the pattern `${VAR_NAME}` will be automatically expanded from the environment variables.
+Configuration values matching the pattern `${VAR_NAME}` are resolved through the configured **SecretProvider**:
+
+- **Default (env vars):** Without a `[security]` section, placeholders resolve from environment variables — fully backward compatible.
+- **Cloud / file backends:** Add a `[security.secrets]` section to resolve secrets from GCP Secret Manager, AWS Secrets Manager, Azure Key Vault, mounted files, or any [gocloud.dev/runtimevar](https://gocloud.dev/howto/runtimevar/) backend.
+- **Diagnostics:** If a secret-like key (`token`, `api_key`, `password`, etc.) resolves to empty, `genie` emits a warning pointing to the missing variable name and config path.
+
+See the [Security section](docs/docs.html) in the docs for full configuration details.
 
 ### Example Configuration
 
@@ -146,6 +188,18 @@ We are redefining agentic automation. If you want to contribute, check out our [
 1. Fork the repo.
 2. Create your feature branch.
 3. Submit a PR.
+
+---
+
+## 📜 Community & Governance
+
+| Document | Purpose |
+|---|---|
+| [Contributing Guide](./CONTRIBUTING.md) | How to contribute, build, and test |
+| [Code of Conduct](./CODE_OF_CONDUCT.md) | Community behavior standards |
+| [Security Policy](./SECURITY.md) | How to report vulnerabilities |
+| [Changelog](./CHANGELOG.md) | Release notes and history |
+| [License](./LICENSE) | Apache License 2.0 |
 
 ---
 

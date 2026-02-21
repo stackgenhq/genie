@@ -394,20 +394,21 @@ var _ = Describe("CodeOwner", func() {
 
 		It("should return empty string when search returns no results", func() {
 			fakeStore := &vectorfakes.FakeIStore{}
-			fakeStore.SearchReturns([]vector.SearchResult{}, nil)
+			fakeStore.SearchWithFilterReturns([]vector.SearchResult{}, nil)
 			co.vectorStore = fakeStore
 
 			result := co.recallAccomplishments(ctx)
 			Expect(result).To(BeEmpty())
-			Expect(fakeStore.SearchCallCount()).To(Equal(1))
-			_, query, limit := fakeStore.SearchArgsForCall(0)
+			Expect(fakeStore.SearchWithFilterCallCount()).To(Equal(1))
+			_, query, limit, filter := fakeStore.SearchWithFilterArgsForCall(0)
 			Expect(query).To(Equal(rtmemory.AccomplishmentType))
 			Expect(limit).To(Equal(50))
+			Expect(filter).To(HaveKeyWithValue("type", rtmemory.AccomplishmentType))
 		})
 
 		It("should return empty string when search errors", func() {
 			fakeStore := &vectorfakes.FakeIStore{}
-			fakeStore.SearchReturns(nil, errors.New("search failed"))
+			fakeStore.SearchWithFilterReturns(nil, errors.New("search failed"))
 			co.vectorStore = fakeStore
 
 			result := co.recallAccomplishments(ctx)
@@ -416,7 +417,7 @@ var _ = Describe("CodeOwner", func() {
 
 		It("should format accomplishments as a bulleted list", func() {
 			fakeStore := &vectorfakes.FakeIStore{}
-			fakeStore.SearchReturns([]vector.SearchResult{
+			fakeStore.SearchWithFilterReturns([]vector.SearchResult{
 				{Content: "Q: deploy app\nA: deployed successfully", Score: 0.9, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
 				{Content: "Q: fix bug\nA: fixed the null pointer", Score: 0.8, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
 			}, nil)
@@ -427,19 +428,21 @@ var _ = Describe("CodeOwner", func() {
 			Expect(result).To(ContainSubstring("- Q: fix bug"))
 		})
 
-		It("should only include entries tagged as accomplishments", func() {
+		It("should filter by type via metadata (non-accomplishments excluded at vector store level)", func() {
 			fakeStore := &vectorfakes.FakeIStore{}
-			fakeStore.SearchReturns([]vector.SearchResult{
+			// SearchWithFilter now receives the type filter, so the vector store
+			// only returns accomplishments. We verify the filter is passed correctly.
+			fakeStore.SearchWithFilterReturns([]vector.SearchResult{
 				{Content: "accomplishment entry", Score: 0.9, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
-				{Content: "conversation entry", Score: 0.85, Metadata: map[string]string{"type": "conversation"}},
-				{Content: "untyped entry", Score: 0.7, Metadata: map[string]string{}},
 			}, nil)
 			co.vectorStore = fakeStore
 
 			result := co.recallAccomplishments(ctx)
 			Expect(result).To(ContainSubstring("- accomplishment entry"))
-			Expect(result).NotTo(ContainSubstring("conversation entry"))
-			Expect(result).NotTo(ContainSubstring("untyped entry"))
+			// Verify filter was passed with type=accomplishment
+			Expect(fakeStore.SearchWithFilterCallCount()).To(Equal(1))
+			_, _, _, filter := fakeStore.SearchWithFilterArgsForCall(0)
+			Expect(filter).To(HaveKeyWithValue("type", rtmemory.AccomplishmentType))
 		})
 
 		It("should limit to top 5 accomplishments", func() {
@@ -452,7 +455,7 @@ var _ = Describe("CodeOwner", func() {
 				})
 			}
 			fakeStore := &vectorfakes.FakeIStore{}
-			fakeStore.SearchReturns(results, nil)
+			fakeStore.SearchWithFilterReturns(results, nil)
 			co.vectorStore = fakeStore
 
 			result := co.recallAccomplishments(ctx)
@@ -467,7 +470,7 @@ var _ = Describe("CodeOwner", func() {
 
 		It("should sort by score descending", func() {
 			fakeStore := &vectorfakes.FakeIStore{}
-			fakeStore.SearchReturns([]vector.SearchResult{
+			fakeStore.SearchWithFilterReturns([]vector.SearchResult{
 				{Content: "low score", Score: 0.3, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
 				{Content: "high score", Score: 0.9, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
 				{Content: "mid score", Score: 0.6, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
@@ -605,17 +608,12 @@ var _ = Describe("CodeOwner", func() {
 		It("should generate a resume using the summarizer and accomplishments", func() {
 			// Mock findings in vector store
 			fakeStore := &vectorfakes.FakeIStore{}
-			fakeStore.SearchReturns([]vector.SearchResult{
+			fakeStore.SearchWithFilterReturns([]vector.SearchResult{
 				{Content: "Built a go app", Score: 1.0, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
 			}, nil)
 			co.vectorStore = fakeStore
 
-			// Mock summarizer
-			fakeSummarizer := &agentutilsfakes.FakeSummarizer{} // We need a fake summarizer here.
-			// codeOwner struct doesn't have a summarizer field, it's passed to createResume.
-			// But createResume method signature is:
-			// func (c *codeOwner) createResume(ctx, summarizer, registry, fullPersona)
-
+			fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
 			fakeSummarizer.SummarizeReturns("Generated Resume Content", nil)
 
 			registry := make(reactree.ToolRegistry)
@@ -624,8 +622,8 @@ var _ = Describe("CodeOwner", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resume).To(Equal("Generated Resume Content"))
 
-			// Verify it tried to recall accomplishments
-			Expect(fakeStore.SearchCallCount()).To(Equal(1))
+			// Verify it tried to recall accomplishments via SearchWithFilter
+			Expect(fakeStore.SearchWithFilterCallCount()).To(Equal(1))
 
 			// Verify it called summarizer
 			Expect(fakeSummarizer.SummarizeCallCount()).To(Equal(1))

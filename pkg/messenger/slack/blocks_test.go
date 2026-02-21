@@ -179,7 +179,7 @@ var _ = Describe("FormatClarification", func() {
 		m = New(Config{})
 	})
 
-	It("returns the request unchanged (passthrough for now)", func() {
+	It("formats a rich Block Kit clarification message", func() {
 		req := messenger.SendRequest{
 			Channel: messenger.Channel{ID: "C12345"},
 			Content: messenger.MessageContent{Text: "original text"},
@@ -192,12 +192,18 @@ var _ = Describe("FormatClarification", func() {
 
 		result := m.FormatClarification(req, info)
 
-		// Passthrough — content and metadata unchanged
-		Expect(result.Content.Text).To(Equal("original text"))
-		Expect(result.Metadata).To(BeNil())
+		// Content text is overwritten with the formatted question
+		Expect(result.Content.Text).To(ContainSubstring("Question from Genie"))
+		Expect(result.Content.Text).To(ContainSubstring("What is the target environment?"))
+		// Blocks metadata is populated
+		Expect(result.Metadata).To(HaveKey("blocks"))
+		blocks, ok := result.Metadata["blocks"].([]any)
+		Expect(ok).To(BeTrue())
+		// header + context section + question section + divider + footer = 5
+		Expect(blocks).To(HaveLen(5))
 	})
 
-	It("preserves existing metadata", func() {
+	It("preserves existing metadata alongside blocks", func() {
 		req := messenger.SendRequest{
 			Channel:  messenger.Channel{ID: "C12345"},
 			Content:  messenger.MessageContent{Text: "question text"},
@@ -210,6 +216,7 @@ var _ = Describe("FormatClarification", func() {
 
 		result := m.FormatClarification(req, info)
 		Expect(result.Metadata).To(HaveKeyWithValue("key", "value"))
+		Expect(result.Metadata).To(HaveKey("blocks"))
 	})
 })
 

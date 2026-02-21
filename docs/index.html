@@ -223,12 +223,31 @@
             structured audit trails. Command-level authorization ensures strict compliance.</p>
         </div>
         <div class="feature-card"
+          style="border: 2px solid rgba(99,102,241,0.2); background: linear-gradient(135deg, rgba(99,102,241,0.03), rgba(99,102,241,0.07));">
+          <div class="feature-icon bg-indigo-50 text-indigo-500">🔧</div>
+          <h3 class="text-lg font-semibold mb-2">Tool Middleware Pipeline</h3>
+          <p class="text-sm text-gray-500 leading-relaxed">Every tool call flows through a composable middleware
+            chain — <strong>rate limiting</strong>, <strong>circuit breaking</strong>, <strong>retries</strong>,
+            <strong>OTel tracing</strong>, and <strong>output sanitization</strong> — all config-driven,
+            backed by battle-tested Go libraries.
+          </p>
+        </div>
+        <div class="feature-card"
           style="border: 2px solid rgba(220,38,38,0.15); background: linear-gradient(135deg, rgba(220,38,38,0.02), rgba(220,38,38,0.06));">
           <div class="feature-icon bg-red-50 text-red-500">🔐</div>
           <h3 class="text-lg font-semibold mb-2">Enterprise Secret Vault</h3>
           <p class="text-sm text-gray-500 leading-relaxed">Cloud-native secret management powered by
             <strong>Go CDK</strong>. Integrate GCP Secret Manager, AWS Secrets Manager, Azure Key Vault,
             or HashiCorp Vault — with zero-config env fallback for local dev.
+          </p>
+        </div>
+        <div class="feature-card"
+          style="border: 2px solid rgba(16,185,129,0.15); background: linear-gradient(135deg, rgba(16,185,129,0.02), rgba(16,185,129,0.06));">
+          <div class="feature-icon bg-emerald-50 text-emerald-500">🛡️</div>
+          <h3 class="text-lg font-semibold mb-2">Automatic PII Redaction</h3>
+          <p class="text-sm text-gray-500 leading-relaxed">Entropy-based detection scrubs secrets, API keys, and
+            sensitive data <strong>before storage</strong> — using Shannon entropy, Luhn validation, and context-aware
+            key detection. Zero-config, deterministic HMAC hashing.
           </p>
         </div>
         <div class="feature-card">

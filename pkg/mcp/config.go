@@ -152,7 +152,7 @@ func (r *RetryConfig) Validate() error {
 // This ensures that optional fields have sensible defaults when not specified.
 func (s *MCPServerConfig) SetDefaults() {
 	if s.Timeout == 0 {
-		s.Timeout = 10 * time.Second
+		s.Timeout = 60 * time.Second
 	}
 
 	if s.Retry != nil {

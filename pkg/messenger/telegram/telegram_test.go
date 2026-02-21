@@ -88,4 +88,38 @@ var _ = Describe("Telegram Messenger", func() {
 			}
 		})
 	})
+
+	Describe("FormatApproval", func() {
+		It("should return the request unchanged", func() {
+			m, err := telegram.New(telegram.Config{
+				Token: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11",
+			})
+			if err != nil {
+				Skip("could not create telegram messenger")
+			}
+			req := messenger.SendRequest{
+				Channel: messenger.Channel{ID: "12345"},
+				Content: messenger.MessageContent{Text: "Approval needed"},
+			}
+			result := m.FormatApproval(req, messenger.ApprovalInfo{ID: "a1", ToolName: "write_file"})
+			Expect(result.Content.Text).To(Equal("Approval needed"))
+		})
+	})
+
+	Describe("FormatClarification", func() {
+		It("should return the request unchanged", func() {
+			m, err := telegram.New(telegram.Config{
+				Token: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11",
+			})
+			if err != nil {
+				Skip("could not create telegram messenger")
+			}
+			req := messenger.SendRequest{
+				Channel: messenger.Channel{ID: "12345"},
+				Content: messenger.MessageContent{Text: "Question?"},
+			}
+			result := m.FormatClarification(req, messenger.ClarificationInfo{RequestID: "r1", Question: "what?"})
+			Expect(result.Content.Text).To(Equal("Question?"))
+		})
+	})
 })

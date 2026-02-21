@@ -78,4 +78,32 @@ var _ = Describe("Discord Messenger", func() {
 			var _ messenger.Messenger = m
 		})
 	})
+
+	Describe("FormatApproval", func() {
+		It("should return the request unchanged", func() {
+			m, err := discord.New(discord.Config{BotToken: "test-token"})
+			Expect(err).NotTo(HaveOccurred())
+
+			req := messenger.SendRequest{
+				Channel: messenger.Channel{ID: "C123"},
+				Content: messenger.MessageContent{Text: "Approval needed"},
+			}
+			result := m.FormatApproval(req, messenger.ApprovalInfo{ID: "a1", ToolName: "write_file"})
+			Expect(result.Content.Text).To(Equal("Approval needed"))
+		})
+	})
+
+	Describe("FormatClarification", func() {
+		It("should return the request unchanged", func() {
+			m, err := discord.New(discord.Config{BotToken: "test-token"})
+			Expect(err).NotTo(HaveOccurred())
+
+			req := messenger.SendRequest{
+				Channel: messenger.Channel{ID: "C123"},
+				Content: messenger.MessageContent{Text: "Question?"},
+			}
+			result := m.FormatClarification(req, messenger.ClarificationInfo{RequestID: "r1", Question: "what?"})
+			Expect(result.Content.Text).To(Equal("Question?"))
+		})
+	})
 })

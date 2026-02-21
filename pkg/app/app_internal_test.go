@@ -2,9 +2,13 @@ package app
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/appcd-dev/genie/pkg/clarify"
 	"github.com/appcd-dev/genie/pkg/codeowner/codeownerfakes"
+	geniedb "github.com/appcd-dev/genie/pkg/db"
 	"github.com/appcd-dev/genie/pkg/hitl"
 	"github.com/appcd-dev/genie/pkg/hitl/hitlfakes"
 	"github.com/appcd-dev/genie/pkg/messenger"
@@ -33,17 +37,28 @@ var _ = Describe("Application handleMessengerInput", func() {
 		ctx = context.Background()
 		eventChan = make(chan interface{}, 10)
 
+		// Create a temp DB-backed shortMemory for tests.
+		tmpDir := GinkgoT().TempDir()
+		dbPath := filepath.Join(tmpDir, "test.db")
+		gormDB, err := geniedb.Open(dbPath)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(geniedb.AutoMigrate(gormDB)).To(Succeed())
+		DeferCleanup(func() {
+			_ = geniedb.Close(gormDB)
+			_ = os.RemoveAll(tmpDir)
+		})
+
 		application = &Application{
 			notifierStore: notifierStore,
 			msgr:          fakeMessenger,
 			codeOwner:     fakeCodeOwner,
-			clarifyStore:  clarify.NewStore(),
+			clarifyStore:  clarify.NewStore(gormDB),
+			shortMemory:   geniedb.NewShortMemoryStore(gormDB),
 			workingDir:    "/tmp/genie-test",
 		}
 	})
 
 	Context("when a pending approval exists", func() {
-		var senderCtx string
 		var approvalID string
 		var realMsg messenger.IncomingMessage
 
@@ -55,13 +70,17 @@ var _ = Describe("Application handleMessengerInput", func() {
 				Sender:   messenger.Sender{ID: "user1"},
 				Channel:  messenger.Channel{ID: "C123"},
 			}
-			senderCtx = realMsg.String()
 
 			// Setup: Create a pending approval
 			fakeStore.CreateReturns(hitl.ApprovalRequest{ID: approvalID, ToolName: "test_tool"}, nil)
 
-			ctxWithSender := messenger.WithSenderContext(ctx, senderCtx)
-			_, err := notifierStore.Create(ctxWithSender, hitl.CreateRequest{ToolName: "test_tool"})
+			origin := &messenger.MessageOrigin{
+				Platform: realMsg.Platform,
+				Sender:   realMsg.Sender,
+				Channel:  realMsg.Channel,
+			}
+			ctxWithOrigin := messenger.WithMessageOrigin(ctx, origin)
+			_, err := notifierStore.Create(ctxWithOrigin, hitl.CreateRequest{ToolName: "test_tool"})
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -120,7 +139,7 @@ var _ = Describe("Application handleMessengerInput", func() {
 	Context("when a pending clarification exists", func() {
 		var senderCtx string
 		var requestID string
-		var respCh chan clarify.Response
+		var respCh <-chan clarify.Response
 		var realMsg messenger.IncomingMessage
 
 		BeforeEach(func() {
@@ -132,25 +151,44 @@ var _ = Describe("Application handleMessengerInput", func() {
 			senderCtx = realMsg.String()
 
 			// Setup: Create a pending clarification in the store
-			requestID, respCh = application.clarifyStore.AskWithID("What is the target environment?")
-			application.pendingClarifications.Store(senderCtx, requestID)
+			var err error
+			requestID, respCh, err = application.clarifyStore.Ask(ctx, "What is the target environment?", "", senderCtx)
+			Expect(err).NotTo(HaveOccurred())
+			_ = application.shortMemory.Set(ctx, "pending_clarification", senderCtx, requestID, 10*time.Minute)
 		})
 
 		It("delivers answer and sends confirmation", func() {
 			realMsg.Content.Text = "production"
 
+			// Start waiting for the response in a goroutine
+			type waitResult struct {
+				resp clarify.Response
+				err  error
+			}
+			resultCh := make(chan waitResult, 10)
+			waitCtx, waitCancel := context.WithTimeout(ctx, 5*time.Second)
+			defer waitCancel()
+			go func() {
+				resp, err := application.clarifyStore.WaitForResponse(waitCtx, requestID, respCh)
+				resultCh <- waitResult{resp, err}
+			}()
+
 			application.handleMessengerInput(ctx, realMsg, eventChan)
 
-			// Verify answer was delivered via the channel
-			Eventually(respCh).Should(Receive(Equal(clarify.Response{Answer: "production"})))
+			// Verify answer was delivered
+			Eventually(resultCh, 1*time.Second).Should(Receive(WithTransform(
+				func(r waitResult) string { return r.resp.Answer },
+				Equal("production"),
+			)))
 
-			// Verify confirmation message sent
+			// Verify confirmation reaction sent (👍 on the user's message)
 			Expect(fakeMessenger.SendCallCount()).To(Equal(1))
 			_, sendReq := fakeMessenger.SendArgsForCall(0)
-			Expect(sendReq.Content.Text).To(ContainSubstring("Answer received"))
+			Expect(sendReq.Type).To(Equal(messenger.SendTypeReaction))
+			Expect(sendReq.Emoji).To(Equal("👍"))
 
 			// Verify the entry was cleaned up
-			_, loaded := application.pendingClarifications.Load(senderCtx)
+			_, loaded, _ := application.shortMemory.Get(ctx, "pending_clarification", senderCtx)
 			Expect(loaded).To(BeFalse())
 
 			// Verify it did NOT reach approval or chat
@@ -161,15 +199,37 @@ var _ = Describe("Application handleMessengerInput", func() {
 		It("takes priority over pending approval", func() {
 			// Also set up a pending approval for the same senderCtx
 			fakeStore.CreateReturns(hitl.ApprovalRequest{ID: "app-456", ToolName: "test_tool"}, nil)
-			ctxWithSender := messenger.WithSenderContext(ctx, senderCtx)
-			_, err := notifierStore.Create(ctxWithSender, hitl.CreateRequest{ToolName: "test_tool"})
+			origin := &messenger.MessageOrigin{
+				Platform: realMsg.Platform,
+				Sender:   realMsg.Sender,
+				Channel:  realMsg.Channel,
+			}
+			ctxWithOrigin := messenger.WithMessageOrigin(ctx, origin)
+			_, err := notifierStore.Create(ctxWithOrigin, hitl.CreateRequest{ToolName: "test_tool"})
 			Expect(err).NotTo(HaveOccurred())
 
 			realMsg.Content.Text = "staging"
+
+			// Start waiting for the response in a goroutine
+			type waitResult struct {
+				resp clarify.Response
+				err  error
+			}
+			resultCh := make(chan waitResult, 1)
+			waitCtx, waitCancel := context.WithTimeout(ctx, 5*time.Second)
+			defer waitCancel()
+			go func() {
+				resp, err := application.clarifyStore.WaitForResponse(waitCtx, requestID, respCh)
+				resultCh <- waitResult{resp, err}
+			}()
+
 			application.handleMessengerInput(ctx, realMsg, eventChan)
 
 			// Should resolve clarification, NOT approval
-			Eventually(respCh).Should(Receive(Equal(clarify.Response{Answer: "staging"})))
+			Eventually(resultCh, 10*time.Second).Should(Receive(WithTransform(
+				func(r waitResult) string { return r.resp.Answer },
+				Equal("staging"),
+			)))
 			Expect(fakeStore.ResolveCallCount()).To(Equal(0))
 		})
 	})
@@ -185,7 +245,7 @@ var _ = Describe("Application handleMessengerInput", func() {
 			senderCtx := msg.String()
 
 			// Store a request ID that doesn't exist in the clarify store
-			application.pendingClarifications.Store(senderCtx, "non-existent-id")
+			_ = application.shortMemory.Set(ctx, "pending_clarification", senderCtx, "non-existent-id", 10*time.Minute)
 
 			application.handleMessengerInput(ctx, msg, eventChan)
 
@@ -197,5 +257,23 @@ var _ = Describe("Application handleMessengerInput", func() {
 			// Should NOT reach chat
 			Expect(fakeCodeOwner.ChatCallCount()).To(Equal(0))
 		})
+	})
+})
+
+var _ = Describe("truncateForLog", func() {
+	It("should return short strings unchanged", func() {
+		Expect(truncateForLog("hello", 10)).To(Equal("hello"))
+	})
+
+	It("should return strings at exact max length unchanged", func() {
+		Expect(truncateForLog("12345", 5)).To(Equal("12345"))
+	})
+
+	It("should truncate long strings with ellipsis", func() {
+		Expect(truncateForLog("hello world", 5)).To(Equal("hello..."))
+	})
+
+	It("should handle empty string", func() {
+		Expect(truncateForLog("", 10)).To(Equal(""))
 	})
 })

@@ -102,14 +102,14 @@ var _ = Describe("Memory", func() {
 				Status:     reactreeMemory.EpisodeSuccess,
 			})
 
-			// Small delay for async processing if any
-			time.Sleep(10 * time.Millisecond)
-
-			results := ep.Retrieve(ctx, "deploy application", 5)
-			Expect(results).To(HaveLen(1))
-			Expect(results[0].Goal).To(Equal("deploy application"))
-			Expect(results[0].Trajectory).To(Equal("kubectl apply -f deployment.yaml"))
-			Expect(results[0].Status).To(Equal(reactreeMemory.EpisodeSuccess))
+			// Poll until the async store is visible rather than sleeping a fixed duration.
+			Eventually(func(g Gomega) {
+				results := ep.Retrieve(ctx, "deploy application", 5)
+				g.Expect(results).To(HaveLen(1))
+				g.Expect(results[0].Goal).To(Equal("deploy application"))
+				g.Expect(results[0].Trajectory).To(Equal("kubectl apply -f deployment.yaml"))
+				g.Expect(results[0].Status).To(Equal(reactreeMemory.EpisodeSuccess))
+			}).WithTimeout(1 * time.Second).WithPolling(10 * time.Millisecond).Should(Succeed())
 		})
 
 		It("should store multiple episodes", func(ctx context.Context) {
@@ -157,24 +157,123 @@ var _ = Describe("Memory", func() {
 		})
 	})
 
-	Describe("FormatEpisodeForPrompt", func() {
-		It("should format an episode for LLM prompt inclusion", func() {
-			formatted := reactreeMemory.Episode{
-				Goal:       "deploy app",
-				Trajectory: "kubectl apply -f ...",
+	Describe("DefaultEpisodicMemoryConfig", func() {
+		It("should create a config with sensible defaults", func() {
+			cfg := reactreeMemory.DefaultEpisodicMemoryConfig()
+			Expect(cfg.AppName).To(Equal("reactree"))
+			Expect(cfg.UserID).To(Equal("default"))
+			Expect(cfg.Service).NotTo(BeNil())
+		})
+
+		It("should create a working episodic memory from default config", func(ctx context.Context) {
+			cfg := reactreeMemory.DefaultEpisodicMemoryConfig()
+			ep := cfg.NewEpisodicMemory()
+			Expect(ep).NotTo(BeNil())
+
+			// Store and retrieve with default config
+			ep.Store(ctx, reactreeMemory.Episode{
+				Goal:       "test goal",
+				Trajectory: "test trajectory",
 				Status:     reactreeMemory.EpisodeSuccess,
-			}.String()
-			Expect(formatted).To(ContainSubstring("deploy app"))
-			Expect(formatted).To(ContainSubstring("success"))
-			Expect(formatted).To(ContainSubstring("kubectl apply"))
+			})
+			time.Sleep(10 * time.Millisecond)
+
+			results := ep.Retrieve(ctx, "test goal", 5)
+			Expect(results).To(HaveLen(1))
+			Expect(results[0].Goal).To(Equal("test goal"))
 		})
 	})
 
-	Describe("EpisodeStatus constants", func() {
-		It("should have expected values", func() {
-			Expect(string(reactreeMemory.EpisodeSuccess)).To(Equal("success"))
-			Expect(string(reactreeMemory.EpisodeFailure)).To(Equal("failure"))
-			Expect(string(reactreeMemory.EpisodeExpand)).To(Equal("expand"))
+	Describe("NoOpEpisodicMemory", func() {
+		It("should return a non-nil implementation", func() {
+			noop := reactreeMemory.NewNoOpEpisodicMemory()
+			Expect(noop).NotTo(BeNil())
+		})
+
+		It("should be safe to call Store without side effects", func(ctx context.Context) {
+			noop := reactreeMemory.NewNoOpEpisodicMemory()
+			// Should not panic
+			noop.Store(ctx, reactreeMemory.Episode{
+				Goal:       "test",
+				Trajectory: "trajectory",
+				Status:     reactreeMemory.EpisodeSuccess,
+			})
+		})
+
+		It("should always return nil from Retrieve", func(ctx context.Context) {
+			noop := reactreeMemory.NewNoOpEpisodicMemory()
+			results := noop.Retrieve(ctx, "any goal", 10)
+			Expect(results).To(BeNil())
+		})
+	})
+
+	Describe("StatusFromTopics via Retrieve fallback", func() {
+		It("should extract status from topics when JSON is invalid", func(ctx context.Context) {
+			svc := inmemory.NewMemoryService()
+			defer svc.Close()
+
+			userKey := memory.UserKey{AppName: "test-app", UserID: "test-user"}
+
+			// Add a raw (non-JSON) memory entry with a status topic
+			_ = svc.AddMemory(ctx, userKey, "raw non-json trajectory",
+				[]string{"reactree:episode:failure"})
+
+			time.Sleep(10 * time.Millisecond)
+
+			ep := reactreeMemory.EpisodicMemoryConfig{
+				Service: svc,
+				AppName: "test-app",
+				UserID:  "test-user",
+			}.NewEpisodicMemory()
+
+			results := ep.Retrieve(ctx, "raw non-json trajectory", 5)
+			Expect(results).NotTo(BeEmpty())
+			Expect(results[0].Status).To(Equal(reactreeMemory.EpisodeFailure))
+			Expect(results[0].Trajectory).To(Equal("raw non-json trajectory"))
+		})
+
+		It("should default to success when no status topic is present", func(ctx context.Context) {
+			svc := inmemory.NewMemoryService()
+			defer svc.Close()
+
+			userKey := memory.UserKey{AppName: "test-app2", UserID: "test-user2"}
+
+			// Add memory with no status topic
+			_ = svc.AddMemory(ctx, userKey, "plain text memory", []string{})
+
+			time.Sleep(10 * time.Millisecond)
+
+			ep := reactreeMemory.EpisodicMemoryConfig{
+				Service: svc,
+				AppName: "test-app2",
+				UserID:  "test-user2",
+			}.NewEpisodicMemory()
+
+			results := ep.Retrieve(ctx, "plain text memory", 5)
+			Expect(results).NotTo(BeEmpty())
+			Expect(results[0].Status).To(Equal(reactreeMemory.EpisodeSuccess))
+		})
+
+		It("should handle expand status from topics", func(ctx context.Context) {
+			svc := inmemory.NewMemoryService()
+			defer svc.Close()
+
+			userKey := memory.UserKey{AppName: "test-app3", UserID: "test-user3"}
+
+			_ = svc.AddMemory(ctx, userKey, "not json",
+				[]string{"reactree:episode:expand"})
+
+			time.Sleep(10 * time.Millisecond)
+
+			ep := reactreeMemory.EpisodicMemoryConfig{
+				Service: svc,
+				AppName: "test-app3",
+				UserID:  "test-user3",
+			}.NewEpisodicMemory()
+
+			results := ep.Retrieve(ctx, "not json", 5)
+			Expect(results).NotTo(BeEmpty())
+			Expect(results[0].Status).To(Equal(reactreeMemory.EpisodeExpand))
 		})
 	})
 })

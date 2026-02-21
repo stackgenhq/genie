@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/appcd-dev/genie/pkg/pii"
 	"github.com/google/uuid"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
@@ -47,7 +48,10 @@ type memoryStoreTool struct {
 
 func (t *memoryStoreTool) execute(ctx context.Context, req MemoryStoreRequest) (MemoryStoreResponse, error) {
 	id := uuid.New().String()
-	if err := t.store.Add(ctx, BatchItem{ID: id, Text: req.Text, Metadata: req.Metadata}); err != nil {
+	// PII-redact text before persisting to vector store.
+	redactedText := pii.Redact(req.Text)
+	redactedMeta := pii.RedactMap(req.Metadata)
+	if err := t.store.Add(ctx, BatchItem{ID: id, Text: redactedText, Metadata: redactedMeta}); err != nil {
 		return MemoryStoreResponse{}, fmt.Errorf("failed to store memory: %w", err)
 	}
 	return MemoryStoreResponse{

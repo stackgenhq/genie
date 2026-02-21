@@ -204,8 +204,20 @@ func (s *Scheduler) checkAndDispatch(ctx context.Context) {
 		}
 		s.inFlight.Store(taskKey, struct{}{})
 
+		// Check s.running under the mutex before calling s.wg.Add(1).
+		// This prevents a data race where Stop()'s s.wg.Wait() runs
+		// concurrently with s.wg.Add(1) — calling Add after Wait has
+		// started is a WaitGroup misuse that triggers a race.
+		s.mu.Lock()
+		if !s.running {
+			s.mu.Unlock()
+			s.inFlight.Delete(taskKey)
+			break
+		}
 		wg.Add(1)
-		s.wg.Add(1) // also track on struct-level WaitGroup for Stop() draining
+		s.wg.Add(1)
+		s.mu.Unlock()
+
 		go func() {
 			defer wg.Done()
 			defer s.wg.Done()

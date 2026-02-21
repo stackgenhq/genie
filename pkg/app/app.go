@@ -30,18 +30,16 @@ import (
 	"github.com/appcd-dev/genie/pkg/hitl"
 	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/mcp"
+	"github.com/appcd-dev/genie/pkg/memory/vector"
 	"github.com/appcd-dev/genie/pkg/messenger"
+	aguimsg "github.com/appcd-dev/genie/pkg/messenger/agui"
 	messengerhitl "github.com/appcd-dev/genie/pkg/messenger/hitl"
-	"github.com/appcd-dev/genie/pkg/skills"
+	"github.com/appcd-dev/genie/pkg/messenger/media"
+	"github.com/appcd-dev/genie/pkg/tools"
 
-	"github.com/appcd-dev/genie/pkg/tools/email"
-	"github.com/appcd-dev/genie/pkg/tools/networking"
-	"github.com/appcd-dev/genie/pkg/tools/pm"
-	"github.com/appcd-dev/genie/pkg/tools/scm"
-	"github.com/appcd-dev/genie/pkg/tools/websearch"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"gorm.io/gorm"
-	"trpc.group/trpc-go/trpc-agent-go/skill"
-	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
 // Params holds the inputs required to create an Application.
@@ -81,11 +79,18 @@ type Application struct {
 
 	// clarifyStore is shared between the ask_clarifying_question tool and
 	// the AG-UI server's /api/v1/clarify endpoint.
-	clarifyStore *clarify.Store
+	clarifyStore clarify.Store
 
-	// pendingClarifications maps senderContext → clarification requestID
-	// so that messenger replies can be routed to clarifyStore.Respond.
-	pendingClarifications sync.Map
+	// shortMemory is the DB-backed, TTL-bounded generic key-value store.
+	// Used for message dedup, cooldowns, pending clarifications, and
+	// reaction ledger correlation. Replaces ad-hoc in-memory TTL maps.
+	shortMemory *geniedb.ShortMemoryStore
+
+	// aguiAdapter is the in-process messenger adapter for the AG-UI SSE
+	// server. It runs alongside the primary messenger (Slack, etc.) and
+	// allows AG-UI web chat messages to participate in messenger-level
+	// features (HITL notifications, send_message tool, sender allowlists).
+	aguiAdapter *aguimsg.Messenger
 }
 
 // NewApplication creates a new Application with validated parameters.
@@ -128,14 +133,31 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 		log.Warn("failed to initialize messenger, continuing without", "error", err)
 	}
 	if a.msgr != nil {
+		a.msgr = messenger.WithLogging(ctx, a.msgr)
 		log.Info("Messenger initialized", "platform", a.msgr.Platform())
 	}
 
-	// --- Clarify store ---
-	a.clarifyStore = clarify.NewStore()
+	// --- AGUI messenger adapter (always created, runs alongside primary messenger) ---
+	a.aguiAdapter = aguimsg.New(aguimsg.Config{})
+	if err := a.aguiAdapter.Connect(ctx); err != nil {
+		log.Warn("failed to connect AGUI messenger adapter", "error", err)
+	} else {
+		log.Info("AGUI messenger adapter connected (in-process)")
+	}
 
-	// --- Tools ---
-	tools := a.initToolDeps(ctx)
+	// --- Clarify store (DB-backed, survives restarts) ---
+	a.clarifyStore = clarify.NewStore(a.db)
+
+	// Recover clarifications orphaned by a previous server instance.
+	if res, err := a.clarifyStore.RecoverPending(ctx, 10*time.Minute); err != nil {
+		log.Warn("failed to recover pending clarifications", "error", err)
+	} else if res.Expired+res.Recovered > 0 {
+		log.Info("Recovered pending clarifications from previous run",
+			"expired", res.Expired, "recovered", res.Recovered)
+	}
+
+	// --- Short memory store (generic TTL k/v) ---
+	a.shortMemory = geniedb.NewShortMemoryStore(a.db)
 
 	// --- Vector memory ---
 	vectorStore, err := a.cfg.VectorMemory.NewStore(ctx)
@@ -160,9 +182,9 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 	}
 
 	// Recover approvals orphaned by a previous server instance.
-	// Approvals older than 30 min are marked "expired"; recent ones get
+	// Approvals older than 10 min are marked "expired"; recent ones get
 	// waiter channels re-registered so they can still be resolved.
-	if res, err := a.approvalStore.RecoverPending(ctx, 30*time.Minute); err != nil {
+	if res, err := a.approvalStore.RecoverPending(ctx, 10*time.Minute); err != nil {
 		log.Warn("failed to recover pending approvals", "error", err)
 	} else {
 		if res.Expired+res.Recovered > 0 {
@@ -176,26 +198,28 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 	// --- Memory service ---
 	memorySvc := geniedb.NewMemoryService(a.db)
 
-	// --- Messenger tool ---
-	if a.msgr != nil {
-		tools = append(tools, messenger.NewSendMessageTool(a.msgr))
-	}
-
-	// --- Cron store + tool ---
+	// --- Cron store ---
 	a.cronStore = cron.NewStore(a.db)
-	tools = append(tools, cron.NewCreateRecurringTaskTool(a.cronStore))
+
+	// --- Tool Registry (centralized tool creation + denied-tool filtering) ---
+	registry := a.initToolRegistry(ctx, vectorStore)
+
+	// --- Session store (persistent conversation history) ---
+	sessionStore := geniedb.NewSessionStore(a.db)
+	log.Info("GORM-backed session store initialized for persistent chat history")
 
 	// --- CodeOwner ---
 	a.codeOwner, err = codeowner.NewCodeOwner(
 		ctx,
 		a.cfg.ModelConfig.NewEnvBasedModelProvider(),
 		a.workingDir,
-		tools,
+		registry.AllTools(),
 		vectorStore,
 		a.auditor,
 		a.approvalStore,
 		memorySvc,
 		a.cfg.Runbook,
+		sessionStore,
 	)
 	if err != nil {
 		return fmt.Errorf("codeowner init: %w", err)
@@ -240,6 +264,19 @@ func (a *Application) Start(ctx context.Context) error {
 
 	// --- AG-UI server ---
 	aguiServer := a.cfg.AGUI.NewServer(httpHandler, a.approvalStore, a.clarifyStore, bgWorker, cronScheduler)
+
+	// Wire the AGUI messenger adapter as a bridge so handleRun injects
+	// messages into the messenger pipeline for HITL + send_message routing.
+	if a.aguiAdapter != nil {
+		aguiServer.SetMessengerBridge(a.aguiAdapter)
+		log.Info("AGUI messenger bridge wired to AG-UI server")
+	}
+
+	// Wire the framework runner wrapping the same chat pipeline.
+	// This provides the structured trunner.Runner interface for features
+	// like run registration, cancellation, and session tracking.
+	aguiServer.SetRunner(agui.NewRunner(chatHandler))
+	log.Info("Framework runner wired to AG-UI server")
 
 	// --- Messenger receive loop ---
 	if a.msgr != nil {
@@ -287,6 +324,11 @@ func (a *Application) Close(ctx context.Context) {
 	if a.msgr != nil {
 		if err := a.msgr.Disconnect(context.Background()); err != nil {
 			logger.Warn("failed to disconnect messenger", "error", err)
+		}
+	}
+	if a.aguiAdapter != nil {
+		if err := a.aguiAdapter.Disconnect(context.Background()); err != nil {
+			logger.Warn("failed to disconnect AGUI messenger adapter", "error", err)
 		}
 	}
 	if a.db != nil {
@@ -339,49 +381,23 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 	}
 }
 
-// initToolDeps builds the tool slice from GenieConfig. Each dependency is
-// best-effort — failures are logged as warnings, not fatal. Resources like
-// the MCP client and browser are stored on the Application struct and
-// released by Close().
-func (a *Application) initToolDeps(ctx context.Context) []tool.Tool {
-	log := logger.GetLogger(ctx).With("fn", "app.initToolDeps")
+// initToolRegistry creates the centralized tool registry using toolreg.
+// Dependencies with lifecycle (MCP client, browser) are created here and
+// stored on Application so they can be released by Close().
+func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.IStore) *tools.Registry {
+	log := logger.GetLogger(ctx).With("fn", "app.initToolRegistry")
 
-	var tools []tool.Tool
-
-	// WebSearch — always available (falls back to DuckDuckGo)
-	tools = append(tools, websearch.NewTool(a.cfg.WebSearch))
-	log.Debug("WebSearch tool initialized")
-
-	// HTTP request tool — always available
-	tools = append(tools, networking.NewTool())
-	log.Debug("HTTP request tool initialized")
-
-	// MCP tools
+	// MCP client — lifecycle owned by Application
 	mcpClient, err := mcp.NewClient(ctx, a.cfg.MCP)
 	if err != nil {
 		log.Warn("failed to initialize MCP client, skipping MCP tools", "error", err)
 	}
 	if mcpClient != nil {
 		a.mcpClient = mcpClient
-		tools = append(tools, mcpClient.GetTools()...)
 		log.Info("MCP client initialized", "server_count", len(a.cfg.MCP.Servers))
 	}
 
-	// Skills
-	if len(a.cfg.SkillsRoots) != 0 {
-		repo, err := skill.NewFSRepository(a.cfg.SkillsRoots...)
-		if err != nil {
-			log.Warn("failed to initialize skills repository, skipping skill tools", "error", err)
-		}
-		if repo != nil {
-			executor := skills.NewLocalExecutor(a.workingDir)
-			skillTools := skills.CreateAllSkillTools(repo, executor)
-			tools = append(tools, skillTools...)
-			log.Info("Skills initialized", "tool_count", len(skillTools))
-		}
-	}
-
-	// Browser tools
+	// Browser — lifecycle owned by Application
 	bw, err := browser.New(
 		browser.WithHeadless(true),
 		browser.WithBlockedDomains(a.cfg.Browser.BlockedDomains),
@@ -391,40 +407,11 @@ func (a *Application) initToolDeps(ctx context.Context) []tool.Tool {
 	}
 	if bw != nil {
 		a.browser = bw
-		for _, bt := range browser.AllTools(bw) {
-			tools = append(tools, bt)
-		}
 		log.Info("Browser initialized", "headless", true)
 	}
 
-	// SCM tools
-	if scmSvc, err := scm.New(a.cfg.SCM); err == nil {
-		if vErr := scmSvc.Validate(ctx); vErr != nil {
-			log.Warn("SCM health check failed — token or endpoint may be invalid", "error", vErr)
-		}
-		tools = append(tools, scm.AllTools(scmSvc)...)
-	}
-	log.Debug("SCM tools initialized")
-
-	// PM tools
-	if pmSvc, err := pm.New(a.cfg.ProjectManagement); err == nil {
-		if vErr := pmSvc.Validate(ctx); vErr != nil {
-			log.Warn("PM health check failed — token or endpoint may be invalid", "error", vErr)
-		}
-		tools = append(tools, pm.AllTools(pmSvc)...)
-	}
-	log.Debug("PM tools initialized")
-
-	// Email tools
-	if emailSvc, err := a.cfg.Email.New(); err == nil {
-		tools = append(tools, email.AllTools(emailSvc)...)
-	}
-	log.Debug("Email tools initialized")
-
-	// Clarify tool — lets the LLM ask the user questions.
-	// The emitter bridges clarify → agui without an import cycle.
-	// It also forwards questions via the messenger when the conversation
-	// originated from a chat platform.
+	// Clarify emitter — bridges clarify → AG-UI + messenger.
+	// Stays here because it references Application fields.
 	emitter := func(ctx context.Context, evt clarify.ClarificationEvent) error {
 		// AG-UI path: emit to the event channel for the SSE stream.
 		evChan := agui.EventChanFromContext(ctx)
@@ -462,17 +449,31 @@ func (a *Application) initToolDeps(ctx context.Context) []tool.Tool {
 					if _, err := a.msgr.Send(ctx, sendReq); err != nil {
 						log.Warn("failed to send clarification via messenger", "error", err)
 					}
-					a.pendingClarifications.Store(senderCtx, evt.RequestID)
+					_ = a.shortMemory.Set(ctx, "pending_clarification", senderCtx, evt.RequestID, 10*time.Minute)
 				}
 			}
 		}
 
 		return nil
 	}
-	tools = append(tools, a.clarifyStore.NewTool(emitter))
-	log.Debug("Clarify tool initialized")
 
-	return tools
+	return tools.NewRegistry(ctx, tools.Deps{
+		WorkingDir:     a.workingDir,
+		VectorStore:    vectorStore,
+		WebSearch:      a.cfg.WebSearch,
+		SCMConfig:      a.cfg.SCM,
+		PMConfig:       a.cfg.ProjectManagement,
+		EmailConfig:    a.cfg.Email,
+		SkillsRoots:    a.cfg.SkillsRoots,
+		HITLCfg:        a.cfg.HITL,
+		Messenger:      a.msgr,
+		CronStore:      a.cronStore,
+		MCPClient:      mcpClient,
+		Browser:        bw,
+		ClarifyStore:   a.clarifyStore,
+		ClarifyEmitter: emitter,
+		EnablePensieve: a.cfg.EnablePensieve,
+	})
 }
 
 // startMessengerLoop starts listening for incoming messenger messages
@@ -495,6 +496,16 @@ func (a *Application) startMessengerLoop(ctx context.Context) {
 			}
 		}
 	}()
+
+	// seenMessages deduplicates incoming messages by ID.
+	// WhatsApp can deliver the same message multiple times:
+	//   - Two goroutines reading from the channel simultaneously
+	//   - Reconnect replaying buffered/pending messages
+	// We track seen IDs for 60 seconds, which is well beyond any replay window.
+	// Backed by ShortMemoryStore for restart persistence and no manual eviction.
+	const seenMemoryType = "seen_messages"
+	const seenTTL = 60 * time.Second
+
 	messengerCh := messenger.ReceiveWithReconnect(ctx, a.msgr, 1*time.Second, 30*time.Second)
 	go func() {
 		for {
@@ -503,7 +514,14 @@ func (a *Application) startMessengerLoop(ctx context.Context) {
 				if !ok {
 					return
 				}
-				go a.handleMessengerInput(ctx, msg, eventChan)
+				// Deduplicate by message ID when available.
+				if msg.ID != "" {
+					if _, found, _ := a.shortMemory.Get(ctx, seenMemoryType, msg.ID); found {
+						continue // already processing this message
+					}
+					_ = a.shortMemory.Set(ctx, seenMemoryType, msg.ID, "1", seenTTL)
+				}
+				go a.handleMessengerInput(context.WithoutCancel(ctx), msg, eventChan)
 			case <-ctx.Done():
 				return
 			}
@@ -515,29 +533,63 @@ func (a *Application) startMessengerLoop(ctx context.Context) {
 // platform (Slack, Teams, Telegram, Google Chat, Discord). The response is
 // sent back to the same channel/thread via messenger.Send().
 func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.IncomingMessage, eventChan chan<- interface{}) {
-	if msg.Content.Text == "" {
+	if msg.Content.Text == "" && len(msg.Content.Attachments) == 0 {
 		return
+	}
+
+	// Synthesize or augment message text with attachment info so the LLM
+	// knows about any files sent. Includes file paths when available so the
+	// LLM can use read_file to access the content.
+	if len(msg.Content.Attachments) > 0 {
+		desc := media.DescribeAttachments(msg.Content.Attachments, a.workingDir)
+		if msg.Content.Text == "" {
+			msg.Content.Text = desc
+		} else {
+			msg.Content.Text = msg.Content.Text + "\n\n" + desc
+		}
 	}
 
 	log := logger.GetLogger(ctx).With("fn", "app.handleMessengerInput")
 
+	// Check sender allowlist — if configured, only respond to listed senders.
+	if !a.cfg.Messenger.IsSenderAllowed(msg.Sender.ID) {
+		log.Debug("ignoring message from non-allowed sender",
+			"sender", msg.Sender.ID,
+			"displayName", msg.Sender.DisplayName,
+		)
+		return
+	}
+
 	senderCtx := msg.String()
 
+	// Create structured origin for reply routing.
+	origin := &messenger.MessageOrigin{
+		Platform:  msg.Platform,
+		Channel:   msg.Channel,
+		Sender:    msg.Sender,
+		ThreadID:  msg.ThreadID,
+		MessageID: msg.ID,
+	}
+	messengerCtx := messenger.WithMessageOrigin(ctx, origin)
+
 	// Check for pending clarification reply first.
-	if reqID, ok := a.pendingClarifications.Load(senderCtx); ok {
-		if err := a.clarifyStore.Respond(reqID.(string), msg.Content.Text); err != nil {
+	const clarifyMemoryType = "pending_clarification"
+	if reqID, found, _ := a.shortMemory.Get(ctx, clarifyMemoryType, senderCtx); found {
+		if err := a.clarifyStore.Respond(reqID, msg.Content.Text); err != nil {
 			log.Error("failed to respond to clarification via messenger", "error", err)
-			_, _ = a.msgr.Send(ctx, messenger.SendRequest{
+			_, _ = a.msgr.Send(messengerCtx, messenger.SendRequest{
 				Channel:  msg.Channel,
 				ThreadID: msg.ThreadID,
 				Content:  messenger.MessageContent{Text: fmt.Sprintf("⚠️ Failed to submit answer: %s", err)},
 			})
 		} else {
-			a.pendingClarifications.Delete(senderCtx)
+			_ = a.shortMemory.Delete(ctx, clarifyMemoryType, senderCtx)
+			// React with 👍 instead of sending a confirmation message.
 			_, _ = a.msgr.Send(ctx, messenger.SendRequest{
-				Channel:  msg.Channel,
-				ThreadID: msg.ThreadID,
-				Content:  messenger.MessageContent{Text: "✅ Answer received."},
+				Type:             messenger.SendTypeReaction,
+				Channel:          msg.Channel,
+				ReplyToMessageID: msg.ID,
+				Emoji:            "👍",
 			})
 		}
 		return
@@ -549,7 +601,23 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 	isRejection := normalized == "no" || normalized == "n"
 
 	if a.notifierStore != nil {
-		if approvalID, found := a.notifierStore.GetPending(senderCtx); found {
+		// Try reply-to routing first: if the user replied to a specific
+		// approval notification, resolve that exact approval.
+		var approvalID string
+		var found bool
+		var usedReplyTo bool
+
+		if qmid, ok := msg.Metadata["quoted_message_id"].(string); ok && qmid != "" {
+			approvalID, found = a.notifierStore.GetPendingByMessageID(messengerCtx, qmid)
+			usedReplyTo = found
+		}
+		// Fallback to FIFO (oldest pending for this sender).
+		if !found {
+			approvalID, found = a.notifierStore.GetPending(ctx, senderCtx)
+		}
+
+		if found {
+
 			status := hitl.StatusApproved
 			replyText := "✅ **Approved**"
 			var feedback string
@@ -576,7 +644,11 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 				replyText = fmt.Sprintf("⚠️ Failed to resolve: %s", err)
 			}
 			if err == nil {
-				a.notifierStore.RemovePending(senderCtx)
+				if usedReplyTo {
+					a.notifierStore.RemovePendingByApprovalID(ctx, senderCtx, approvalID)
+				} else {
+					a.notifierStore.RemovePending(ctx, senderCtx)
+				}
 			}
 
 			_, _ = a.msgr.Send(ctx, messenger.SendRequest{
@@ -594,7 +666,8 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 
 	log.Info("received messenger message",
 		"platform", msg.Platform,
-		"sender", msg.Sender.DisplayName,
+		"senderID", msg.Sender.ID,
+		"senderName", msg.Sender.DisplayName,
 		"channel", msg.Channel.ID,
 		"senderContext", senderCtx,
 	)
@@ -602,6 +675,22 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 	agentThoughts := make(chan string)
 	go func() {
 		defer close(agentThoughts)
+
+		// Create a root OTel span for this message so Langfuse traces get
+		// populated with input, tags, name, userId, and sessionId.
+		tracer := otel.Tracer("genie")
+		traceCtx, span := tracer.Start(messengerCtx, "handle_message")
+		span.SetAttributes(
+			attribute.String("langfuse.trace.name", fmt.Sprintf("%s message", msg.Platform)),
+			attribute.String("langfuse.trace.input", msg.Content.Text),
+			attribute.String("langfuse.user.id", msg.Sender.ID),
+			attribute.String("langfuse.session.id", senderCtx),
+			attribute.StringSlice("langfuse.trace.tags", []string{
+				string(msg.Platform),
+				"messenger",
+			}),
+		)
+		defer span.End()
 
 		var tabCtx context.Context
 		if a.browser != nil {
@@ -615,13 +704,13 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 			defer cancel()
 		}
 
-		if err := a.codeOwner.Chat(ctx, codeowner.CodeQuestion{
+		if err := a.codeOwner.Chat(traceCtx, codeowner.CodeQuestion{
 			Question:      msg.Content.Text,
 			OutputDir:     a.workingDir,
 			EventChan:     eventChan,
 			SenderContext: senderCtx,
-			ExcludeTools:  []string{"send_message"},
 			BrowserTab:    tabCtx,
+			Attachments:   msg.Content.Attachments,
 		}, agentThoughts); err != nil {
 			agui.EmitError(ctx, eventChan, err, "while processing messenger message")
 		}

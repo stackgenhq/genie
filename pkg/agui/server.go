@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	aguitypes "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 	"github.com/appcd-dev/genie/pkg/clarify"
 	"github.com/appcd-dev/genie/pkg/hitl"
 	"github.com/appcd-dev/genie/pkg/logger"
@@ -20,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/time/rate"
+	trunner "trpc.group/trpc-go/trpc-agent-go/runner"
 )
 
 type HealthResult struct {
@@ -55,41 +57,27 @@ type Expert interface {
 	Resume(ctx context.Context) string
 }
 
-// Message represents a message in the AG-UI RunAgentInput.
-type Message struct {
-	ID      string `json:"id,omitempty"`
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
+// RunAgentInput is the request body for the AG-UI run endpoint.
+// This is the official AG-UI SDK type, providing richer fields (multimodal
+// content, State, ParentRunID) and built-in snake_case JSON compatibility.
+// See https://docs.ag-ui.com/concepts/architecture#running-agents
+type RunAgentInput = aguitypes.RunAgentInput
+
+// Message represents an AG-UI protocol message. Re-exported from the
+// official SDK — Content is `any` (string or []InputContent for multimodal).
+// Use msg.ContentString() to extract text content.
+type Message = aguitypes.Message
 
 // ToolDefinition represents a tool definition passed by the client.
-type ToolDefinition struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Parameters  any    `json:"parameters,omitempty"`
-}
+type ToolDefinition = aguitypes.Tool
 
 // ContextItem represents a context item passed by the client.
-type ContextItem struct {
-	Description string `json:"description,omitempty"`
-	Value       string `json:"value,omitempty"`
-}
-
-// RunAgentInput is the request body for the AG-UI run endpoint.
-// See https://docs.ag-ui.com/concepts/architecture#running-agents
-type RunAgentInput struct {
-	ThreadID       string           `json:"threadId"`
-	RunID          string           `json:"runId"`
-	Messages       []Message        `json:"messages"`
-	Tools          []ToolDefinition `json:"tools,omitempty"`
-	Context        []ContextItem    `json:"context,omitempty"`
-	ForwardedProps map[string]any   `json:"forwardedProps,omitempty"`
-}
+type ContextItem = aguitypes.Context
 
 func DefaultServerConfig() ServerConfig {
 	port := osutils.Getenv("PORT", "8080")
 	cfg := ServerConfig{
-		CORSOrigins:   []string{"https://appcd-dev.github.io"},
+		CORSOrigins:   []string{"*"},
 		RateLimit:     0.5, // 30 req/min per IP
 		RateBurst:     3,
 		MaxConcurrent: 5,
@@ -112,6 +100,24 @@ type ServerConfig struct {
 	MaxBodyBytes  int64    `yaml:"max_body_bytes" toml:"max_body_bytes"` // max request body in bytes (0 = unlimited)
 }
 
+// MessengerBridge is an optional interface that allows the AG-UI server to
+// register active threads with the AGUI messenger adapter. When set, each
+// handleRun call registers the thread's event channel so that subsystems
+// (HITL, send_message tool) can route responses back to the SSE client.
+//
+// This interface exists here (rather than depending on messenger/agui
+// directly) to avoid a circular import between pkg/agui and pkg/messenger.
+//
+//counterfeiter:generate . MessengerBridge
+type MessengerBridge interface {
+	// InjectMessage registers the thread's event channel with the adapter.
+	// This is purely for thread registration — the chat handler still runs
+	// directly in handleRun. The sender parameter is optional (nil = default).
+	InjectMessage(threadID, runID, text string, eventChan chan<- interface{}, sender interface{}) error
+	// CompleteThread removes the thread from the active threads map.
+	CompleteThread(threadID string)
+}
+
 // Server is the AG-UI HTTP server that exposes genie as an SSE endpoint.
 type Server struct {
 	chatHandler Expert
@@ -130,7 +136,17 @@ type Server struct {
 	// Background worker for events and heartbeats
 	bgWorker     *BackgroundWorker
 	workers      []BGWorker
-	clarifyStore *clarify.Store
+	clarifyStore clarify.Store
+
+	// messengerBridge is an optional bridge to the AGUI messenger adapter.
+	// When set, handleRun injects messages into the messenger pipeline so
+	// subsystems (HITL, send_message) can route to the SSE client.
+	messengerBridge MessengerBridge
+
+	// runner provides the structured trunner.Runner interface for framework
+	// features like run registration, cancellation, and session tracking.
+	// When set, it wraps the same chat pipeline as the Expert handler.
+	runner trunner.Runner
 }
 
 // NewServer creates a new AG-UI HTTP server.
@@ -139,7 +155,7 @@ type Server struct {
 func (c ServerConfig) NewServer(
 	handler Expert,
 	approvalStore hitl.ApprovalStore,
-	clarifyStore *clarify.Store,
+	clarifyStore clarify.Store,
 	bgWorker *BackgroundWorker,
 	workers ...BGWorker,
 ) *Server {
@@ -169,6 +185,33 @@ func (c ServerConfig) NewServer(
 		"max_concurrent", c.MaxConcurrent,
 	)
 	return s
+}
+
+// SetMessengerBridge configures the optional messenger adapter bridge.
+// When set, handleRun injects user messages into the messenger pipeline
+// so subsystems like HITL and send_message can route to the SSE client.
+func (s *Server) SetMessengerBridge(bridge MessengerBridge) {
+	s.messengerBridge = bridge
+}
+
+// SetRunner configures the framework runner for structured chat execution.
+// The runner wraps the same chat pipeline as the Expert and provides
+// features like run registration, cancellation, and session tracking.
+//
+// Note: The runner is exposed as an external API via Runner() for direct
+// callers (e.g. background workers, programmatic invocations). The
+// handleRun SSE endpoint continues to use the Expert handler for its
+// dedup and event translation pipeline.
+func (s *Server) SetRunner(r trunner.Runner) {
+	s.runner = r
+}
+
+// Runner returns the configured framework runner for direct programmatic
+// use. Returns nil if not set. This is NOT used internally by handleRun
+// (which uses the Expert handler), but is available for external callers
+// that want the structured Run(ctx, userID, sessionID, msg) interface.
+func (s *Server) Runner() trunner.Runner {
+	return s.runner
 }
 
 // Handler returns the chi router with AG-UI endpoints.
@@ -383,11 +426,14 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		input.RunID = uuid.NewString()
 	}
 
-	// Extract the last user message
+	// Extract the last user message using SDK's ContentString() helper.
+	// SDK Message.Content is `any` (string or []InputContent for multimodal).
 	userMessage := ""
 	for i := len(input.Messages) - 1; i >= 0; i-- {
-		if input.Messages[i].Role == "user" {
-			userMessage = input.Messages[i].Content
+		if input.Messages[i].Role == aguitypes.RoleUser {
+			if text, ok := input.Messages[i].ContentString(); ok {
+				userMessage = text
+			}
 			break
 		}
 	}
@@ -414,6 +460,16 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 
 	// Create event channel for this request
 	eventChan := make(chan interface{}, 100)
+
+	// If a messenger bridge is configured, register this thread so that
+	// subsystems (HITL notifications, send_message tool) can route
+	// responses back to the SSE client via the adapter.
+	if s.messengerBridge != nil {
+		if err := s.messengerBridge.InjectMessage(input.ThreadID, input.RunID, userMessage, eventChan, nil); err != nil {
+			logger.Warn("failed to register AG-UI thread with messenger bridge", "error", err)
+		}
+		defer s.messengerBridge.CompleteThread(input.ThreadID)
+	}
 
 	// Start the chat handler in a goroutine
 	go func() {

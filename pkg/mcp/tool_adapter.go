@@ -12,22 +12,28 @@ import (
 )
 
 // ClientTool wraps an MCP Client and Tool to implement the trpc-agent-go tool.Tool interface.
+// Tools are namespaced by server name to avoid collisions when multiple MCP
+// servers expose tools with the same name (e.g. "search").
 type ClientTool struct {
-	client *client.Client
-	tool   mcp.Tool
+	client     *client.Client
+	tool       mcp.Tool
+	serverName string
 }
 
 // NewClientTool creates a new ClientTool wrapper.
-func NewClientTool(client *client.Client, mcpTool mcp.Tool) *ClientTool {
+// The serverName is used to prefix the tool name so that tools from different
+// MCP servers are disambiguated (e.g. "github_search" vs "jira_search").
+func NewClientTool(client *client.Client, mcpTool mcp.Tool, serverName string) *ClientTool {
 	return &ClientTool{
-		client: client,
-		tool:   mcpTool,
+		client:     client,
+		tool:       mcpTool,
+		serverName: serverName,
 	}
 }
 
-// Name returns the tool name.
+// Name returns the namespaced tool name (serverName_toolName).
 func (t *ClientTool) Name() string {
-	return t.tool.Name
+	return t.serverName + "_" + t.tool.Name
 }
 
 // Description returns the tool description.
@@ -57,7 +63,7 @@ func (t *ClientTool) Call(ctx context.Context, jsonArgs []byte) (any, error) {
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
-			Name:      t.Name(),
+			Name:      t.tool.Name, // Use the original MCP tool name, not the namespaced one
 			Arguments: args,
 		},
 	}

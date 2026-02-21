@@ -80,11 +80,23 @@ type chatEvent struct {
 }
 
 type gcMessage struct {
-	Name         string    `json:"name"`
-	Text         string    `json:"text"`
-	Thread       *gcThread `json:"thread"`
-	ArgumentText string    `json:"argumentText"`
-	CreateTime   string    `json:"createTime"`
+	Name         string         `json:"name"`
+	Text         string         `json:"text"`
+	Thread       *gcThread      `json:"thread"`
+	ArgumentText string         `json:"argumentText"`
+	CreateTime   string         `json:"createTime"`
+	Attachment   []gcAttachment `json:"attachment"`
+}
+
+type gcAttachment struct {
+	Name              string `json:"name"`
+	ContentName       string `json:"contentName"`
+	ContentType       string `json:"contentType"`
+	DownloadURI       string `json:"downloadUri"`
+	ThumbnailURI      string `json:"thumbnailUri"`
+	AttachmentDataRef *struct {
+		ResourceName string `json:"resourceName"`
+	} `json:"attachmentDataRef"`
 }
 
 type gcThread struct {
@@ -344,6 +356,16 @@ func (m *Messenger) convertAndPublish(ctx context.Context, event chatEvent) {
 		Timestamp: time.Now(),
 	}
 
+	// Extract file attachments from Google Chat event.
+	for _, a := range event.Message.Attachment {
+		att := messenger.Attachment{
+			Name:        a.ContentName,
+			URL:         a.DownloadURI,
+			ContentType: a.ContentType,
+		}
+		msg.Content.Attachments = append(msg.Content.Attachments, att)
+	}
+
 	select {
 	case m.incoming <- msg:
 	default:
@@ -416,9 +438,65 @@ func (m *Messenger) FormatApproval(req messenger.SendRequest, info messenger.App
 	return req
 }
 
-// FormatClarification returns the request unchanged for now.
-// TODO: add Google Chat Cards v2 formatting for clarification questions.
-func (m *Messenger) FormatClarification(req messenger.SendRequest, _ messenger.ClarificationInfo) messenger.SendRequest {
+// FormatClarification builds a Google Chat Cards v2 message for a clarification question.
+func (m *Messenger) FormatClarification(req messenger.SendRequest, info messenger.ClarificationInfo) messenger.SendRequest {
+	sections := []any{
+		// Question section
+		map[string]any{
+			"header": "Question",
+			"widgets": []any{
+				map[string]any{
+					"textParagraph": map[string]any{
+						"text": html.EscapeString(info.Question),
+					},
+				},
+			},
+		},
+	}
+
+	// Context section (if provided)
+	if info.Context != "" {
+		sections = append([]any{
+			map[string]any{
+				"header": "💡 Context",
+				"widgets": []any{
+					map[string]any{
+						"textParagraph": map[string]any{
+							"text": html.EscapeString(info.Context),
+						},
+					},
+				},
+			},
+		}, sections...)
+	}
+
+	// Reply instructions
+	sections = append(sections, map[string]any{
+		"widgets": []any{
+			map[string]any{
+				"textParagraph": map[string]any{
+					"text": "<i>Reply with your answer.</i>",
+				},
+			},
+		},
+	})
+
+	card := map[string]any{
+		"cardId": "clarify_" + info.RequestID,
+		"card": map[string]any{
+			"header": map[string]any{
+				"title":    "❓ Question from Genie",
+				"subtitle": "Clarification needed",
+			},
+			"sections": sections,
+		},
+	}
+
+	if req.Metadata == nil {
+		req.Metadata = make(map[string]any)
+	}
+	req.Metadata["cards_v2"] = []any{card}
+
 	return req
 }
 

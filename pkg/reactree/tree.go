@@ -8,6 +8,7 @@ import (
 	"github.com/appcd-dev/genie/pkg/expert"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/logger"
+	"github.com/appcd-dev/genie/pkg/messenger"
 	"github.com/appcd-dev/genie/pkg/reactree/memory"
 	"trpc.group/trpc-go/trpc-agent-go/agent"
 	"trpc.group/trpc-go/trpc-agent-go/graph"
@@ -53,6 +54,13 @@ type TreeConfig struct {
 	// zero tool calls or the iteration cap is reached. This replaces the fixed
 	// stage pipeline with dynamic, task-driven expansion.
 	MaxIterations int
+
+	// ToolBudgets limits how many times specific tools can be called across
+	// all iterations of the adaptive loop. When a tool's budget is exhausted,
+	// it is removed from the tool list so the LLM is forced to proceed
+	// without it. Example: {"ask_clarifying_question": 1} ensures the agent
+	// asks at most one clarifying question before using defaults.
+	ToolBudgets map[string]int
 }
 
 // DefaultTreeConfig returns sensible defaults for tree execution.
@@ -61,7 +69,10 @@ func DefaultTreeConfig() TreeConfig {
 		MaxDepth:            3,
 		MaxDecisionsPerNode: 10,
 		MaxTotalNodes:       20,
-		MaxIterations:       10,
+		MaxIterations:       3,
+		ToolBudgets: map[string]int{
+			"ask_clarifying_question": 1,
+		},
 	}
 }
 
@@ -91,6 +102,19 @@ type TreeRequest struct {
 	Tools         []tool.Tool
 	SenderContext string
 	TaskType      modelprovider.TaskType
+	// Attachments are file/media attachments from the incoming message.
+	// Image attachments are passed as multimodal content to the LLM.
+	Attachments []messenger.Attachment
+
+	// WorkingMemory overrides the tree-level working memory for this request.
+	// When set, enables per-sender memory isolation. If nil, falls back to
+	// the tree's shared working memory.
+	WorkingMemory *memory.WorkingMemory
+
+	// EpisodicMemory overrides the tree-level episodic memory for this request.
+	// When set, enables per-sender episode isolation. If nil, falls back to
+	// the tree's shared episodic memory.
+	EpisodicMemory memory.EpisodicMemory
 }
 
 // tree is the default TreeExecutor implementation backed by graph.StateGraph.
@@ -130,6 +154,24 @@ func NewTreeExecutor(
 	}
 }
 
+// resolveWorkingMemory returns the per-request working memory if set,
+// otherwise falls back to the tree-level shared instance.
+func (t *tree) resolveWorkingMemory(req TreeRequest) *memory.WorkingMemory {
+	if req.WorkingMemory != nil {
+		return req.WorkingMemory
+	}
+	return t.workingMemory
+}
+
+// resolveEpisodic returns the per-request episodic memory if set,
+// otherwise falls back to the tree-level shared instance.
+func (t *tree) resolveEpisodic(req TreeRequest) memory.EpisodicMemory {
+	if req.EpisodicMemory != nil {
+		return req.EpisodicMemory
+	}
+	return t.episodic
+}
+
 // Run builds a StateGraph for the goal, compiles, and executes it.
 // Routing priority:
 //  1. MaxIterations > 0 (and no Stages) → adaptive loop
@@ -162,12 +204,13 @@ func (t *tree) runSingleNode(ctx context.Context, req TreeRequest) (TreeResult, 
 	innerFunc := NewAgentNodeFunc(AgentNodeConfig{
 		Goal:          req.Goal,
 		Expert:        t.expert,
-		WorkingMemory: t.workingMemory,
-		Episodic:      t.episodic,
+		WorkingMemory: t.resolveWorkingMemory(req),
+		Episodic:      t.resolveEpisodic(req),
 		MaxDecisions:  t.config.MaxDecisionsPerNode,
 		EventChan:     req.EventChan,
 		Tools:         req.Tools,
 		SenderContext: req.SenderContext,
+		Attachments:   req.Attachments,
 	})
 
 	wrappedFunc := func(ctx context.Context, state graph.State) (any, error) {
@@ -264,13 +307,14 @@ func (t *tree) runMultiStage(ctx context.Context, req TreeRequest) (TreeResult, 
 		innerFunc := NewAgentNodeFunc(AgentNodeConfig{
 			Goal:          stageGoal,
 			Expert:        t.expert,
-			WorkingMemory: t.workingMemory,
-			Episodic:      t.episodic,
+			WorkingMemory: t.resolveWorkingMemory(req),
+			Episodic:      t.resolveEpisodic(req),
 			MaxDecisions:  t.config.MaxDecisionsPerNode,
 			EventChan:     req.EventChan,
 			Tools:         req.Tools,
 			TaskType:      stage.TaskType,
 			SenderContext: req.SenderContext,
+			Attachments:   req.Attachments,
 		})
 
 		// Wrap the node func to emit stage events and capture the last output

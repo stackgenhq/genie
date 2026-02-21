@@ -34,6 +34,8 @@ func (cfg Config) newFromConfig(ctx context.Context, opts ...Option) (Messenger,
 		return newGoogleChatFromConfig(cfg.GoogleChat, opts...)
 	case PlatformWhatsApp:
 		return newWhatsAppFromConfig(cfg.WhatsApp, opts...)
+	case PlatformAGUI:
+		return newAGUIFromConfig(opts...)
 	default:
 		return nil, fmt.Errorf("messenger: unsupported platform %q", cfg.Platform)
 	}
@@ -127,6 +129,14 @@ func newWhatsAppFromConfig(cfg WhatsAppConfig, opts ...Option) (Messenger, error
 		params["store_path"] = cfg.StorePath
 	}
 	return f(params, opts...)
+}
+
+func newAGUIFromConfig(opts ...Option) (Messenger, error) {
+	f, ok := adapterFactories[PlatformAGUI]
+	if !ok {
+		return nil, fmt.Errorf("messenger: agui adapter not registered (import _ \"...messenger/agui\")")
+	}
+	return f(map[string]string{}, opts...)
 }
 
 // AdapterFactory creates a Messenger from generic string params.

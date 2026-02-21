@@ -1,0 +1,177 @@
+package app
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+
+	"github.com/appcd-dev/genie/pkg/config"
+	geniedb "github.com/appcd-dev/genie/pkg/db"
+	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
+	"github.com/appcd-dev/genie/pkg/security"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+)
+
+// skipWithoutOpenAIKey skips a test if OPENAI_API_KEY is not set.
+func skipWithoutOpenAIKey() {
+	if os.Getenv("OPENAI_API_KEY") == "" {
+		Skip("OPENAI_API_KEY not set — skipping integration test")
+	}
+}
+
+// newIntegrationConfig returns a minimal GenieConfig suitable for integration
+// testing. It uses a temp directory for the database and picks up model
+// provider configuration from environment variables (OPENAI_API_KEY, etc.).
+func newIntegrationConfig(tmpDir string) config.GenieConfig {
+	ctx := context.Background()
+	sp := security.NewEnvProvider()
+
+	return config.GenieConfig{
+		ModelConfig: modelprovider.DefaultModelConfig(ctx, sp),
+		DBConfig:    geniedb.Config{DBFile: filepath.Join(tmpDir, "test.db")},
+		// All other subsystems use zero-value defaults and degrade gracefully.
+	}
+}
+
+var _ = Describe("NewApplication", func() {
+	It("should fail when WorkingDir is empty", func() {
+		_, err := NewApplication(Params{})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("working directory is required"))
+	})
+
+	It("should create an application with valid params", func() {
+		app, err := NewApplication(Params{
+			WorkingDir: "/tmp/test-genie",
+			Version:    "test-v1",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(app).NotTo(BeNil())
+		Expect(app.workingDir).To(Equal("/tmp/test-genie"))
+		Expect(app.version).To(Equal("test-v1"))
+	})
+
+	It("should default AuditPath when not provided", func() {
+		app, err := NewApplication(Params{
+			WorkingDir: "/tmp/test-genie",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(app.auditPath).To(Equal("/tmp/test-genie/genie_audit.ndjson"))
+	})
+
+	It("should use custom AuditPath when provided", func() {
+		app, err := NewApplication(Params{
+			WorkingDir: "/tmp/test-genie",
+			AuditPath:  "/custom/audit.ndjson",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(app.auditPath).To(Equal("/custom/audit.ndjson"))
+	})
+})
+
+var _ = Describe("Application Integration", Label("integration"), func() {
+	var tmpDir string
+
+	BeforeEach(func() {
+		skipWithoutOpenAIKey()
+		tmpDir = GinkgoT().TempDir()
+	})
+
+	Describe("Bootstrap + Close lifecycle", func() {
+		It("should bootstrap with minimal config and close cleanly", func() {
+			cfg := newIntegrationConfig(tmpDir)
+			app, err := NewApplication(Params{
+				WorkingDir: tmpDir,
+				Config:     cfg,
+				Version:    "test-integration",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			ctx := context.Background()
+			err = app.Bootstrap(ctx)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify core subsystems are initialised.
+			Expect(app.db).NotTo(BeNil(), "database should be initialised")
+			Expect(app.auditor).NotTo(BeNil(), "auditor should be initialised")
+			Expect(app.codeOwner).NotTo(BeNil(), "codeOwner agent should be initialised")
+			Expect(app.clarifyStore).NotTo(BeNil(), "clarify store should be initialised")
+			Expect(app.cronStore).NotTo(BeNil(), "cron store should be initialised")
+			Expect(app.shortMemory).NotTo(BeNil(), "short memory should be initialised")
+			Expect(app.aguiAdapter).NotTo(BeNil(), "AGUI adapter should be initialised")
+
+			// Messenger is expected to be nil — no platform configured.
+			Expect(app.msgr).To(BeNil(), "messenger should be nil without config")
+
+			// Clean up — should not panic even without Start().
+			app.Close(ctx)
+		})
+
+		It("should create the database file on disk", func() {
+			cfg := newIntegrationConfig(tmpDir)
+			app, err := NewApplication(Params{
+				WorkingDir: tmpDir,
+				Config:     cfg,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			ctx := context.Background()
+			Expect(app.Bootstrap(ctx)).To(Succeed())
+			defer app.Close(ctx)
+
+			dbPath := filepath.Join(tmpDir, "test.db")
+			_, err = os.Stat(dbPath)
+			Expect(err).NotTo(HaveOccurred(), "database file should exist on disk")
+		})
+
+		It("should create the audit log file", func() {
+			cfg := newIntegrationConfig(tmpDir)
+			app, err := NewApplication(Params{
+				WorkingDir: tmpDir,
+				Config:     cfg,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			ctx := context.Background()
+			Expect(app.Bootstrap(ctx)).To(Succeed())
+			defer app.Close(ctx)
+
+			auditPath := filepath.Join(tmpDir, "genie_audit.ndjson")
+			_, err = os.Stat(auditPath)
+			Expect(err).NotTo(HaveOccurred(), "audit file should exist on disk")
+		})
+	})
+
+	Describe("buildChatHandler", func() {
+		It("should return a callable handler function", func() {
+			cfg := newIntegrationConfig(tmpDir)
+			app, err := NewApplication(Params{
+				WorkingDir: tmpDir,
+				Config:     cfg,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			ctx := context.Background()
+			Expect(app.Bootstrap(ctx)).To(Succeed())
+			defer app.Close(ctx)
+
+			handler := app.buildChatHandler()
+			Expect(handler).NotTo(BeNil(), "chat handler function should be non-nil")
+		})
+	})
+
+	Describe("Close idempotency", func() {
+		It("should not panic when Close is called on a partially initialised application", func() {
+			app, err := NewApplication(Params{
+				WorkingDir: tmpDir,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Close without Bootstrap — all fields are nil.
+			Expect(func() {
+				app.Close(context.Background())
+			}).NotTo(Panic())
+		})
+	})
+})

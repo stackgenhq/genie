@@ -17,11 +17,13 @@ const allTools = "*"
 
 type Config struct {
 	AlwaysAllowed []string `yaml:"always_allowed" toml:"always_allowed" json:"always_allowed"`
+	DeniedTools   []string `yaml:"denied_tools" toml:"denied_tools" json:"denied_tools"`
 }
 
 func DefaultConfig() Config {
 	return Config{
 		AlwaysAllowed: []string{},
+		DeniedTools:   []string{},
 	}
 }
 
@@ -46,6 +48,29 @@ func (c Config) IsAllowed(toolName string) bool {
 			return true
 		}
 		lp := strings.ToLower(pattern)
+		if strings.HasSuffix(lp, "*") {
+			prefix := lp[:len(lp)-1]
+			if strings.HasPrefix(lower, prefix) {
+				return true
+			}
+			continue
+		}
+		if lp == lower {
+			return true
+		}
+	}
+	return false
+}
+
+// IsDenied checks if a tool is explicitly denied via the denied_tools config.
+// Supports exact names (case-insensitive) and prefix wildcards, same as IsAllowed.
+func (c Config) IsDenied(toolName string) bool {
+	lower := strings.ToLower(toolName)
+	for _, pattern := range c.DeniedTools {
+		lp := strings.ToLower(pattern)
+		if lp == allTools {
+			return true
+		}
 		if strings.HasSuffix(lp, "*") {
 			prefix := lp[:len(lp)-1]
 			if strings.HasPrefix(lower, prefix) {

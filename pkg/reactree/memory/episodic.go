@@ -19,6 +19,10 @@ const (
 	EpisodeFailure EpisodeStatus = "failure"
 	// EpisodeExpand means the agent decomposed into sub-tasks.
 	EpisodeExpand EpisodeStatus = "expand"
+	// EpisodePending means the episode is awaiting human validation.
+	// Episodes are initially stored as pending until a user reacts
+	// (e.g. 👍 upgrades to success, 👎 downgrades to failure).
+	EpisodePending EpisodeStatus = "pending"
 )
 
 // Episode records a single subgoal-level experience for episodic memory.
@@ -67,6 +71,13 @@ type EpisodicMemoryConfig struct {
 
 	// UserID identifies the user/session for memory scoping.
 	UserID string
+}
+
+// WithUserID returns a copy of the config with the UserID set to the given value.
+// This enables creating per-sender episodic memory from a shared base config.
+func (cfg EpisodicMemoryConfig) WithUserID(userID string) EpisodicMemoryConfig {
+	cfg.UserID = userID
+	return cfg
 }
 
 func DefaultEpisodicMemoryConfig() EpisodicMemoryConfig {
@@ -144,7 +155,7 @@ func statusFromTopics(topics []string) EpisodeStatus {
 		if len(t) > len(episodeTopicPrefix) {
 			status := EpisodeStatus(t[len(episodeTopicPrefix):])
 			switch status {
-			case EpisodeSuccess, EpisodeFailure, EpisodeExpand:
+			case EpisodeSuccess, EpisodeFailure, EpisodeExpand, EpisodePending:
 				return status
 			}
 		}

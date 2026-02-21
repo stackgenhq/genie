@@ -276,6 +276,22 @@ func (m *Messenger) handleEventsAPI(ctx context.Context, event slackevents.Event
 				Timestamp: time.Now(),
 			}
 
+			// Extract file attachments from the Slack message.
+			if ev.Message != nil {
+				for _, f := range ev.Message.Files {
+					att := messenger.Attachment{
+						Name:        f.Name,
+						URL:         f.URLPrivateDownload,
+						ContentType: f.Mimetype,
+						Size:        int64(f.Size),
+					}
+					if att.URL == "" {
+						att.URL = f.Permalink
+					}
+					msg.Content.Attachments = append(msg.Content.Attachments, att)
+				}
+			}
+
 			select {
 			case m.incoming <- msg:
 			default:
@@ -378,9 +394,64 @@ func (m *Messenger) FormatApproval(req messenger.SendRequest, info messenger.App
 	return req
 }
 
-// FormatClarification returns the request unchanged for now.
-// TODO: add Slack Block Kit formatting for clarification questions.
-func (m *Messenger) FormatClarification(req messenger.SendRequest, _ messenger.ClarificationInfo) messenger.SendRequest {
+// FormatClarification builds a Slack Block Kit message for a clarification question.
+func (m *Messenger) FormatClarification(req messenger.SendRequest, info messenger.ClarificationInfo) messenger.SendRequest {
+	req.Content = messenger.MessageContent{
+		Text: fmt.Sprintf("❓ Question from Genie:\n%s", info.Question),
+	}
+
+	blocks := []any{
+		// Header
+		map[string]any{
+			"type": "header",
+			"text": map[string]any{
+				"type": "plain_text",
+				"text": "❓ Question from Genie",
+			},
+		},
+	}
+
+	// Context section (if provided)
+	if info.Context != "" {
+		blocks = append(blocks, map[string]any{
+			"type": "section",
+			"text": map[string]any{
+				"type": "mrkdwn",
+				"text": fmt.Sprintf("💡 *Context*: %s", info.Context),
+			},
+		})
+	}
+
+	// Question section
+	blocks = append(blocks, map[string]any{
+		"type": "section",
+		"text": map[string]any{
+			"type": "mrkdwn",
+			"text": info.Question,
+		},
+	})
+
+	// Divider
+	blocks = append(blocks, map[string]any{
+		"type": "divider",
+	})
+
+	// Footer
+	blocks = append(blocks, map[string]any{
+		"type": "context",
+		"elements": []any{
+			map[string]any{
+				"type": "mrkdwn",
+				"text": "_Reply with your answer._",
+			},
+		},
+	})
+
+	if req.Metadata == nil {
+		req.Metadata = make(map[string]any)
+	}
+	req.Metadata["blocks"] = blocks
+
 	return req
 }
 

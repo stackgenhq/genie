@@ -31,6 +31,7 @@ import (
 
 	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/messenger"
+	"github.com/appcd-dev/genie/pkg/messenger/media"
 )
 
 func init() {
@@ -241,6 +242,47 @@ func (m *Messenger) defaultHandler(ctx context.Context, _ *tgbot.Bot, update *tg
 		Content:   messenger.MessageContent{Text: msg.Text},
 		ThreadID:  threadID,
 		Timestamp: time.Unix(int64(msg.Date), 0),
+	}
+
+	// Extract media attachments from Telegram messages.
+	if doc := msg.Document; doc != nil {
+		incoming.Content.Attachments = append(incoming.Content.Attachments, messenger.Attachment{
+			Name:        doc.FileName,
+			ContentType: doc.MimeType,
+			Size:        doc.FileSize,
+		})
+	}
+	if len(msg.Photo) > 0 {
+		// Use the largest photo size (last in the array).
+		photo := msg.Photo[len(msg.Photo)-1]
+		incoming.Content.Attachments = append(incoming.Content.Attachments, messenger.Attachment{
+			Name:        media.NameFromMIME("image/jpeg", "photo"),
+			ContentType: "image/jpeg",
+			Size:        int64(photo.FileSize),
+		})
+	}
+	if vid := msg.Video; vid != nil {
+		incoming.Content.Attachments = append(incoming.Content.Attachments, messenger.Attachment{
+			Name:        vid.FileName,
+			ContentType: vid.MimeType,
+			Size:        vid.FileSize,
+		})
+	}
+	if audio := msg.Audio; audio != nil {
+		name := audio.FileName
+		if name == "" {
+			name = media.NameFromMIME(audio.MimeType, "audio")
+		}
+		incoming.Content.Attachments = append(incoming.Content.Attachments, messenger.Attachment{
+			Name:        name,
+			ContentType: audio.MimeType,
+			Size:        audio.FileSize,
+		})
+	}
+	// Use caption as text when no text is present (Telegram sends
+	// document/photo captions separately from the text field).
+	if incoming.Content.Text == "" && msg.Caption != "" {
+		incoming.Content.Text = msg.Caption
 	}
 
 	select {

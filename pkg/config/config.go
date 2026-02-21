@@ -15,15 +15,18 @@ import (
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/hitl"
 	"github.com/appcd-dev/genie/pkg/langfuse"
+	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/mcp"
 	"github.com/appcd-dev/genie/pkg/memory/vector"
 	"github.com/appcd-dev/genie/pkg/messenger"
+	"github.com/appcd-dev/genie/pkg/pii"
 	"github.com/appcd-dev/genie/pkg/runbook"
 	"github.com/appcd-dev/genie/pkg/security"
 	"github.com/appcd-dev/genie/pkg/tools/email"
 	"github.com/appcd-dev/genie/pkg/tools/pm"
 	"github.com/appcd-dev/genie/pkg/tools/scm"
 	"github.com/appcd-dev/genie/pkg/tools/websearch"
+	"github.com/appcd-dev/genie/pkg/toolwrap"
 	"gopkg.in/yaml.v3"
 )
 
@@ -39,19 +42,39 @@ type GenieConfig struct {
 
 	ProjectManagement pm.Config `yaml:"project_management" toml:"project_management"`
 
-	Email    email.Config      `yaml:"email" toml:"email"`
-	AGUI     agui.ServerConfig `yaml:"agui" toml:"agui"`
-	HITL     hitl.Config       `yaml:"hitl" toml:"hitl"`
-	DBConfig db.Config         `yaml:"db_config" toml:"db_config"`
-	Langfuse langfuse.Config   `yaml:"langfuse" toml:"langfuse"`
-	Runbook  runbook.Config    `yaml:"runbook" toml:"runbook"`
-	Cron     cron.Config       `yaml:"cron" toml:"cron"`
-	Security security.Config   `yaml:"security" toml:"security"`
+	Email    email.Config              `yaml:"email" toml:"email"`
+	AGUI     agui.ServerConfig         `yaml:"agui" toml:"agui"`
+	HITL     hitl.Config               `yaml:"hitl" toml:"hitl"`
+	DBConfig db.Config                 `yaml:"db_config" toml:"db_config"`
+	Langfuse langfuse.Config           `yaml:"langfuse" toml:"langfuse"`
+	Runbook  runbook.Config            `yaml:"runbook" toml:"runbook"`
+	Cron     cron.Config               `yaml:"cron" toml:"cron"`
+	Security security.Config           `yaml:"security" toml:"security"`
+	PII      pii.Config                `yaml:"pii" toml:"pii"`
+	Toolwrap toolwrap.MiddlewareConfig `yaml:"toolwrap" toml:"toolwrap"`
+
+	// EnablePensieve activates the Pensieve context management tools
+	// (delete_context, check_budget, note, read_notes) from arXiv:2602.12108.
+	// When true, the agent can actively manage its own context window.
+	// delete_context and note require HITL approval; check_budget and
+	// read_notes are read-only and auto-approved.
+	EnablePensieve bool `yaml:"enable_pensieve" toml:"enable_pensieve"`
 }
 
 // LoadGenieConfig loads the Genie configuration from a file, resolving
-// secret-dependent defaults through the given SecretProvider. Passing
-// security.NewEnvProvider() preserves the legacy os.Getenv behavior.
+// secret-dependent defaults and ${VAR} placeholders through the given
+// SecretProvider. Each ${NAME} occurrence in the config file is resolved
+// by calling sp.GetSecret(ctx, NAME), which may consult runtimevar
+// backends (GCP Secret Manager, AWS Secrets Manager, mounted files,
+// etc.) or fall back to os.Getenv depending on the provider.
+//
+// Passing security.NewEnvProvider() preserves the legacy os.Getenv
+// behavior. Passing a security.Manager created from the config's
+// [security.secrets] section enables runtimevar-backed resolution.
+//
+// After interpolation, any secret-ish key (token, api_key, password,
+// etc.) that resolves to an empty string triggers a warning log so
+// that typos and missing secrets are surfaced early.
 func LoadGenieConfig(ctx context.Context, sp security.SecretProvider, path string) (GenieConfig, error) {
 	// Helper to resolve a secret, ignoring errors (treat as empty).
 	get := func(name string) string {
@@ -103,7 +126,9 @@ func LoadGenieConfig(ctx context.Context, sp security.SecretProvider, path strin
 		return GenieConfig{}, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	data = []byte(os.ExpandEnv(string(data)))
+	expanded := expandSecrets(ctx, sp, string(data))
+	warnUnresolvedSecrets(logger.GetLogger(ctx), path, expanded)
+	data = []byte(expanded)
 
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
@@ -119,23 +144,31 @@ func LoadGenieConfig(ctx context.Context, sp security.SecretProvider, path strin
 		return GenieConfig{}, fmt.Errorf("unsupported config file extension: %s", ext)
 	}
 
-	// Final checks to ensure env vars override loaded config if empty in config but present in env?
-	// The `os.ExpandEnv` above handles ${VAR} inside the config file.
-	// But `LoadGenieConfig` logic usually means "Config File > Defaults".
-	// Defaults are populated from Env Vars in the initialization above.
-	// If a config file is loaded, `yaml.Unmarshal` overwrites fields.
-	// If the config file does NOT specify them, the defaults (from Env) remain thanks to zero value check?
-	// No, `Unmarshal` starts with the struct `cfg`.
-	// If a field is missing in YAML, it keeps the existing value in `cfg`.
-	// So:
-	// 1. cfg init with env vars
-	// 2. Unmarshal applies file values over it
-	// Result: Config File > Env Vars. This is correct precedence.
-
 	// If skills roots not set in config, check environment variable
 	if len(cfg.SkillsRoots) == 0 {
 		if skillsRoot := get("SKILLS_ROOT"); skillsRoot != "" {
 			cfg.SkillsRoots = []string{skillsRoot}
+		}
+	}
+
+	// Validate provider tokens — warn if a provider that typically
+	// requires an API key is configured without one.
+	logr := logger.GetLogger(ctx)
+	for _, p := range cfg.ModelConfig.Providers {
+		ptInfo := providerTokenInfo{
+			Provider:  p.Provider,
+			ModelName: p.ModelName,
+			Token:     p.Token,
+			Host:      p.Host,
+		}
+		err := ptInfo.validate()
+		if err != nil {
+			logr.Warn("model provider configured without API token",
+				"provider", p.Provider,
+				"model", p.ModelName,
+				"config_path", path,
+				"hint", "set the token field or configure the secret in [security.secrets]",
+			)
 		}
 	}
 

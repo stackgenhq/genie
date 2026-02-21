@@ -317,6 +317,16 @@ func (m *Messenger) convertAndPublish(ctx context.Context, act schema.Activity) 
 		Timestamp: time.Now(),
 	}
 
+	// Extract file attachments from Teams activity.
+	for _, a := range act.Attachments {
+		att := messenger.Attachment{
+			Name:        a.Name,
+			URL:         a.ContentURL,
+			ContentType: a.ContentType,
+		}
+		msg.Content.Attachments = append(msg.Content.Attachments, att)
+	}
+
 	select {
 	case m.incoming <- msg:
 	default:
@@ -413,9 +423,61 @@ func (m *Messenger) FormatApproval(req messenger.SendRequest, info messenger.App
 	return req
 }
 
-// FormatClarification returns the request unchanged for now.
-// TODO: add Teams Adaptive Card formatting for clarification questions.
-func (m *Messenger) FormatClarification(req messenger.SendRequest, _ messenger.ClarificationInfo) messenger.SendRequest {
+// FormatClarification builds a Teams Adaptive Card for a clarification question.
+func (m *Messenger) FormatClarification(req messenger.SendRequest, info messenger.ClarificationInfo) messenger.SendRequest {
+	body := []any{
+		// Header
+		map[string]any{
+			"type":   "TextBlock",
+			"text":   "❓ Question from Genie",
+			"size":   "Large",
+			"weight": "Bolder",
+			"wrap":   true,
+		},
+	}
+
+	// Context (if provided)
+	if info.Context != "" {
+		body = append(body, map[string]any{
+			"type":  "TextBlock",
+			"text":  fmt.Sprintf("💡 **Context**: %s", info.Context),
+			"wrap":  true,
+			"color": "Accent",
+		})
+	}
+
+	// Question body
+	body = append(body, map[string]any{
+		"type":      "TextBlock",
+		"text":      info.Question,
+		"wrap":      true,
+		"separator": true,
+	})
+
+	// Footer
+	body = append(body, map[string]any{
+		"type":     "TextBlock",
+		"text":     "_Reply with your answer._",
+		"wrap":     true,
+		"size":     "Small",
+		"isSubtle": true,
+	})
+
+	adaptiveCard := map[string]any{
+		"contentType": "application/vnd.microsoft.card.adaptive",
+		"content": map[string]any{
+			"type":    "AdaptiveCard",
+			"$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+			"version": "1.4",
+			"body":    body,
+		},
+	}
+
+	if req.Metadata == nil {
+		req.Metadata = make(map[string]any)
+	}
+	req.Metadata["attachments"] = []any{adaptiveCard}
+
 	return req
 }
 

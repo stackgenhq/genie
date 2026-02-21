@@ -110,3 +110,61 @@ type CronHistory struct {
 func (CronHistory) TableName() string {
 	return "cron_history"
 }
+
+// ShortMemory is the GORM model for the short_memories table.
+// It is a generic, TTL-bounded key-value store that different subsystems
+// can use for short-lived data by setting a unique MemoryType. This avoids
+// creating per-feature tables for transient data (e.g. reaction ledger,
+// cooldown trackers, pending confirmations).
+type ShortMemory struct {
+	// Key is the primary lookup key (e.g. a message ID for reaction correlation).
+	Key string `gorm:"primaryKey;type:text" json:"key"`
+	// MemoryType logically separates different subsystems sharing this table
+	// (e.g. "reaction_ledger", "cooldown_tracker").
+	MemoryType string `gorm:"primaryKey;type:text;index:idx_short_memory_type" json:"memory_type"`
+	// Value stores the subsystem-specific data as JSON.
+	Value string `gorm:"type:text;not null" json:"value"`
+	// ExpiresAt is when this entry should be considered expired.
+	// Queries should filter WHERE expires_at > NOW().
+	ExpiresAt time.Time `gorm:"not null;index:idx_short_memory_expires" json:"expires_at"`
+	// CreatedAt tracks when the entry was first created.
+	CreatedAt time.Time `gorm:"not null" json:"created_at"`
+}
+
+// TableName overrides the default GORM table name.
+func (ShortMemory) TableName() string {
+	return "short_memories"
+}
+
+// ClarifyStatus represents the lifecycle state of a [Clarification] row.
+type ClarifyStatus string
+
+const (
+	// ClarifyStatusPending indicates the question is waiting for a user answer.
+	ClarifyStatusPending ClarifyStatus = "pending"
+	// ClarifyStatusAnswered indicates the user has provided an answer.
+	ClarifyStatusAnswered ClarifyStatus = "answered"
+	// ClarifyStatusExpired indicates the question was not answered within the
+	// allowed window and was expired during startup recovery.
+	ClarifyStatusExpired ClarifyStatus = "expired"
+)
+
+// Clarification is the GORM model for the "clarifications" table.
+// Each invocation of the ask_clarifying_question tool creates one row.
+// Rows are durable across server restarts, enabling [clarify.RecoverPending]
+// to re-register waiter channels for questions still awaiting answers.
+type Clarification struct {
+	ID            uuid.UUID     `gorm:"primaryKey;type:text" json:"id"`
+	Question      string        `gorm:"type:text;not null" json:"question"`                                                 // the question shown to the user
+	Context       string        `gorm:"type:text;default:''" json:"context,omitempty"`                                      // optional LLM-provided context
+	Answer        string        `gorm:"type:text;default:''" json:"answer,omitempty"`                                       // the user's response (empty until answered)
+	Status        ClarifyStatus `gorm:"type:text;not null;default:'pending';index:idx_clarifications_status" json:"status"` // pending → answered | expired
+	SenderContext string        `gorm:"type:text;default:''" json:"sender_context,omitempty"`                               // opaque platform sender ID (e.g. "slack:U1234:C5678")
+	CreatedAt     time.Time     `gorm:"not null" json:"created_at"`
+	AnsweredAt    *time.Time    `json:"answered_at,omitempty"` // set when status transitions to answered or expired
+}
+
+// TableName overrides the default GORM table name.
+func (Clarification) TableName() string {
+	return "clarifications"
+}

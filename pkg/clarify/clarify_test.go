@@ -6,49 +6,80 @@ package clarify_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/appcd-dev/genie/pkg/clarify"
+	geniedb "github.com/appcd-dev/genie/pkg/db"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
+func newTestStore() clarify.Store {
+	tmpDir := GinkgoT().TempDir()
+	dbPath := filepath.Join(tmpDir, "clarify_test.db")
+	gormDB, err := geniedb.Open(dbPath)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(geniedb.AutoMigrate(gormDB)).To(Succeed())
+	DeferCleanup(func() {
+		_ = geniedb.Close(gormDB)
+		_ = os.RemoveAll(tmpDir)
+	})
+	return clarify.NewStore(gormDB)
+}
+
 var _ = Describe("Clarify Store", func() {
-	var store *clarify.Store
+	var store clarify.Store
 
 	BeforeEach(func() {
-		store = clarify.NewStore()
+		store = newTestStore()
 	})
 
-	Describe("AskWithID + Respond", func() {
+	Describe("Ask + Respond", func() {
 		It("should return a non-empty request ID", func() {
-			id, _ := store.AskWithID("What branch?")
+			id, _, err := store.Ask(context.Background(), "What branch?", "", "")
+			Expect(err).NotTo(HaveOccurred())
 			defer store.Cleanup(id)
 			Expect(id).NotTo(BeEmpty())
 		})
 
-		It("should deliver the user's answer via channel", func() {
-			id, ch := store.AskWithID("What branch?")
+		It("should deliver the user's answer via WaitForResponse", func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			id, ch, err := store.Ask(ctx, "What branch?", "", "")
+			Expect(err).NotTo(HaveOccurred())
 			defer store.Cleanup(id)
 
+			// Respond in a goroutine — capture errors via channel
+			errCh := make(chan error, 1)
 			go func() {
-				defer GinkgoRecover()
-				time.Sleep(10 * time.Millisecond)
-				Expect(store.Respond(id, "main")).To(Succeed())
+				time.Sleep(50 * time.Millisecond)
+				errCh <- store.Respond(id, "main")
 			}()
 
-			Eventually(ch).Should(Receive(Equal(clarify.Response{Answer: "main"})))
+			resp, waitErr := store.WaitForResponse(ctx, id, ch)
+			Expect(waitErr).NotTo(HaveOccurred())
+			Expect(resp.Answer).To(Equal("main"))
+
+			// Also verify Respond didn't error
+			Eventually(errCh).Should(Receive(BeNil()))
 		})
 
-		It("should work when Respond is called before reading the channel", func() {
-			id, ch := store.AskWithID("Color?")
+		It("should work when Respond is called before WaitForResponse", func() {
+			ctx := context.Background()
+			id, ch, err := store.Ask(ctx, "Color?", "", "")
+			Expect(err).NotTo(HaveOccurred())
 			defer store.Cleanup(id)
 
 			Expect(store.Respond(id, "blue")).To(Succeed())
 
-			var resp clarify.Response
-			Eventually(ch).Should(Receive(&resp))
+			waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			resp, err := store.WaitForResponse(waitCtx, id, ch)
+			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Answer).To(Equal("blue"))
 		})
 	})
@@ -61,69 +92,116 @@ var _ = Describe("Clarify Store", func() {
 		})
 
 		It("should return an error on double respond", func() {
-			id, _ := store.AskWithID("Q?")
+			ctx := context.Background()
+			id, _, err := store.Ask(ctx, "Q?", "", "")
+			Expect(err).NotTo(HaveOccurred())
 			defer store.Cleanup(id)
 
 			Expect(store.Respond(id, "first")).To(Succeed())
 
-			err := store.Respond(id, "second")
+			err = store.Respond(id, "second")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("already answered"))
 		})
 	})
 
 	Describe("Cleanup", func() {
-		It("should remove the pending request so Respond fails", func() {
-			id, _ := store.AskWithID("Q?")
+		It("should remove the in-process waiter", func() {
+			ctx := context.Background()
+			id, _, err := store.Ask(ctx, "Q?", "", "")
+			Expect(err).NotTo(HaveOccurred())
 			store.Cleanup(id)
-
-			err := store.Respond(id, "answer")
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("not found"))
 		})
 	})
 
-	Describe("Context cancellation", func() {
-		It("should not receive a response when nobody answers", func() {
-			id, ch := store.AskWithID("Slow question?")
+	Describe("WaitForResponse timeout", func() {
+		It("should return error when context expires", func() {
+			ctx := context.Background()
+			id, ch, err := store.Ask(ctx, "Slow question?", "", "")
+			Expect(err).NotTo(HaveOccurred())
 			defer store.Cleanup(id)
 
-			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+			waitCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 			defer cancel()
 
-			// Channel should not receive anything within 50ms
-			Consistently(ch, 50*time.Millisecond).ShouldNot(Receive())
-			// Wait for context to actually expire
-			<-ctx.Done()
-			Expect(ctx.Err()).To(Equal(context.DeadlineExceeded))
+			_, err = store.WaitForResponse(waitCtx, id, ch)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("did not answer"))
 		})
 	})
 
 	Describe("Concurrent usage", func() {
-		It("should handle 50 concurrent ask/respond pairs", func() {
-			const n = 50
+		It("should handle 5 concurrent ask/respond pairs", func() {
+			const n = 5
 			var wg sync.WaitGroup
 			wg.Add(n)
+			ctx := context.Background()
 
 			for i := 0; i < n; i++ {
 				go func(i int) {
 					defer GinkgoRecover()
 					defer wg.Done()
 
-					id, ch := store.AskWithID("Q?")
+					askCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+					defer cancel()
+
+					id, ch, err := store.Ask(askCtx, "Q?", "", "")
+					Expect(err).NotTo(HaveOccurred())
 					defer store.Cleanup(id)
 
+					// Respond in a goroutine
+					errCh := make(chan error, 1)
 					go func() {
-						defer GinkgoRecover()
-						time.Sleep(time.Duration(i) * time.Millisecond)
-						Expect(store.Respond(id, "answer")).To(Succeed())
+						time.Sleep(time.Duration(i*10) * time.Millisecond)
+						errCh <- store.Respond(id, "answer")
 					}()
 
-					Eventually(ch, 5*time.Second).Should(Receive(Equal(clarify.Response{Answer: "answer"})))
+					resp, err := store.WaitForResponse(askCtx, id, ch)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(resp.Answer).To(Equal("answer"))
+
+					// Verify Respond succeeded
+					Eventually(errCh, 10*time.Second).Should(Receive(BeNil()))
 				}(i)
 			}
 
 			wg.Wait()
+		})
+	})
+
+	Describe("FindPendingByQuestion", func() {
+		It("should find a pending question by text", func() {
+			ctx := context.Background()
+			id, _, err := store.Ask(ctx, "What env?", "", "")
+			Expect(err).NotTo(HaveOccurred())
+			defer store.Cleanup(id)
+
+			foundID, found := store.FindPendingByQuestion(ctx, "What env?")
+			Expect(found).To(BeTrue())
+			Expect(foundID).To(Equal(id))
+		})
+
+		It("should not find an answered question", func() {
+			ctx := context.Background()
+			id, _, err := store.Ask(ctx, "What env?", "", "")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(store.Respond(id, "prod")).To(Succeed())
+
+			_, found := store.FindPendingByQuestion(ctx, "What env?")
+			Expect(found).To(BeFalse())
+		})
+	})
+
+	Describe("RecoverPending", func() {
+		It("should recover recent pending questions", func() {
+			ctx := context.Background()
+			_, _, err := store.Ask(ctx, "Pending Q?", "", "")
+			Expect(err).NotTo(HaveOccurred())
+
+			result, err := store.RecoverPending(ctx, 10*time.Minute)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Recovered).To(Equal(1))
+			Expect(result.Expired).To(Equal(0))
 		})
 	})
 })

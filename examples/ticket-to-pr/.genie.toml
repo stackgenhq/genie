@@ -1,0 +1,131 @@
+# ─── Ticket-to-PR: End-to-End Automation ──────────────────────────────
+# This configuration showcases Genie's full pipeline:
+#   Issue Tracker → Code → Tests → PR → Slack Notification
+#
+# Prerequisites:
+#   export GEMINI_API_KEY="..."
+#   export OPENAI_API_KEY="..."
+#   export GITHUB_TOKEN="..."
+#   export PM_API_TOKEN="..."       # Linear / Jira / Asana API token
+#   export SLACK_APP_TOKEN="..."    # xapp-...
+#   export SLACK_BOT_TOKEN="..."    # xoxb-...
+#   ollama serve && ollama pull nomic-embed-text
+
+skills_roots = ["../skills"]
+
+[db_config]
+db_file = "${PWD}/.genie/ticket-to-pr.db"
+
+# ── Model Configuration ─────────────────────────────────────────────
+# Multi-model routing: the right brain for each phase.
+
+[model_config]
+
+# Planning: deep reasoning for architecture and ticket analysis
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-pro-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "planning"
+
+# Tool Calling: fast, reliable function calling for file ops and SCM
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "tool_calling"
+
+# Efficiency: simple tasks, summarization, status updates
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "efficiency"
+
+# ── Source Code Management (GitHub) ──────────────────────────────────
+[scm]
+provider = "github"
+token = "${GITHUB_TOKEN}"
+
+# ── Project Management (Linear) ─────────────────────────────────────
+# Swap for Jira or Asana as needed:
+#   provider = "jira"
+#   base_url = "https://mycompany.atlassian.net"
+#   email = "me@company.com"
+[project_management]
+provider = "linear"
+api_token = "${PM_API_TOKEN}"
+base_url = "https://linear.app/"
+
+# ── Slack Integration ────────────────────────────────────────────────
+# Stream progress, post PR links, and handle HITL approvals inline.
+# Setup:
+#   1. Create a Slack app at https://api.slack.com/apps
+#   2. Enable Socket Mode → generate App-Level Token (xapp-)
+#   3. Add scopes: chat:write, app_mentions:read, im:history
+#   4. Install to workspace → copy Bot Token (xoxb-)
+[messenger]
+platform = "slack"
+allowed_senders = [] # empty = all senders allowed
+
+[messenger.slack]
+app_token = "${SLACK_APP_TOKEN}"
+bot_token = "${SLACK_BOT_TOKEN}"
+
+# ── Vector Memory ───────────────────────────────────────────────────
+# Remembers ticket context, code patterns, and previous decisions
+# across sessions. Uses local Ollama embeddings.
+[vector_memory]
+embedding_provider = "ollama"
+ollama_url = "http://localhost:11434"
+ollama_model = "nomic-embed-text"
+persistence_dir = "${PWD}/.genie/vector_store"
+
+# ── AG-UI Server ────────────────────────────────────────────────────
+# Web interface for browser-based interaction alongside Slack.
+[agui]
+port = 8080
+cors_origins = ["*"]
+
+# ── Human-in-the-Loop ──────────────────────────────────────────────
+# Read-only tools auto-approved. Write operations require Slack approval.
+# Genie sends rich Block Kit cards with Approve/Reject/Revisit buttons.
+[hitl]
+always_allowed = [
+    "send_message",
+    "memory_store",
+    "memory_search",
+    "search_runbook",
+    "web_search",
+    "duckduckgo_search",
+    "read_file",
+    "list_file",
+    "read_multiple_files",
+    "search_content",
+    "search_file",
+    "scm_list_repos",
+    "scm_list_prs",
+    "scm_get_pr",
+    "scm_list_pr_changes",
+    "scm_list_pr_comments",
+    "scm_list_pr_commits",
+    "projectmanagement_get_issue",
+    "projectmanagement_list_issues",
+    "projectmanagement_search_issues",
+    "projectmanagement_list_teams",
+    "projectmanagement_list_labels",
+    "projectmanagement_list_users",
+    "http_request",
+]
+
+# ── PII Redaction ───────────────────────────────────────────────────
+# Scrub secrets before they reach memory or audit logs.
+[pii]
+entropy_threshold = 3.6
+
+# ── Observability ───────────────────────────────────────────────────
+# Optional: connect Langfuse for cost tracking and trace debugging.
+# [langfuse]
+# public_key = "${LANGFUSE_PUBLIC_KEY}"
+# secret_key = "${LANGFUSE_SECRET_KEY}"
+# host = "https://cloud.langfuse.com"

@@ -280,6 +280,25 @@
                     <div id="hitl-body" class="config-section-body"></div>
                 </div>
 
+                <!-- Toolwrap Middleware -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('toolwrap-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">🔧</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Tool Middleware Pipeline</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Resilience, observability & security for every
+                                    tool call</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="toolwrap-body" class="config-section-body"></div>
+                </div>
+
                 <!-- Security -->
                 <div class="config-section">
                     <div class="config-section-header" onclick="toggleSection('security-body')">
@@ -297,6 +316,25 @@
                         </svg>
                     </div>
                     <div id="security-body" class="config-section-body"></div>
+                </div>
+
+                <!-- PII Redaction -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('pii-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">🛡️</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">PII Redaction</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Entropy-based automatic scrubbing of
+                                    secrets, API keys, and sensitive data before storage</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="pii-body" class="config-section-body"></div>
                 </div>
                 <div class="config-section">
                     <div class="config-section-header" onclick="toggleSection('db-config-body')">

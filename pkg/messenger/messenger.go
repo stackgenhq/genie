@@ -34,6 +34,8 @@ const (
 	PlatformGoogleChat Platform = "googlechat"
 	// PlatformWhatsApp represents the WhatsApp Business messaging platform.
 	PlatformWhatsApp Platform = "whatsapp"
+	// PlatformAGUI represents the AG-UI SSE server (in-process adapter).
+	PlatformAGUI Platform = "agui"
 )
 
 // ChannelType classifies a conversation channel.
@@ -79,6 +81,10 @@ type Attachment struct {
 	ContentType string
 	// Size is the file size in bytes (0 if unknown).
 	Size int64
+	// LocalPath is the path to the downloaded file on disk. Populated when
+	// the adapter downloads the attachment (e.g., WhatsApp encrypted media).
+	// Empty if only metadata is available (e.g., Slack URLs that require auth).
+	LocalPath string
 }
 
 // MessageContent holds the body of a message.
@@ -89,15 +95,47 @@ type MessageContent struct {
 	Attachments []Attachment
 }
 
+// MessageType distinguishes incoming message kinds on the Receive channel.
+type MessageType string
+
+const (
+	// MessageTypeDefault is a normal text/media message.
+	MessageTypeDefault MessageType = ""
+	// MessageTypeReaction is an emoji reaction to an existing message.
+	// When Type == MessageTypeReaction, ReactionEmoji and ReactedMessageID
+	// are populated. This allows the system to use reactions as human
+	// feedback signals for episodic memory (e.g. 👍 = positive, 👎 = negative).
+	MessageTypeReaction MessageType = "reaction"
+)
+
+// SendType distinguishes message actions routed through Messenger.Send.
+type SendType string
+
+const (
+	// SendTypeMessage is the default: deliver a text (or rich) message.
+	SendTypeMessage SendType = ""
+	// SendTypeReaction adds an emoji reaction to an existing message.
+	// Requires ReplyToMessageID (the message to react to) and Emoji.
+	SendTypeReaction SendType = "reaction"
+)
+
 // SendRequest contains all parameters needed to send a message.
 type SendRequest struct {
+	// Type selects the action. Default ("") sends a normal message.
+	// Use SendTypeReaction to react to an existing message with an emoji.
+	Type SendType
 	// Channel is the target channel/conversation.
 	Channel Channel
-	// Content is the message body.
+	// Content is the message body (ignored for reactions).
 	Content MessageContent
 	// ThreadID is an optional thread/reply-chain identifier for threaded replies.
 	// Leave empty to post at top level.
 	ThreadID string
+	// ReplyToMessageID, if set, quotes/replies to the specified message.
+	// For reactions, this is the message ID to react to.
+	ReplyToMessageID string
+	// Emoji is the reaction emoji (e.g. "👍"). Only used when Type is SendTypeReaction.
+	Emoji string
 	// Metadata holds platform-specific key-value pairs that adapters can use
 	// for features not covered by the common interface (e.g., Slack blocks,
 	// Discord embeds).
@@ -118,6 +156,9 @@ type IncomingMessage struct {
 	ID string
 	// Platform identifies which platform the message came from.
 	Platform Platform
+	// Type distinguishes regular messages from reactions.
+	// Empty string means a normal text/media message.
+	Type MessageType
 	// Channel is the conversation where the message was posted.
 	Channel Channel
 	// Sender is the author of the message.
@@ -130,6 +171,13 @@ type IncomingMessage struct {
 	Timestamp time.Time
 	// Metadata holds platform-specific data not captured by common fields.
 	Metadata map[string]any
+
+	// ReactionEmoji is the emoji used in a reaction (e.g. "👍", "👎").
+	// Only populated when Type == MessageTypeReaction.
+	ReactionEmoji string
+	// ReactedMessageID is the platform-assigned ID of the message being
+	// reacted to. Only populated when Type == MessageTypeReaction.
+	ReactedMessageID string
 }
 
 func (msg IncomingMessage) String() string {

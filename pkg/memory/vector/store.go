@@ -24,6 +24,7 @@ import (
 //counterfeiter:generate . IStore
 type IStore interface {
 	Search(ctx context.Context, query string, limit int) ([]SearchResult, error)
+	SearchWithFilter(ctx context.Context, query string, limit int, filter map[string]string) ([]SearchResult, error)
 	Add(ctx context.Context, items ...BatchItem) error
 	Delete(ctx context.Context, ids ...string) error
 	Close(ctx context.Context) error
@@ -176,16 +177,37 @@ func (s *Store) Add(ctx context.Context, items ...BatchItem) error {
 // Search finds the most semantically similar documents to the query text.
 // It returns up to limit results ordered by descending similarity.
 func (s *Store) Search(ctx context.Context, query string, limit int) ([]SearchResult, error) {
+	return s.SearchWithFilter(ctx, query, limit, nil)
+}
+
+// SearchWithFilter finds semantically similar documents, optionally filtered
+// by metadata key-value pairs. Only documents whose metadata contains ALL
+// specified filter entries are returned. Pass nil for unfiltered search.
+// This enables source-based memory isolation (e.g. per-sender, per-channel).
+func (s *Store) SearchWithFilter(ctx context.Context, query string, limit int, filter map[string]string) ([]SearchResult, error) {
 	embedding, err := s.embedder.GetEmbedding(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
 	}
 
-	res, err := s.vs.Search(ctx, &vectorstore.SearchQuery{
+	searchQuery := &vectorstore.SearchQuery{
 		Vector:     embedding,
 		Limit:      limit,
 		SearchMode: vectorstore.SearchModeVector,
-	})
+	}
+
+	// Apply metadata filter if provided.
+	if len(filter) > 0 {
+		metaFilter := make(map[string]any, len(filter))
+		for k, v := range filter {
+			metaFilter[k] = v
+		}
+		searchQuery.Filter = &vectorstore.SearchFilter{
+			Metadata: metaFilter,
+		}
+	}
+
+	res, err := s.vs.Search(ctx, searchQuery)
 	if err != nil {
 		return nil, fmt.Errorf("vector search failed: %w", err)
 	}

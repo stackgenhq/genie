@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"os"
 	"time"
+
+	"github.com/appcd-dev/genie/pkg/pii"
 )
 
 //go:generate go tool counterfeiter -generate
@@ -38,6 +40,8 @@ const (
 	EventToolCall EventType = "tool_call"
 	// EventConversation is logged for a complete Q&A turn.
 	EventConversation EventType = "conversation"
+	// EventMemoryAccess is logged when memory is read, written, or deleted.
+	EventMemoryAccess EventType = "memory_access"
 )
 
 // LogRequest contains all fields needed to record an audit event.
@@ -79,6 +83,8 @@ func NewFileAuditor(filePath string) (*FileAuditor, error) {
 }
 
 // Log records an audit event with structured fields.
+// Metadata values are PII-redacted before writing to prevent sensitive data
+// (user messages, API keys, tool arguments) from persisting in the audit log.
 func (a *FileAuditor) Log(ctx context.Context, req LogRequest) {
 	attrs := []any{
 		slog.String("event_type", string(req.EventType)),
@@ -90,6 +96,10 @@ func (a *FileAuditor) Log(ctx context.Context, req LogRequest) {
 	if len(req.Metadata) > 0 {
 		metaAttrs := make([]any, 0, len(req.Metadata))
 		for k, v := range req.Metadata {
+			// PII-redact string values to prevent leaking secrets/PII to disk.
+			if s, ok := v.(string); ok {
+				v = pii.Redact(s)
+			}
 			metaAttrs = append(metaAttrs, slog.Any(k, v))
 		}
 		attrs = append(attrs, slog.Group("metadata", metaAttrs...))

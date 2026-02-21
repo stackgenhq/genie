@@ -35,8 +35,6 @@ jobs:
             go-${{ runner.arch }}-
       - name: Setup Repo
         uses: ./.github/actions/setup
-        with:
-          GO_LIB_TOKEN: ${{ secrets.GO_LIB_TOKEN }}
       - name: Install quill
         run: |
           curl -sSfL https://raw.githubusercontent.com/anchore/quill/main/install.sh | sh -s -- -b /usr/local/bin
@@ -46,10 +44,6 @@ jobs:
           audience: sts.amazonaws.com
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
-      - name: Configure Git for private repos
-        run: |
-          git config --global url."https://${{ secrets.GO_LIB_TOKEN }}:x-oauth-basic@github.com".insteadOf "https://github.com"
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Run GoReleaser
         if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref, '-rc.')
         env:

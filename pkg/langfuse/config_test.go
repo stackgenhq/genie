@@ -1,9 +1,20 @@
 package langfuse
 
 import (
+	"context"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
+
+// fakeSecretProvider implements security.SecretProvider for testing.
+type fakeSecretProvider struct {
+	secrets map[string]string
+}
+
+func (f *fakeSecretProvider) GetSecret(_ context.Context, name string) (string, error) {
+	return f.secrets[name], nil
+}
 
 var _ = Describe("Config", func() {
 	DescribeTable("langfuseHost (full URL for HTTP API)",
@@ -28,4 +39,73 @@ var _ = Describe("Config", func() {
 		Entry("http:// with port", "http://localhost:3000", "localhost:3000"),
 		Entry("https:// with port", "https://langfuse.example.com:8443", "langfuse.example.com:8443"),
 	)
+})
+
+var _ = Describe("DefaultConfig", func() {
+	It("should resolve secrets from SecretProvider", func() {
+		sp := &fakeSecretProvider{
+			secrets: map[string]string{
+				"LANGFUSE_PUBLIC_KEY": "pk-test",
+				"LANGFUSE_SECRET_KEY": "sk-test",
+				"LANGFUSE_HOST":       "langfuse.example.com",
+			},
+		}
+		cfg := DefaultConfig(context.Background(), sp)
+		Expect(cfg.PublicKey).To(Equal("pk-test"))
+		Expect(cfg.SecretKey).To(Equal("sk-test"))
+		Expect(cfg.Host).To(Equal("langfuse.example.com"))
+	})
+
+	It("should return empty config when secrets are not set", func() {
+		sp := &fakeSecretProvider{secrets: map[string]string{}}
+		cfg := DefaultConfig(context.Background(), sp)
+		Expect(cfg.PublicKey).To(BeEmpty())
+		Expect(cfg.SecretKey).To(BeEmpty())
+		Expect(cfg.Host).To(BeEmpty())
+	})
+})
+
+var _ = Describe("Config.NewClient", func() {
+	It("should return noopClient when credentials are missing", func() {
+		cfg := Config{PublicKey: "", SecretKey: "", Host: ""}
+		c := cfg.NewClient()
+		Expect(c).NotTo(BeNil())
+		// noopClient should return the default prompt
+		result := c.GetPrompt(context.Background(), "my_prompt", "default_value")
+		Expect(result).To(Equal("default_value"))
+	})
+
+	It("should return noopClient when only public key is set", func() {
+		cfg := Config{PublicKey: "pk", SecretKey: "", Host: ""}
+		c := cfg.NewClient()
+		result := c.GetPrompt(context.Background(), "test", "fallback")
+		Expect(result).To(Equal("fallback"))
+	})
+
+	It("should return real client when all credentials are set", func() {
+		cfg := Config{PublicKey: "pk", SecretKey: "sk", Host: "langfuse.example.com"}
+		c := cfg.NewClient()
+		Expect(c).NotTo(BeNil())
+		// The client is a *client struct, not noopClient
+		_, isNoop := c.(*noopClient)
+		Expect(isNoop).To(BeFalse())
+	})
+})
+
+var _ = Describe("GetPrompt (global)", func() {
+	BeforeEach(func() {
+		// Reset global state
+		defaultClient = nil
+	})
+
+	It("should return default when no client is configured", func() {
+		result := GetPrompt(context.Background(), "my_prompt", "default_text")
+		Expect(result).To(Equal("default_text"))
+	})
+
+	It("should delegate to defaultClient when configured", func() {
+		defaultClient = &noopClient{}
+		result := GetPrompt(context.Background(), "my_prompt", "default_text")
+		Expect(result).To(Equal("default_text"))
+	})
 })

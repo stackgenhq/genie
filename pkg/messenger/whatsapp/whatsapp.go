@@ -28,10 +28,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/messenger"
+	"github.com/appcd-dev/genie/pkg/messenger/media"
+	"github.com/appcd-dev/genie/pkg/qrutil"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -60,7 +65,7 @@ const DefaultStorePath = "~/.genie/whatsapp"
 type Config struct {
 	// StorePath is the directory for whatsmeow session/credential storage.
 	// Defaults to DefaultStorePath if empty.
-	StorePath string
+	StorePath string `json:"store_path" toml:"store_path" yaml:"store_path"`
 }
 
 // Messenger implements the [messenger.Messenger] interface for WhatsApp
@@ -137,7 +142,9 @@ func (m *Messenger) Connect(ctx context.Context) error {
 	m.incoming = make(chan messenger.IncomingMessage, m.adapterCfg.MessageBufferSize)
 
 	// Register event handler for incoming messages.
-	client.AddEventHandler(m.eventHandler)
+	client.AddEventHandler(func(evt interface{}) {
+		m.eventHandler(ctx, evt)
+	})
 
 	// Connect — if device is not yet linked, do QR pairing.
 	if client.Store.ID == nil {
@@ -153,15 +160,15 @@ func (m *Messenger) Connect(ctx context.Context) error {
 		for evt := range qrChan {
 			switch evt.Event {
 			case "code":
-				// Print QR code to terminal.
-				fmt.Println("\n╔══════════════════════════════════════╗")
-				fmt.Println("║   Scan this QR code with WhatsApp   ║")
-				fmt.Println("╚══════════════════════════════════════╝")
-				fmt.Println()
-				fmt.Println(evt.Code)
-				fmt.Println()
-				fmt.Println("Open WhatsApp → Settings → Linked Devices → Link a Device")
-				fmt.Println()
+				// Generate QR code as PNG image and print Unicode QR to terminal.
+				if _, err := qrutil.PrintToTerminal(
+					evt.Code,
+					m.cfg.StorePath,
+					"Scan this QR code with WhatsApp",
+					"Open WhatsApp → Settings → Linked Devices → Link a Device",
+				); err != nil {
+					log.Warn("failed to write QR code image", "error", err)
+				}
 			case "success":
 				log.Info("WhatsApp QR pairing successful")
 			case "timeout":
@@ -205,7 +212,7 @@ func (m *Messenger) Disconnect(ctx context.Context) error {
 	return nil
 }
 
-// Send delivers a message to a WhatsApp conversation.
+// Send delivers a message or reaction to a WhatsApp conversation.
 func (m *Messenger) Send(ctx context.Context, req messenger.SendRequest) (messenger.SendResponse, error) {
 	m.mu.RLock()
 	connected := m.connected
@@ -219,8 +226,30 @@ func (m *Messenger) Send(ctx context.Context, req messenger.SendRequest) (messen
 	// Channel ID should be a phone number in E.164 format (without +).
 	jid := types.NewJID(req.Channel.ID, types.DefaultUserServer)
 
-	msg := &waE2E.Message{
-		Conversation: stringPtr(req.Content.Text),
+	var msg *waE2E.Message
+	switch req.Type {
+	case messenger.SendTypeReaction:
+		if req.ReplyToMessageID == "" {
+			return messenger.SendResponse{}, fmt.Errorf("%w: reaction requires ReplyToMessageID", messenger.ErrSendFailed)
+		}
+		// Sender JID is the user we're reacting to (the original sender).
+		senderJID := types.NewJID(req.Channel.ID, types.DefaultUserServer)
+		msg = m.client.BuildReaction(jid, senderJID, req.ReplyToMessageID, req.Emoji)
+	default:
+		msg = &waE2E.Message{}
+		if req.ReplyToMessageID != "" {
+			// Reply-to: use ExtendedTextMessage with ContextInfo to create a
+			// swipe-reply quote referencing the original user message.
+			msg.ExtendedTextMessage = &waE2E.ExtendedTextMessage{
+				Text: stringPtr(req.Content.Text),
+				ContextInfo: &waE2E.ContextInfo{
+					StanzaID:    stringPtr(req.ReplyToMessageID),
+					Participant: stringPtr(req.Channel.ID + "@" + types.DefaultUserServer),
+				},
+			}
+		} else {
+			msg.Conversation = stringPtr(req.Content.Text)
+		}
 	}
 
 	resp, err := m.client.SendMessage(ctx, jid, msg)
@@ -252,31 +281,105 @@ func (m *Messenger) Platform() messenger.Platform {
 }
 
 // eventHandler processes whatsmeow events and publishes incoming messages.
-func (m *Messenger) eventHandler(evt interface{}) {
+func (m *Messenger) eventHandler(ctx context.Context, evt interface{}) {
 	switch v := evt.(type) {
 	case *events.Message:
-		m.handleMessage(v)
+		m.handleMessage(ctx, v)
+	default:
+		logger.GetLogger(ctx).Warn("unknown event type", "type", reflect.TypeOf(evt))
 	}
 }
 
 // handleMessage converts a whatsmeow message event to an IncomingMessage.
-func (m *Messenger) handleMessage(evt *events.Message) {
+func (m *Messenger) handleMessage(ctx context.Context, evt *events.Message) {
 	// Skip messages sent by us.
 	if evt.Info.IsFromMe {
 		return
 	}
 
-	// Extract text content.
+	// Extract text content, quoted message context, and media attachments.
 	text := ""
+	var quotedMsgID string
+	var attachments []messenger.Attachment
+
 	if evt.Message.GetConversation() != "" {
 		text = evt.Message.GetConversation()
-	} else if evt.Message.GetExtendedTextMessage() != nil {
-		text = evt.Message.GetExtendedTextMessage().GetText()
+	} else if ext := evt.Message.GetExtendedTextMessage(); ext != nil {
+		text = ext.GetText()
+		// When the user swipe-replies to a message, the ContextInfo
+		// contains the StanzaID of the quoted message. We capture this
+		// so the HITL system can match the reply to a specific approval.
+		if ci := ext.GetContextInfo(); ci != nil {
+			quotedMsgID = ci.GetStanzaID()
+		}
 	}
 
-	// Skip non-text messages for now.
-	if text == "" {
-		return
+	// Extract media attachments from platform-native message types.
+	// Each media type is downloaded via whatsmeow's encrypted download
+	// and saved to the local media directory so the LLM can access the files.
+	mediaDir := filepath.Join(m.cfg.StorePath, "media")
+
+	if doc := evt.Message.GetDocumentMessage(); doc != nil {
+		name := doc.GetFileName()
+		if name == "" {
+			name = "document"
+		}
+		mime := doc.GetMimetype()
+		if mime == "" {
+			mime = media.MIMEFromFilename(name)
+		}
+		att := messenger.Attachment{
+			Name:        name,
+			ContentType: mime,
+			Size:        int64(doc.GetFileLength()),
+		}
+		att.LocalPath = m.downloadAndSave(ctx, mediaDir, name, doc)
+		attachments = append(attachments, att)
+		if text == "" {
+			text = doc.GetCaption()
+		}
+	}
+
+	if img := evt.Message.GetImageMessage(); img != nil {
+		mime := img.GetMimetype()
+		name := media.NameFromMIME(mime, "image")
+		att := messenger.Attachment{
+			Name:        name,
+			ContentType: mime,
+			Size:        int64(img.GetFileLength()),
+		}
+		att.LocalPath = m.downloadAndSave(ctx, mediaDir, name, img)
+		attachments = append(attachments, att)
+		if text == "" {
+			text = img.GetCaption()
+		}
+	}
+
+	if vid := evt.Message.GetVideoMessage(); vid != nil {
+		mime := vid.GetMimetype()
+		name := media.NameFromMIME(mime, "video")
+		att := messenger.Attachment{
+			Name:        name,
+			ContentType: mime,
+			Size:        int64(vid.GetFileLength()),
+		}
+		att.LocalPath = m.downloadAndSave(ctx, mediaDir, name, vid)
+		attachments = append(attachments, att)
+		if text == "" {
+			text = vid.GetCaption()
+		}
+	}
+
+	if aud := evt.Message.GetAudioMessage(); aud != nil {
+		mime := aud.GetMimetype()
+		name := media.NameFromMIME(mime, "audio")
+		att := messenger.Attachment{
+			Name:        name,
+			ContentType: mime,
+			Size:        int64(aud.GetFileLength()),
+		}
+		att.LocalPath = m.downloadAndSave(ctx, mediaDir, name, aud)
+		attachments = append(attachments, att)
 	}
 
 	// Determine channel type.
@@ -289,6 +392,62 @@ func (m *Messenger) handleMessage(evt *events.Message) {
 		channelName = channelID
 	}
 
+	// Determine the sender's phone number. In group chats, whatsmeow may
+	// use a LID (Linked Identity, server="lid") instead of the phone number.
+	// We prefer the phone number (server="s.whatsapp.net") when available.
+	senderPhone := evt.Info.Sender.User
+	senderJID := evt.Info.Sender.ToNonAD().String()
+
+	// Handle emoji reactions (e.g. 👍, 👎) before the text/media check.
+	// Reactions carry no text or attachments but are valuable as human
+	// feedback signals for the episodic memory system.
+	if reaction := evt.Message.GetReactionMessage(); reaction != nil {
+		emoji := reaction.GetText()
+		if emoji == "" {
+			// Empty text means the user removed a reaction — ignore.
+			return
+		}
+		reactedMsgID := ""
+		if key := reaction.GetKey(); key != nil {
+			reactedMsgID = key.GetID()
+		}
+		incoming := messenger.IncomingMessage{
+			ID:               evt.Info.ID,
+			Platform:         messenger.PlatformWhatsApp,
+			Type:             messenger.MessageTypeReaction,
+			ReactionEmoji:    emoji,
+			ReactedMessageID: reactedMsgID,
+			Channel: messenger.Channel{
+				ID:   channelID,
+				Name: channelName,
+				Type: channelType,
+			},
+			Sender: messenger.Sender{
+				ID:          senderPhone,
+				Username:    senderJID,
+				DisplayName: evt.Info.PushName,
+			},
+			Timestamp: evt.Info.Timestamp,
+		}
+		logger.GetLogger(ctx).Info("reaction received",
+			"emoji", emoji,
+			"reacted_msg_id", reactedMsgID,
+			"sender", senderPhone,
+		)
+		select {
+		case m.incoming <- incoming:
+		default:
+			// Buffer full — drop rather than blocking.
+		}
+		return
+	}
+
+	// Skip if there's nothing to process — no text and no media.
+	if text == "" && len(attachments) == 0 {
+		logger.GetLogger(ctx).Info("skipping message with no text or media", "evt", evt)
+		return
+	}
+
 	incoming := messenger.IncomingMessage{
 		ID:       evt.Info.ID,
 		Platform: messenger.PlatformWhatsApp,
@@ -298,14 +457,23 @@ func (m *Messenger) handleMessage(evt *events.Message) {
 			Type: channelType,
 		},
 		Sender: messenger.Sender{
-			ID:          evt.Info.Sender.User,
-			Username:    evt.Info.Sender.User,
+			ID:          senderPhone,
+			Username:    senderJID,
 			DisplayName: evt.Info.PushName,
 		},
 		Content: messenger.MessageContent{
-			Text: text,
+			Text:        text,
+			Attachments: attachments,
 		},
 		Timestamp: evt.Info.Timestamp,
+	}
+
+	// Attach quoted message ID so HITL can resolve the specific approval
+	// that the user replied to.
+	if quotedMsgID != "" {
+		incoming.Metadata = map[string]any{
+			"quoted_message_id": quotedMsgID,
+		}
 	}
 
 	select {
@@ -313,6 +481,29 @@ func (m *Messenger) handleMessage(evt *events.Message) {
 	default:
 		// Buffer full — drop message rather than blocking.
 	}
+}
+
+// downloadAndSave downloads encrypted WhatsApp media and saves it to the
+// given directory with a unique timestamp prefix to prevent collisions.
+// Returns the absolute file path on success, or an empty string on failure.
+func (m *Messenger) downloadAndSave(ctx context.Context, dir, name string, msg whatsmeow.DownloadableMessage) string {
+	data, err := m.client.Download(ctx, msg)
+	if err != nil {
+		return ""
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return ""
+	}
+	// Prefix with nanosecond timestamp to prevent filename collisions
+	// when multiple files arrive with the same name.
+	ext := filepath.Ext(name)
+	base := strings.TrimSuffix(name, ext)
+	uniqueName := fmt.Sprintf("%s_%d%s", base, time.Now().UnixNano(), ext)
+	path := filepath.Join(dir, uniqueName)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return ""
+	}
+	return path
 }
 
 // stringPtr returns a pointer to the given string.

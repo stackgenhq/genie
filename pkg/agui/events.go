@@ -89,7 +89,8 @@ func (w *BackgroundWorker) HandleEvent(ctx context.Context, req EventRequest) (s
 		// Use a detached context with timeout. The HTTP request context
 		// would be cancelled immediately, but we still need a timeout
 		// so that hung LLM calls don't block worker slots forever.
-		runCtx, cancel := context.WithTimeout(context.Background(), bgWorkerTimeout)
+		ctx = context.WithoutCancel(ctx)
+		runCtx, cancel := context.WithTimeout(ctx, bgWorkerTimeout)
 		defer cancel()
 		w.runAgent(runCtx, req, runID)
 	}()

@@ -179,7 +179,7 @@ var _ = Describe("FormatClarification", func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 
-	It("returns the request unchanged (passthrough for now)", func() {
+	It("populates attachments metadata with Adaptive Card", func() {
 		req := messenger.SendRequest{
 			Channel: messenger.Channel{ID: "conv-123"},
 			Content: messenger.MessageContent{Text: "original text"},
@@ -191,8 +191,38 @@ var _ = Describe("FormatClarification", func() {
 		}
 
 		result := m.FormatClarification(req, info)
-		Expect(result.Content.Text).To(Equal("original text"))
-		Expect(result.Metadata).To(BeNil())
+		Expect(result.Metadata).To(HaveKey("attachments"))
+		attachments, ok := result.Metadata["attachments"].([]any)
+		Expect(ok).To(BeTrue())
+		Expect(attachments).To(HaveLen(1))
+
+		card := attachments[0].(map[string]any)
+		Expect(card["contentType"]).To(Equal("application/vnd.microsoft.card.adaptive"))
+
+		content := card["content"].(map[string]any)
+		body := content["body"].([]any)
+		// With context: header + context + question + footer = 4
+		Expect(body).To(HaveLen(4))
+
+		// Verify question appears in the body
+		questionBlock := body[2].(map[string]any)
+		Expect(questionBlock["text"]).To(Equal("What is the target environment?"))
+	})
+
+	It("omits context block when context is empty", func() {
+		req := messenger.SendRequest{}
+		info := messenger.ClarificationInfo{
+			RequestID: "clr-002",
+			Question:  "Which branch?",
+		}
+
+		result := m.FormatClarification(req, info)
+		attachments := result.Metadata["attachments"].([]any)
+		card := attachments[0].(map[string]any)
+		content := card["content"].(map[string]any)
+		body := content["body"].([]any)
+		// Without context: header + question + footer = 3
+		Expect(body).To(HaveLen(3))
 	})
 })
 

@@ -87,9 +87,7 @@ func NewSummarizer(ctx context.Context, modelProvider modelprovider.ModelProvide
 		Description: "Summarizes content into structured output formats",
 	}
 
-	exp, err := bio.ToExpert(ctx, modelProvider, &toolwrap.Service{
-		Auditor: auditor,
-	})
+	exp, err := bio.ToExpert(ctx, modelProvider, auditor, toolwrap.NewService(auditor, nil))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create summarizer expert: %w", err)
 	}

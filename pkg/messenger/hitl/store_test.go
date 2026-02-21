@@ -12,6 +12,15 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+// testOrigin creates a MessageOrigin from the "platform:senderID:channelID" pattern used in tests.
+func testOrigin(platform messenger.Platform, senderID, channelID string) *messenger.MessageOrigin {
+	return &messenger.MessageOrigin{
+		Platform: platform,
+		Sender:   messenger.Sender{ID: senderID},
+		Channel:  messenger.Channel{ID: channelID},
+	}
+}
+
 var _ = Describe("NotifierStore", func() {
 	var (
 		fakeStore     *hitlfakes.FakeApprovalStore
@@ -57,15 +66,10 @@ var _ = Describe("NotifierStore", func() {
 		})
 
 		Context("when a Slack sender context is present", func() {
-			var senderCtx string
-
-			BeforeEach(func() {
-				senderCtx = "slack:user1:C123"
-			})
-
 			It("sends a plaintext notification (rich formatting is adapter-specific)", func(ctx context.Context) {
-				ctxWithSender := messenger.WithSenderContext(ctx, senderCtx)
-				resp, err := sut.Create(ctxWithSender, req)
+				origin := testOrigin(messenger.PlatformSlack, "user1", "C123")
+				ctxWithOrigin := messenger.WithMessageOrigin(ctx, origin)
+				resp, err := sut.Create(ctxWithOrigin, req)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(resp).To(Equal(expectedApproval))
 
@@ -79,27 +83,19 @@ var _ = Describe("NotifierStore", func() {
 				Expect(sendReq.Content.Text).To(ContainSubstring("Approval Required"))
 				Expect(sendReq.Content.Text).To(ContainSubstring("write_file"))
 
-				// FakeMessenger's FormatApproval stub returns the request unchanged
-				// (no rich metadata), so only plaintext is asserted here.
-				// Platform-specific formatting is tested in each adapter's test suite.
-
 				// Verify pending mapping
-				pendingID, found := sut.GetPending(senderCtx)
+				senderCtx := origin.String()
+				pendingID, found := sut.GetPending(ctx, senderCtx)
 				Expect(found).To(BeTrue())
 				Expect(pendingID).To(Equal("app-123"))
 			})
 		})
 
 		Context("when a Teams sender context is present", func() {
-			var senderCtx string
-
-			BeforeEach(func() {
-				senderCtx = "teams:user2:T999"
-			})
-
 			It("sends a plaintext notification (rich formatting is adapter-specific)", func(ctx context.Context) {
-				ctxWithSender := messenger.WithSenderContext(ctx, senderCtx)
-				resp, err := sut.Create(ctxWithSender, req)
+				origin := testOrigin(messenger.PlatformTeams, "user2", "T999")
+				ctxWithOrigin := messenger.WithMessageOrigin(ctx, origin)
+				resp, err := sut.Create(ctxWithOrigin, req)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(resp).To(Equal(expectedApproval))
 
@@ -113,15 +109,10 @@ var _ = Describe("NotifierStore", func() {
 		})
 
 		Context("when a Google Chat sender context is present", func() {
-			var senderCtx string
-
-			BeforeEach(func() {
-				senderCtx = "googlechat:user3:G456"
-			})
-
 			It("sends a plaintext notification (rich formatting is adapter-specific)", func(ctx context.Context) {
-				ctxWithSender := messenger.WithSenderContext(ctx, senderCtx)
-				resp, err := sut.Create(ctxWithSender, req)
+				origin := testOrigin(messenger.PlatformGoogleChat, "user3", "G456")
+				ctxWithOrigin := messenger.WithMessageOrigin(ctx, origin)
+				resp, err := sut.Create(ctxWithOrigin, req)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(resp).To(Equal(expectedApproval))
 
@@ -135,15 +126,10 @@ var _ = Describe("NotifierStore", func() {
 		})
 
 		Context("when a text-only platform sender context is present", func() {
-			var senderCtx string
-
-			BeforeEach(func() {
-				senderCtx = "discord:user4:D789"
-			})
-
 			It("sends a text-only notification with pretty-printed args", func(ctx context.Context) {
-				ctxWithSender := messenger.WithSenderContext(ctx, senderCtx)
-				resp, err := sut.Create(ctxWithSender, req)
+				origin := testOrigin(messenger.PlatformDiscord, "user4", "D789")
+				ctxWithOrigin := messenger.WithMessageOrigin(ctx, origin)
+				resp, err := sut.Create(ctxWithOrigin, req)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(resp).To(Equal(expectedApproval))
 
@@ -162,27 +148,146 @@ var _ = Describe("NotifierStore", func() {
 	})
 
 	Describe("GetPending / RemovePending", func() {
-		var senderCtx string
-
 		BeforeEach(func() {
-			senderCtx = "teams:user2:T999"
 			fakeStore.CreateReturns(hitl.ApprovalRequest{ID: "app-456"}, nil)
 		})
 
 		It("manages pending state correctly", func(ctx context.Context) {
+			origin := testOrigin(messenger.PlatformTeams, "user2", "T999")
+			senderCtx := origin.String()
+
 			// Setup: Create an approval
-			ctxWithSender := messenger.WithSenderContext(ctx, senderCtx)
-			_, err := sut.Create(ctxWithSender, hitl.CreateRequest{})
+			ctxWithOrigin := messenger.WithMessageOrigin(ctx, origin)
+			_, err := sut.Create(ctxWithOrigin, hitl.CreateRequest{})
 			Expect(err).NotTo(HaveOccurred())
 
 			// Verify retrieval
-			val, found := sut.GetPending(senderCtx)
+			val, found := sut.GetPending(ctx, senderCtx)
 			Expect(found).To(BeTrue())
 			Expect(val).To(Equal("app-456"))
 
 			// Verify removal
-			sut.RemovePending(senderCtx)
-			_, found = sut.GetPending(senderCtx)
+			sut.RemovePending(ctx, senderCtx)
+			_, found = sut.GetPending(ctx, senderCtx)
+			Expect(found).To(BeFalse())
+		})
+	})
+
+	Describe("Resolve", func() {
+		It("should delegate to the real store", func(ctx context.Context) {
+			fakeStore.ResolveReturns(nil)
+			err := sut.Resolve(ctx, hitl.ResolveRequest{ApprovalID: "app-123", Decision: hitl.StatusApproved})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fakeStore.ResolveCallCount()).To(Equal(1))
+		})
+	})
+
+	Describe("WaitForResolution", func() {
+		It("should delegate to the real store", func(ctx context.Context) {
+			expected := hitl.ApprovalRequest{ID: "app-123", Status: hitl.StatusApproved}
+			fakeStore.WaitForResolutionReturns(expected, nil)
+
+			result, err := sut.WaitForResolution(ctx, "app-123")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(expected))
+			Expect(fakeStore.WaitForResolutionCallCount()).To(Equal(1))
+		})
+	})
+
+	Describe("Close", func() {
+		It("should delegate to the real store", func() {
+			fakeStore.CloseReturns(nil)
+			err := sut.Close()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fakeStore.CloseCallCount()).To(Equal(1))
+		})
+	})
+
+	Describe("IsAllowed", func() {
+		It("should delegate to the real store", func() {
+			fakeStore.IsAllowedReturns(true)
+			result := sut.IsAllowed("bash")
+			Expect(result).To(BeTrue())
+			Expect(fakeStore.IsAllowedCallCount()).To(Equal(1))
+		})
+
+		It("should return false when real store says no", func() {
+			fakeStore.IsAllowedReturns(false)
+			result := sut.IsAllowed("dangerous_tool")
+			Expect(result).To(BeFalse())
+		})
+	})
+
+	Describe("RecoverPending", func() {
+		It("should delegate to the real store", func(ctx context.Context) {
+			expected := hitl.RecoverResult{Recovered: 3}
+			fakeStore.RecoverPendingReturns(expected, nil)
+
+			result, err := sut.RecoverPending(ctx, 0)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(expected))
+			Expect(fakeStore.RecoverPendingCallCount()).To(Equal(1))
+		})
+	})
+
+	Describe("GetPendingByMessageID", func() {
+		It("should return empty when no mapping exists", func(ctx context.Context) {
+			_, found := sut.GetPendingByMessageID(ctx, "unknown-msg-id")
+			Expect(found).To(BeFalse())
+		})
+
+		It("should resolve approval ID from message ID after Create with Send", func(ctx context.Context) {
+			// Create an approval with messenger that returns a message ID
+			fakeStore.CreateReturns(hitl.ApprovalRequest{ID: "app-789"}, nil)
+			fakeMessenger.SendReturns(messenger.SendResponse{MessageID: "msg-abc"}, nil)
+
+			origin := testOrigin(messenger.PlatformSlack, "user5", "C456")
+			ctxWithOrigin := messenger.WithMessageOrigin(ctx, origin)
+			_, err := sut.Create(ctxWithOrigin, req)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Now look up approval by message ID
+			approvalID, found := sut.GetPendingByMessageID(ctx, "msg-abc")
+			Expect(found).To(BeTrue())
+			Expect(approvalID).To(Equal("app-789"))
+		})
+	})
+
+	Describe("RemovePendingByApprovalID", func() {
+		It("should remove a specific approval from the queue", func(ctx context.Context) {
+			// Create two approvals for the same sender
+			origin := testOrigin(messenger.PlatformSlack, "user6", "C789")
+			senderCtx := origin.String()
+			ctxWithOrigin := messenger.WithMessageOrigin(ctx, origin)
+
+			fakeStore.CreateReturnsOnCall(0, hitl.ApprovalRequest{ID: "app-1"}, nil)
+			fakeStore.CreateReturnsOnCall(1, hitl.ApprovalRequest{ID: "app-2"}, nil)
+
+			_, err := sut.Create(ctxWithOrigin, req)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = sut.Create(ctxWithOrigin, req)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Remove the second approval by ID
+			sut.RemovePendingByApprovalID(ctx, senderCtx, "app-2")
+
+			// First should still be pending
+			pendingID, found := sut.GetPending(ctx, senderCtx)
+			Expect(found).To(BeTrue())
+			Expect(pendingID).To(Equal("app-1"))
+		})
+
+		It("should clean up when queue becomes empty", func(ctx context.Context) {
+			origin := testOrigin(messenger.PlatformSlack, "user7", "C999")
+			senderCtx := origin.String()
+			ctxWithOrigin := messenger.WithMessageOrigin(ctx, origin)
+
+			fakeStore.CreateReturns(hitl.ApprovalRequest{ID: "app-only"}, nil)
+			_, err := sut.Create(ctxWithOrigin, req)
+			Expect(err).NotTo(HaveOccurred())
+
+			sut.RemovePendingByApprovalID(ctx, senderCtx, "app-only")
+			_, found := sut.GetPending(ctx, senderCtx)
 			Expect(found).To(BeFalse())
 		})
 	})

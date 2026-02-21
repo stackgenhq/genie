@@ -228,6 +228,17 @@ func (m *Messenger) messageCreate(_ *discordgo.Session, event *discordgo.Message
 		Timestamp: time.Now(),
 	}
 
+	// Extract file attachments from the Discord message.
+	for _, a := range event.Attachments {
+		att := messenger.Attachment{
+			Name:        a.Filename,
+			URL:         a.URL,
+			ContentType: a.ContentType,
+			Size:        int64(a.Size),
+		}
+		incoming.Content.Attachments = append(incoming.Content.Attachments, att)
+	}
+
 	select {
 	case m.incoming <- incoming:
 	default:

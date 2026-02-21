@@ -5,20 +5,22 @@ on:
     branches:
       - main
 
+# Restrict default token permissions to read-only; elevate per-job as needed.
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test
-    runs-on: ubuntu-24.04-med
-    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Check out code into the Go module directory
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 1
       - name: Setup Repo
         uses: ./.github/actions/setup
-        with:
-          GO_LIB_TOKEN: ${{ secrets.GO_LIB_TOKEN }}
       - name: fail on git diff
         run: |
           make fmt/fix
@@ -32,7 +34,7 @@ jobs:
           make test
       - name: check test coverage
         id: coverage
-        uses: vladopajic/go-test-coverage@v2
+        uses: vladopajic/go-test-coverage@v2.18.3
         with:
           profile: coverage.out
           local-prefix: stackgen-cli
@@ -40,13 +42,13 @@ jobs:
           threshold-package: 0
           threshold-total: 50
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
         with:
           version: latest
           args: --timeout=2m
           install-mode: binary
       - name: Add coverage info to PR
-        uses: thollander/actions-comment-pull-request@v2
+        uses: thollander/actions-comment-pull-request@fabd468d3a1a0b97feee5f6b9e499eab0dd903f6 # v2.5.0
         if: github.event_name == 'pull_request'
         with:
           message: |
@@ -56,12 +58,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 1
 
       - name: Run Trivy vulnerability scanner in repo mode
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@c1824fd6edce30d7ab345a9989de00bbd46ef284 # v0.34.0
         env:
           # https://github.com/aquasecurity/trivy-action/issues/389#issuecomment-2399206418
           # to get around ratelimiting issue
@@ -73,3 +75,27 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH,MEDIUM'
           exit-code: 1
+
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@c4a7bc332abaec03596ff2803dd7f3ca3a238975 # v3
+        with:
+          languages: go
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@c4a7bc332abaec03596ff2803dd7f3ca3a238975 # v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@c4a7bc332abaec03596ff2803dd7f3ca3a238975 # v3
+        with:
+          category: "/language:go"

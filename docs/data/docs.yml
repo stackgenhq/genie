@@ -175,6 +175,7 @@ config_sections:
         rows:
           - ["platform", "string", "—", "Which chat app — `slack`, `discord`, `telegram`, `teams`, `googlechat`, `whatsapp`"]
           - ["buffer_size", "int", "`100`", "Message queue size before dropping"]
+          - ["allowed_senders", "string[]", "`[]`", "Only respond to these sender IDs. Empty = all senders allowed. Supports prefix matching with `*` suffix (e.g. `91*` for all Indian numbers). For WhatsApp: use phone numbers without `+`."]
       - label: Slack
         columns: [Key, Description]
         rows:
@@ -310,7 +311,141 @@ config_sections:
     tables:
       - columns: [Key, Type, Default, Description]
         rows:
-          - ["always_allowed", "string[]", "`[]`", "List of tools that trigger an approval request, e.g. `['browser_click', 'run_command']`. Use `['*']` to require approval for <strong>all</strong> tools."]
+          - ["always_allowed", "string[]", "`[]`", "Tools that skip human approval (read-only/safe operations), e.g. `['read_file', 'list_file']`. Supports prefix wildcards like `browser_*`. Use `['*']` to auto-approve <strong>all</strong> tools (disables HITL)."]
+          - ["denied_tools", "string[]", "`[]`", "Tools the agent is completely forbidden from using — calls are rejected immediately with an error. Supports prefix wildcards like `browser_*`. Use `['*']` to block <strong>all</strong> tools."]
+
+  - id: toolwrap
+    icon: "🔧"
+    name: toolwrap
+    sidebar_desc: Tool Middleware Pipeline
+    detail_title: "🔧 toolwrap"
+    detail_desc: >
+      <strong>Production-Grade Middleware for Every Tool Call.</strong><br>
+      Every tool call in Genie flows through a composable middleware pipeline — the same
+      <code>func(next) next</code> pattern used in HTTP servers. The pipeline provides
+      <strong>resilience</strong> (rate limiting, circuit breaking, retries, concurrency control),
+      <strong>observability</strong> (OpenTelemetry metrics &amp; tracing), and
+      <strong>security</strong> (output sanitization, input validation, HITL approval) — all
+      configurable via YAML/TOML with zero code changes.<br><br>
+      Core middlewares (panic recovery, loop detection, caching, HITL, audit) are always active.
+      Opt-in middlewares are enabled individually via their <code>enabled</code> flag.
+      Backed by battle-tested libraries: <code>golang.org/x/time/rate</code>,
+      <code>golang.org/x/sync/semaphore</code>, <code>sony/gobreaker/v2</code>,
+      and <code>cenkalti/backoff/v4</code>.
+    subsections:
+      - label: Middleware Execution Order
+        columns: [Position, Middleware, Type, Purpose]
+        rows:
+          - ["1", "`PanicRecovery`", "Always-on", "Catches panics, prevents crash"]
+          - ["2", "`Tracing`", "Opt-in", "OpenTelemetry spans per tool call"]
+          - ["3", "`Metrics`", "Opt-in", "OTel counters + latency histogram"]
+          - ["4", "`Emitter`", "Always-on", "Streams responses to the UI"]
+          - ["5", "`Logger`", "Always-on", "Structured logging (debug/error)"]
+          - ["6", "`Audit`", "Always-on", "Audit trail for compliance"]
+          - ["7", "`Timeout`", "Opt-in", "Per-tool execution deadlines"]
+          - ["8", "`RateLimit`", "Opt-in", "Token-bucket rate limiting"]
+          - ["9", "`CircuitBreaker`", "Opt-in", "Three-state circuit (closed → open → half-open)"]
+          - ["10", "`Concurrency`", "Opt-in", "Weighted semaphore limiting"]
+          - ["11", "`Retry`", "Opt-in", "Exponential backoff with jitter"]
+          - ["12", "`LoopDetection`", "Always-on", "Blocks 3+ identical consecutive calls"]
+          - ["13", "`FailureLimit`", "Always-on", "Blocks tool after 3 consecutive failures"]
+          - ["14", "`SemanticCache`", "Always-on", "Deduplicates idempotent calls (TTL-based)"]
+          - ["15", "`Validation`", "Opt-in", "JSON schema validation on input args"]
+          - ["16", "`Sanitize`", "Opt-in", "Redacts secrets from tool output"]
+          - ["17", "`HITLApproval`", "Always-on", "Human approval gate for sensitive tools"]
+          - ["18", "`ContextEnrich`", "Always-on", "Injects thread/run IDs into context"]
+      - label: Resilience Configuration
+        columns: [Key, Type, Default, Description]
+        rows:
+          - ["timeout.enabled", "bool", "`false`", "Enable per-tool timeout enforcement"]
+          - ["timeout.default", "duration", "`30s`", "Default timeout for all tools"]
+          - ["timeout.per_tool", "map[string]duration", "`{}`", "Tool-specific overrides, e.g. `execute_code: 120s`"]
+          - ["rate_limit.enabled", "bool", "`false`", "Enable token-bucket rate limiting"]
+          - ["rate_limit.global_rate_per_minute", "float", "`60`", "Global calls per minute across all tools"]
+          - ["rate_limit.per_tool_rate_per_minute", "map[string]float", "`{}`", "Per-tool rate limits"]
+          - ["circuit_breaker.enabled", "bool", "`false`", "Enable per-tool circuit breakers"]
+          - ["circuit_breaker.failure_threshold", "int", "`5`", "Failures before circuit opens"]
+          - ["circuit_breaker.open_duration", "duration", "`30s`", "Cooldown before half-open probe"]
+          - ["concurrency.enabled", "bool", "`false`", "Enable weighted concurrency semaphore"]
+          - ["concurrency.global_limit", "int", "`10`", "Max simultaneous tool executions"]
+          - ["concurrency.per_tool_limits", "map[string]int", "`{}`", "Per-tool concurrency caps"]
+          - ["retry.enabled", "bool", "`false`", "Enable automatic retry with backoff"]
+          - ["retry.max_attempts", "int", "`3`", "Total attempts (including first call)"]
+          - ["retry.initial_backoff", "duration", "`500ms`", "Wait before first retry"]
+          - ["retry.max_backoff", "duration", "`10s`", "Maximum backoff cap"]
+      - label: Observability Configuration
+        columns: [Key, Type, Default, Description]
+        rows:
+          - ["metrics.enabled", "bool", "`false`", "Emit OTel metrics: call count, latency histogram, error count"]
+          - ["metrics.prefix", "string", "`tools`", "Metric name prefix, e.g. `myapp.tools.call.count`"]
+          - ["tracing.enabled", "bool", "`false`", "Create OTel spans per tool call with tool name and arg size"]
+      - label: Security Configuration
+        columns: [Key, Type, Default, Description]
+        rows:
+          - ["sanitize.enabled", "bool", "`false`", "Enable output sanitization (secret scrubbing)"]
+          - ["sanitize.replacement", "string", "`[REDACTED]`", "Replacement text for redacted values"]
+          - ["sanitize.per_tool", "map[string]string[]", "`{}`", "Tool-specific patterns to redact (case-insensitive)"]
+          - ["validation.enabled", "bool", "`false`", "Validate tool args against declared JSON schema"]
+      - label: Key Features
+        columns: [Feature, Detail]
+        rows:
+          - ["Zero-config defaults", "Core middlewares run out of the box — no configuration needed for panic recovery, loop detection, caching, audit, and HITL"]
+          - ["Config-driven", "Enable any opt-in middleware with a single `enabled = true` — no code changes, no recompilation"]
+          - ["Composable", "Mix and match middlewares, or build custom chains with `CompositeMiddleware`"]
+          - ["Per-tool granularity", "Timeout, rate limit, concurrency, circuit breaker, and sanitize all support per-tool overrides"]
+          - ["Battle-tested libraries", "Rate limiting via `x/time/rate`, semaphores via `x/sync/semaphore`, circuit breaking via `sony/gobreaker`, retries via `cenkalti/backoff`"]
+          - ["Observable", "OpenTelemetry metrics and tracing integrate with Datadog, Grafana, Jaeger, or any OTel-compatible backend"]
+    code_example:
+      label: Example TOML
+      code: |
+        [toolwrap]
+
+        # Resilience
+        [toolwrap.timeout]
+        enabled = true
+        default = "30s"
+        [toolwrap.timeout.per_tool]
+        execute_code = "120s"
+        web_search = "15s"
+
+        [toolwrap.rate_limit]
+        enabled = true
+        global_rate_per_minute = 60
+        [toolwrap.rate_limit.per_tool_rate_per_minute]
+        web_search = 10
+
+        [toolwrap.circuit_breaker]
+        enabled = true
+        failure_threshold = 5
+        open_duration = "30s"
+
+        [toolwrap.concurrency]
+        enabled = true
+        global_limit = 10
+        [toolwrap.concurrency.per_tool_limits]
+        web_search = 3
+
+        [toolwrap.retry]
+        enabled = true
+        max_attempts = 3
+        initial_backoff = "500ms"
+        max_backoff = "10s"
+
+        # Observability
+        [toolwrap.metrics]
+        enabled = true
+        prefix = "genie.tools"
+
+        [toolwrap.tracing]
+        enabled = true
+
+        # Security
+        [toolwrap.sanitize]
+        enabled = true
+        replacement = "[REDACTED]"
+        [toolwrap.sanitize.per_tool]
+        read_file = ["API_KEY", "password", "secret"]
+        execute_code = ["token"]
 
   - id: security
     icon: "🔐"
@@ -361,6 +496,120 @@ config_sections:
 
         # For local dev, just set env vars — no config changes needed.
         # export OPENAI_API_KEY="sk-..."
+
+  - id: pii
+    icon: "🛡️"
+    name: pii
+    sidebar_desc: PII Redaction
+    detail_title: "🛡️ pii"
+    detail_desc: >
+      <strong>Automatic Secret & PII Scrubbing.</strong><br>
+      Before any data reaches memory or the vector store, Genie's PII redaction layer automatically detects and
+      replaces sensitive information — API keys, passwords, tokens, credit card numbers, and high-entropy secrets —
+      with deterministic HMAC hashes like <code>[HIDDEN:a1b2c3]</code>.<br><br>
+      Powered by <a href="https://github.com/aragossa/pii-shield" target="_blank" class="text-purple-500 hover:text-purple-600">pii-shield</a>,
+      detection goes beyond simple regex: it uses <strong>Shannon entropy analysis</strong>, <strong>English bigram scoring</strong>,
+      <strong>Luhn credit card validation</strong>, and <strong>context-aware key detection</strong> to catch both known
+      patterns and novel random-looking secrets that regex would miss.<br><br>
+      <strong>Zero-config by default</strong> — works out of the box with sensible defaults. Tune the threshold only
+      if you need more or less aggressive detection.
+    tables:
+      - columns: [Key, Type, Default, Description]
+        rows:
+          - ["salt", "string", "— (random)", "HMAC key for deterministic hashing. Same input + same salt = same `[HIDDEN:hash]`. Set a stable value for log correlation across restarts."]
+          - ["entropy_threshold", "float", "`3.6`", "Shannon entropy score above which tokens are treated as secrets. Lower = more aggressive (2.0), higher = more permissive (5.0)."]
+          - ["min_secret_length", "int", "`6`", "Tokens shorter than this are never redacted (unless they are values of sensitive keys)."]
+          - ["sensitive_keys", "string[]", "`[pass, secret, token, ...]`", "Key names whose values are always redacted regardless of entropy. Case-insensitive."]
+          - ["custom_regexes", "array", "`[]`", "Custom regex patterns for deterministic detection. Each entry has `pattern` and `name`."]
+          - ["safe_regexes", "array", "`[]`", "Allowlist patterns — matching tokens are never redacted, even if high-entropy."]
+    subsections:
+      - label: Detection Methods
+        columns: [Method, What It Catches]
+        rows:
+          - ["Shannon Entropy", "Random-looking strings (API keys, tokens, hex secrets) that exceed the entropy threshold"]
+          - ["Bigram Analysis", "Distinguishes English words from random strings using letter-pair frequency scoring"]
+          - ["Context-Aware Keys", "Values of keys like `password=`, `secret:`, `token=` are redacted regardless of entropy"]
+          - ["Luhn Validation", "Credit card numbers verified with the Luhn checksum algorithm (not just digit patterns)"]
+          - ["Custom Regex", "User-defined patterns for domain-specific secrets (e.g. internal ticket IDs, advisory codes)"]
+          - ["Safe Regex", "Allowlist patterns that prevent false positives (e.g. version strings, build hashes)"]
+      - label: Key Features
+        columns: [Feature, Detail]
+        rows:
+          - ["Zero-config", "Works out of the box — no configuration needed for standard PII detection"]
+          - ["Deterministic hashing", "Same input always produces same `[HIDDEN:hash]` output, enabling log correlation"]
+          - ["Pre-storage scrubbing", "Applied automatically before `storeConversation` and `storeAccomplishment`"]
+          - ["No external dependencies", "Pure Go, stdlib-only — no cloud APIs, network calls, or NLP models required"]
+          - ["High performance", "Sync.Pool-based zero-alloc tokenizer, compiled regex cache, stack-allocated buffers"]
+    code_example:
+      label: Example TOML
+      code: |
+        [pii]
+        # Stable salt for deterministic hashing across restarts
+        salt = "my-team-correlation-salt-2026"
+
+        # Tune sensitivity (default 3.6 works for most cases)
+        entropy_threshold = 3.6
+        min_secret_length = 6
+
+        # Add domain-specific sensitive keys
+        sensitive_keys = ["pass", "secret", "token", "key", "ssn", "cvv"]
+
+        # Custom regex for internal patterns
+        [[pii.custom_regexes]]
+        pattern = '\bGHSA-[A-Za-z0-9-]+\b'
+        name = "github_advisory"
+
+        # Allowlist version strings (prevent false positives)
+        [[pii.safe_regexes]]
+        pattern = 'v\d+\.\d+\.\d+'
+        name = "semver"
+
+  - id: pensieve
+    icon: "🧠"
+    name: enable_pensieve
+    sidebar_desc: Context Self-Management
+    detail_title: "🧠 enable_pensieve"
+    detail_desc: >
+      <strong>The Agent Controls Its Own Memory.</strong><br>
+      Inspired by the <a href="https://arxiv.org/abs/2602.12108" target="_blank" class="text-purple-500 hover:text-purple-600">Pensieve Paradigm (StateLM)</a>,
+      these tools let Genie actively manage its own context window — pruning processed events,
+      checking remaining budget, and maintaining persistent notes that survive context pruning.<br><br>
+      When enabled, the agent uses a <strong>sawtooth pattern</strong>: ingest information, distill key
+      insights into notes, then prune the raw context to free up space. This lets the agent reason
+      over inputs far larger than the context window.<br><br>
+      <strong>Opt-in only</strong> — set <code>enable_pensieve = true</code> in your config.
+      Destructive tools (<code>delete_context</code>, <code>note</code>) require
+      <strong>Human-in-the-Loop approval</strong> by default.
+    tables:
+      - columns: [Key, Type, Default, Description]
+        rows:
+          - ["enable_pensieve", "bool", "`false`", "Master switch — set to `true` to activate the four Pensieve context tools"]
+    subsections:
+      - label: Available Tools
+        columns: [Tool, HITL Required, Description]
+        rows:
+          - ["`delete_context`", "✅ Yes", "Soft-mask specific events from visible context. Events are preserved for audit but hidden from the LLM. Use after extracting key info into notes."]
+          - ["`check_budget`", "❌ No", "Report context budget — total events, visible events, and masked events. The agent uses this to decide when to prune."]
+          - ["`note`", "✅ Yes", "Save a persistent note by key. Notes survive context pruning (stored in session state, not event stream). Overwrite by re-using the same key."]
+          - ["`read_notes`", "❌ No", "List all saved notes as a key→content map. Use to recall distilled information after pruning raw context."]
+      - label: How It Works
+        columns: [Phase, What Happens]
+        rows:
+          - ["1. Ingest", "Agent receives a large document or long conversation history"]
+          - ["2. Distill", "Agent calls `note` to save key findings, plans, or intermediate results"]
+          - ["3. Prune", "Agent calls `delete_context` to remove the raw events it already processed"]
+          - ["4. Continue", "Agent works with compact context (notes + remaining events), repeating as needed"]
+    code_example:
+      label: Example TOML
+      code: |
+        # Enable Pensieve context self-management
+        enable_pensieve = true
+
+        # HITL config: delete_context and note require approval by default.
+        # check_budget and read_notes are auto-approved (read-only).
+        # To auto-approve all Pensieve tools (not recommended):
+        # [hitl]
+        # always_allowed = ["delete_context", "note"]
 
   - id: langfuse
     icon: "🪢"
@@ -485,14 +734,29 @@ howto_guides:
     title: Getting Started
     desc: Install Genie and run your first command in under a minute.
     code: |
-      # Install via Homebrew
+      # ── Homebrew (macOS / Linux) ──
       brew install stackgenhq/homebrew-stackgen/genie
 
-      # Or run via Docker
+      # ── Go install ──
+      CGO_ENABLED=1 go install -mod=mod github.com/appcd-dev/genie@latest
+
+      # ── Build from source ──
+      git clone https://github.com/appcd-dev/stackgen-genie.git
+      cd stackgen-genie
+      make build    # binary at build/genie
+
+      # ── Docker ──
       docker run --rm -it \
         -v ~/.genie.toml:/root/.genie.toml \
         -v $(pwd):/workspace \
         ghcr.io/stackgenhq/genie:latest grant
+
+      # ── GitHub Releases ──
+      # Download from: https://github.com/appcd-dev/stackgen-genie/releases
+
+      # ── Windows (Scoop) ──
+      # scoop bucket add stackgen https://github.com/stackgenhq/homebrew-stackgen
+      # scoop install genie
 
       # Grant your first wish
       genie grant
@@ -644,6 +908,7 @@ howto_guides:
 
       [messenger]
       platform = "whatsapp"
+      allowed_senders = ["15551234567"]  # optional allowlist
 
       [messenger.whatsapp]
       store_path = "/var/lib/genie/whatsapp"
@@ -776,6 +1041,21 @@ architecture:
         - ["3. Execute", "For `COMPLEX` — run through the ReAcTree with working memory and tools"]
         - ["4. Store", "Persist the Q&A turn back into memory for future recall"]
         - ["5. Agents.md", "Load project-level coding standards from `Agents.md` and append to persona"]
+
+    - title: "🔧 Tool Middleware Pipeline (pkg/toolwrap)"
+      desc: >
+        Every tool call flows through a composable middleware chain before execution.
+        Provides resilience (rate limiting, circuit breaking, retries, concurrency control),
+        observability (OTel metrics & tracing), and security (output sanitization, HITL approval).
+        Core middlewares are always active; opt-in middlewares are config-driven.
+      columns: [Layer, Middlewares, Libraries Used]
+      rows:
+        - ["Observability", "`TracingMiddleware`, `MetricsMiddleware`", "`go.opentelemetry.io/otel`"]
+        - ["Core I/O", "`EmitterMiddleware`, `LoggerMiddleware`, `AuditMiddleware`", "Built-in"]
+        - ["Resilience", "`TimeoutMiddleware`, `RateLimitMiddleware`, `CircuitBreakerMiddleware`, `ConcurrencyMiddleware`, `RetryMiddleware`", "`x/time/rate`, `x/sync/semaphore`, `sony/gobreaker/v2`, `cenkalti/backoff/v4`"]
+        - ["Safety", "`LoopDetectionMiddleware`, `FailureLimitMiddleware`, `SemanticCacheMiddleware`", "Built-in"]
+        - ["Security", "`InputValidationMiddleware`, `OutputSanitizationMiddleware`, `HITLApprovalMiddleware`", "Built-in"]
+        - ["Context", "`ContextEnrichMiddleware`, `PanicRecoveryMiddleware`", "Built-in"]
 
     - title: "🌲 ReAcTree Engine (pkg/reactree)"
       desc: >

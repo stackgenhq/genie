@@ -51,9 +51,6 @@ var _ = Describe("WebSearch Tool", func() {
 				GoogleCX:     "", // Missing
 			}
 			tool := websearch.NewTool(cfg)
-			// It should still be usable, but backed by DDG.
-			// The tool name is always "web_search", so we can't easily distinguish from outside
-			// without introspecting the struct or running it.
 			Expect(tool.Declaration().Name).To(Equal("web_search"))
 		})
 
@@ -70,6 +67,16 @@ var _ = Describe("WebSearch Tool", func() {
 			tool := websearch.NewTool(websearch.Config{Provider: "ddg"})
 			Expect(tool.Declaration().Name).To(Equal("web_search"))
 		})
+
+		It("should fallback to duckduckgo for unknown provider names", func() {
+			tool := websearch.NewTool(websearch.Config{Provider: "yahoo"})
+			Expect(tool.Declaration().Name).To(Equal("web_search"))
+		})
+
+		It("should normalise provider with leading/trailing whitespace", func() {
+			tool := websearch.NewTool(websearch.Config{Provider: "  DuckDuckGo  "})
+			Expect(tool.Declaration().Name).To(Equal("web_search"))
+		})
 	})
 
 	Context("NewBingTool", func() {
@@ -83,6 +90,56 @@ var _ = Describe("WebSearch Tool", func() {
 			_, err := bt.Call(ctx, []byte(`{"query":"test"}`))
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("bing_api_key"))
+		})
+
+		It("should return error when Bing API returns non-200 status", func(ctx context.Context) {
+			bt := websearch.NewBingTool("invalid-key")
+			_, err := bt.Call(ctx, []byte(`{"query":"test"}`))
+			Expect(err).To(HaveOccurred())
+		})
+	})
+
+	Context("formatBingResults", func() {
+		It("should return 'No results found.' for empty response", func() {
+			resp := websearch.BingResponseForTest{}
+			result := websearch.FormatBingResultsForTest(resp)
+			Expect(result).To(Equal("No results found."))
+		})
+
+		It("should format a single result correctly", func() {
+			resp := websearch.BingResponseForTest{}
+			resp.WebPages.Value = []struct {
+				Name    string `json:"name"`
+				URL     string `json:"url"`
+				Snippet string `json:"snippet"`
+			}{
+				{
+					Name:    "Go Programming",
+					URL:     "https://golang.org",
+					Snippet: "An open source programming language.",
+				},
+			}
+			result := websearch.FormatBingResultsForTest(resp)
+			Expect(result).To(ContainSubstring("1. Go Programming"))
+			Expect(result).To(ContainSubstring("https://golang.org"))
+			Expect(result).To(ContainSubstring("An open source programming language."))
+		})
+
+		It("should format multiple results with correct numbering", func() {
+			resp := websearch.BingResponseForTest{}
+			resp.WebPages.Value = []struct {
+				Name    string `json:"name"`
+				URL     string `json:"url"`
+				Snippet string `json:"snippet"`
+			}{
+				{Name: "First", URL: "https://first.com", Snippet: "First snippet"},
+				{Name: "Second", URL: "https://second.com", Snippet: "Second snippet"},
+				{Name: "Third", URL: "https://third.com", Snippet: "Third snippet"},
+			}
+			result := websearch.FormatBingResultsForTest(resp)
+			Expect(result).To(ContainSubstring("1. First"))
+			Expect(result).To(ContainSubstring("2. Second"))
+			Expect(result).To(ContainSubstring("3. Third"))
 		})
 	})
 
@@ -151,8 +208,6 @@ var _ = Describe("WebSearch Tool", func() {
 				Provider:   "bing",
 				BingAPIKey: "invalid-key-triggering-failure",
 			}
-			// Note: NewTool might catch empty key, but here we provide a non-empty but invalid key
-			// so NewTool accepts it as Bing, but Search() fails.
 
 			// Mock DDG server
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -167,12 +222,33 @@ var _ = Describe("WebSearch Tool", func() {
 			}))
 			defer ts.Close()
 
-			tool := websearch.NewTool(cfg, websearch.WithDDGEndpoint(ts.URL)) // Bing backend initialized
+			tool := websearch.NewTool(cfg, websearch.WithDDGEndpoint(ts.URL))
 			res, err := tool.Call(ctx, []byte(`{"query":"golang"}`))
 
 			// We expect NO error, because it should fallback to DDG
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.(string)).To(ContainSubstring("DuckDuckGo"))
+		})
+
+		It("should search with DuckDuckGo when configured explicitly", func(ctx context.Context) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`
+					<div class="result__body">
+						<h2 class="result__title">
+							<a class="result__a" href="https://example.com">Example</a>
+						</h2>
+						<a class="result__snippet" href="https://example.com">An example site.</a>
+					</div>
+				`))
+			}))
+			defer ts.Close()
+
+			cfg := websearch.Config{Provider: "duckduckgo"}
+			tool := websearch.NewTool(cfg, websearch.WithDDGEndpoint(ts.URL))
+			res, err := tool.Call(ctx, []byte(`{"query":"example"}`))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(res.(string)).To(ContainSubstring("Example"))
 		})
 
 		It("should attempt to call the tool", func(ctx context.Context) {

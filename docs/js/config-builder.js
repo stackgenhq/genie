@@ -29,25 +29,38 @@
         web_search: { provider: 'duckduckgo', google_api_key: 'GOOGLE_API_KEY', google_cx: 'GOOGLE_CSE_ID', bing_api_key: 'BING_API_KEY' },
         vector_memory: { persistence_dir: '', embedding_provider: 'dummy', api_key: 'OPENAI_API_KEY', ollama_url: '', ollama_model: '', huggingface_url: '', gemini_api_key: 'GOOGLE_API_KEY', gemini_model: '' },
         messenger: {
-            platform: '', buffer_size: 100,
+            platform: '', buffer_size: 100, allowed_senders: [],
             slack: { app_token: 'SLACK_APP_TOKEN', bot_token: 'SLACK_BOT_TOKEN' },
             discord: { bot_token: 'DISCORD_BOT_TOKEN' },
             telegram: { token: 'TELEGRAM_BOT_TOKEN' },
             teams: { app_id: 'TEAMS_APP_ID', app_password: 'TEAMS_APP_PASSWORD', listen_addr: ':3978' },
             googlechat: { credentials_file: '', listen_addr: ':8080' },
-            whatsapp: { access_token: 'WHATSAPP_ACCESS_TOKEN', phone_number_id: 'WHATSAPP_PHONE_NUMBER_ID', app_secret: 'WHATSAPP_APP_SECRET', verify_token: 'WHATSAPP_VERIFY_TOKEN', listen_addr: ':8443' }
+            whatsapp: { store_path: '' }
         },
         scm: { provider: '', token: 'SCM_TOKEN', base_url: '' },
         pm: { provider: '', api_token: 'PM_API_TOKEN', base_url: '', email: '' },
         browser: { blocked_domains: [] },
         email: { provider: '', host: '', port: 587, username: '', password: '', imap_host: '', imap_port: 993 },
-        hitl: { always_allowed: [] },
+        hitl: { always_allowed: [], denied_tools: [] },
+        toolwrap: {
+            timeout: { enabled: false, default_timeout: '30s', per_tool: '' },
+            rate_limit: { enabled: false, global_rate_per_minute: 60, per_tool_rate_per_minute: '' },
+            circuit_breaker: { enabled: false, failure_threshold: 5, open_duration: '30s' },
+            concurrency: { enabled: false, global_limit: 10, per_tool_limits: '' },
+            retry: { enabled: false, max_attempts: 3, initial_backoff: '500ms', max_backoff: '10s' },
+            metrics: { enabled: false, prefix: 'tools' },
+            tracing: { enabled: false },
+            sanitize: { enabled: false, replacement: '[REDACTED]', per_tool: '' },
+            validation: { enabled: false }
+        },
         db_config: { db_file: '' },
         agui: { port: 8080, cors_origins: ['https://appcd-dev.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576 },
         langfuse: { public_key: 'LANGFUSE_PUBLIC_KEY', secret_key: 'LANGFUSE_SECRET_KEY', host: 'https://cloud.langfuse.com', enable_prompts: false },
         runbook: { runbook_paths: [] },
         cron: { enabled: false, tasks: [] },
-        security: { secrets: [] }
+        security: { secrets: [] },
+        pii: { salt: '', entropy_threshold: 3.6, min_secret_length: 6, sensitive_keys: [] },
+        enable_pensieve: false
     };
 
     var PROVIDERS = ['openai', 'gemini', 'anthropic'];
@@ -197,7 +210,9 @@
         renderBrowser();
         renderEmail();
         renderHITL();
+        renderToolwrap();
         renderSecurity();
+        renderPII();
         renderDBConfig();
         renderAGUI();
         renderLangfuse();
@@ -364,7 +379,8 @@
         var m = state.messenger;
         var fields = [
             fieldSelect('Platform', m.platform, PLATFORMS, function (v) { m.platform = v; renderAll(); }, 'Which chat app to connect Genie to — leave empty to disable messaging'),
-            fieldNumber('Buffer Size', m.buffer_size, function (v) { m.buffer_size = v; renderOutput(); }, 1, 10000, 'How many incoming messages to queue — increase for busy team channels')
+            fieldNumber('Buffer Size', m.buffer_size, function (v) { m.buffer_size = v; renderOutput(); }, 1, 10000, 'How many incoming messages to queue — increase for busy team channels'),
+            fieldText('Allowed Senders (comma-separated)', (m.allowed_senders || []).join(', '), function (v) { m.allowed_senders = splitCSV(v); renderOutput(); }, '15551234567, 15559876543', 'Only respond to these sender IDs (phone numbers for WhatsApp). Leave empty to allow all.')
         ];
         if (m.platform === 'slack') {
             fields.push(fieldEnvVar('App Token', m.slack.app_token, function (v) { m.slack.app_token = v; renderOutput(); }, 'SLACK_APP_TOKEN', 'Slack App-Level Token (starts with xapp-) — enables real-time Socket Mode'));
@@ -381,11 +397,7 @@
             fields.push(fieldText('Credentials File', m.googlechat.credentials_file, function (v) { m.googlechat.credentials_file = v; renderOutput(); }, '/path/to/service-account.json', 'Path to your Google Cloud service account key file'));
             fields.push(fieldText('Listen Address', m.googlechat.listen_addr, function (v) { m.googlechat.listen_addr = v; renderOutput(); }, ':8080', 'Network address where Genie listens for Google Chat webhook events'));
         } else if (m.platform === 'whatsapp') {
-            fields.push(fieldEnvVar('Access Token', m.whatsapp.access_token, function (v) { m.whatsapp.access_token = v; renderOutput(); }, 'WHATSAPP_ACCESS_TOKEN', 'WhatsApp Business API access token from Meta Developer Console'));
-            fields.push(fieldText('Phone Number ID', m.whatsapp.phone_number_id, function (v) { m.whatsapp.phone_number_id = v; renderOutput(); }, 'WHATSAPP_PHONE_NUMBER_ID', 'The Phone Number ID from your WhatsApp Business account settings'));
-            fields.push(fieldEnvVar('App Secret', m.whatsapp.app_secret, function (v) { m.whatsapp.app_secret = v; renderOutput(); }, 'WHATSAPP_APP_SECRET', 'Facebook App Secret — verifies webhook signatures for security'));
-            fields.push(fieldEnvVar('Verify Token', m.whatsapp.verify_token, function (v) { m.whatsapp.verify_token = v; renderOutput(); }, 'WHATSAPP_VERIFY_TOKEN', 'Your chosen webhook verification token — must match what you set in Meta Dashboard'));
-            fields.push(fieldText('Listen Address', m.whatsapp.listen_addr, function (v) { m.whatsapp.listen_addr = v; renderOutput(); }, ':8443', 'Network address where Genie listens for WhatsApp webhook events'));
+            fields.push(fieldText('Store Path', m.whatsapp.store_path, function (v) { m.whatsapp.store_path = v; renderOutput(); }, '~/.genie/whatsapp', 'Directory for WhatsApp session storage — leave empty for default (~/.genie/whatsapp). On first run, scan the QR code with your phone to pair.'));
         }
         c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
     }
@@ -465,7 +477,90 @@
         c.innerHTML = '';
         var h = state.hitl;
         c.appendChild(el('div', { className: 'space-y-4' }, [
-            fieldText('Read-Only Tools (comma-separated)', (h.always_allowed || []).join(', '), function (v) { h.always_allowed = splitCSV(v); renderOutput(); }, 'read_file, list_file', 'Tools that require explicit human approval before execution')
+            fieldText('Read-Only Tools (comma-separated)', (h.always_allowed || []).join(', '), function (v) { h.always_allowed = splitCSV(v); renderOutput(); }, 'read_file, list_file', 'Tools that skip human approval — safe read-only operations'),
+            fieldText('Denied Tools (comma-separated)', (h.denied_tools || []).join(', '), function (v) { h.denied_tools = splitCSV(v); renderOutput(); }, 'execute_code, run_shell', 'Tools that are completely blocked — the agent cannot use these at all. Supports wildcards (e.g. browser_*)')
+        ]));
+    }
+
+    // ── Toolwrap Middleware ──
+    function renderToolwrap() {
+        var c = $('toolwrap-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var tw = state.toolwrap;
+
+        // Timeout
+        c.appendChild(el('div', { className: 'space-y-3 mb-4' }, [
+            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Timeout'),
+            el('div', { className: 'grid grid-cols-1 sm:grid-cols-3 gap-4' }, [
+                fieldToggle('Enabled', tw.timeout.enabled, function (v) { tw.timeout.enabled = v; renderAll(); }, 'Enforce per-tool execution deadlines'),
+                tw.timeout.enabled ? fieldText('Default', tw.timeout.default_timeout, function (v) { tw.timeout.default_timeout = v; renderOutput(); }, '30s', 'Default timeout for all tools') : null,
+                tw.timeout.enabled ? fieldText('Per-Tool Overrides', tw.timeout.per_tool, function (v) { tw.timeout.per_tool = v; renderOutput(); }, 'execute_code:120s, web_search:15s', 'Tool-specific timeouts (name:duration, comma-separated)') : null
+            ].filter(Boolean))
+        ]));
+
+        // Rate Limit
+        c.appendChild(el('div', { className: 'space-y-3 mb-4' }, [
+            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Rate Limit'),
+            el('div', { className: 'grid grid-cols-1 sm:grid-cols-3 gap-4' }, [
+                fieldToggle('Enabled', tw.rate_limit.enabled, function (v) { tw.rate_limit.enabled = v; renderAll(); }, 'Token-bucket rate limiting'),
+                tw.rate_limit.enabled ? fieldNumber('Global Rate/min', tw.rate_limit.global_rate_per_minute, function (v) { tw.rate_limit.global_rate_per_minute = v; renderOutput(); }, 1, 10000, 'Calls per minute across all tools') : null,
+                tw.rate_limit.enabled ? fieldText('Per-Tool Rates', tw.rate_limit.per_tool_rate_per_minute, function (v) { tw.rate_limit.per_tool_rate_per_minute = v; renderOutput(); }, 'web_search:10, api_call:30', 'Per-tool limits (name:rate, comma-separated)') : null
+            ].filter(Boolean))
+        ]));
+
+        // Circuit Breaker
+        c.appendChild(el('div', { className: 'space-y-3 mb-4' }, [
+            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Circuit Breaker'),
+            el('div', { className: 'grid grid-cols-1 sm:grid-cols-3 gap-4' }, [
+                fieldToggle('Enabled', tw.circuit_breaker.enabled, function (v) { tw.circuit_breaker.enabled = v; renderAll(); }, 'Per-tool circuit breakers'),
+                tw.circuit_breaker.enabled ? fieldNumber('Failure Threshold', tw.circuit_breaker.failure_threshold, function (v) { tw.circuit_breaker.failure_threshold = v; renderOutput(); }, 1, 100, 'Failures before circuit opens') : null,
+                tw.circuit_breaker.enabled ? fieldText('Open Duration', tw.circuit_breaker.open_duration, function (v) { tw.circuit_breaker.open_duration = v; renderOutput(); }, '30s', 'Cooldown before half-open probe') : null
+            ].filter(Boolean))
+        ]));
+
+        // Concurrency
+        c.appendChild(el('div', { className: 'space-y-3 mb-4' }, [
+            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Concurrency'),
+            el('div', { className: 'grid grid-cols-1 sm:grid-cols-3 gap-4' }, [
+                fieldToggle('Enabled', tw.concurrency.enabled, function (v) { tw.concurrency.enabled = v; renderAll(); }, 'Weighted concurrency semaphore'),
+                tw.concurrency.enabled ? fieldNumber('Global Limit', tw.concurrency.global_limit, function (v) { tw.concurrency.global_limit = v; renderOutput(); }, 1, 1000, 'Max simultaneous tool executions') : null,
+                tw.concurrency.enabled ? fieldText('Per-Tool Limits', tw.concurrency.per_tool_limits, function (v) { tw.concurrency.per_tool_limits = v; renderOutput(); }, 'web_search:3, browser:2', 'Per-tool caps (name:limit, comma-separated)') : null
+            ].filter(Boolean))
+        ]));
+
+        // Retry
+        c.appendChild(el('div', { className: 'space-y-3 mb-4' }, [
+            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Retry'),
+            el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+                fieldToggle('Enabled', tw.retry.enabled, function (v) { tw.retry.enabled = v; renderAll(); }, 'Automatic retry with exponential backoff'),
+                tw.retry.enabled ? fieldNumber('Max Attempts', tw.retry.max_attempts, function (v) { tw.retry.max_attempts = v; renderOutput(); }, 1, 20, 'Total attempts including first call') : null,
+                tw.retry.enabled ? fieldText('Initial Backoff', tw.retry.initial_backoff, function (v) { tw.retry.initial_backoff = v; renderOutput(); }, '500ms', 'Wait before first retry') : null,
+                tw.retry.enabled ? fieldText('Max Backoff', tw.retry.max_backoff, function (v) { tw.retry.max_backoff = v; renderOutput(); }, '10s', 'Maximum backoff cap') : null
+            ].filter(Boolean))
+        ]));
+
+        // Observability row
+        c.appendChild(el('div', { className: 'space-y-3 mb-4' }, [
+            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Observability'),
+            el('div', { className: 'grid grid-cols-1 sm:grid-cols-3 gap-4' }, [
+                fieldToggle('Metrics', tw.metrics.enabled, function (v) { tw.metrics.enabled = v; renderAll(); }, 'Emit OTel metrics per tool call'),
+                tw.metrics.enabled ? fieldText('Prefix', tw.metrics.prefix, function (v) { tw.metrics.prefix = v; renderOutput(); }, 'tools', 'Metric name prefix') : null,
+                fieldToggle('Tracing', tw.tracing.enabled, function (v) { tw.tracing.enabled = v; renderOutput(); }, 'Create OTel spans per tool call')
+            ].filter(Boolean))
+        ]));
+
+        // Security row
+        c.appendChild(el('div', { className: 'space-y-3 mb-4' }, [
+            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Security'),
+            el('div', { className: 'grid grid-cols-1 sm:grid-cols-3 gap-4' }, [
+                fieldToggle('Sanitize', tw.sanitize.enabled, function (v) { tw.sanitize.enabled = v; renderAll(); }, 'Redact secrets from tool output'),
+                tw.sanitize.enabled ? fieldText('Replacement', tw.sanitize.replacement, function (v) { tw.sanitize.replacement = v; renderOutput(); }, '[REDACTED]', 'Text to replace redacted values') : null,
+                tw.sanitize.enabled ? fieldText('Per-Tool Patterns', tw.sanitize.per_tool, function (v) { tw.sanitize.per_tool = v; renderOutput(); }, 'read_file:API_KEY|password, execute_code:token', 'Patterns per tool (tool:pat1|pat2, comma-separated)') : null
+            ].filter(Boolean)),
+            el('div', { className: 'grid grid-cols-1 sm:grid-cols-3 gap-4 mt-2' }, [
+                fieldToggle('Validation', tw.validation.enabled, function (v) { tw.validation.enabled = v; renderOutput(); }, 'Validate tool args against JSON schema')
+            ])
         ]));
     }
 
@@ -492,6 +587,34 @@
             el('button', { className: 'btn-add mt-2', onClick: function () { sec.secrets.push({ name: '', url: '' }); renderAll(); } }, '+ Add Secret Mapping')
         );
         c.appendChild(el('p', { className: 'text-xs text-gray-400 mt-2' }, 'Tip: secrets not listed here automatically fall back to <code>os.Getenv</code>'));
+    }
+
+    // ── PII Redaction ──
+    function renderPII() {
+        var c = $('pii-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var p = state.pii;
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+            fieldText('HMAC Salt', p.salt, function (v) { p.salt = v; renderOutput(); }, 'my-stable-salt-for-correlation',
+                'Deterministic hashing key — same input + same salt = same [HIDDEN:hash]. Leave empty for random (hashes change on restart).'),
+            fieldNumber('Entropy Threshold', p.entropy_threshold, function (v) { p.entropy_threshold = parseFloat(v) || 3.6; renderOutput(); }, 2, 5,
+                'Shannon entropy score above which tokens are treated as secrets. Lower = more aggressive (2.0), higher = more permissive (5.0). Default: 3.6'),
+            fieldNumber('Min Secret Length', p.min_secret_length, function (v) { p.min_secret_length = v; renderOutput(); }, 1, 64,
+                'Tokens shorter than this are never redacted (unless they are values of sensitive keys). Default: 6'),
+            fieldText('Sensitive Keys (comma-separated)', (p.sensitive_keys || []).join(', '), function (v) { p.sensitive_keys = splitCSV(v); renderOutput(); },
+                'pass, secret, token, key, api_key, password',
+                'Key names whose values are always redacted regardless of entropy. Case-insensitive.')
+        ]));
+        c.appendChild(el('p', { className: 'text-xs text-gray-400 mt-2' },
+            'Powered by <a href="https://github.com/aragossa/pii-shield" class="text-purple-500 hover:underline" target="_blank">pii-shield</a> — entropy-based detection with Luhn CC validation, bigram analysis, and deterministic HMAC hashing.'));
+
+        // Pensieve toggle lives in PII section for proximity to security settings.
+        c.appendChild(el('div', { className: 'mt-6 pt-4', style: 'border-top: 1px solid rgba(0,0,0,0.06)' }, [
+            fieldToggle('Enable Pensieve Tools', state.enable_pensieve, function (v) { state.enable_pensieve = v; renderOutput(); },
+                'Activate context self-management tools (delete_context, check_budget, note, read_notes). ' +
+                'delete_context and note require HITL approval. Based on the StateLM paper (arXiv:2602.12108).')
+        ]));
     }
 
     // ── DB Config ──
@@ -667,6 +790,7 @@
         lines.push('[messenger]');
         lines.push('platform = ' + q(m.platform));
         if (m.buffer_size !== 100) lines.push('buffer_size = ' + m.buffer_size);
+        if (hasItems(m.allowed_senders)) lines.push('allowed_senders = [' + m.allowed_senders.filter(Boolean).map(q).join(', ') + ']');
         lines.push('');
         if (m.platform === 'slack') {
             lines.push('[messenger.slack]');
@@ -694,11 +818,7 @@
             lines.push('');
         } else if (m.platform === 'whatsapp') {
             lines.push('[messenger.whatsapp]');
-            if (m.whatsapp.access_token) lines.push('access_token = ' + q('${' + m.whatsapp.access_token + '}'));
-            if (m.whatsapp.phone_number_id) lines.push('phone_number_id = ' + q(m.whatsapp.phone_number_id));
-            if (m.whatsapp.app_secret) lines.push('app_secret = ' + q('${' + m.whatsapp.app_secret + '}'));
-            if (m.whatsapp.verify_token) lines.push('verify_token = ' + q('${' + m.whatsapp.verify_token + '}'));
-            if (m.whatsapp.listen_addr) lines.push('listen_addr = ' + q(m.whatsapp.listen_addr));
+            if (m.whatsapp.store_path) lines.push('store_path = ' + q(m.whatsapp.store_path));
             lines.push('');
         }
     }
@@ -706,6 +826,8 @@
     /** Assemble full TOML output. */
     function toToml() {
         var lines = [];
+        // Root-level keys must come before any [section] headers in TOML.
+        pensieveToToml(lines);
         if (state.providers.length > 0) providersToToml(lines);
 
 
@@ -719,10 +841,12 @@
         browserToToml(lines);
         emailToToml(lines);
         hitlToToml(lines);
+        toolwrapToToml(lines);
         dbConfigToToml(lines);
         aguiToToml(lines);
         langfuseToToml(lines);
         securityToToml(lines);
+        piiToToml(lines);
         runbookToToml(lines);
         cronToToml(lines);
         return lines.join('\n');
@@ -784,10 +908,121 @@
 
     function hitlToToml(lines) {
         var h = state.hitl;
-        if (!hasItems(h.always_allowed)) return;
+        if (!hasItems(h.always_allowed) && !hasItems(h.denied_tools)) return;
         lines.push('[hitl]');
-        lines.push('always_allowed = [' + h.always_allowed.filter(Boolean).map(q).join(', ') + ']');
+        if (hasItems(h.always_allowed)) lines.push('always_allowed = [' + h.always_allowed.filter(Boolean).map(q).join(', ') + ']');
+        if (hasItems(h.denied_tools)) lines.push('denied_tools = [' + h.denied_tools.filter(Boolean).map(q).join(', ') + ']');
         lines.push('');
+    }
+
+    function parseKVPairs(str) {
+        if (!str) return {};
+        var result = {};
+        str.split(',').forEach(function (pair) {
+            var parts = pair.trim().split(':');
+            if (parts.length === 2 && parts[0].trim() && parts[1].trim()) {
+                result[parts[0].trim()] = parts[1].trim();
+            }
+        });
+        return result;
+    }
+
+    function parseSanitizePerTool(str) {
+        if (!str) return {};
+        var result = {};
+        str.split(',').forEach(function (entry) {
+            var parts = entry.trim().split(':');
+            if (parts.length === 2 && parts[0].trim() && parts[1].trim()) {
+                result[parts[0].trim()] = parts[1].trim().split('|').map(function (s) { return s.trim(); }).filter(Boolean);
+            }
+        });
+        return result;
+    }
+
+    function toolwrapToToml(lines) {
+        var tw = state.toolwrap;
+        var any = tw.timeout.enabled || tw.rate_limit.enabled || tw.circuit_breaker.enabled ||
+            tw.concurrency.enabled || tw.retry.enabled || tw.metrics.enabled ||
+            tw.tracing.enabled || tw.sanitize.enabled || tw.validation.enabled;
+        if (!any) return;
+
+        if (tw.timeout.enabled) {
+            lines.push('[toolwrap.timeout]');
+            lines.push('enabled = true');
+            if (tw.timeout.default_timeout) lines.push('default = ' + q(tw.timeout.default_timeout));
+            var perTool = parseKVPairs(tw.timeout.per_tool);
+            if (Object.keys(perTool).length > 0) {
+                lines.push('[toolwrap.timeout.per_tool]');
+                Object.keys(perTool).forEach(function (k) { lines.push(k + ' = ' + q(perTool[k])); });
+            }
+            lines.push('');
+        }
+        if (tw.rate_limit.enabled) {
+            lines.push('[toolwrap.rate_limit]');
+            lines.push('enabled = true');
+            lines.push('global_rate_per_minute = ' + tw.rate_limit.global_rate_per_minute);
+            var perToolRL = parseKVPairs(tw.rate_limit.per_tool_rate_per_minute);
+            if (Object.keys(perToolRL).length > 0) {
+                lines.push('[toolwrap.rate_limit.per_tool_rate_per_minute]');
+                Object.keys(perToolRL).forEach(function (k) { lines.push(k + ' = ' + perToolRL[k]); });
+            }
+            lines.push('');
+        }
+        if (tw.circuit_breaker.enabled) {
+            lines.push('[toolwrap.circuit_breaker]');
+            lines.push('enabled = true');
+            lines.push('failure_threshold = ' + tw.circuit_breaker.failure_threshold);
+            if (tw.circuit_breaker.open_duration) lines.push('open_duration = ' + q(tw.circuit_breaker.open_duration));
+            lines.push('');
+        }
+        if (tw.concurrency.enabled) {
+            lines.push('[toolwrap.concurrency]');
+            lines.push('enabled = true');
+            lines.push('global_limit = ' + tw.concurrency.global_limit);
+            var perToolConc = parseKVPairs(tw.concurrency.per_tool_limits);
+            if (Object.keys(perToolConc).length > 0) {
+                lines.push('[toolwrap.concurrency.per_tool_limits]');
+                Object.keys(perToolConc).forEach(function (k) { lines.push(k + ' = ' + perToolConc[k]); });
+            }
+            lines.push('');
+        }
+        if (tw.retry.enabled) {
+            lines.push('[toolwrap.retry]');
+            lines.push('enabled = true');
+            lines.push('max_attempts = ' + tw.retry.max_attempts);
+            if (tw.retry.initial_backoff) lines.push('initial_backoff = ' + q(tw.retry.initial_backoff));
+            if (tw.retry.max_backoff) lines.push('max_backoff = ' + q(tw.retry.max_backoff));
+            lines.push('');
+        }
+        if (tw.metrics.enabled) {
+            lines.push('[toolwrap.metrics]');
+            lines.push('enabled = true');
+            if (tw.metrics.prefix) lines.push('prefix = ' + q(tw.metrics.prefix));
+            lines.push('');
+        }
+        if (tw.tracing.enabled) {
+            lines.push('[toolwrap.tracing]');
+            lines.push('enabled = true');
+            lines.push('');
+        }
+        if (tw.sanitize.enabled) {
+            lines.push('[toolwrap.sanitize]');
+            lines.push('enabled = true');
+            if (tw.sanitize.replacement) lines.push('replacement = ' + q(tw.sanitize.replacement));
+            var perToolSan = parseSanitizePerTool(tw.sanitize.per_tool);
+            if (Object.keys(perToolSan).length > 0) {
+                lines.push('[toolwrap.sanitize.per_tool]');
+                Object.keys(perToolSan).forEach(function (k) {
+                    lines.push(k + ' = [' + perToolSan[k].map(q).join(', ') + ']');
+                });
+            }
+            lines.push('');
+        }
+        if (tw.validation.enabled) {
+            lines.push('[toolwrap.validation]');
+            lines.push('enabled = true');
+            lines.push('');
+        }
     }
 
     function dbConfigToToml(lines) {
@@ -810,6 +1045,12 @@
         lines.push('');
     }
 
+    function pensieveToToml(lines) {
+        if (!state.enable_pensieve) return;
+        lines.push('enable_pensieve = true');
+        lines.push('');
+    }
+
     function securityToToml(lines) {
         var sec = state.security;
         var mapped = sec.secrets.filter(function (s) { return s.name && s.url; });
@@ -818,6 +1059,18 @@
         mapped.forEach(function (s) {
             lines.push(q(s.name) + ' = ' + q(s.url));
         });
+        lines.push('');
+    }
+
+    function piiToToml(lines) {
+        var p = state.pii;
+        var hasContent = p.salt || p.entropy_threshold !== 3.6 || p.min_secret_length !== 6 || hasItems(p.sensitive_keys);
+        if (!hasContent) return;
+        lines.push('[pii]');
+        if (p.salt) lines.push('salt = ' + q(p.salt));
+        if (p.entropy_threshold !== 3.6) lines.push('entropy_threshold = ' + p.entropy_threshold);
+        if (p.min_secret_length !== 6) lines.push('min_secret_length = ' + p.min_secret_length);
+        if (hasItems(p.sensitive_keys)) lines.push('sensitive_keys = [' + p.sensitive_keys.filter(Boolean).map(q).join(', ') + ']');
         lines.push('');
     }
 
@@ -936,6 +1189,10 @@
         lines.push('messenger:');
         lines.push('  platform: ' + m.platform);
         if (m.buffer_size !== 100) lines.push('  buffer_size: ' + m.buffer_size);
+        if (hasItems(m.allowed_senders)) {
+            lines.push('  allowed_senders:');
+            m.allowed_senders.filter(Boolean).forEach(function (s) { lines.push('    - ' + yq(s)); });
+        }
         if (m.platform === 'slack') {
             lines.push('  slack:');
             if (m.slack.app_token) lines.push('    app_token: ' + yq('${' + m.slack.app_token + '}'));
@@ -957,11 +1214,7 @@
             if (m.googlechat.listen_addr) lines.push('    listen_addr: ' + yq(m.googlechat.listen_addr));
         } else if (m.platform === 'whatsapp') {
             lines.push('  whatsapp:');
-            if (m.whatsapp.access_token) lines.push('    access_token: ' + yq('${' + m.whatsapp.access_token + '}'));
-            if (m.whatsapp.phone_number_id) lines.push('    phone_number_id: ' + yq(m.whatsapp.phone_number_id));
-            if (m.whatsapp.app_secret) lines.push('    app_secret: ' + yq('${' + m.whatsapp.app_secret + '}'));
-            if (m.whatsapp.verify_token) lines.push('    verify_token: ' + yq('${' + m.whatsapp.verify_token + '}'));
-            if (m.whatsapp.listen_addr) lines.push('    listen_addr: ' + yq(m.whatsapp.listen_addr));
+            if (m.whatsapp.store_path) lines.push('    store_path: ' + yq(m.whatsapp.store_path));
         }
         lines.push('');
     }
@@ -969,6 +1222,8 @@
     /** Assemble full YAML output. */
     function toYaml() {
         var lines = [];
+        // Root-level keys first for consistency with TOML output.
+        pensieveToYaml(lines);
         if (state.providers.length > 0) providersToYaml(lines);
         langfuseToYaml(lines);
 
@@ -983,9 +1238,11 @@
         browserToYaml(lines);
         emailToYaml(lines);
         hitlToYaml(lines);
+        toolwrapToYaml(lines);
         dbConfigToYaml(lines);
         aguiToYaml(lines);
         securityToYaml(lines);
+        piiToYaml(lines);
         runbookToYaml(lines);
         cronToYaml(lines);
         return lines.join('\n');
@@ -1045,10 +1302,96 @@
 
     function hitlToYaml(lines) {
         var h = state.hitl;
-        if (!hasItems(h.always_allowed)) return;
+        if (!hasItems(h.always_allowed) && !hasItems(h.denied_tools)) return;
         lines.push('hitl:');
-        lines.push('  always_allowed:');
-        h.always_allowed.filter(Boolean).forEach(function (t) { lines.push('    - ' + t); });
+        if (hasItems(h.always_allowed)) {
+            lines.push('  always_allowed:');
+            h.always_allowed.filter(Boolean).forEach(function (t) { lines.push('    - ' + t); });
+        }
+        if (hasItems(h.denied_tools)) {
+            lines.push('  denied_tools:');
+            h.denied_tools.filter(Boolean).forEach(function (t) { lines.push('    - ' + t); });
+        }
+        lines.push('');
+    }
+
+    function toolwrapToYaml(lines) {
+        var tw = state.toolwrap;
+        var any = tw.timeout.enabled || tw.rate_limit.enabled || tw.circuit_breaker.enabled ||
+            tw.concurrency.enabled || tw.retry.enabled || tw.metrics.enabled ||
+            tw.tracing.enabled || tw.sanitize.enabled || tw.validation.enabled;
+        if (!any) return;
+        lines.push('toolwrap:');
+
+        if (tw.timeout.enabled) {
+            lines.push('  timeout:');
+            lines.push('    enabled: true');
+            if (tw.timeout.default_timeout) lines.push('    default: ' + yq(tw.timeout.default_timeout));
+            var perTool = parseKVPairs(tw.timeout.per_tool);
+            if (Object.keys(perTool).length > 0) {
+                lines.push('    per_tool:');
+                Object.keys(perTool).forEach(function (k) { lines.push('      ' + k + ': ' + yq(perTool[k])); });
+            }
+        }
+        if (tw.rate_limit.enabled) {
+            lines.push('  rate_limit:');
+            lines.push('    enabled: true');
+            lines.push('    global_rate_per_minute: ' + tw.rate_limit.global_rate_per_minute);
+            var perToolRL = parseKVPairs(tw.rate_limit.per_tool_rate_per_minute);
+            if (Object.keys(perToolRL).length > 0) {
+                lines.push('    per_tool_rate_per_minute:');
+                Object.keys(perToolRL).forEach(function (k) { lines.push('      ' + k + ': ' + perToolRL[k]); });
+            }
+        }
+        if (tw.circuit_breaker.enabled) {
+            lines.push('  circuit_breaker:');
+            lines.push('    enabled: true');
+            lines.push('    failure_threshold: ' + tw.circuit_breaker.failure_threshold);
+            if (tw.circuit_breaker.open_duration) lines.push('    open_duration: ' + yq(tw.circuit_breaker.open_duration));
+        }
+        if (tw.concurrency.enabled) {
+            lines.push('  concurrency:');
+            lines.push('    enabled: true');
+            lines.push('    global_limit: ' + tw.concurrency.global_limit);
+            var perToolConc = parseKVPairs(tw.concurrency.per_tool_limits);
+            if (Object.keys(perToolConc).length > 0) {
+                lines.push('    per_tool_limits:');
+                Object.keys(perToolConc).forEach(function (k) { lines.push('      ' + k + ': ' + perToolConc[k]); });
+            }
+        }
+        if (tw.retry.enabled) {
+            lines.push('  retry:');
+            lines.push('    enabled: true');
+            lines.push('    max_attempts: ' + tw.retry.max_attempts);
+            if (tw.retry.initial_backoff) lines.push('    initial_backoff: ' + yq(tw.retry.initial_backoff));
+            if (tw.retry.max_backoff) lines.push('    max_backoff: ' + yq(tw.retry.max_backoff));
+        }
+        if (tw.metrics.enabled) {
+            lines.push('  metrics:');
+            lines.push('    enabled: true');
+            if (tw.metrics.prefix) lines.push('    prefix: ' + yq(tw.metrics.prefix));
+        }
+        if (tw.tracing.enabled) {
+            lines.push('  tracing:');
+            lines.push('    enabled: true');
+        }
+        if (tw.sanitize.enabled) {
+            lines.push('  sanitize:');
+            lines.push('    enabled: true');
+            if (tw.sanitize.replacement) lines.push('    replacement: ' + yq(tw.sanitize.replacement));
+            var perToolSan = parseSanitizePerTool(tw.sanitize.per_tool);
+            if (Object.keys(perToolSan).length > 0) {
+                lines.push('    per_tool:');
+                Object.keys(perToolSan).forEach(function (k) {
+                    lines.push('      ' + k + ':');
+                    perToolSan[k].forEach(function (p) { lines.push('        - ' + yq(p)); });
+                });
+            }
+        }
+        if (tw.validation.enabled) {
+            lines.push('  validation:');
+            lines.push('    enabled: true');
+        }
         lines.push('');
     }
 
@@ -1105,6 +1448,29 @@
         mapped.forEach(function (s) {
             lines.push('    ' + s.name + ': ' + yq(s.url));
         });
+        lines.push('');
+    }
+
+    function piiToYaml(lines) {
+        var p = state.pii;
+        var hasContent = p.salt || p.entropy_threshold !== 3.6 || p.min_secret_length !== 6 || hasItems(p.sensitive_keys);
+        if (!hasContent) return;
+        lines.push('pii:');
+        if (p.salt) lines.push('  salt: ' + yq(p.salt));
+        if (p.entropy_threshold !== 3.6) lines.push('  entropy_threshold: ' + p.entropy_threshold);
+        if (p.min_secret_length !== 6) lines.push('  min_secret_length: ' + p.min_secret_length);
+        if (hasItems(p.sensitive_keys)) {
+            lines.push('  sensitive_keys:');
+            p.sensitive_keys.filter(Boolean).forEach(function (k) {
+                lines.push('    - ' + yq(k));
+            });
+        }
+        lines.push('');
+    }
+
+    function pensieveToYaml(lines) {
+        if (!state.enable_pensieve) return;
+        lines.push('enable_pensieve: true');
         lines.push('');
     }
 

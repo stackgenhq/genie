@@ -1,110 +1,158 @@
+# ─────────────────────────────────────────────────────────
 # Genie Configuration Example
+#
+# Copy this file to .genie.toml (or .genie.yaml) and customise.
+# Values wrapped in ${VAR} are resolved from environment variables
+# by default, or from cloud secret stores when [security.secrets]
+# is configured. See README.md for details.
+# ─────────────────────────────────────────────────────────
 
-[model_config]
-# Configuration for the model provider
-# provider = "openai" # or "vertexai", "anthropic"
-# model = "gpt-4"
+# ── Model Providers ────────────────────────────────────────
+# Configure one or more LLM providers. Genie routes each task
+# to the provider/model marked as best for that task type.
 
+[[model_config.providers]]
+provider = "openai"
+model_name = "gpt-5.2"
+token = "${OPENAI_API_KEY}"
+good_for_task = "planning"
 
-[ops]
-# Maximum number of pages to process
-max_pages = 5
-# Enable verification steps after IaC generation
-enable_verification = true
-# Maximum number of verification retries
-max_verification_runs = 3
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "tool_calling"
 
-[secops]
-scanner = "snyk" # or "trivy"
+# Local models via Ollama (no token required)
+# [[model_config.providers]]
+# provider = "ollama"
+# model_name = "llama3"
+# host = "http://localhost:11434"
+# good_for_task = "efficiency"
 
-[secops.severity_thresholds]
-# Security violation thresholds. If violations exceed these counts, the check fails.
-high = 0
-medium = 42
-low = -1 # -1 means unlimited
+# ── AG-UI Server ───────────────────────────────────────────
+[agui]
+port = 8080
+cors_origins = ["*"]            # Restrict in production
+rate_limit = 0.5                # requests/sec per IP
+rate_burst = 3
+max_concurrent = 5
 
-# Skills configuration
-# List of directories containing skill definitions
-# Skills are reusable capabilities that agents can discover and execute
-# See https://agentskills.io for the skill specification
-skills_roots = ["./skills"]  # or absolute paths like "/path/to/skills1", "/path/to/skills2"
+# ── Skills ─────────────────────────────────────────────────
+# Reusable agent capabilities (https://agentskills.io)
+skills_roots = ["./skills"]
 
-# MCP (Model Context Protocol) Configuration
-# Configure MCP servers to extend Genie with additional tools and capabilities
-# Supports stdio, streamable_http, and sse transports
+# ── MCP Servers ────────────────────────────────────────────
+# Extend Genie with external tool servers via MCP.
 
-# Example 1: Stdio transport (local MCP server)
-[[mcp.servers]]
-name = "local-tools"
-transport = "stdio"
-command = "go"
-args = ["run", "./mcp-server/main.go"]
-timeout = "10s"
-include_tools = ["echo", "add"]  # Optional: allowlist specific tools
-# exclude_tools = ["dangerous_tool"]  # Optional: blocklist specific tools
-session_reconnect = 3  # Optional: enable session reconnection with max 3 attempts
-
-# Example 2: HTTP streaming transport with headers
-[[mcp.servers]]
-name = "terraform-registry"
-transport = "streamable_http"
-server_url = "http://localhost:3000/mcp"
-timeout = "10s"
-
-[mcp.servers.headers]
-User-Agent = "genie/1.0"
-Authorization = "Bearer your-token-here"
-
-# Optional: Tool filtering
-include_tools = ["search_modules", "get_module", "list_providers"]
-
-# Optional: Retry configuration
-[mcp.servers.retry]
-max_retries = 3
-initial_backoff = "500ms"
-backoff_factor = 2.0
-max_backoff = "8s"
-
-# Example 3: SSE transport with session reconnection
+# Local stdio server
 # [[mcp.servers]]
-# name = "sse-server"
-# transport = "sse"
-# server_url = "http://localhost:8080/sse"
+# name = "terraform-registry"
+# transport = "stdio"
+# command = "npx"
+# args = ["@anthropic/mcp-tf"]
 # timeout = "10s"
-# session_reconnect = 5  # Automatic recovery when server restarts
-# 
+
+# Remote HTTP server
+# [[mcp.servers]]
+# name = "remote-tools"
+# transport = "streamable_http"
+# server_url = "http://localhost:3000/mcp"
 # [mcp.servers.headers]
-# User-Agent = "genie/1.0"
-# 
-# [mcp.servers.retry]
-# max_retries = 5
-# initial_backoff = "1s"
-# backoff_factor = 1.5
-# max_backoff = "15s"
+# Authorization = "Bearer ${MCP_TOKEN}"
 
-# SCM (Source Control Management) configuration
+# ── Human-in-the-Loop ─────────────────────────────────────
+[hitl]
+# Tools listed here skip approval (read-only / safe operations).
+# Use ["*"] to auto-approve everything (not recommended in production).
+always_allowed = ["read_file", "list_file"]
+# Tools listed here are completely blocked.
+# denied_tools = ["delete_file"]
+
+# ── Web Search ─────────────────────────────────────────────
+# [web_search]
+# provider = "duckduckgo"    # or "google", "bing"
+# google_api_key = "${GOOGLE_API_KEY}"
+# google_cx = "${GOOGLE_CX}"
+
+# ── Vector Memory ─────────────────────────────────────────
+# [vector_memory]
+# persistence_dir = ".genie/memory"
+# embedding_provider = "openai"   # or "ollama", "dummy"
+# api_key = "${OPENAI_API_KEY}"
+
+# ── Source Control ─────────────────────────────────────────
 # [scm]
-# provider = "github"   # github, gitlab, bitbucket
-# token = "${SCM_TOKEN}" # Personal Access Token
-# base_url = ""          # Enterprise instance URL (optional)
+# provider = "github"
+# token = "${GITHUB_TOKEN}"
 
-#  Project Management configuration
-# [project_management]
-# provider = "jira"             # jira, linear, asana
-# api_token = "${PM_API_TOKEN}" # API token for authentication
-# base_url = "https://mycompany.atlassian.net" # Jira: required; Linear/Asana: optional
-# email = "you@company.com"     # Jira only: email for Basic auth
+# ── Project Management ────────────────────────────────────
+# [pm]
+# provider = "jira"
+# api_token = "${JIRA_API_TOKEN}"
+# base_url = "https://mycompany.atlassian.net"
+# email = "you@company.com"
 
-# Cron (recurring scheduled tasks)
+# ── Messenger ─────────────────────────────────────────────
+# [messenger]
+# platform = "slack"
+# [messenger.slack]
+# app_token = "${SLACK_APP_TOKEN}"
+# bot_token = "${SLACK_BOT_TOKEN}"
+
+# ── Browser ────────────────────────────────────────────────
+# [browser]
+# blocked_domains = ["admin.internal.corp"]
+
+# ── Langfuse Observability ─────────────────────────────────
+# [langfuse]
+# public_key = "${LANGFUSE_PUBLIC_KEY}"
+# secret_key = "${LANGFUSE_SECRET_KEY}"
+# host = "https://cloud.langfuse.com"
+
+# ── Runbooks ───────────────────────────────────────────────
+# [runbook]
+# runbook_paths = ["./docs/runbooks", "./CODING_STANDARDS.md"]
+# Or just create .genie/runbooks/ — auto-discovered, no config needed.
+
+# ── Cron (Scheduled Tasks) ─────────────────────────────────
 # [cron]
 # enabled = true
-#
 # [[cron.tasks]]
-# name = "daily-health-check"
-# expression = "0 9 * * *"             # Every day at 9 AM
-# action = "Run a full health check on all services and report any issues"
+# name = "daily-standup-summary"
+# expression = "0 9 * * 1-5"
+# action = "Summarize yesterday's git commits and open PRs"
+
+# ── Pensieve (Context Self-Management) ─────────────────────
+# enable_pensieve = true
+
+# ── PII Redaction ──────────────────────────────────────────
+# [pii]
+# salt = "my-team-salt"
+# entropy_threshold = 3.6
+
+# ── Security (Secret Providers) ───────────────────────────
+# Map secret names to runtimevar URLs for cloud/file-based resolution.
+# Without this section, all ${VAR} placeholders resolve from env vars.
 #
-# [[cron.tasks]]
-# name = "weekly-dependency-scan"
-# expression = "0 0 * * 1"             # Every Monday at midnight
-# action = "Scan all project dependencies for security vulnerabilities and outdated packages"
+# [security.secrets]
+# OPENAI_API_KEY    = "gcpsecretmanager://projects/my-project/secrets/openai-key?decoder=string"
+# ANTHROPIC_API_KEY = "file:///run/secrets/anthropic_key?decoder=string"
+
+# ── Tool Middleware ────────────────────────────────────────
+# [toolwrap.timeout]
+# enabled = true
+# default = "30s"
+# [toolwrap.timeout.per_tool]
+# execute_code = "120s"
+
+# [toolwrap.rate_limit]
+# enabled = true
+# global_rate_per_minute = 60
+
+# [toolwrap.metrics]
+# enabled = true
+# prefix = "genie.tools"
+
+# [toolwrap.tracing]
+# enabled = true

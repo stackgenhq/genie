@@ -104,6 +104,15 @@ func AutoMigrate(db *gorm.DB) error {
 		&Memory{},
 		&CronTask{},
 		&CronHistory{},
+		&ShortMemory{},
+		&Clarification{},
+		// Session persistence (conversation history + state).
+		&SessionRow{},
+		&SessionEvent{},
+		&SessionState{},
+		&AppState{},
+		&UserState{},
+		&SessionSummaryRow{},
 	)
 }
 

@@ -67,6 +67,10 @@ const (
 	// StateKeyIterationCount tracks the current iteration number in the
 	// adaptive loop (0-indexed).
 	StateKeyIterationCount = "reactree_iteration_count"
+	// StateKeyToolCallCounts reports per-tool call counts (name→count) from
+	// a single agent node execution. The adaptive loop accumulates these
+	// across iterations to enforce ToolBudgets.
+	StateKeyToolCallCounts = "reactree_tool_call_counts"
 )
 
 // NewReAcTreeSchema creates a graph.StateSchema with the fields used by
@@ -111,5 +115,10 @@ func NewReAcTreeSchema() *graph.StateSchema {
 			Type:    reflect.TypeOf(0),
 			Reducer: graph.DefaultReducer,
 			Default: func() any { return 0 },
+		}).
+		AddField(StateKeyToolCallCounts, graph.StateField{
+			Type:    reflect.TypeOf(map[string]int{}),
+			Reducer: graph.DefaultReducer,
+			Default: func() any { return map[string]int{} },
 		})
 }

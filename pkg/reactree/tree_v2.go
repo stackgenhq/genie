@@ -13,11 +13,16 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/agent"
 	"trpc.group/trpc-go/trpc-agent-go/graph"
 	"trpc.group/trpc-go/trpc-agent-go/telemetry/trace"
+	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
 // runAdaptiveLoop coordinates the high-level execution flow.
 func (t *tree) runAdaptiveLoop_v2(ctx context.Context, req TreeRequest) (TreeResult, error) {
-	ls := &loopState{maxIterations: t.config.MaxIterations}
+	ls := &loopState{
+		maxIterations:  t.config.MaxIterations,
+		toolBudgets:    t.config.ToolBudgets,
+		toolCallCounts: make(map[string]int),
+	}
 	logr := logger.GetLogger(ctx).With("fn", "tree.RunAdaptiveLoop", "goal", req.Goal)
 
 	// Create a parent span so all iteration spans are children of one Langfuse trace.
@@ -79,6 +84,8 @@ const maxRepetitions = 3
 type loopState struct {
 	iteration             int
 	maxIterations         int
+	toolBudgets           map[string]int // per-tool call limits (from TreeConfig)
+	toolCallCounts        map[string]int // cumulative calls per tool across iterations
 	contextBuffer         strings.Builder
 	lastOutput            string
 	lastStatus            NodeStatus
@@ -92,6 +99,45 @@ type loopState struct {
 	// stuck loops where the LLM repeats the same failing action.
 	lastOutputHash  uint64
 	repetitionCount int
+}
+
+// toolsForIteration returns the tool list with budget-exceeded tools removed.
+// This is a hard code-level guardrail — the LLM literally cannot call a tool
+// that isn't in the list. Any tool listed in ToolBudgets whose cumulative count
+// has reached its limit gets stripped.
+func (ls *loopState) toolsForIteration(tools []tool.Tool) []tool.Tool {
+	if len(ls.toolBudgets) == 0 {
+		return tools
+	}
+	// Build set of tools that have exceeded their budget.
+	exceeded := make(map[string]bool)
+	for name, limit := range ls.toolBudgets {
+		if ls.toolCallCounts[name] >= limit {
+			exceeded[name] = true
+		}
+	}
+	if len(exceeded) == 0 {
+		return tools
+	}
+	filtered := make([]tool.Tool, 0, len(tools))
+	for _, t := range tools {
+		if !exceeded[t.Declaration().Name] {
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered
+}
+
+// budgetExhaustedTools returns the list of tool names that have exceeded their
+// budget. Used to inject prompt hints telling the LLM not to attempt them.
+func (ls *loopState) budgetExhaustedTools() []string {
+	var exhausted []string
+	for name, limit := range ls.toolBudgets {
+		if ls.toolCallCounts[name] >= limit {
+			exhausted = append(exhausted, name)
+		}
+	}
+	return exhausted
 }
 
 // executeIteration builds, compiles, and runs the graph for a single cycle.
@@ -133,15 +179,17 @@ func (t *tree) prepareGraph(req TreeRequest, ls *loopState) (*graph.Graph, error
 	iterEventChan := req.EventChan
 
 	innerFunc := NewAgentNodeFunc(AgentNodeConfig{
-		Goal:          req.Goal,
-		Expert:        t.expert,
-		WorkingMemory: t.workingMemory,
-		Episodic:      t.episodic,
-		MaxDecisions:  t.config.MaxDecisionsPerNode,
-		EventChan:     iterEventChan,
-		Tools:         req.Tools,
-		SenderContext: req.SenderContext,
-		TaskType:      req.TaskType,
+		Goal:                 req.Goal,
+		Expert:               t.expert,
+		WorkingMemory:        t.resolveWorkingMemory(req),
+		Episodic:             t.resolveEpisodic(req),
+		MaxDecisions:         t.config.MaxDecisionsPerNode,
+		EventChan:            iterEventChan,
+		Tools:                ls.toolsForIteration(req.Tools),
+		SenderContext:        req.SenderContext,
+		TaskType:             req.TaskType,
+		Attachments:          req.Attachments,
+		BudgetExhaustedTools: ls.budgetExhaustedTools(),
 	})
 
 	wrappedFunc := func(ctx context.Context, state graph.State) (any, error) {
@@ -160,6 +208,12 @@ func (t *tree) prepareGraph(req TreeRequest, ls *loopState) (*graph.Graph, error
 			}
 			if val, ok := stateMap[StateKeyTaskCompleted].(bool); ok {
 				ls.capturedTaskCompleted = val
+			}
+			// Accumulate per-tool call counts for budget enforcement.
+			if counts, ok := stateMap[StateKeyToolCallCounts].(map[string]int); ok {
+				for name, count := range counts {
+					ls.toolCallCounts[name] += count
+				}
 			}
 		}
 		return result, nil
@@ -190,25 +244,30 @@ func (t *tree) updateLoopState(ls *loopState, eventChan chan<- any) {
 	ls.accumulateContext()
 }
 
-// accumulateContext manages the context buffer with truncation logic.
+// accumulateContext appends iteration output to the context buffer.
+//
+// Context compression is now handled by trpc-agent-go's SessionSummarizer
+// (configured via inmemory.WithSummarizer in expert.go and create_agent.go)
+// rather than manual character-level truncation. The context buffer here
+// records iteration history for the adaptive loop's progress tracking only.
+//
+// Previously, this method applied a 4000-char hard cap with arbitrary
+// midpoint splicing — the key gap identified in the StateLM/Pensieve analysis.
 func (ls *loopState) accumulateContext() {
 	if ls.capturedOutput == "" {
 		return
 	}
 
-	const maxContext = 4000
-	newEntry := fmt.Sprintf("\n--- Iteration %d ---\n%s", ls.iteration, ls.capturedOutput)
-
-	if ls.contextBuffer.Len()+len(newEntry) > maxContext {
-		tail := ls.contextBuffer.String()
-		if len(tail) > maxContext/2 {
-			tail = tail[len(tail)-maxContext/2:]
-		}
-		ls.contextBuffer.Reset()
-		ls.contextBuffer.WriteString("... (earlier iterations summarized)\n")
-		ls.contextBuffer.WriteString(tail)
+	// Large outputs are still capped per-iteration to prevent a single
+	// verbose tool response from dominating the loop context. The
+	// session-level summarizer handles cross-turn compression.
+	const maxPerIteration = 3000
+	output := ls.capturedOutput
+	if len(output) > maxPerIteration {
+		output = "... (earlier output truncated)\n" + output[len(output)-maxPerIteration:]
 	}
-	ls.contextBuffer.WriteString(newEntry)
+
+	fmt.Fprintf(&ls.contextBuffer, "\n--- Iteration %d ---\n%s", ls.iteration, output)
 }
 
 // checkRepetition detects when the adaptive loop is stuck producing the same

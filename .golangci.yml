@@ -1,12 +1,16 @@
 version: "2"
 
 run:
+  timeout: 5m
   modules-download-mode: mod
 
 linters:
   # Defines a set of rules to ignore issues.
   # NOTE: It does not skip the analysis, and so does not ignore "typecheck" errors.
   exclusions:
+    paths:
+      # Exclude counterfeiter-generated fakes from all linting.
+      - ".*fakes/fake.*\\.go"
     rules:
       # Exclude all lint errors in test files
       - path: _test\.go

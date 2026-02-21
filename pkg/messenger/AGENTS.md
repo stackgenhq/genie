@@ -39,6 +39,7 @@ type Messenger interface {
 | Teams | `messenger/teams` | `github.com/infracloudio/msbotbuilder-go` | Bot Framework (HTTP) |
 | Google Chat | `messenger/googlechat` | `google.golang.org/api/chat/v1` | HTTP push + Chat API |
 | WhatsApp | `messenger/whatsapp` | `go.mau.fi/whatsmeow` | WhatsApp Web (multi-device) |
+| AG-UI | `messenger/agui` | (in-process) | SSE (HTTP POST + EventSource) |
 
 ## Future Adapters
 

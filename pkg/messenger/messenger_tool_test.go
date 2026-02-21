@@ -38,16 +38,19 @@ var _ = Describe("SendMessageTool", func() {
 			Expect(decl.Description).To(ContainSubstring("slack"))
 		})
 
-		It("should require channel_id and text", func() {
+		It("should not require any field unconditionally", func() {
 			decl := sendTool.Declaration()
 			Expect(decl.InputSchema).NotTo(BeNil())
-			Expect(decl.InputSchema.Required).To(ContainElements("channel_id", "text"))
+			Expect(decl.InputSchema.Required).To(BeEmpty())
 		})
 
-		It("should define channel_id, text, and thread_id properties", func() {
+		It("should define type, channel_id, text, emoji, message_id, and thread_id properties", func() {
 			decl := sendTool.Declaration()
+			Expect(decl.InputSchema.Properties).To(HaveKey("type"))
 			Expect(decl.InputSchema.Properties).To(HaveKey("channel_id"))
 			Expect(decl.InputSchema.Properties).To(HaveKey("text"))
+			Expect(decl.InputSchema.Properties).To(HaveKey("emoji"))
+			Expect(decl.InputSchema.Properties).To(HaveKey("message_id"))
 			Expect(decl.InputSchema.Properties).To(HaveKey("thread_id"))
 		})
 	})
@@ -101,7 +104,7 @@ var _ = Describe("SendMessageTool", func() {
 			Expect(req.ThreadID).To(Equal("1234567890.123456"))
 		})
 
-		It("should return an error when channel_id is missing", func() {
+		It("should return an error when channel_id is missing and no context", func() {
 			args, err := json.Marshal(map[string]string{
 				"text": "Hello",
 			})
@@ -110,6 +113,34 @@ var _ = Describe("SendMessageTool", func() {
 			_, err = sendTool.Call(context.Background(), args)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("channel_id"))
+		})
+
+		It("should use MessageOrigin from context when channel_id is omitted", func() {
+			fakeMessenger.SendReturns(messenger.SendResponse{
+				MessageID: "msg-ctx",
+			}, nil)
+
+			origin := &messenger.MessageOrigin{
+				Platform: messenger.PlatformSlack,
+				Channel:  messenger.Channel{ID: "C-FROM-CTX"},
+				ThreadID: "thread-from-ctx",
+			}
+			ctx := messenger.WithMessageOrigin(context.Background(), origin)
+
+			args, err := json.Marshal(map[string]string{
+				"text": "Hello via context",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			result, err := sendTool.Call(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			resultMap := result.(map[string]string)
+			Expect(resultMap["status"]).To(Equal("sent"))
+
+			_, req := fakeMessenger.SendArgsForCall(0)
+			Expect(req.Channel.ID).To(Equal("C-FROM-CTX"))
+			Expect(req.ThreadID).To(Equal("thread-from-ctx"))
 		})
 
 		It("should return an error when text is missing", func() {

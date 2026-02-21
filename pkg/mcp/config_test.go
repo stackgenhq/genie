@@ -226,14 +226,14 @@ var _ = Describe("RetryConfig Validation", func() {
 
 var _ = Describe("ServerConfig Defaults", func() {
 	Context("when setting defaults", func() {
-		It("should set default timeout to 10s", func() {
+		It("should set default timeout to 60s", func() {
 			config := mcp.MCPServerConfig{
 				Name:      "test",
 				Transport: "stdio",
 				Command:   "go",
 			}
 			config.SetDefaults()
-			Expect(config.Timeout).To(Equal(10 * time.Second))
+			Expect(config.Timeout).To(Equal(60 * time.Second))
 		})
 
 		It("should set retry defaults when retry config is present", func() {

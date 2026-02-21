@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"strings"
+	"fmt"
 	"sync"
 	"time"
 
@@ -22,9 +22,17 @@ type NotifierStore struct {
 	realStore hitl.ApprovalStore
 	messenger messenger.Messenger
 
-	// pendingApprovals maps "senderContext" -> "approvalID"
-	// This allows the messenger handler to look up the approval ID when the user replies "Yes".
-	pendingApprovals sync.Map
+	// pendingMu guards pendingApprovals and messageToApproval.
+	pendingMu sync.Mutex
+	// pendingApprovals maps "senderContext" -> FIFO queue of approval IDs.
+	// Multiple tool calls can request HITL approval concurrently; each one
+	// pushes its ID. GetPending returns the oldest; RemovePending removes a
+	// specific ID once resolved.
+	pendingApprovals map[string][]string
+	// messageToApproval maps outgoing platform messageID -> approvalID.
+	// When the user swipe-replies to an approval notification, we can
+	// resolve the specific approval instead of relying on FIFO order.
+	messageToApproval map[string]string
 }
 
 // NewNotifierStore creates a new NotifierStore.
@@ -33,8 +41,10 @@ type NotifierStore struct {
 // is error-prone and exposes internal fields.
 func NewNotifierStore(realStore hitl.ApprovalStore, m messenger.Messenger) *NotifierStore {
 	return &NotifierStore{
-		realStore: realStore,
-		messenger: m,
+		realStore:         realStore,
+		messenger:         m,
+		pendingApprovals:  make(map[string][]string),
+		messageToApproval: make(map[string]string),
 	}
 }
 
@@ -52,9 +62,19 @@ func (s *NotifierStore) Create(ctx context.Context, req hitl.CreateRequest) (hit
 	// 2. Notify via messenger if we have a valid sender context
 	senderCtx := messenger.SenderContextFrom(ctx)
 	if senderCtx != "" {
-		s.notifyMessenger(ctx, senderCtx, approval)
-		// Store mapping for easy lookup on reply
-		s.pendingApprovals.Store(senderCtx, approval.ID)
+		if err := s.notifyMessenger(ctx, approval); err != nil {
+			logger.GetLogger(ctx).Warn("failed to notify messenger", "error", err)
+		}
+		// Append to FIFO queue for this sender so concurrent approvals
+		// are all tracked instead of overwriting each other.
+		s.pendingMu.Lock()
+		s.pendingApprovals[senderCtx] = append(s.pendingApprovals[senderCtx], approval.ID)
+		logger.GetLogger(ctx).Info("pending approval queued",
+			"senderCtx", senderCtx,
+			"approvalID", approval.ID,
+			"queueLen", len(s.pendingApprovals[senderCtx]),
+		)
+		s.pendingMu.Unlock()
 	}
 
 	return approval, nil
@@ -82,35 +102,110 @@ func (s *NotifierStore) Close() error {
 	return s.realStore.Close()
 }
 
-// GetPending returns the approval ID pending for the given sender context, if any.
-// This method exists to allow external callers (like the chat handler) to look up
-// which approval request corresponds to a "Yes"/"No" reply from a specific user/channel.
-// Without this method, we cannot correlate a conversational reply to a specific approval ID.
-func (s *NotifierStore) GetPending(senderContext string) (string, bool) {
-	val, ok := s.pendingApprovals.Load(senderContext)
-	if !ok {
+// GetPending returns the oldest pending approval ID for the given sender context.
+// Returns ("", false) when no approvals are queued.
+func (s *NotifierStore) GetPending(ctx context.Context, senderContext string) (string, bool) {
+	s.pendingMu.Lock()
+	defer s.pendingMu.Unlock()
+	q := s.pendingApprovals[senderContext]
+	if len(q) == 0 {
 		return "", false
 	}
-	return val.(string), true
+	logger.GetLogger(ctx).Info("GetPending returning oldest approval",
+		"senderCtx", senderContext,
+		"approvalID", q[0],
+		"queueLen", len(q),
+	)
+	return q[0], true
 }
 
-// RemovePending removes the pending approval for the sender context.
-// This method exists to clean up the pending state after an approval has been resolved.
-// Without this method, the map would grow indefinitely and might cause incorrect resolutions
-// for future interactions.
-func (s *NotifierStore) RemovePending(senderContext string) {
-	s.pendingApprovals.Delete(senderContext)
+// GetPendingByMessageID resolves the approval ID associated with an outgoing
+// notification message. When a user swipe-replies to a specific approval
+// notification, the incoming message contains the quoted message ID which
+// maps to the approval via this method.
+func (s *NotifierStore) GetPendingByMessageID(ctx context.Context, quotedMsgID string) (string, bool) {
+	s.pendingMu.Lock()
+	defer s.pendingMu.Unlock()
+	approvalID, ok := s.messageToApproval[quotedMsgID]
+	if ok {
+		logger.GetLogger(ctx).Info("resolved approval via reply-to message",
+			"quotedMsgID", quotedMsgID,
+			"approvalID", approvalID,
+		)
+	}
+	return approvalID, ok
 }
 
-func (s *NotifierStore) notifyMessenger(ctx context.Context, senderCtx string, approval hitl.ApprovalRequest) {
-	// senderCtx format: "platform:senderID:channelID"
-	parts := strings.SplitN(senderCtx, ":", 3)
-	if len(parts) < 3 {
-		// Invalid or non-messenger context (e.g. "tui:local")
+// RemovePending removes the oldest approval from the sender's pending queue
+// and cleans up any associated messageToApproval entries.
+func (s *NotifierStore) RemovePending(ctx context.Context, senderContext string) {
+	s.pendingMu.Lock()
+	defer s.pendingMu.Unlock()
+	q := s.pendingApprovals[senderContext]
+	if len(q) == 0 {
 		return
 	}
+	// Clean up messageToApproval entries for the approval being removed.
+	removedID := q[0]
+	for msgID, aID := range s.messageToApproval {
+		if aID == removedID {
+			delete(s.messageToApproval, msgID)
+		}
+	}
+	if len(q) <= 1 {
+		delete(s.pendingApprovals, senderContext)
+		logger.GetLogger(ctx).Info("pending approval queue emptied", "senderCtx", senderContext)
+		return
+	}
+	// Pop oldest (FIFO)
+	s.pendingApprovals[senderContext] = q[1:]
+	logger.GetLogger(ctx).Info("pending approval dequeued",
+		"senderCtx", senderContext,
+		"remaining", len(q)-1,
+	)
+}
 
-	channelID := parts[2]
+// RemovePendingByApprovalID removes a specific approval ID from the sender's
+// queue (used when reply-to routing resolves a non-oldest approval).
+func (s *NotifierStore) RemovePendingByApprovalID(ctx context.Context, senderContext, approvalID string) {
+	s.pendingMu.Lock()
+	defer s.pendingMu.Unlock()
+
+	// Clean up messageToApproval.
+	for msgID, aID := range s.messageToApproval {
+		if aID == approvalID {
+			delete(s.messageToApproval, msgID)
+		}
+	}
+
+	// Remove from queue.
+	q := s.pendingApprovals[senderContext]
+	filtered := make([]string, 0, len(q))
+	for _, id := range q {
+		if id != approvalID {
+			filtered = append(filtered, id)
+		}
+	}
+	if len(filtered) == 0 {
+		delete(s.pendingApprovals, senderContext)
+	} else {
+		s.pendingApprovals[senderContext] = filtered
+	}
+	logger.GetLogger(ctx).Info("pending approval removed by ID",
+		"senderCtx", senderContext,
+		"approvalID", approvalID,
+		"remaining", len(filtered),
+	)
+}
+
+func (s *NotifierStore) notifyMessenger(ctx context.Context, approval hitl.ApprovalRequest) error {
+	// Prefer structured MessageOrigin for channel resolution.
+	var channelID string
+	origin := messenger.MessageOriginFrom(ctx)
+	if origin == nil {
+		return fmt.Errorf("no originating channel context available")
+	}
+	channelID = origin.Channel.ID
 
 	// Pretty-print JSON args for readability.
 	prettyArgs := approval.Args
@@ -137,11 +232,18 @@ func (s *NotifierStore) notifyMessenger(ctx context.Context, senderCtx string, a
 		Feedback: approval.Feedback,
 	})
 
-	_, err := s.messenger.Send(ctx, sendReq)
+	resp, err := s.messenger.Send(ctx, sendReq)
 	if err != nil {
 		// Best-effort notification; log failure but don't fail the underlying operation.
 		logger.GetLogger(ctx).Warn("failed to send hitl notification", "error", err)
+	} else if resp.MessageID != "" {
+		// Track which outgoing message corresponds to this approval so
+		// swipe-replies can resolve the correct approval.
+		s.pendingMu.Lock()
+		s.messageToApproval[resp.MessageID] = approval.ID
+		s.pendingMu.Unlock()
 	}
+	return err
 }
 
 func (s *NotifierStore) IsAllowed(toolName string) bool {

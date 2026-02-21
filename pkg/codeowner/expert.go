@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -21,17 +22,17 @@ import (
 	"github.com/appcd-dev/genie/pkg/memory/vector"
 	"github.com/appcd-dev/genie/pkg/messenger"
 	"github.com/appcd-dev/genie/pkg/osutils"
+	"github.com/appcd-dev/genie/pkg/pii"
 	"github.com/appcd-dev/genie/pkg/reactree"
 	rtmemory "github.com/appcd-dev/genie/pkg/reactree/memory"
 	"github.com/appcd-dev/genie/pkg/runbook"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
 	"github.com/appcd-dev/genie/pkg/ttlcache"
-	"trpc.group/trpc-go/trpc-agent-go/codeexecutor/local"
 	"trpc.group/trpc-go/trpc-agent-go/memory"
 	"trpc.group/trpc-go/trpc-agent-go/model"
+	"trpc.group/trpc-go/trpc-agent-go/session"
 	"trpc.group/trpc-go/trpc-agent-go/telemetry/trace"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
-	"trpc.group/trpc-go/trpc-agent-go/tool/file"
 )
 
 //go:embed prompts/persona.txt
@@ -51,10 +52,10 @@ type CodeQuestion struct {
 	// memory isolation (each unique sender gets separate conversation history).
 	SenderContext string
 
-	// ExcludeTools lists tool names to omit for this chat turn.
-	// For messenger-originated messages, "send_message" is excluded
-	// because the chat loop handles the reply directly.
-	ExcludeTools []string
+	// Attachments holds file/media attachments from the incoming message.
+	// Image attachments are passed as multimodal content to the LLM so it
+	// can "see" them; other types are described textually.
+	Attachments []messenger.Attachment
 
 	// BrowserTab is an optional context for a specific browser tab.
 	// If provided, browser tools will use this context.
@@ -85,7 +86,6 @@ const (
 type codeOwner struct {
 	expert          expert.Expert
 	frontDeskExpert expert.Expert
-	workingMemory   *rtmemory.WorkingMemory
 	treeExecutor    reactree.TreeExecutor
 	memorySvc       memory.Service
 	memoryUserKey   memory.UserKey
@@ -94,6 +94,12 @@ type codeOwner struct {
 	resume          *ttlcache.Item[string]
 	resumeCancel    context.CancelFunc
 	vectorStore     vector.IStore
+
+	// Per-sender memory isolation. These maps use sync.Map for concurrent
+	// access and lazily create instances on first access per sender.
+	workingMemories   sync.Map // map[string]*rtmemory.WorkingMemory
+	episodicMemories  sync.Map // map[string]rtmemory.EpisodicMemory
+	episodicMemoryCfg rtmemory.EpisodicMemoryConfig
 }
 
 // Resume returns a natural language description of the agent's capabilities.
@@ -120,6 +126,7 @@ func NewCodeOwner(
 	approvalStore hitl.ApprovalStore,
 	memorySvc memory.Service,
 	runbookCfg runbook.Config,
+	sessionSvc session.Service,
 ) (CodeOwner, error) {
 	// Build the persona prompt, appending project-level coding standards if available.
 	fullPersona := langfuse.GetPrompt(ctx, "genie_codeowner_persona", persona)
@@ -156,14 +163,16 @@ func NewCodeOwner(
 		Description: "Genie — personal AI assistant that gets things done",
 	}
 
-	exp, err := expertBio.ToExpert(ctx, modelProvider, &toolwrap.Service{
-		Auditor:       auditor,
-		ApprovalStore: approvalStore,
-	})
+	var expertOpts []expert.ExpertOption
+	if sessionSvc != nil {
+		expertOpts = append(expertOpts, expert.WithExpertSessionService(sessionSvc))
+	}
+
+	exp, err := expertBio.ToExpert(ctx, modelProvider, auditor, toolwrap.NewService(auditor, approvalStore), expertOpts...)
 	if err != nil {
 		return nil, err
 	}
-	logger.GetLogger(ctx).Info("Expert bio created", "name", expertBio.Name)
+	logger.GetLogger(ctx).Info("Expert bio created", "name", expertBio.Name, "persistentSession", sessionSvc != nil)
 
 	// Create a lightweight front desk expert for request classification.
 	// Uses TaskFrontDesk which maps to a fast, cheap model (e.g. gemini-3-flash).
@@ -172,10 +181,7 @@ func NewCodeOwner(
 		Name:        "front-desk",
 		Description: "Classifies incoming requests to determine routing. Validate against the agents personality and make the judgement accordingly",
 	}
-	frontDeskExp, err := frontDeskBio.ToExpert(ctx, modelProvider, &toolwrap.Service{
-		Auditor:       auditor,
-		ApprovalStore: approvalStore,
-	})
+	frontDeskExp, err := frontDeskBio.ToExpert(ctx, modelProvider, auditor, toolwrap.NewService(auditor, approvalStore))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create front desk expert: %w", err)
 	}
@@ -191,19 +197,15 @@ func NewCodeOwner(
 	// Initialize shared working memory for cross-turn observation sharing
 	wm := rtmemory.NewWorkingMemory()
 
-	// Initialize the ReAcTree executor with adaptive loop.
-	// Instead of fixed stages (Understanding→Planning→Executing→Reviewing),
-	// the LLM runs in a loop and dynamically decides how many iterations
-	// it needs. Simple tasks finish in 1-2 iterations; complex ones can
-	// use up to MaxIterations.
-	// Use the persistent memory service for episodic memory as well.
+	// Keep the base episodic memory config for creating per-sender instances.
 	episodicMemoryCfg := rtmemory.DefaultEpisodicMemoryConfig()
 	episodicMemoryCfg.Service = memorySvc
-	treeExec := reactree.NewTreeExecutor(exp, wm, episodicMemoryCfg.NewEpisodicMemory(), reactree.TreeConfig{
+	episodicMem := episodicMemoryCfg.NewEpisodicMemory()
+	treeExec := reactree.NewTreeExecutor(exp, wm, episodicMem, reactree.TreeConfig{
 		MaxDepth:            3,
 		MaxDecisionsPerNode: 10,
 		MaxTotalNodes:       30,
-		MaxIterations:       10,
+		MaxIterations:       3,
 	})
 
 	// Use provided memory.Service for conversation history persistence.
@@ -213,58 +215,24 @@ func NewCodeOwner(
 		UserID:  "default",
 	}
 
-	// Build the full tool set — these are available to sub-agents via create_agent,
-	// but the codeowner itself only gets a restricted subset ( summarize, create_agent, hitl_readonly_tools).
-	var allTools []tool.Tool
-	allTools = append(allTools, tools...)
-
-	// Initialize file tools scoped to the working directory.
-	if ts, err := file.NewToolSet(file.WithBaseDir(workingDirectory)); err == nil {
-		allTools = append(allTools, ts.Tools(ctx)...)
-	}
-
-	// Initialize local code executor for shell access (bash only for now)
-	// This enables sub-agents to run verification commands like 'go test' or 'terraform validate'.
-	exec := local.New(
-		local.WithWorkDir(workingDirectory),
-		local.WithTimeout(10*time.Minute),
-		local.WithCleanTempFiles(true),
-	)
-
-	allTools = append(allTools,
-		// Use ShellTool which wraps the code executor
-		NewShellTool(exec),
-		// Add the summarize_content tool so agents can invoke summarization on demand.
-		agentutils.NewSummarizerTool(summarizer),
-	)
-	if vectorStore != nil {
-		allTools = append(allTools,
-			vector.NewMemoryStoreTool(vectorStore),
-			vector.NewMemorySearchTool(vectorStore),
-			runbook.NewSearchTool(vectorStore),
-		)
-	}
-
-	// Create the create_agent tool for dynamic sub-agent spawning.
-	// Sub-agents have access to the full tool set via the registry,
-	// while the codeowner only uses list_file + summarize + create_agent.
-	toolRegistry := make(reactree.ToolRegistry, len(allTools))
-	for _, t := range allTools {
+	// Tools are pre-built and pre-filtered by the tool registry (toolreg).
+	// Build the reactree.ToolRegistry from the provided tools slice.
+	toolRegistry := make(reactree.ToolRegistry, len(tools))
+	for _, t := range tools {
 		toolRegistry[t.Declaration().Name] = t
 	}
-	toolWrapSvc := &toolwrap.Service{Auditor: auditor, ApprovalStore: approvalStore}
+	toolWrapSvc := toolwrap.NewService(auditor, approvalStore)
 	logger.GetLogger(ctx).Info("codeowner: toolwrap.Service created for sub-agents",
 		"hasAuditor", auditor != nil,
 		"hasApprovalStore", approvalStore != nil,
 	)
 	createAgentTool := reactree.NewCreateAgentTool(
-		modelProvider, summarizer, toolRegistry,
-		wm,
+		modelProvider, exp, summarizer, toolRegistry,
+		wm, episodicMem,
 		toolWrapSvc,
 	)
 
 	// Restrict the codeowner to orchestration-only tools:
-	//   - list_file: understand project structure
 	//   - summarize_content: condense large outputs
 	//   - create_agent: delegate detailed work to sub-agents
 	// All other tools (read_file, shell, etc.) are available to sub-agents only.
@@ -279,15 +247,15 @@ func NewCodeOwner(
 	logger.Info("CodeOwner tool registry initialized", "count", len(codeOwnerTools))
 
 	codeOwner := &codeOwner{
-		expert:          exp,
-		frontDeskExpert: frontDeskExp,
-		workingMemory:   wm,
-		treeExecutor:    treeExec,
-		memorySvc:       memorySvc,
-		memoryUserKey:   memoryUserKey,
-		tools:           codeOwnerTools,
-		auditor:         auditor,
-		vectorStore:     vectorStore,
+		expert:            exp,
+		frontDeskExpert:   frontDeskExp,
+		treeExecutor:      treeExec,
+		memorySvc:         memorySvc,
+		memoryUserKey:     memoryUserKey,
+		tools:             codeOwnerTools,
+		auditor:           auditor,
+		vectorStore:       vectorStore,
+		episodicMemoryCfg: episodicMemoryCfg,
 	}
 	// keep updating the resume less than 24 hours
 	// Create a dedicated context for the background refresher that we can cancel on Close()
@@ -301,6 +269,7 @@ func NewCodeOwner(
 	// Use WithoutCancel to detach from startup context, but we use our own resumeCtx
 	// which we control via Close().
 	go func() {
+		_, _ = codeOwner.resume.GetValue(resumeCtx)
 		if err := codeOwner.resume.KeepItFresh(resumeCtx); err != nil && !errors.Is(err, context.Canceled) {
 			// context.Canceled is expected on Close()
 			logger.Error("failed to keep resume fresh", "err", err)
@@ -482,15 +451,11 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 	}
 
 	// Filter out excluded tools (e.g. send_message for messenger-originated messages).
-	tools := c.tools.Exclude(req.ExcludeTools)
+	tools := c.tools
 
 	runCtx := ctx
-	if req.SenderContext != "" {
-		// keys are in pkg/messenger/context.go
-		// We use a raw string key approach if we don't want to import messenger package just for this,
-		// but importing it is cleaner.
-		// However, I need to make sure I import "github.com/appcd-dev/genie/pkg/messenger"
-		runCtx = messenger.WithSenderContext(runCtx, req.SenderContext)
+	if origin := messenger.MessageOriginFrom(ctx); origin != nil {
+		runCtx = messenger.WithMessageOrigin(runCtx, origin)
 	}
 	if req.BrowserTab != nil {
 		// Use the browser tab context for chromedp operations, but respect
@@ -507,6 +472,11 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 			var deadlineCancel context.CancelFunc
 			runCtx, deadlineCancel = context.WithDeadline(runCtx, deadline)
 			defer deadlineCancel()
+		}
+		// Re-inject MessageOrigin — the browser tab context is a separate
+		// hierarchy and doesn't carry values from the parent ctx.
+		if origin := messenger.MessageOriginFrom(ctx); origin != nil {
+			runCtx = messenger.WithMessageOrigin(runCtx, origin)
 		}
 		// Ensure parent cancellation tears down the tab context too.
 		go func() {
@@ -526,11 +496,14 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 
 	// Execute using ReAcTree for structured reasoning and task decomposition
 	res, err := c.treeExecutor.Run(runCtx, reactree.TreeRequest{
-		Goal:          message,
-		EventChan:     req.EventChan,
-		Tools:         tools.Tools(),
-		SenderContext: req.SenderContext,
-		TaskType:      taskType,
+		Goal:           message,
+		EventChan:      req.EventChan,
+		Tools:          tools.Tools(),
+		SenderContext:  req.SenderContext,
+		TaskType:       taskType,
+		Attachments:    req.Attachments,
+		WorkingMemory:  c.workingMemoryForSender(req.SenderContext),
+		EpisodicMemory: c.episodicMemoryForSender(req.SenderContext),
 	})
 
 	if err != nil {
@@ -566,7 +539,8 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 // to the current question and formats them as context.
 // Uses senderID-based key so each sender/thread has isolated history.
 func (c *codeOwner) recallConversation(ctx context.Context, question, senderID string) string {
-	key := c.memoryKeyForSender(senderID)
+	convKey := c.conversationKeyFromContext(ctx, senderID)
+	key := c.memoryKeyForSender(convKey)
 	// Try to search for relevant memories
 	entries, err := c.memorySvc.SearchMemories(ctx, key, question)
 	if err != nil {
@@ -609,11 +583,23 @@ func (c *codeOwner) recallConversation(ctx context.Context, question, senderID s
 		sb.WriteString("\n\n")
 	}
 
+	// Audit: log memory recall.
+	c.auditor.Log(ctx, audit.LogRequest{
+		EventType: audit.EventMemoryAccess,
+		Actor:     "code-owner",
+		Action:    "recall_conversation",
+		Metadata: map[string]interface{}{
+			"sender_id": senderID,
+			"results":   limit,
+		},
+	})
+
 	return sb.String()
 }
 
 // storeConversation persists a Q&A turn into memory.Service.
 // Uses senderID-based key so each sender/thread has isolated history.
+// PII is redacted before storage to prevent sensitive data leakage.
 func (c *codeOwner) storeConversation(ctx context.Context, question, answer, senderID string) {
 	// Format the turn as a structured summary for retrieval.
 	// Truncate both question and answer to prevent tool output from
@@ -622,10 +608,25 @@ func (c *codeOwner) storeConversation(ctx context.Context, question, answer, sen
 	summary := fmt.Sprintf("Q: %s\nA: %s",
 		toolwrap.TruncateForAudit(question, 300),
 		toolwrap.TruncateForAudit(answer, 500))
+
+	// Redact PII before persisting to prevent sensitive data leakage.
+	summary = pii.Redact(summary)
+
 	topics := []string{"conversation", "chat-turn"}
 
-	key := c.memoryKeyForSender(senderID)
+	convKey := c.conversationKeyFromContext(ctx, senderID)
+	key := c.memoryKeyForSender(convKey)
 	_ = c.memorySvc.AddMemory(ctx, key, summary, topics)
+
+	// Audit: log memory write.
+	c.auditor.Log(ctx, audit.LogRequest{
+		EventType: audit.EventMemoryAccess,
+		Actor:     "code-owner",
+		Action:    "store_conversation",
+		Metadata: map[string]interface{}{
+			"sender_id": senderID,
+		},
+	})
 }
 
 // recallAccomplishments searches the vector store for recent accomplishments
@@ -633,19 +634,55 @@ func (c *codeOwner) storeConversation(ctx context.Context, question, answer, sen
 // Returns an empty string if no accomplishments are found or the vector store
 // is not configured. Without this, the resume would lack evidence-based
 // confidence signals.
+//
+// Applies visibility-based filtering: private context sees only own
+// accomplishments; group context sees the group's accomplishments.
+// Fallback: if private context yields sparse results (<2), also searches
+// by sender_id across all visibility scopes — so a user's group
+// accomplishments follow them to DMs.
 func (c *codeOwner) recallAccomplishments(ctx context.Context) string {
 	if c.vectorStore == nil {
 		return ""
 	}
 
-	// Search for "accomplishment" but fetch more results (50) to allow for
-	// post-filtering by metadata. The vector store's Search method is
-	// semantic, so it might return other document types that are semantically
-	// similar but not actual accomplishments.
-	results, err := c.vectorStore.Search(ctx, rtmemory.AccomplishmentType, 50)
+	// Build metadata filter based on current sender context.
+	filter := map[string]string{
+		"type": rtmemory.AccomplishmentType,
+	}
+	origin := messenger.MessageOriginFrom(ctx)
+	if origin != nil {
+		visibility := messenger.DeriveVisibility(origin)
+		filter["visibility"] = visibility
+	}
+
+	results, err := c.vectorStore.SearchWithFilter(ctx, rtmemory.AccomplishmentType, 50, filter)
 	if err != nil {
 		logger.GetLogger(ctx).Warn("failed to search accomplishments for resume", "error", err)
 		return ""
+	}
+
+	// Fallback: if private context yields sparse results, also search by
+	// sender_id across all visibility scopes. This ensures a user's group
+	// accomplishments follow them when they switch to DMs (blind spot #6).
+	const minResults = 2
+	if origin != nil && messenger.IsPrivateContext(origin) && len(results) < minResults {
+		senderFilter := map[string]string{
+			"type":      rtmemory.AccomplishmentType,
+			"sender_id": origin.Sender.ID,
+		}
+		extraResults, err := c.vectorStore.SearchWithFilter(ctx, rtmemory.AccomplishmentType, 50, senderFilter)
+		if err == nil {
+			// Deduplicate by ID.
+			seen := make(map[string]bool, len(results))
+			for _, r := range results {
+				seen[r.ID] = true
+			}
+			for _, r := range extraResults {
+				if !seen[r.ID] {
+					results = append(results, r)
+				}
+			}
+		}
 	}
 
 	if len(results) == 0 {
@@ -665,13 +702,21 @@ func (c *codeOwner) recallAccomplishments(ctx context.Context) string {
 
 	var sb strings.Builder
 	for i := 0; i < limit; i++ {
-		// Only include entries tagged as accomplishments.
-		if entryType, ok := results[i].Metadata["type"]; ok && entryType == rtmemory.AccomplishmentType {
-			sb.WriteString("- ")
-			sb.WriteString(results[i].Content)
-			sb.WriteString("\n")
-		}
+		sb.WriteString("- ")
+		sb.WriteString(results[i].Content)
+		sb.WriteString("\n")
 	}
+
+	// Audit: log memory recall.
+	c.auditor.Log(ctx, audit.LogRequest{
+		EventType: audit.EventMemoryAccess,
+		Actor:     "code-owner",
+		Action:    "recall_accomplishments",
+		Metadata: map[string]interface{}{
+			"results": limit,
+		},
+	})
+
 	return sb.String()
 }
 
@@ -680,6 +725,10 @@ func (c *codeOwner) recallAccomplishments(ctx context.Context) string {
 // recallAccomplishments to enrich the agent's resume with evidence of real
 // work. Without this, the agent would have no way to demonstrate its track
 // record to users.
+//
+// Each entry is tagged with source metadata (platform, sender, channel,
+// visibility) so that privacy-aware filtering can be applied during retrieval.
+// PII is redacted before storage to prevent sensitive data leakage.
 func (c *codeOwner) storeAccomplishment(ctx context.Context, question string, res reactree.TreeResult) {
 	if c.vectorStore == nil {
 		return
@@ -698,8 +747,22 @@ func (c *codeOwner) storeAccomplishment(ctx context.Context, question string, re
 		toolwrap.TruncateForAudit(question, 200),
 		toolwrap.TruncateForAudit(res.Output, 500))
 
+	// Redact PII before persisting to prevent sensitive data leakage.
+	summary = pii.Redact(summary)
+
 	metadata := map[string]string{
-		"type": rtmemory.AccomplishmentType,
+		"type":      rtmemory.AccomplishmentType,
+		"timestamp": time.Now().Format(time.RFC3339),
+	}
+
+	// Tag with source attribution for privacy-aware filtering.
+	if origin := messenger.MessageOriginFrom(ctx); origin != nil {
+		metadata["platform"] = string(origin.Platform)
+		metadata["sender_id"] = origin.Sender.ID
+		metadata["channel_id"] = origin.Channel.ID
+		metadata["visibility"] = messenger.DeriveVisibility(origin)
+	} else {
+		metadata["visibility"] = "global"
 	}
 
 	if err := c.vectorStore.Add(ctx, vector.BatchItem{
@@ -709,6 +772,16 @@ func (c *codeOwner) storeAccomplishment(ctx context.Context, question string, re
 	}); err != nil {
 		logger.GetLogger(ctx).Warn("failed to store accomplishment", "error", err)
 	}
+
+	// Audit: log memory write.
+	c.auditor.Log(ctx, audit.LogRequest{
+		EventType: audit.EventMemoryAccess,
+		Actor:     "code-owner",
+		Action:    "store_accomplishment",
+		Metadata: map[string]interface{}{
+			"summary_length": len(summary),
+		},
+	})
 }
 
 // memoryKeyForSender returns a memory.UserKey scoped to the given sender.
@@ -721,6 +794,101 @@ func (c *codeOwner) memoryKeyForSender(senderID string) memory.UserKey {
 		AppName: c.memoryUserKey.AppName,
 		UserID:  senderID,
 	}
+}
+
+// workingMemoryForSender returns (or creates) an isolated WorkingMemory
+// instance for the given sender. This prevents User A's observations from
+// leaking into User B's context.
+func (c *codeOwner) workingMemoryForSender(sender string) *rtmemory.WorkingMemory {
+	if sender == "" {
+		sender = "default"
+	}
+	if existing, ok := c.workingMemories.Load(sender); ok {
+		return existing.(*rtmemory.WorkingMemory)
+	}
+	newWM := rtmemory.NewWorkingMemory()
+	actual, _ := c.workingMemories.LoadOrStore(sender, newWM)
+	return actual.(*rtmemory.WorkingMemory)
+}
+
+// episodicMemoryForSender returns (or creates) an isolated EpisodicMemory
+// instance for the given sender. Each sender has its own episode pool.
+func (c *codeOwner) episodicMemoryForSender(sender string) rtmemory.EpisodicMemory {
+	if sender == "" {
+		sender = "default"
+	}
+	if existing, ok := c.episodicMemories.Load(sender); ok {
+		return existing.(rtmemory.EpisodicMemory)
+	}
+	newEp := c.episodicMemoryCfg.WithUserID(sender).NewEpisodicMemory()
+	actual, _ := c.episodicMemories.LoadOrStore(sender, newEp)
+	return actual.(rtmemory.EpisodicMemory)
+}
+
+// conversationKeyFromContext returns the appropriate memory key for
+// conversation history isolation. In group chats, all members share
+// history (keyed by channel ID). In DMs, each sender has private history.
+func (c *codeOwner) conversationKeyFromContext(ctx context.Context, senderID string) string {
+	origin := messenger.MessageOriginFrom(ctx)
+	if origin != nil && messenger.IsGroupContext(origin) {
+		return "group:" + origin.Channel.ID
+	}
+	return senderID
+}
+
+// ForgetUser clears all memory stores associated with a given sender.
+// This implements the "right to be forgotten" for privacy compliance.
+func (c *codeOwner) ForgetUser(ctx context.Context, senderID string) error {
+	// 1. Clear conversation history.
+	key := c.memoryKeyForSender(senderID)
+	if err := c.memorySvc.ClearMemories(ctx, key); err != nil {
+		return fmt.Errorf("failed to clear conversation memory: %w", err)
+	}
+
+	// 2. Clear working memory for this sender.
+	if wm, ok := c.workingMemories.LoadAndDelete(senderID); ok {
+		wm.(*rtmemory.WorkingMemory).Clear()
+	}
+
+	// 3. Clear episodic memory for this sender.
+	// Episodic memory is backed by memory.Service with a scoped UserKey,
+	// so clearing its memory.Service entries removes episodes.
+	episodicKey := memory.UserKey{
+		AppName: "reactree",
+		UserID:  senderID,
+	}
+	_ = c.memorySvc.ClearMemories(ctx, episodicKey)
+	c.episodicMemories.Delete(senderID)
+
+	// 4. Delete vector store accomplishments for this sender.
+	// Vector store entries are tagged with sender_id metadata, so we
+	// search and delete matching entries.
+	if c.vectorStore != nil {
+		results, err := c.vectorStore.SearchWithFilter(ctx, rtmemory.AccomplishmentType, 100, map[string]string{
+			"sender_id": senderID,
+		})
+		if err == nil {
+			ids := make([]string, 0, len(results))
+			for _, r := range results {
+				ids = append(ids, r.ID)
+			}
+			if len(ids) > 0 {
+				_ = c.vectorStore.Delete(ctx, ids...)
+			}
+		}
+	}
+
+	// 5. Audit the forget operation.
+	c.auditor.Log(ctx, audit.LogRequest{
+		EventType: audit.EventMemoryAccess,
+		Actor:     "system",
+		Action:    "forget_user",
+		Metadata: map[string]interface{}{
+			"sender_id": senderID,
+		},
+	})
+
+	return nil
 }
 
 // filterTools returns a copy of tools with the named tools removed.
