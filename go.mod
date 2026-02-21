@@ -13,7 +13,7 @@ require (
 	github.com/drone/go-scm v0.0.0-00010101000000-000000000000
 	github.com/emersion/go-imap v1.2.1
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/go-chi/chi/v5 v5.2.4
+	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-telegram/bot v1.18.0
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-retryablehttp v0.7.8
