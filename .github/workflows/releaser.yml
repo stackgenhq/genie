@@ -44,6 +44,8 @@ jobs:
           audience: sts.amazonaws.com
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
+      - name: Configure Git for GoReleaser
+        run: git config --global --add safe.directory '*'
       - name: Run GoReleaser
         if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref, '-rc.')
         env:

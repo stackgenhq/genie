@@ -164,83 +164,78 @@ func RedactWithReplacer(text string) (redacted string, replacer *strings.Replace
 		return text, strings.NewReplacer()
 	}
 
-	// Extract all [HIDDEN:*] placeholders from the redacted text and build
-	// a replacement table by finding the corresponding original substrings.
-	var pairs []string
-	seen := make(map[string]bool)
-
-	// Strategy: find each placeholder's byte offset in redacted, then map
-	// back to the original by tracking cursor positions in both strings.
 	matches := placeholderRe.FindAllStringIndex(redacted, -1)
 	if len(matches) == 0 {
-		// No HMAC placeholders — redaction was structural only.
-		// Fall back to full-string replacement.
 		return redacted, strings.NewReplacer(redacted, text)
 	}
 
-	// Walk both strings in parallel to find what each placeholder replaced.
+	var pairs []string
+	seen := make(map[string]bool)
+
 	origIdx := 0
 	redIdx := 0
-	for _, m := range matches {
+
+	for i, m := range matches {
 		phStart, phEnd := m[0], m[1]
 		placeholder := redacted[phStart:phEnd]
 
-		if seen[placeholder] {
-			// Same HMAC hash → skip (deterministic, same input = same hash).
-			// Advance redIdx past this placeholder.
-			skip := phEnd - redIdx
-			origIdx += (phStart - redIdx) // advance past matching prefix
-			// Now scan forward in original to find end of replaced token.
-			// The token ends where the next matching suffix begins.
-			nextRedacted := ""
-			if phEnd < len(redacted) {
-				// Take next few chars of redacted as suffix anchor.
-				end := phEnd + 20
-				if end > len(redacted) {
-					end = len(redacted)
-				}
-				nextRedacted = redacted[phEnd:end]
-			}
-			if nextRedacted != "" {
-				if suffixStart := strings.Index(text[origIdx:], nextRedacted[:1]); suffixStart >= 0 {
-					origIdx += suffixStart
+		// 1. Literal string before this placeholder
+		literal := redacted[redIdx:phStart]
+
+		if literal != "" {
+			if origIdx < len(text) && strings.HasPrefix(text[origIdx:], literal) {
+				origIdx += len(literal)
+			} else if origIdx < len(text) {
+				idx := strings.Index(text[origIdx:], literal)
+				if idx >= 0 {
+					origIdx += idx + len(literal)
 				} else {
-					origIdx += skip
+					origIdx += len(literal)
 				}
 			} else {
-				origIdx = len(text)
+				origIdx += len(literal)
 			}
-			redIdx = phEnd
-			continue
 		}
 
-		// Advance past the matching prefix (same text in both strings).
-		prefixLen := phStart - redIdx
-		origIdx += prefixLen
-
-		// Find the end of the original token that was replaced.
-		// Look for the text that follows the placeholder in the redacted string.
-		var origToken string
-		if phEnd < len(redacted) {
-			// Find suffix anchor: next char(s) after placeholder in redacted.
-			suffixChar := redacted[phEnd : phEnd+1]
-			if nextInOrig := strings.Index(text[origIdx:], suffixChar); nextInOrig >= 0 {
-				origToken = text[origIdx : origIdx+nextInOrig]
-				origIdx += nextInOrig
-			} else {
-				origToken = text[origIdx:]
-				origIdx = len(text)
-			}
-		} else {
-			// Placeholder is at end of string.
-			origToken = text[origIdx:]
+		if origIdx > len(text) {
 			origIdx = len(text)
 		}
+
+		// 2. Literal string that follows this placeholder
+		var nextLiteral string
+		if i+1 < len(matches) {
+			nextLiteral = redacted[phEnd:matches[i+1][0]]
+		} else {
+			nextLiteral = redacted[phEnd:]
+		}
+
+		var tokenEnd int
+		if nextLiteral == "" {
+			if i+1 == len(matches) {
+				tokenEnd = len(text)
+			} else {
+				tokenEnd = origIdx
+				for tokenEnd < len(text) && text[tokenEnd] != ' ' && text[tokenEnd] != '\n' && text[tokenEnd] != '\t' && text[tokenEnd] != '\r' {
+					tokenEnd++
+				}
+			}
+		} else {
+			idx := strings.Index(text[origIdx:], nextLiteral)
+			if idx >= 0 {
+				tokenEnd = origIdx + idx
+			} else {
+				tokenEnd = len(text)
+			}
+		}
+
+		origToken := text[origIdx:tokenEnd]
 
 		if origToken != "" && !seen[placeholder] {
 			pairs = append(pairs, placeholder, origToken)
 			seen[placeholder] = true
 		}
+
+		origIdx = tokenEnd
 		redIdx = phEnd
 	}
 

@@ -16,9 +16,11 @@ func NewToolProvider(cfg Config, opts ...DDGOption) *ToolProvider {
 	return &ToolProvider{cfg: cfg, opts: opts}
 }
 
-// GetTools returns the websearch tool configured from the provider's config.
+// GetTools returns the websearch tool configured from the provider's config,
+// as well as the separate wikipedia_search tool.
 func (p *ToolProvider) GetTools() []tool.Tool {
 	return []tool.Tool{
 		NewTool(p.cfg, p.opts...),
+		NewWikipediaTool(),
 	}
 }
