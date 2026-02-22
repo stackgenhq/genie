@@ -35,89 +35,7 @@ func (m *mockTool) Declaration() *tool.Declaration {
 }
 func (m *mockTool) Run(_ context.Context, _ []byte) ([]byte, error) { return nil, nil }
 
-func stubTool(name string) tool.Tool {
-	return &mockTool{name: name}
-}
-
 var _ = Describe("Orchestrator", func() {
-
-	// ═══════════════════════════════════════════════════════════════════════
-	// selectStepTools: Action space A_t^n filtering
-	//
-	// Paper (Section 4.1, Algorithm 1, line 15):
-	//   "Agent nodes sample actions from their available tool set A_t^n"
-	//
-	// Framework invariants:
-	//   - send_message is ALWAYS stripped (only orchestrator sends to user)
-	//   - create_agent is ALWAYS stripped (prevents recursive spawning)
-	// ═══════════════════════════════════════════════════════════════════════
-	Describe("selectStepTools (action space A_t^n)", func() {
-		var registry map[string]tool.Tool
-
-		BeforeEach(func() {
-			registry = map[string]tool.Tool{
-				"read_file":    stubTool("read_file"),
-				"write_file":   stubTool("write_file"),
-				"run_shell":    stubTool("run_shell"),
-				"send_message": stubTool("send_message"),
-				"create_agent": stubTool("create_agent"),
-			}
-		})
-
-		It("should strip send_message from tool set when no specific tools requested", func() {
-			tools := selectStepTools(nil, registry)
-			names := toolNames(tools)
-			Expect(names).NotTo(ContainElement("send_message"),
-				"send_message must be stripped — only orchestrator communicates with users (paper invariant)")
-		})
-
-		It("should strip create_agent from tool set when no specific tools requested", func() {
-			tools := selectStepTools(nil, registry)
-			names := toolNames(tools)
-			Expect(names).NotTo(ContainElement("create_agent"),
-				"create_agent must be stripped — prevents recursive sub-agent spawning")
-		})
-
-		It("should include all other tools when no specific tools requested", func() {
-			tools := selectStepTools(nil, registry)
-			names := toolNames(tools)
-			Expect(names).To(ContainElements("read_file", "write_file", "run_shell"),
-				"non-restricted tools should be available as A_t^n")
-		})
-
-		It("should strip send_message even when explicitly requested", func() {
-			tools := selectStepTools([]string{"read_file", "send_message"}, registry)
-			names := toolNames(tools)
-			Expect(names).NotTo(ContainElement("send_message"),
-				"framework invariant: send_message always stripped regardless of request")
-			Expect(names).To(ContainElement("read_file"))
-		})
-
-		It("should strip create_agent even when explicitly requested", func() {
-			tools := selectStepTools([]string{"create_agent", "read_file"}, registry)
-			names := toolNames(tools)
-			Expect(names).NotTo(ContainElement("create_agent"),
-				"framework invariant: create_agent always stripped regardless of request")
-			Expect(names).To(ContainElement("read_file"))
-		})
-
-		It("should return only requested tools minus restricted ones", func() {
-			tools := selectStepTools([]string{"read_file", "write_file"}, registry)
-			names := toolNames(tools)
-			Expect(names).To(ConsistOf("read_file", "write_file"))
-		})
-
-		It("should skip tools not in registry gracefully", func() {
-			tools := selectStepTools([]string{"nonexistent_tool"}, registry)
-			Expect(tools).To(BeEmpty(),
-				"requesting a tool not in registry should return empty (no panic)")
-		})
-
-		It("should return empty tool set when registry is empty", func() {
-			tools := selectStepTools(nil, map[string]tool.Tool{})
-			Expect(tools).To(BeEmpty())
-		})
-	})
 
 	// ═══════════════════════════════════════════════════════════════════════
 	// ExecutePlan: Algorithm 2 (ExecCtrlFlowNode)
@@ -295,12 +213,3 @@ var _ = Describe("Orchestrator", func() {
 		})
 	})
 })
-
-// toolNames extracts tool declaration names for test assertions.
-func toolNames(tools []tool.Tool) []string {
-	names := make([]string, len(tools))
-	for i, t := range tools {
-		names[i] = t.Declaration().Name
-	}
-	return names
-}

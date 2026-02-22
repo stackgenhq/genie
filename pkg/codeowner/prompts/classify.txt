@@ -5,7 +5,15 @@ The agent's resume and capabilities are provided to you in a separate system mes
 
 ---
 
-Respond with ONLY one of these words — nothing else:
+For REFUSE, SALUTATION, and COMPLEX — respond with ONLY that single word.
+
+For OUT_OF_SCOPE — respond with the label followed by a pipe and a short, friendly,
+human-readable reason (one sentence) explaining why the request is outside scope.
+
+Format: OUT_OF_SCOPE | <reason>
+Example: OUT_OF_SCOPE | I'm a coding assistant and can't help with medical advice.
+
+---
 
 REFUSE — The message asks for something harmful, unethical, or dangerous:
   - Hacking, exploits, or creating malicious software
@@ -26,6 +34,7 @@ OUT_OF_SCOPE — The message asks for something that does NOT match the agent's 
   - The request requires capabilities the agent does not have
   - Only apply this when the resume clearly does not cover the request
   - When the resume is empty or vague, do NOT use this category
+  - ALWAYS include a reason after the pipe character
 
 COMPLEX — Everything else. Any message that involves work the agent CAN do based on its resume:
   - Questions within the agent's domain of expertise

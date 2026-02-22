@@ -150,6 +150,6 @@ persistence_dir = "~/.genie/vector_store"
 # ── AG-UI Server ────────────────────────────────────────────────────────
 # Browser-based chat interface served over HTTP/SSE.
 # The server runs in the foreground when `genie grant` is invoked.
-[agui]
+[messenger.agui]
 port = 8080
 cors_origins = ["https://appcd-dev.github.io"]

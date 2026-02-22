@@ -1,7 +1,6 @@
 package messenger_test
 
 import (
-	"context"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -136,27 +135,3 @@ var _ = Describe("Errors", func() {
 		Expect(messenger.ErrRateLimited.Error()).To(ContainSubstring("rate limited"))
 	})
 })
-
-// Compile-time interface compliance check using a minimal stub.
-type stubMessenger struct{}
-
-func (s *stubMessenger) Connect(_ context.Context) error    { return nil }
-func (s *stubMessenger) Disconnect(_ context.Context) error { return nil }
-func (s *stubMessenger) Send(_ context.Context, _ messenger.SendRequest) (messenger.SendResponse, error) {
-	return messenger.SendResponse{}, nil
-}
-func (s *stubMessenger) Receive(_ context.Context) (<-chan messenger.IncomingMessage, error) {
-	return make(chan messenger.IncomingMessage), nil
-}
-func (s *stubMessenger) Platform() messenger.Platform { return "stub" }
-func (s *stubMessenger) FormatApproval(req messenger.SendRequest, _ messenger.ApprovalInfo) messenger.SendRequest {
-	return req
-}
-func (s *stubMessenger) FormatClarification(req messenger.SendRequest, _ messenger.ClarificationInfo) messenger.SendRequest {
-	return req
-}
-
-func (s *stubMessenger) Close() error { return nil }
-
-// Compile-time check that stubMessenger satisfies Messenger.
-var _ messenger.Messenger = &stubMessenger{}

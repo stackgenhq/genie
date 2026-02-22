@@ -7,25 +7,18 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/sirupsen/logrus"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
 // MCPTool wraps an MCP ServerTool to implement the trpc-agent-go tool.Tool interface
 type MCPTool struct {
 	mcpTool server.ServerTool
-	logger  *logrus.Logger
 }
 
 // NewMCPTool creates a new MCPTool wrapper around an MCP ServerTool
-func NewMCPTool(mcpTool server.ServerTool, logger *logrus.Logger) *MCPTool {
-	if logger == nil {
-		logger = logrus.New()
-		logger.SetLevel(logrus.FatalLevel)
-	}
+func NewMCPTool(mcpTool server.ServerTool) *MCPTool {
 	return &MCPTool{
 		mcpTool: mcpTool,
-		logger:  logger,
 	}
 }
 

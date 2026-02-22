@@ -26,13 +26,14 @@ import (
 	"github.com/appcd-dev/genie/pkg/reactree"
 	rtmemory "github.com/appcd-dev/genie/pkg/reactree/memory"
 	"github.com/appcd-dev/genie/pkg/runbook"
+	"github.com/appcd-dev/genie/pkg/tools"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
 	"github.com/appcd-dev/genie/pkg/ttlcache"
+	"trpc.group/trpc-go/trpc-agent-go/graph"
 	"trpc.group/trpc-go/trpc-agent-go/memory"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/session"
 	"trpc.group/trpc-go/trpc-agent-go/telemetry/trace"
-	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
 //go:embed prompts/persona.txt
@@ -83,13 +84,20 @@ const (
 	categoryComplex    requestCategory = "COMPLEX"
 )
 
+// classificationResult carries the front-desk category together with an
+// optional human-friendly reason (currently only set for OUT_OF_SCOPE).
+type classificationResult struct {
+	Category requestCategory
+	Reason   string // non-empty only for OUT_OF_SCOPE
+}
+
 type codeOwner struct {
 	expert          expert.Expert
 	frontDeskExpert expert.Expert
 	treeExecutor    reactree.TreeExecutor
 	memorySvc       memory.Service
 	memoryUserKey   memory.UserKey
-	tools           reactree.ToolRegistry
+	toolRegistry    *tools.Registry
 	auditor         audit.Auditor
 	resume          *ttlcache.Item[string]
 	resumeCancel    context.CancelFunc
@@ -120,7 +128,7 @@ func NewCodeOwner(
 	ctx context.Context,
 	modelProvider modelprovider.ModelProvider,
 	workingDirectory string,
-	tools []tool.Tool,
+	availableTools *tools.Registry,
 	vectorStore vector.IStore,
 	auditor audit.Auditor,
 	approvalStore hitl.ApprovalStore,
@@ -160,15 +168,33 @@ func NewCodeOwner(
 	expertBio := expert.ExpertBio{
 		Personality: fullPersona,
 		Name:        "genie",
-		Description: "Genie — personal AI assistant that gets things done",
+		Description: "Genie — strategic AI planner that decomposes requests into structured plans and orchestrates sub-agents",
 	}
 
 	var expertOpts []expert.ExpertOption
 	if sessionSvc != nil {
 		expertOpts = append(expertOpts, expert.WithExpertSessionService(sessionSvc))
 	}
+	// Create the summarizer for condensing tool outputs via the front desk model.
+	summarizer, err := agentutils.NewSummarizer(ctx, modelProvider, auditor)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create summarizer: %w", err)
+	}
+	logger.GetLogger(ctx).Debug("Summarizer created")
 
-	exp, err := expertBio.ToExpert(ctx, modelProvider, auditor, toolwrap.NewService(auditor, approvalStore), expertOpts...)
+	// Tools are pre-built and pre-filtered by the tool registry (toolreg).
+	// Build the reactree.ToolRegistry from the provided []tool.Tool.
+	// Adapt the agentutils.Summarizer into a toolwrap.SummarizeFunc so the
+	// middleware can auto-compress oversized tool results (>100 000 chars).
+	summarizeFunc := toolwrap.SummarizeFunc(func(ctx context.Context, content string) (string, error) {
+		return summarizer.Summarize(ctx, agentutils.SummarizeRequest{
+			Content:              content,
+			RequiredOutputFormat: agentutils.OutputFormatText,
+		})
+	})
+	toolWrapSvc := toolwrap.NewService(auditor, approvalStore, summarizeFunc)
+
+	exp, err := expertBio.ToExpert(ctx, modelProvider, auditor, toolWrapSvc, expertOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -181,18 +207,11 @@ func NewCodeOwner(
 		Name:        "front-desk",
 		Description: "Classifies incoming requests to determine routing. Validate against the agents personality and make the judgement accordingly",
 	}
-	frontDeskExp, err := frontDeskBio.ToExpert(ctx, modelProvider, auditor, toolwrap.NewService(auditor, approvalStore))
+	frontDeskExp, err := frontDeskBio.ToExpert(ctx, modelProvider, auditor, toolWrapSvc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create front desk expert: %w", err)
 	}
 	logger.GetLogger(ctx).Debug("Front desk expert created")
-
-	// Create the summarizer for condensing tool outputs via the front desk model.
-	summarizer, err := agentutils.NewSummarizer(ctx, modelProvider, auditor)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create summarizer: %w", err)
-	}
-	logger.GetLogger(ctx).Debug("Summarizer created")
 
 	// Initialize shared working memory for cross-turn observation sharing
 	wm := rtmemory.NewWorkingMemory()
@@ -201,11 +220,17 @@ func NewCodeOwner(
 	episodicMemoryCfg := rtmemory.DefaultEpisodicMemoryConfig()
 	episodicMemoryCfg.Service = memorySvc
 	episodicMem := episodicMemoryCfg.NewEpisodicMemory()
+	var checkpointer graph.CheckpointSaver
+	if store, ok := sessionSvc.(interface{ Checkpointer() graph.CheckpointSaver }); ok {
+		checkpointer = store.Checkpointer()
+	}
+
 	treeExec := reactree.NewTreeExecutor(exp, wm, episodicMem, reactree.TreeConfig{
 		MaxDepth:            3,
 		MaxDecisionsPerNode: 10,
 		MaxTotalNodes:       30,
 		MaxIterations:       3,
+		Checkpointer:        checkpointer,
 	})
 
 	// Use provided memory.Service for conversation history persistence.
@@ -215,36 +240,34 @@ func NewCodeOwner(
 		UserID:  "default",
 	}
 
-	// Tools are pre-built and pre-filtered by the tool registry (toolreg).
-	// Build the reactree.ToolRegistry from the provided tools slice.
-	toolRegistry := make(reactree.ToolRegistry, len(tools))
-	for _, t := range tools {
-		toolRegistry[t.Declaration().Name] = t
-	}
-	toolWrapSvc := toolwrap.NewService(auditor, approvalStore)
 	logger.GetLogger(ctx).Info("codeowner: toolwrap.Service created for sub-agents",
 		"hasAuditor", auditor != nil,
 		"hasApprovalStore", approvalStore != nil,
+		"hasSummarizer", true,
 	)
 	createAgentTool := reactree.NewCreateAgentTool(
-		modelProvider, exp, summarizer, toolRegistry,
+		modelProvider, exp, summarizer, availableTools,
 		wm, episodicMem,
 		toolWrapSvc,
 	)
 
-	// Restrict the codeowner to orchestration-only tools:
-	//   - summarize_content: condense large outputs
-	//   - create_agent: delegate detailed work to sub-agents
-	// All other tools (read_file, shell, etc.) are available to sub-agents only.
-	codeOwnerTools := make(reactree.ToolRegistry)
-	codeOwnerTools[createAgentTool.Declaration().Name] = createAgentTool
-	for toolName, tool := range toolRegistry {
-		if approvalStore.IsAllowed(toolName) {
-			codeOwnerTools[toolName] = tool
-		}
+	// Build the main agent's tool registry:
+	//   - create_agent: to delegate detailed work to sub-agents
+	//   - ask_clarifying_question: to ask users for clarification directly
+	//
+	// Sub-agent tool scoping (excluding create_agent + send_message) is
+	// handled inside create_agent.go via subAgentRegistry, NOT here.
+	codeOwnerToolSlice := tools.Tools{
+		createAgentTool.GetTool(),
 	}
+	// Lift ask_clarifying_question from the full registry so the main
+	// agent (planner) can ask users directly without delegating to a sub-agent.
+	if t, err := availableTools.GetTool("ask_clarifying_question"); err == nil {
+		codeOwnerToolSlice = append(codeOwnerToolSlice, t)
+	}
+	codeOwnerTools := tools.NewRegistry(ctx, codeOwnerToolSlice)
 	logger := logger.GetLogger(ctx).With("fn", "createOrchestrator")
-	logger.Info("CodeOwner tool registry initialized", "count", len(codeOwnerTools))
+	logger.Info("CodeOwner tool registry initialized", "count", len(codeOwnerTools.ToolNames()))
 
 	codeOwner := &codeOwner{
 		expert:            exp,
@@ -252,7 +275,7 @@ func NewCodeOwner(
 		treeExecutor:      treeExec,
 		memorySvc:         memorySvc,
 		memoryUserKey:     memoryUserKey,
-		tools:             codeOwnerTools,
+		toolRegistry:      codeOwnerTools,
 		auditor:           auditor,
 		vectorStore:       vectorStore,
 		episodicMemoryCfg: episodicMemoryCfg,
@@ -263,7 +286,7 @@ func NewCodeOwner(
 	codeOwner.resumeCancel = resumeCancel
 
 	codeOwner.resume = ttlcache.NewItem(func(ctx context.Context) (string, error) {
-		return codeOwner.createResume(ctx, summarizer, toolRegistry, fullPersona)
+		return codeOwner.createResume(ctx, summarizer, fullPersona)
 	}, 24*time.Hour)
 
 	// Use WithoutCancel to detach from startup context, but we use our own resumeCtx
@@ -288,11 +311,14 @@ func NewCodeOwner(
 func (c *codeOwner) createResume(
 	ctx context.Context,
 	summarizer agentutils.Summarizer,
-	registry reactree.ToolRegistry,
 	fullPersona string,
 ) (string, error) {
 	logger := logger.GetLogger(ctx)
 	logger.Info("building my resume")
+
+	// Inject a system-level MessageOrigin so downstream calls
+	// (expert.getRunner → MessageOriginFrom) don't warn about missing origin.
+	ctx = messenger.WithMessageOrigin(ctx, messenger.SystemMessageOrigin())
 
 	// Retrieve recent accomplishments from vector memory to enrich the resume.
 	accomplishments := c.recallAccomplishments(ctx)
@@ -319,8 +345,7 @@ Recent Accomplishments (things I have successfully done):
 Persona:
 %s
 
-Available Skills:
-%s%s`, fullPersona, registry.String(), accomplishmentsSection),
+%s`, fullPersona, accomplishmentsSection),
 	})
 	if err != nil {
 		logger.Error("error creating resume", "error", err)
@@ -351,12 +376,13 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 	logr.Info("codeOwner.Chat invoked", "question", toolwrap.TruncateForAudit(req.Question, 100), "sender", req.SenderContext)
 
 	// Step 1: Front desk classification — use a fast, cheap model to triage the request.
-	category, err := c.classifyRequest(ctx, req.Question)
+	cr, err := c.classifyRequest(ctx, req.Question)
 	if err != nil {
 		// Classification failed — fall through to complex (fail-open)
 		logr.Warn("front desk classification failed, defaulting to complex", "error", err)
-		category = categoryComplex
+		cr = classificationResult{Category: categoryComplex}
 	}
+	category := cr.Category
 	logr.Info("front desk classified request", "category", category)
 
 	// Audit: log classification result
@@ -378,15 +404,14 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 		return nil
 
 	case categoryOutOfScope:
-		resume := c.Resume(ctx)
-		if resume == "" {
-			resume = "a mysterious specialist whose talents are yet to be discovered"
+		reason := cr.Reason
+		if reason == "" {
+			reason = "That doesn't seem to be within my area of expertise."
 		}
 		outputChan <- fmt.Sprintf(
-			"🙈 Wrong person! I appreciate the confidence, but that's not really my thing.\n\n"+
-				"I'm more of a:\n\n%s\n\n"+
+			"🙈 Hmm, I can't help with that — %s\n\n"+
 				"Try me with something in my wheelhouse — I promise I'm great at it! 🚀",
-			resume,
+			reason,
 		)
 		return nil
 
@@ -425,10 +450,10 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 		return nil
 	}
 
-	// Determine task type based on classification
+	// Use TaskPlanning for complex requests — the planner persona needs
+	// a reasoning-heavy model to analyze, decompose, and plan before
+	// delegating execution to sub-agents via create_agent.
 	taskType := modelprovider.TaskPlanning
-	// For COMPLEX, we default to TaskPlanning, but if the user requested
-	// specific tool types in other contexts, that logic would go here.
 
 	// categoryComplex (default): Full ReAcTree pipeline
 
@@ -450,11 +475,8 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 		message = fmt.Sprintf("## Sender\n%s\n\n%s", req.SenderContext, message)
 	}
 
-	// Filter out excluded tools (e.g. send_message for messenger-originated messages).
-	tools := c.tools
-
 	runCtx := ctx
-	if origin := messenger.MessageOriginFrom(ctx); origin != nil {
+	if origin := messenger.MessageOriginFrom(ctx); !origin.IsZero() {
 		runCtx = messenger.WithMessageOrigin(runCtx, origin)
 	}
 	if req.BrowserTab != nil {
@@ -475,7 +497,7 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 		}
 		// Re-inject MessageOrigin — the browser tab context is a separate
 		// hierarchy and doesn't carry values from the parent ctx.
-		if origin := messenger.MessageOriginFrom(ctx); origin != nil {
+		if origin := messenger.MessageOriginFrom(ctx); !origin.IsZero() {
 			runCtx = messenger.WithMessageOrigin(runCtx, origin)
 		}
 		// Ensure parent cancellation tears down the tab context too.
@@ -488,8 +510,6 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 		}()
 	}
 
-	logr.Info("codeOwner: starting tree execution", "numTools", len(tools))
-
 	// Stash the original question in context so toolwrap can persist it in
 	// the approval row — needed for replay-on-resume after server restart.
 	runCtx = toolwrap.WithOriginalQuestion(runCtx, req.Question)
@@ -498,7 +518,7 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 	res, err := c.treeExecutor.Run(runCtx, reactree.TreeRequest{
 		Goal:           message,
 		EventChan:      req.EventChan,
-		Tools:          tools.Tools(),
+		Tools:          c.toolRegistry.GetTools(),
 		SenderContext:  req.SenderContext,
 		TaskType:       taskType,
 		Attachments:    req.Attachments,
@@ -650,10 +670,7 @@ func (c *codeOwner) recallAccomplishments(ctx context.Context) string {
 		"type": rtmemory.AccomplishmentType,
 	}
 	origin := messenger.MessageOriginFrom(ctx)
-	if origin != nil {
-		visibility := messenger.DeriveVisibility(origin)
-		filter["visibility"] = visibility
-	}
+	filter["visibility"] = origin.DeriveVisibility()
 
 	results, err := c.vectorStore.SearchWithFilter(ctx, rtmemory.AccomplishmentType, 50, filter)
 	if err != nil {
@@ -665,7 +682,7 @@ func (c *codeOwner) recallAccomplishments(ctx context.Context) string {
 	// sender_id across all visibility scopes. This ensures a user's group
 	// accomplishments follow them when they switch to DMs (blind spot #6).
 	const minResults = 2
-	if origin != nil && messenger.IsPrivateContext(origin) && len(results) < minResults {
+	if origin.IsPrivateContext() && len(results) < minResults {
 		senderFilter := map[string]string{
 			"type":      rtmemory.AccomplishmentType,
 			"sender_id": origin.Sender.ID,
@@ -756,11 +773,11 @@ func (c *codeOwner) storeAccomplishment(ctx context.Context, question string, re
 	}
 
 	// Tag with source attribution for privacy-aware filtering.
-	if origin := messenger.MessageOriginFrom(ctx); origin != nil {
+	if origin := messenger.MessageOriginFrom(ctx); !origin.IsZero() {
 		metadata["platform"] = string(origin.Platform)
 		metadata["sender_id"] = origin.Sender.ID
 		metadata["channel_id"] = origin.Channel.ID
-		metadata["visibility"] = messenger.DeriveVisibility(origin)
+		metadata["visibility"] = origin.DeriveVisibility()
 	} else {
 		metadata["visibility"] = "global"
 	}
@@ -830,7 +847,7 @@ func (c *codeOwner) episodicMemoryForSender(sender string) rtmemory.EpisodicMemo
 // history (keyed by channel ID). In DMs, each sender has private history.
 func (c *codeOwner) conversationKeyFromContext(ctx context.Context, senderID string) string {
 	origin := messenger.MessageOriginFrom(ctx)
-	if origin != nil && messenger.IsGroupContext(origin) {
+	if origin.IsGroupContext() {
 		return "group:" + origin.Channel.ID
 	}
 	return senderID
@@ -891,21 +908,6 @@ func (c *codeOwner) ForgetUser(ctx context.Context, senderID string) error {
 	return nil
 }
 
-// filterTools returns a copy of tools with the named tools removed.
-func filterTools(tools []tool.Tool, exclude []string) []tool.Tool {
-	excludeSet := make(map[string]struct{}, len(exclude))
-	for _, name := range exclude {
-		excludeSet[name] = struct{}{}
-	}
-	filtered := make([]tool.Tool, 0, len(tools))
-	for _, t := range tools {
-		if _, skip := excludeSet[t.Declaration().Name]; !skip {
-			filtered = append(filtered, t)
-		}
-	}
-	return filtered
-}
-
 // loadAgentsGuide reads the Agents.md file from the given directory.
 // If the file exists, its contents are returned so they can be appended
 // to the agent's persona prompt, ensuring the agent honors project-level
@@ -932,7 +934,10 @@ func loadAgentsGuide(dir string) string {
 // or COMPLEX. The agent's resume is injected so the classifier can determine whether
 // the request is within scope. On any error or unexpected response, defaults to
 // categoryComplex (fail-open).
-func (c *codeOwner) classifyRequest(ctx context.Context, question string) (requestCategory, error) {
+//
+// For OUT_OF_SCOPE, the classifier also returns a human-friendly reason extracted
+// from the "OUT_OF_SCOPE | <reason>" response format.
+func (c *codeOwner) classifyRequest(ctx context.Context, question string) (classificationResult, error) {
 	resume := c.Resume(ctx)
 	message := question
 	if resume != "" {
@@ -961,36 +966,40 @@ func (c *codeOwner) classifyRequest(ctx context.Context, question string) (reque
 		},
 	})
 	if err != nil {
-		return categoryComplex, fmt.Errorf("classification call failed: %w", err)
+		return classificationResult{Category: categoryComplex}, fmt.Errorf("classification call failed: %w", err)
 	}
 
 	raw := strings.TrimSpace(extractTextFromChoices(resp.Choices))
-	// The classifier should return a single word. Normalize to upper case
-	// and check for known categories.
+	// The classifier returns a single word for most categories, but
+	// OUT_OF_SCOPE uses "OUT_OF_SCOPE | <reason>" format.
 	normalized := strings.ToUpper(raw)
 
 	switch {
 	case strings.Contains(normalized, string(categoryRefuse)):
-		return categoryRefuse, nil
+		return classificationResult{Category: categoryRefuse}, nil
 	case strings.Contains(normalized, string(categorySalutation)):
-		return categorySalutation, nil
+		return classificationResult{Category: categorySalutation}, nil
 	case strings.Contains(normalized, string(categoryOutOfScope)):
-		return categoryOutOfScope, nil
+		// Extract the reason after the pipe, if present.
+		reason := ""
+		if idx := strings.Index(raw, "|"); idx != -1 {
+			reason = strings.TrimSpace(raw[idx+1:])
+		}
+		return classificationResult{Category: categoryOutOfScope, Reason: reason}, nil
 	case strings.Contains(normalized, string(categoryComplex)):
-		return categoryComplex, nil
+		return classificationResult{Category: categoryComplex}, nil
 	default:
 		// Unexpected response — default to complex (fail-open)
-		return categoryComplex, nil
+		return classificationResult{Category: categoryComplex}, nil
 	}
 }
 
-// extractTextFromChoices concatenates the text content from all model choices.
+// extractTextFromChoices returns the text content from the first model choice.
+// Earlier versions concatenated ALL choices, which caused duplicate output when
+// the model returned multiple choices with identical content.
 func extractTextFromChoices(choices []model.Choice) string {
-	var sb strings.Builder
-	for _, choice := range choices {
-		if choice.Message.Content != "" {
-			sb.WriteString(choice.Message.Content)
-		}
+	if len(choices) == 0 {
+		return ""
 	}
-	return sb.String()
+	return choices[len(choices)-1].Message.Content
 }

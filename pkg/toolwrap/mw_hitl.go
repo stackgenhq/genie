@@ -73,20 +73,22 @@ func HITLApprovalMiddleware(
 }
 
 func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
-	if m.store == nil {
-		return next
-	}
 	return func(ctx context.Context, tc *ToolCallContext) (any, error) {
-		logr := logger.GetLogger(ctx).With("fn", "HITLApprovalMiddleware", "tool", tc.ToolName)
-
-		// Strip _justification before forwarding to the tool.
+		// Always extract _justification — the audit middleware needs it
+		// even when HITL is disabled (store == nil).
 		justification, strippedArgs := extractJustification(tc.Args)
 		if justification != "" {
 			tc.Args = strippedArgs
 			tc.Justification = justification
 		}
 
-		// Skip if no store or tool is in allowlist.
+		if m.store == nil {
+			return next(ctx, tc)
+		}
+
+		logr := logger.GetLogger(ctx).With("fn", "HITLApprovalMiddleware", "tool", tc.ToolName)
+
+		// Skip if tool is in allowlist.
 		if m.store.IsAllowed(tc.ToolName) {
 			return next(ctx, tc)
 		}
@@ -115,7 +117,7 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 			RunID:         rid,
 			ToolName:      tc.ToolName,
 			Args:          string(tc.Args),
-			SenderContext: messenger.SenderContextFrom(ctx),
+			SenderContext: messenger.MessageOriginFrom(ctx).String(),
 			Question:      OriginalQuestionFrom(ctx),
 		})
 		if err != nil {

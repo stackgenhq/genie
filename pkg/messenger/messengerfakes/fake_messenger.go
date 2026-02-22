@@ -20,6 +20,16 @@ type FakeMessenger struct {
 	connectReturnsOnCall map[int]struct {
 		result1 error
 	}
+	ConnectionInfoStub        func() string
+	connectionInfoMutex       sync.RWMutex
+	connectionInfoArgsForCall []struct {
+	}
+	connectionInfoReturns struct {
+		result1 string
+	}
+	connectionInfoReturnsOnCall map[int]struct {
+		result1 string
+	}
 	DisconnectStub        func(context.Context) error
 	disconnectMutex       sync.RWMutex
 	disconnectArgsForCall []struct {
@@ -154,6 +164,59 @@ func (fake *FakeMessenger) ConnectReturnsOnCall(i int, result1 error) {
 	}
 	fake.connectReturnsOnCall[i] = struct {
 		result1 error
+	}{result1}
+}
+
+func (fake *FakeMessenger) ConnectionInfo() string {
+	fake.connectionInfoMutex.Lock()
+	ret, specificReturn := fake.connectionInfoReturnsOnCall[len(fake.connectionInfoArgsForCall)]
+	fake.connectionInfoArgsForCall = append(fake.connectionInfoArgsForCall, struct {
+	}{})
+	stub := fake.ConnectionInfoStub
+	fakeReturns := fake.connectionInfoReturns
+	fake.recordInvocation("ConnectionInfo", []interface{}{})
+	fake.connectionInfoMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeMessenger) ConnectionInfoCallCount() int {
+	fake.connectionInfoMutex.RLock()
+	defer fake.connectionInfoMutex.RUnlock()
+	return len(fake.connectionInfoArgsForCall)
+}
+
+func (fake *FakeMessenger) ConnectionInfoCalls(stub func() string) {
+	fake.connectionInfoMutex.Lock()
+	defer fake.connectionInfoMutex.Unlock()
+	fake.ConnectionInfoStub = stub
+}
+
+func (fake *FakeMessenger) ConnectionInfoReturns(result1 string) {
+	fake.connectionInfoMutex.Lock()
+	defer fake.connectionInfoMutex.Unlock()
+	fake.ConnectionInfoStub = nil
+	fake.connectionInfoReturns = struct {
+		result1 string
+	}{result1}
+}
+
+func (fake *FakeMessenger) ConnectionInfoReturnsOnCall(i int, result1 string) {
+	fake.connectionInfoMutex.Lock()
+	defer fake.connectionInfoMutex.Unlock()
+	fake.ConnectionInfoStub = nil
+	if fake.connectionInfoReturnsOnCall == nil {
+		fake.connectionInfoReturnsOnCall = make(map[int]struct {
+			result1 string
+		})
+	}
+	fake.connectionInfoReturnsOnCall[i] = struct {
+		result1 string
 	}{result1}
 }
 

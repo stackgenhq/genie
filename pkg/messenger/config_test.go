@@ -11,27 +11,31 @@ import (
 
 var _ = Describe("Config", func() {
 	Describe("enabled (via InitMessenger)", func() {
-		It("should return nil for zero-value config", func(ctx context.Context) {
+		It("should return agui for zero-value config", func(ctx context.Context) {
 			cfg := messenger.Config{}
 			m, err := cfg.InitMessenger(ctx)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(m).To(BeNil())
+			Expect(m).NotTo(BeNil())
+			Expect(m.Platform()).To(Equal(messenger.PlatformAGUI))
 		})
 
-		It("should return nil for empty platform string", func(ctx context.Context) {
+		It("should return agui for empty platform string", func(ctx context.Context) {
 			cfg := messenger.Config{Platform: ""}
 			m, err := cfg.InitMessenger(ctx)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(m).To(BeNil())
+			Expect(m).NotTo(BeNil())
+			Expect(m.Platform()).To(Equal(messenger.PlatformAGUI))
 		})
 
 		It("should attempt init when platform is set", func(ctx context.Context) {
+			// uncommon scearnio, the slack adapter config is already registered
 			// With a platform set but invalid config, InitMessenger will
-			// attempt validation and return nil gracefully.
+			// attempt validation and return agui gracefully.
 			cfg := messenger.Config{Platform: messenger.PlatformSlack}
 			m, err := cfg.InitMessenger(ctx)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(m).To(BeNil()) // nil because validation fails (missing tokens)
+			Expect(m).NotTo(BeNil())
+			Expect(m.Platform()).To(Equal(messenger.PlatformAGUI))
 		})
 	})
 

@@ -27,11 +27,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"trpc.group/trpc-go/trpc-agent-go/event"
+	"trpc.group/trpc-go/trpc-agent-go/graph"
+	graphsqlite "trpc.group/trpc-go/trpc-agent-go/graph/checkpoint/sqlite"
 	"trpc.group/trpc-go/trpc-agent-go/session"
 	"trpc.group/trpc-go/trpc-agent-go/session/inmemory"
 )
@@ -166,6 +169,8 @@ type SessionStore struct {
 	// been summarized in the current inmemory lifecycle.
 	dbSummaries   map[string]map[string]*session.Summary // sessionCacheKey -> filterKey -> Summary
 	dbSummariesMu sync.Mutex
+
+	checkpointer graph.CheckpointSaver
 }
 
 // NewSessionStore creates a new GORM-backed session store. This is the
@@ -181,7 +186,31 @@ func NewSessionStore(db *gorm.DB, opts ...SessionStoreOption) *SessionStore {
 		o(&s.opts)
 	}
 	s.mem = inmemory.NewSessionService(s.opts.inMemoryOpts...)
+
+	// Initialize the Checkpointer for Long-Horizon Task Resiliency
+	sqlDB, err := db.DB()
+	logr := logger.GetLogger(db.Statement.Context)
+	if err != nil {
+		logr.Warn("checkpointer: failed to get underlying *sql.DB, durable checkpointing disabled", "error", err)
+		return s
+	}
+	if sqlDB == nil {
+		logr.Warn("checkpointer: underlying *sql.DB is nil, durable checkpointing disabled")
+		return s
+	}
+	saver, err := graphsqlite.NewSaver(sqlDB)
+	if err != nil {
+		logr.Warn("checkpointer: failed to initialize SQLite saver, durable checkpointing disabled", "error", err)
+		return s
+	}
+	s.checkpointer = saver
+
 	return s
+}
+
+// Checkpointer returns the underlying graph.CheckpointSaver if initialized.
+func (s *SessionStore) Checkpointer() graph.CheckpointSaver {
+	return s.checkpointer
 }
 
 // sessionCacheKey returns a string key for de-duplicating loads.

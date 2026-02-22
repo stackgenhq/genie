@@ -14,14 +14,14 @@ type contextEnrichMiddleware struct {
 	eventChan chan<- interface{}
 	threadID  string
 	runID     string
-	origin    *messenger.MessageOrigin
+	origin    messenger.MessageOrigin
 }
 
 // ContextEnrichMiddleware creates a new context enrichment middleware.
 func ContextEnrichMiddleware(
 	eventChan chan<- interface{},
 	threadID, runID string,
-	origin *messenger.MessageOrigin,
+	origin messenger.MessageOrigin,
 ) Middleware {
 	return &contextEnrichMiddleware{
 		eventChan: eventChan,
@@ -36,7 +36,7 @@ func (m *contextEnrichMiddleware) Wrap(next Handler) Handler {
 		logr := logger.GetLogger(ctx).With("fn", "ContextEnrichMiddleware", "tool", tc.ToolName)
 
 		// Re-inject MessageOrigin if the context lost it.
-		if m.origin != nil && messenger.MessageOriginFrom(ctx) == nil {
+		if !m.origin.IsZero() && messenger.MessageOriginFrom(ctx).IsZero() {
 			ctx = messenger.WithMessageOrigin(ctx, m.origin)
 			logr.Debug("re-injected MessageOrigin")
 		}

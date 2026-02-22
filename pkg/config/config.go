@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/browser"
 	"github.com/appcd-dev/genie/pkg/cron"
 	"github.com/appcd-dev/genie/pkg/db"
@@ -22,9 +21,16 @@ import (
 	"github.com/appcd-dev/genie/pkg/pii"
 	"github.com/appcd-dev/genie/pkg/runbook"
 	"github.com/appcd-dev/genie/pkg/security"
+	"github.com/appcd-dev/genie/pkg/tools/atlassian"
+	"github.com/appcd-dev/genie/pkg/tools/bigquery"
 	"github.com/appcd-dev/genie/pkg/tools/email"
+	"github.com/appcd-dev/genie/pkg/tools/gdrive"
+	"github.com/appcd-dev/genie/pkg/tools/hubspot"
 	"github.com/appcd-dev/genie/pkg/tools/pm"
+	"github.com/appcd-dev/genie/pkg/tools/salesforce"
 	"github.com/appcd-dev/genie/pkg/tools/scm"
+	"github.com/appcd-dev/genie/pkg/tools/slacktools"
+	"github.com/appcd-dev/genie/pkg/tools/snowflake"
 	"github.com/appcd-dev/genie/pkg/tools/websearch"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
 	"gopkg.in/yaml.v3"
@@ -40,10 +46,12 @@ type GenieConfig struct {
 	Browser      browser.Config            `yaml:"browser" toml:"browser"`
 	SCM          scm.Config                `yaml:"scm" toml:"scm"`
 
+	// Enterprise connectors — each is opt-in via config.
+	Enterprise EnterpriseConnectors `yaml:"enterprise" toml:"enterprise"`
+
 	ProjectManagement pm.Config `yaml:"project_management" toml:"project_management"`
 
 	Email    email.Config              `yaml:"email" toml:"email"`
-	AGUI     agui.ServerConfig         `yaml:"agui" toml:"agui"`
 	HITL     hitl.Config               `yaml:"hitl" toml:"hitl"`
 	DBConfig db.Config                 `yaml:"db_config" toml:"db_config"`
 	Langfuse langfuse.Config           `yaml:"langfuse" toml:"langfuse"`
@@ -59,6 +67,18 @@ type GenieConfig struct {
 	// delete_context and note require HITL approval; check_budget and
 	// read_notes are read-only and auto-approved.
 	EnablePensieve bool `yaml:"enable_pensieve" toml:"enable_pensieve"`
+}
+
+// EnterpriseConnectors groups optional, opt-in enterprise service
+// connectors under [enterprise] in config.
+type EnterpriseConnectors struct {
+	Atlassian  atlassian.Config  `yaml:"atlassian" toml:"atlassian"`
+	Salesforce salesforce.Config `yaml:"salesforce" toml:"salesforce"`
+	HubSpot    hubspot.Config    `yaml:"hubspot" toml:"hubspot"`
+	Snowflake  snowflake.Config  `yaml:"snowflake" toml:"snowflake"`
+	SlackTools slacktools.Config `yaml:"slack_tools" toml:"slack_tools"`
+	GDrive     gdrive.Config     `yaml:"gdrive" toml:"gdrive"`
+	BigQuery   bigquery.Config   `yaml:"bigquery" toml:"bigquery"`
 }
 
 // LoadGenieConfig loads the Genie configuration from a file, resolving
@@ -92,10 +112,12 @@ func LoadGenieConfig(ctx context.Context, sp security.SecretProvider, path strin
 			BingAPIKey:   get("BING_API_KEY"),
 		},
 		VectorMemory: vector.DefaultConfig(ctx, sp),
-		AGUI:         agui.DefaultServerConfig(),
-		HITL:         hitl.DefaultConfig(),
-		DBConfig:     db.DefaultConfig(),
-		Langfuse:     langfuse.DefaultConfig(ctx, sp),
+		Messenger: messenger.Config{
+			AGUI: messenger.DefaultAGUIConfig(),
+		},
+		HITL:     hitl.DefaultConfig(),
+		DBConfig: db.DefaultConfig(),
+		Langfuse: langfuse.DefaultConfig(ctx, sp),
 	}
 
 	// Override VectorMemory provider default if env vars present.

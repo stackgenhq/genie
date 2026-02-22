@@ -3,10 +3,24 @@ package messenger
 import (
 	"context"
 	"fmt"
+
+	"github.com/appcd-dev/genie/pkg/logger"
 )
 
 type contextKey struct {
 	name string
+}
+
+func SystemMessageOrigin() MessageOrigin {
+	return MessageOrigin{
+		Platform: Platform("system"),
+		Channel: Channel{
+			ID: "system",
+		},
+		Sender: Sender{
+			ID: "system",
+		},
+	}
 }
 
 // MessageOrigin captures where an incoming message originated from.
@@ -26,11 +40,21 @@ type MessageOrigin struct {
 	MessageID string
 }
 
+// IsZero reports whether the origin is the zero value (no origin set).
+func (o MessageOrigin) IsZero() bool {
+	return o.Platform == "" && o.Sender.ID == "" && o.Channel.ID == ""
+}
+
+// IsSystem reports whether the origin is the system message origin.
+func (o MessageOrigin) IsSystem() bool {
+	return o.Platform == "system" && o.Sender.ID == "system" && o.Channel.ID == "system"
+}
+
 // String returns the sender context format "platform:senderID:channelID"
 // matching IncomingMessage.String() for backward compatibility with
 // HITL DB storage and pending approval keys.
-func (o *MessageOrigin) String() string {
-	if o == nil {
+func (o MessageOrigin) String() string {
+	if o.IsZero() {
 		return ""
 	}
 	return fmt.Sprintf("%s:%s:%s", o.Platform, o.Sender.ID, o.Channel.ID)
@@ -39,24 +63,25 @@ func (o *MessageOrigin) String() string {
 var messageOriginKey = &contextKey{name: "message_origin"}
 
 // WithMessageOrigin returns a new context carrying the given MessageOrigin.
-func WithMessageOrigin(ctx context.Context, origin *MessageOrigin) context.Context {
+func WithMessageOrigin(ctx context.Context, origin MessageOrigin) context.Context {
+	// Don't overwrite a real user origin — only allow overwrite when the
+	// existing origin is absent (zero) or is the system placeholder.
+	if existing, ok := ctx.Value(messageOriginKey).(MessageOrigin); ok && !existing.IsZero() && !existing.IsSystem() {
+		return ctx
+	}
 	return context.WithValue(ctx, messageOriginKey, origin)
 }
 
-// MessageOriginFrom returns the MessageOrigin from the context, or nil.
-func MessageOriginFrom(ctx context.Context) *MessageOrigin {
-	val, _ := ctx.Value(messageOriginKey).(*MessageOrigin)
-	return val
-}
-
-// SenderContextFrom returns the sender context key string from the context.
-// This is a convenience wrapper around MessageOriginFrom(ctx).String() for
-// callsites that only need the string key (logging, DB storage, session IDs).
-func SenderContextFrom(ctx context.Context) string {
-	if origin := MessageOriginFrom(ctx); origin != nil {
-		return origin.String()
+// MessageOriginFrom returns the MessageOrigin from the context.
+// Every inbound request (AG-UI, messenger, webhook) should have an origin.
+// A zero-value return indicates a bug in the request pipeline and is logged as a warning.
+func MessageOriginFrom(ctx context.Context) MessageOrigin {
+	val, ok := ctx.Value(messageOriginKey).(MessageOrigin)
+	if !ok {
+		logger.GetLogger(ctx).Debug("MessageOriginFrom: no MessageOrigin in context")
+		return MessageOrigin{}
 	}
-	return ""
+	return val
 }
 
 var goalKey = &contextKey{name: "agent_goal"}

@@ -465,7 +465,7 @@ var _ = Describe("semanticKey", func() {
 
 var _ = Describe("Service.Wrap", func() {
 	It("should wrap all tools preserving declarations", func() {
-		svc := toolwrap.NewService(nil, nil)
+		svc := toolwrap.NewService(nil, nil, nil)
 		ft1 := &fakeTool{name: "read_file", result: "c1"}
 		ft2 := &fakeTool{name: "write_file", result: "c2"}
 
@@ -476,7 +476,7 @@ var _ = Describe("Service.Wrap", func() {
 	})
 
 	It("should return empty slice for empty tools", func() {
-		svc := toolwrap.NewService(nil, nil)
+		svc := toolwrap.NewService(nil, nil, nil)
 		Expect(svc.Wrap(nil, toolwrap.WrapRequest{})).To(BeEmpty())
 	})
 })

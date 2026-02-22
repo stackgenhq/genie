@@ -5,8 +5,10 @@ import (
 	"fmt"
 
 	"github.com/appcd-dev/genie/pkg/agui"
+	"github.com/appcd-dev/genie/pkg/clarify"
 	"github.com/appcd-dev/genie/pkg/expert"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
+	"github.com/appcd-dev/genie/pkg/hooks"
 	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/messenger"
 	"github.com/appcd-dev/genie/pkg/reactree/memory"
@@ -61,6 +63,34 @@ type TreeConfig struct {
 	// without it. Example: {"ask_clarifying_question": 1} ensures the agent
 	// asks at most one clarifying question before using defaults.
 	ToolBudgets map[string]int
+
+	// EnterpriseFeatures holds opt-in configurations for predictability, bounding,
+	// and enterprise readiness.
+	EnterpriseFeatures EnterpriseFeatures
+
+	// Checkpointer is used to save and restore execution state.
+	Checkpointer graph.CheckpointSaver `json:"-"`
+}
+
+// EnterpriseFeatures configures optional predictability and bounding mechanisms.
+// All fields default to zero values (disabled). Callers opt in by setting booleans
+// and injecting the corresponding dependency.
+type EnterpriseFeatures struct {
+	EnableCriticMiddleware bool `mapstructure:"enable_critic_middleware"`
+	EnableActionReflection bool `mapstructure:"enable_action_reflection"`
+	EnableDryRunSimulation bool `mapstructure:"enable_dry_run_simulation"`
+	EnableMCPServerAccess  bool `mapstructure:"enable_mcp_server_access"`
+	EnableAuditDashboard   bool `mapstructure:"enable_audit_dashboard"`
+
+	// Reflector is the ActionReflector used for RAR loops.
+	// Only used when EnableActionReflection is true.
+	Reflector ActionReflector `json:"-"`
+
+	// Hooks are lifecycle callbacks invoked at well-defined points during
+	// tree execution. Multiple hooks can be composed via hooks.NewChainHook.
+	// Hooks replace the previous AuditEmitter field — the AuditHook
+	// implementation provides the same audit-logging behavior.
+	Hooks hooks.ExecutionHook `json:"-"`
 }
 
 // DefaultTreeConfig returns sensible defaults for tree execution.
@@ -68,10 +98,14 @@ func DefaultTreeConfig() TreeConfig {
 	return TreeConfig{
 		MaxDepth:            3,
 		MaxDecisionsPerNode: 10,
-		MaxTotalNodes:       20,
+		MaxTotalNodes:       30,
 		MaxIterations:       3,
 		ToolBudgets: map[string]int{
-			"ask_clarifying_question": 1,
+			clarify.ToolName: 1,
+			// Limit sub-agent spawning to prevent the LLM from creating
+			// endless swarms when tools (like web_search) are failing.
+			// 3 calls ≈ one multi-step plan + two focused retries.
+			"create_agent": 3,
 		},
 	}
 }
@@ -123,6 +157,8 @@ type tree struct {
 	workingMemory *memory.WorkingMemory
 	episodic      memory.EpisodicMemory
 	config        TreeConfig
+	reflector     ActionReflector
+	hooks         hooks.ExecutionHook
 }
 
 // NewTreeExecutor creates a TreeExecutor configured with the given expert and options.
@@ -139,18 +175,37 @@ func NewTreeExecutor(
 	if episodic == nil {
 		episodic = memory.NewNoOpEpisodicMemory()
 	}
+	// Resolve enterprise dependencies.
+	var reflector ActionReflector = &NoOpReflector{}
+	if config.EnterpriseFeatures.EnableActionReflection && config.EnterpriseFeatures.Reflector != nil {
+		reflector = config.EnterpriseFeatures.Reflector
+	}
+
+	execHooks := config.EnterpriseFeatures.Hooks
+	if execHooks == nil {
+		execHooks = hooks.NoOpHook{}
+	}
+
 	logger.GetLogger(context.Background()).Info("TreeExecutor created",
 		"max_depth", config.MaxDepth,
 		"max_decisions_per_node", config.MaxDecisionsPerNode,
 		"max_total_nodes", config.MaxTotalNodes,
 		"max_iterations", config.MaxIterations,
 		"stages", len(config.Stages),
+		"enterprise.critic", config.EnterpriseFeatures.EnableCriticMiddleware,
+		"enterprise.reflection", config.EnterpriseFeatures.EnableActionReflection,
+		"enterprise.dry_run", config.EnterpriseFeatures.EnableDryRunSimulation,
+		"enterprise.mcp", config.EnterpriseFeatures.EnableMCPServerAccess,
+		"enterprise.audit", config.EnterpriseFeatures.EnableAuditDashboard,
+		"enterprise.hooks", execHooks != nil,
 	)
 	return &tree{
 		expert:        exp,
 		workingMemory: workingMem,
 		episodic:      episodic,
 		config:        config,
+		reflector:     reflector,
+		hooks:         execHooks,
 	}
 }
 
@@ -201,6 +256,24 @@ func (t *tree) runSingleNode(ctx context.Context, req TreeRequest) (TreeResult, 
 	var capturedOutput string
 	var capturedStatus NodeStatus
 
+	toolsToUse := req.Tools
+
+	// Enterprise: wrap tools with critic middleware if enabled.
+	if t.config.EnterpriseFeatures.EnableCriticMiddleware {
+		validator := NewDeterministicValidator(nil)
+		wrapped := make([]tool.Tool, len(toolsToUse))
+		for i, tl := range toolsToUse {
+			wrapped[i] = WrapWithValidator(tl, validator)
+		}
+		toolsToUse = wrapped
+	}
+
+	// Enterprise: wrap tools for dry run simulation if enabled.
+	if t.config.EnterpriseFeatures.EnableDryRunSimulation {
+		wrapped, _ := WrapToolsForDryRun(toolsToUse)
+		toolsToUse = wrapped
+	}
+
 	innerFunc := NewAgentNodeFunc(AgentNodeConfig{
 		Goal:          req.Goal,
 		Expert:        t.expert,
@@ -208,7 +281,7 @@ func (t *tree) runSingleNode(ctx context.Context, req TreeRequest) (TreeResult, 
 		Episodic:      t.resolveEpisodic(req),
 		MaxDecisions:  t.config.MaxDecisionsPerNode,
 		EventChan:     req.EventChan,
-		Tools:         req.Tools,
+		Tools:         toolsToUse,
 		SenderContext: req.SenderContext,
 		Attachments:   req.Attachments,
 	})
@@ -304,6 +377,24 @@ func (t *tree) runMultiStage(ctx context.Context, req TreeRequest) (TreeResult, 
 		stageIdx := i
 		stageName := stage.Name
 
+		toolsToUse := req.Tools
+
+		// Enterprise: wrap tools with critic middleware if enabled.
+		if t.config.EnterpriseFeatures.EnableCriticMiddleware {
+			validator := NewDeterministicValidator(nil)
+			wrapped := make([]tool.Tool, len(toolsToUse))
+			for j, tl := range toolsToUse {
+				wrapped[j] = WrapWithValidator(tl, validator)
+			}
+			toolsToUse = wrapped
+		}
+
+		// Enterprise: wrap tools for dry run simulation if enabled.
+		if t.config.EnterpriseFeatures.EnableDryRunSimulation {
+			wrapped, _ := WrapToolsForDryRun(toolsToUse)
+			toolsToUse = wrapped
+		}
+
 		innerFunc := NewAgentNodeFunc(AgentNodeConfig{
 			Goal:          stageGoal,
 			Expert:        t.expert,
@@ -311,7 +402,7 @@ func (t *tree) runMultiStage(ctx context.Context, req TreeRequest) (TreeResult, 
 			Episodic:      t.resolveEpisodic(req),
 			MaxDecisions:  t.config.MaxDecisionsPerNode,
 			EventChan:     req.EventChan,
-			Tools:         req.Tools,
+			Tools:         toolsToUse,
 			TaskType:      stage.TaskType,
 			SenderContext: req.SenderContext,
 			Attachments:   req.Attachments,

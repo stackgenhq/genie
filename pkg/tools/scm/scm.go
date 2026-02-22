@@ -16,7 +16,7 @@ import (
 //
 //counterfeiter:generate . Service
 type Service interface {
-	ListRepos(ctx context.Context) ([]*go_scm.Repository, error)
+	ListRepos(ctx context.Context, opts go_scm.ListOptions) ([]*go_scm.Repository, error)
 	ListPullRequests(ctx context.Context, repo string, opts go_scm.PullRequestListOptions) ([]*go_scm.PullRequest, error)
 	GetPullRequest(ctx context.Context, repo string, id int) (*go_scm.PullRequest, error)
 	CreatePullRequest(ctx context.Context, repo string, input *go_scm.PullRequestInput) (*go_scm.PullRequest, error)
@@ -236,14 +236,21 @@ func AllTools(s Service) []tool.Tool {
 
 // ── Tool Implementations ────────────────────────────────────────────────
 
-func (ts *toolSet) listRepos(ctx context.Context, _ struct{}) (ListReposResponse, error) {
-	repos, err := ts.s.ListRepos(ctx)
+func (ts *toolSet) listRepos(ctx context.Context, listReposRequest go_scm.ListOptions) (ListReposResponse, error) {
+	repos, err := ts.s.ListRepos(ctx, listReposRequest)
 	if err != nil {
 		return ListReposResponse{}, err
 	}
 	names := make([]string, len(repos))
 	for i, r := range repos {
-		names[i] = r.Name
+		// Return full namespace/name (e.g. "appcd-dev/genie") so the
+		// agent can pass it directly to scm_list_prs without guessing
+		// the org/owner prefix.
+		if r.Namespace != "" {
+			names[i] = r.Namespace + "/" + r.Name
+		} else {
+			names[i] = r.Name
+		}
 	}
 	return ListReposResponse{Repositories: names}, nil
 }

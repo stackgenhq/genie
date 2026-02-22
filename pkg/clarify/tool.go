@@ -16,6 +16,8 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )
 
+const ToolName = "ask_clarifying_question"
+
 // maxAskedQuestions bounds the dedup map to prevent unbounded growth
 // over long-running sessions. When exceeded, oldest entries are evicted.
 const maxAskedQuestions = 64
@@ -90,7 +92,7 @@ func NewTool(clarifyStore Store, emitter EventEmitter, opts ...ToolOption) tool.
 	}
 	return function.NewFunctionTool(
 		t.Do,
-		function.WithName("ask_clarifying_question"),
+		function.WithName(ToolName),
 		function.WithDescription(
 			"Ask the user a clarifying question when you need more information to proceed. "+
 				"The tool blocks until the user responds. Use this when the task is ambiguous, "+
@@ -150,7 +152,10 @@ func (t *askClarifyTool) Do(ctx context.Context, req AskClarifyingQuestionReques
 	}
 
 	// Extract sender context for DB persistence.
-	senderContext := messenger.SenderContextFrom(ctx)
+	senderContext := ""
+	if origin := messenger.MessageOriginFrom(ctx); !origin.IsZero() {
+		senderContext = origin.String()
+	}
 
 	// Create pending request and persist to DB.
 	reqID, ch, err := t.store.Ask(ctx, req.Question, req.Context, senderContext)

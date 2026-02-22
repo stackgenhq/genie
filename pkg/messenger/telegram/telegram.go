@@ -185,6 +185,11 @@ func (m *Messenger) Platform() messenger.Platform {
 	return messenger.PlatformTelegram
 }
 
+// ConnectionInfo returns connection instructions for the Telegram adapter.
+func (m *Messenger) ConnectionInfo() string {
+	return "Connected via Telegram long-polling — message me on Telegram"
+}
+
 // defaultHandler is the bot's default update handler that converts Telegram
 // messages to IncomingMessage and publishes them to the incoming channel.
 func (m *Messenger) defaultHandler(ctx context.Context, _ *tgbot.Bot, update *tgmodels.Update) {

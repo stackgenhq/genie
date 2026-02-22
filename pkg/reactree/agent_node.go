@@ -4,14 +4,23 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/appcd-dev/genie/pkg/clarify"
 	"github.com/appcd-dev/genie/pkg/expert"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/messenger"
 	"github.com/appcd-dev/genie/pkg/reactree/memory"
+	"github.com/appcd-dev/genie/pkg/retrier"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
+	"trpc.group/trpc-go/trpc-agent-go/agent/llmagent"
+	"trpc.group/trpc-go/trpc-agent-go/event"
 	"trpc.group/trpc-go/trpc-agent-go/graph"
+	"trpc.group/trpc-go/trpc-agent-go/model"
+	"trpc.group/trpc-go/trpc-agent-go/runner"
+	"trpc.group/trpc-go/trpc-agent-go/session/inmemory"
+	"trpc.group/trpc-go/trpc-agent-go/session/summary"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
@@ -40,6 +49,16 @@ type AgentNodeConfig struct {
 	// limits. A prompt hint is injected telling the LLM these tools are
 	// unavailable; the tools themselves are also stripped from the list.
 	BudgetExhaustedTools []string
+
+	// SystemInstruction, when set, makes this node use a lightweight
+	// llmagent instead of the full Expert. This prevents plan-step
+	// sub-agents from inheriting the main agent's persona (which
+	// contains orchestration patterns and causes tool hallucination).
+	SystemInstruction string
+
+	// ModelProvider is used to resolve the model when SystemInstruction
+	// is set (lightweight mode). Ignored when using Expert.
+	ModelProvider modelprovider.ModelProvider
 }
 
 // NewAgentNodeFunc creates a graph.NodeFunc that wraps an expert.Expert call.
@@ -89,17 +108,28 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 		// correlation with user emoji reactions.
 		ctx = messenger.WithGoal(ctx, goal)
 
-		resp, err := cfg.Expert.Do(ctx, expert.Request{
-			Message:         prompt,
-			EventChannel:    cfg.EventChan,
-			AdditionalTools: cfg.Tools,
-			WorkingMemory:   wm,
-			TaskType:        cfg.TaskType,
-			SenderContext:   cfg.SenderContext,
-			Attachments:     cfg.Attachments,
-		})
+		var resp expert.Response
+		var err error
+
+		if cfg.SystemInstruction != "" && cfg.ModelProvider != nil {
+			// Lightweight mode: build a minimal llmagent directly.
+			// This avoids injecting the full codeowner persona which
+			// causes sub-agents to hallucinate orchestration tools.
+			resp, err = runLightweightAgent(ctx, prompt, cfg)
+		} else {
+			// Full expert mode: uses the codeowner persona.
+			resp, err = cfg.Expert.Do(ctx, expert.Request{
+				Message:         prompt,
+				EventChannel:    cfg.EventChan,
+				AdditionalTools: cfg.Tools,
+				WorkingMemory:   wm,
+				TaskType:        cfg.TaskType,
+				SenderContext:   cfg.SenderContext,
+				Attachments:     cfg.Attachments,
+			})
+		}
 		if err != nil {
-			logr.Error("agent node expert call failed", "error", err)
+			logr.Error("agent node call failed", "error", err)
 			return graph.State{
 				StateKeyNodeStatus: Failure,
 				StateKeyOutput:     fmt.Sprintf("error: %v", err),
@@ -144,7 +174,7 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 		// response to the user, so the runner text is just mangled JSON.
 		// For ask_clarifying_question, keep the output: the runner's final
 		// generation after the Q&A is the actual useful response.
-		if toolCallCounts["send_message"] > 0 && toolCallCounts["ask_clarifying_question"] == 0 {
+		if toolCallCounts[messenger.ToolName] > 0 && toolCallCounts[clarify.ToolName] == 0 {
 			output = ""
 		}
 
@@ -165,6 +195,11 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 				Trajectory: trajectory,
 				Status:     memory.EpisodePending,
 			})
+
+			// Auto-store output into working memory so sibling/downstream
+			// agents see it via prompt injection (trpc-agent-go pattern).
+			// This replaces the scratchpad_write tool — no LLM call needed.
+			wm.Store(goal, trajectory)
 		} else if output != "" {
 			logr.Warn("skipping episodic memory storage for error-like output", "output_prefix", toolwrap.TruncateForAudit(output, 100))
 		}
@@ -277,14 +312,100 @@ func buildAgentPrompt(ctx context.Context, goal string, wm *memory.WorkingMemory
 	return sb.String()
 }
 
+// runLightweightAgent creates a minimal sub-agent with only the given
+// SystemInstruction — no full codeowner persona. This prevents plan-step
+// sub-agents from hallucinating orchestration tools (create_agent, etc.)
+// that appear in the persona but are not in their tool set.
+func runLightweightAgent(ctx context.Context, prompt string, cfg AgentNodeConfig) (expert.Response, error) {
+	logr := logger.GetLogger(ctx).With("fn", "runLightweightAgent", "goal", cfg.Goal)
+
+	taskType := cfg.TaskType
+	if taskType == "" {
+		taskType = modelprovider.TaskPlanning
+	}
+
+	modelToUse, err := cfg.ModelProvider.GetModel(ctx, taskType)
+	if err != nil {
+		return expert.Response{}, fmt.Errorf("failed to get model for lightweight agent: %w", err)
+	}
+
+	maxLLMCalls := cfg.MaxDecisions
+	if maxLLMCalls < 8 {
+		maxLLMCalls = 8
+	}
+	const maxLLMCallsCap = 15
+	if maxLLMCalls > maxLLMCallsCap {
+		maxLLMCalls = maxLLMCallsCap
+	}
+
+	subAgent := llmagent.New(
+		"plan-step",
+		llmagent.WithModel(modelToUse),
+		llmagent.WithTools(cfg.Tools),
+		llmagent.WithInstruction(cfg.SystemInstruction),
+		llmagent.WithDescription("Focused plan-step sub-agent"),
+		llmagent.WithEnableParallelTools(true),
+		llmagent.WithMaxLLMCalls(maxLLMCalls),
+		llmagent.WithAddCurrentTime(true),
+		llmagent.WithTimeFormat(time.RFC3339),
+		llmagent.WithMaxToolIterations(maxLLMCalls), // same budget
+		llmagent.WithMessageFilterMode(llmagent.RequestContext),
+	)
+
+	sessionSvc := inmemory.NewSessionService(
+		inmemory.WithSummarizer(summary.NewSummarizer(
+			modelToUse,
+			summary.WithTokenThreshold(2000),
+			summary.WithName("plan-step-summarizer"),
+		)),
+	)
+	r := runner.NewRunner("plan-step", subAgent,
+		runner.WithSessionService(sessionSvc),
+	)
+	defer func() { _ = r.Close() }()
+
+	const stepTimeout = 2 * time.Minute
+	runCtx, cancel := context.WithTimeout(ctx, stepTimeout)
+	defer cancel()
+
+	var evCh <-chan *event.Event
+	runErr := retrier.Retry(runCtx, func() error {
+		var runErr error
+		evCh, runErr = r.Run(runCtx, "plan", "plan-step", model.NewUserMessage(prompt))
+		return runErr
+	},
+		retrier.WithAttempts(3),
+		retrier.WithBackoffDuration(5*time.Second),
+		retrier.WithRetryIf(expert.IsTransientError),
+	)
+	if runErr != nil {
+		return expert.Response{}, fmt.Errorf("lightweight agent run failed: %w", runErr)
+	}
+
+	// Collect response content from events.
+	var choices []model.Choice
+	for ev := range evCh {
+		if ev.Error != nil {
+			return expert.Response{}, fmt.Errorf("lightweight agent error: %s", ev.Error.Message)
+		}
+		if ev.Response != nil {
+			choices = append(choices, ev.Choices...)
+		}
+	}
+
+	logr.Info("lightweight agent completed", "choices", len(choices))
+
+	return expert.Response{Choices: choices}, nil
+}
+
 // terminalTools are tools that represent the agent's final action — delivering
 // a response to the user via messaging. When an iteration's ONLY tool calls
 // are terminal tools, the adaptive loop should stop because there is no more
 // computational work to iterate on; the agent has already communicated its
 // answer (or asked for more info).
 var terminalTools = map[string]bool{
-	"send_message":            true,
-	"ask_clarifying_question": true,
+	messenger.ToolName: true,
+	clarify.ToolName:   true,
 	// ask_clarifying_question IS terminal because the Q&A round-trip
 	// happens within the same runner session — the LLM asks, gets the
 	// answer via tool result, then produces its final response. Marking

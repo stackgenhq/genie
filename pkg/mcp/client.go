@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/sirupsen/logrus"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
@@ -20,7 +20,6 @@ import (
 type Client struct {
 	config  MCPConfig
 	clients []*client.Client
-	logger  *logrus.Logger
 	tools   []tool.Tool
 }
 
@@ -34,13 +33,9 @@ func NewClient(ctx context.Context, config MCPConfig) (*Client, error) {
 		return nil, fmt.Errorf("invalid MCP configuration: %w", err)
 	}
 
-	logger := logrus.New()
-	logger.SetLevel(logrus.InfoLevel)
-
 	mcpClient := &Client{
 		config:  config,
 		clients: make([]*client.Client, 0),
-		logger:  logger,
 		tools:   make([]tool.Tool, 0),
 	}
 
@@ -51,7 +46,7 @@ func NewClient(ctx context.Context, config MCPConfig) (*Client, error) {
 		tools, err := mcpClient.initializeServer(ctx, serverConfig)
 		if err != nil {
 			// Cleanup already initialized clients
-			mcpClient.Close()
+			mcpClient.Close(ctx)
 			return nil, fmt.Errorf("failed to initialize server %s: %w", serverConfig.Name, err)
 		}
 
@@ -82,6 +77,12 @@ func (c *Client) initializeServer(ctx context.Context, config MCPServerConfig) (
 	// Create MCP client
 	mcpClient := client.NewClient(trans)
 
+	// Start the transport (spawns the subprocess for stdio, opens the
+	// HTTP connection for SSE). Must happen before Initialize.
+	if err = mcpClient.Start(ctx); err != nil {
+		return nil, fmt.Errorf("failed to start MCP transport: %w", err)
+	}
+
 	// Initialize the client
 	_, err = mcpClient.Initialize(ctx, mcp.InitializeRequest{})
 	if err != nil {
@@ -98,7 +99,7 @@ func (c *Client) initializeServer(ctx context.Context, config MCPServerConfig) (
 	c.clients = append(c.clients, mcpClient)
 
 	// Convert and filter tools
-	return c.convertAndFilterTools(mcpClient, toolsResponse.Tools, config)
+	return c.convertAndFilterTools(ctx, mcpClient, toolsResponse.Tools, config)
 }
 
 // convertAndFilterTools converts MCP tools to trpc-agent-go tools and applies filtering.
@@ -106,17 +107,18 @@ func (c *Client) initializeServer(ctx context.Context, config MCPServerConfig) (
 //
 // Note: This is a simplified implementation. Full MCP tool integration will be available
 // when trpc-agent-go releases its MCP package or when we fully integrate with mark3labs/mcp-go.
-func (c *Client) convertAndFilterTools(mcpClient *client.Client, mcpTools []mcp.Tool, config MCPServerConfig) ([]tool.Tool, error) {
+func (c *Client) convertAndFilterTools(ctx context.Context, mcpClient *client.Client, mcpTools []mcp.Tool, config MCPServerConfig) ([]tool.Tool, error) {
 	var tools []tool.Tool
+	logger := logger.GetLogger(ctx).With("fn", "mcp.convertAndFilterTools")
 
 	for _, mcpTool := range mcpTools {
 		// Apply filtering
 		if !c.shouldIncludeTool(mcpTool.Name, config) {
-			c.logger.Debugf("Filtering out tool %s from server %s", mcpTool.Name, config.Name)
+			logger.Debug("Filtering out tool", "tool", mcpTool.Name, "server", config.Name)
 			continue
 		}
 
-		c.logger.Infof("Found tool %s from server %s", mcpTool.Name, config.Name)
+		logger.Debug("Found tool", "tool", mcpTool.Name, "server", config.Name)
 		// Wrap tool with ClientTool adapter
 		adapter := NewClientTool(mcpClient, mcpTool, config.Name)
 		tools = append(tools, adapter)
@@ -162,11 +164,11 @@ func (c *Client) GetTools() []tool.Tool {
 
 // Close closes all MCP server connections and releases resources.
 // This should be called when the client is no longer needed.
-func (c *Client) Close() {
+func (c *Client) Close(ctx context.Context) {
 	for _, client := range c.clients {
 		if client != nil {
 			if err := client.Close(); err != nil {
-				c.logger.Warnf("failed to close MCP client: %v", err)
+				logger.GetLogger(ctx).Warn("failed to close MCP client", "err", err)
 			}
 		}
 	}

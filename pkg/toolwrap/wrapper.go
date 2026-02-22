@@ -47,15 +47,27 @@ type MiddlewareDeps struct {
 	ApprovalStore hitl.ApprovalStore
 	ThreadID      string
 	RunID         string
-	MessageOrigin *messenger.MessageOrigin
+	MessageOrigin messenger.MessageOrigin
 	// SemanticKeyFields maps tool names to the JSON argument fields that
 	// form the semantic identity of a call for deduplication.
 	SemanticKeyFields map[string][]string
 	// WorkingMemory is used for HITL feedback storage.
 	WorkingMemory *rtmemory.WorkingMemory
+	// Summarize is an optional function that condenses large tool results.
+	// When non-nil, tool responses exceeding the threshold are automatically
+	// summarized before being returned to the LLM. Typically backed by
+	// agentutils.Summarizer.
+	Summarize SummarizeFunc
+	// SummarizeThreshold is the character count above which a tool result
+	// triggers auto-summarization. When 0, defaultSummarizeThreshold is used.
+	SummarizeThreshold int
 	// Config holds opt-in middleware settings (metrics, tracing, retry, etc).
 	// Zero value disables all optional middlewares.
 	Config MiddlewareConfig
+	// CircuitBreaker is an optional shared circuit breaker singleton.
+	// When set, it is reused across all Wrap() calls so that tool
+	// failures in one sub-agent trip the circuit for ALL agents.
+	CircuitBreaker *CircuitBreakerMW
 }
 
 // Call executes the tool through the configured middleware chain.
@@ -128,7 +140,11 @@ func (deps MiddlewareDeps) DefaultMiddlewares() Middleware {
 		mws = append(mws, RateLimitMiddleware(cfg.RateLimit))
 	}
 	if cfg.CircuitBreaker.Enabled {
-		mws = append(mws, CircuitBreakerMiddleware(cfg.CircuitBreaker))
+		cb := deps.CircuitBreaker
+		if cb == nil {
+			cb = CircuitBreakerMiddleware(cfg.CircuitBreaker)
+		}
+		mws = append(mws, cb)
 	}
 	if cfg.Concurrency.Enabled {
 		mws = append(mws, ConcurrencyMiddleware(cfg.Concurrency))
@@ -154,6 +170,9 @@ func (deps MiddlewareDeps) DefaultMiddlewares() Middleware {
 			deps.ThreadID, deps.RunID, deps.WorkingMemory),
 		ContextEnrichMiddleware(deps.EventChan, deps.ThreadID,
 			deps.RunID, deps.MessageOrigin),
+		// Auto-summarize oversized tool results (innermost, so audit/emitter
+		// see the compressed result).
+		AutoSummarizeMiddleware(deps.Summarize, deps.SummarizeThreshold),
 	)
 
 	return CompositeMiddleware(mws)

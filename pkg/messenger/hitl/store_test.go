@@ -13,8 +13,8 @@ import (
 )
 
 // testOrigin creates a MessageOrigin from the "platform:senderID:channelID" pattern used in tests.
-func testOrigin(platform messenger.Platform, senderID, channelID string) *messenger.MessageOrigin {
-	return &messenger.MessageOrigin{
+func testOrigin(platform messenger.Platform, senderID, channelID string) messenger.MessageOrigin {
+	return messenger.MessageOrigin{
 		Platform: platform,
 		Sender:   messenger.Sender{ID: senderID},
 		Channel:  messenger.Channel{ID: channelID},

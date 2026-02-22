@@ -17,8 +17,8 @@ type scmWrapper struct {
 
 // ListRepos returns all repositories accessible to the authenticated user.
 // It paginates through the GitHub API until all pages are consumed.
-func (s *scmWrapper) ListRepos(ctx context.Context) ([]*go_scm.Repository, error) {
-	repos, err := traverse.ReposV2(ctx, s.client, go_scm.ListOptions{})
+func (s *scmWrapper) ListRepos(ctx context.Context, request go_scm.ListOptions) ([]*go_scm.Repository, error) {
+	repos, err := traverse.ReposV2(ctx, s.client, request)
 	if err != nil {
 		return nil, fmt.Errorf("scm: failed to list repos: %w", err)
 	}

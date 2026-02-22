@@ -2,6 +2,7 @@ package messenger
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -92,9 +93,34 @@ type WhatsAppConfig struct {
 	StorePath string `yaml:"store_path" toml:"store_path"`
 }
 
-// AGUIConfig holds AG-UI SSE adapter settings. The adapter runs in-process
-// and requires no external credentials or tokens.
-type AGUIConfig struct{}
+// AGUIConfig holds AG-UI server and messenger adapter configuration.
+// When AGUI is the active messenger (default), these settings configure both
+// the in-process messenger adapter and the HTTP SSE server.
+type AGUIConfig struct {
+	// AppName is used as the session.Key AppName for thread tracking.
+	// Defaults to "genie" if empty.
+	AppName string `yaml:"app_name" toml:"app_name"`
+
+	// --- Server settings ---
+	CORSOrigins   []string `yaml:"cors_origins" toml:"cors_origins"`
+	Port          uint32   `yaml:"port" toml:"port"`
+	RateLimit     float64  `yaml:"rate_limit" toml:"rate_limit"`         // req/sec per IP (0 = disabled)
+	RateBurst     int      `yaml:"rate_burst" toml:"rate_burst"`         // burst allowance per IP
+	MaxConcurrent int      `yaml:"max_concurrent" toml:"max_concurrent"` // max in-flight requests (0 = unlimited)
+	MaxBodyBytes  int64    `yaml:"max_body_bytes" toml:"max_body_bytes"` // max request body in bytes (0 = unlimited)
+}
+
+// DefaultAGUIConfig returns sensible defaults for the AG-UI server.
+func DefaultAGUIConfig() AGUIConfig {
+	return AGUIConfig{
+		CORSOrigins:   []string{"*"},
+		Port:          8080,
+		RateLimit:     0.5, // 30 req/min per IP
+		RateBurst:     3,
+		MaxConcurrent: 5,
+		MaxBodyBytes:  1 << 20, // 1 MB
+	}
+}
 
 // Enabled returns true if a messenger platform is configured.
 func (c Config) enabled() bool {
@@ -124,26 +150,36 @@ func (c Config) IsSenderAllowed(senderID string) bool {
 	return false
 }
 
+// InitMessenger creates a Messenger for the configured platform. If no
+// platform is configured, it defaults to AGUI. Connect() is NOT called —
+// the caller is responsible for connecting the messenger when ready.
 func (c Config) InitMessenger(ctx context.Context) (Messenger, error) {
+	log := logger.GetLogger(ctx).With("fn", "Config.InitMessenger")
+
 	if !c.enabled() {
-		return nil, nil
+		log.Info("No messenger platform configured — defaulting to AGUI")
+		return c.initDefaultAGUI(ctx)
 	}
-	logger := logger.GetLogger(ctx).With("fn", "grantCmd.initMessenger")
 
-	// Validate config format before attempting connection.
+	// Validate config format before attempting creation.
 	if err := c.Validate(); err != nil {
-		logger.Warn("messenger config invalid, continuing without messenger", "error", err)
-		return nil, nil
+		log.Warn("messenger config invalid, falling back to AGUI", "error", err)
+		return c.initDefaultAGUI(ctx)
 	}
 
-	msgr, err := c.newFromConfig(ctx)
+	return c.newFromConfig(ctx)
+}
+
+// initDefaultAGUI creates the in-process AGUI messenger adapter.
+// Note: Connect() is NOT called here — the AGUI messenger needs
+// ConfigureServer() before Connect() (which starts the HTTP server).
+func (c Config) initDefaultAGUI(ctx context.Context) (Messenger, error) {
+	msgr, err := newAGUIFromConfig()
 	if err != nil {
-		return nil, err
+		// AGUI adapter not registered — gracefully degrade to nil.
+		logger.GetLogger(ctx).Debug("AGUI messenger adapter not available", "error", err)
+		return nil, errors.New("agui messenger adapter not available: cannot bootstrap server")
 	}
-	if err := msgr.Connect(ctx); err != nil {
-		return nil, fmt.Errorf("error connecting to messenger: %s: %w", c.Platform, err)
-	}
-
 	return msgr, nil
 }
 

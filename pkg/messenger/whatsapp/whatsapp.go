@@ -280,6 +280,11 @@ func (m *Messenger) Platform() messenger.Platform {
 	return messenger.PlatformWhatsApp
 }
 
+// ConnectionInfo returns connection instructions for the WhatsApp adapter.
+func (m *Messenger) ConnectionInfo() string {
+	return fmt.Sprintf("Connected via WhatsApp Web protocol (store: %s) — scan QR code or message the linked number", m.cfg.StorePath)
+}
+
 // eventHandler processes whatsmeow events and publishes incoming messages.
 func (m *Messenger) eventHandler(ctx context.Context, evt interface{}) {
 	switch v := evt.(type) {

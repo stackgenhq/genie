@@ -35,13 +35,17 @@ const (
 	ddgHTMLEndpoint = "https://html.duckduckgo.com/html/"
 
 	// ddgTimeout is the HTTP timeout for DuckDuckGo search requests.
-	ddgTimeout = 30 * time.Second
+	// Kept short (12s) so that when DDG is down, the agent fails fast and
+	// can pivot to http_request within ~25s instead of ~127s.
+	ddgTimeout = 12 * time.Second
 
 	// ddgMaxResults is the maximum number of search results to return.
 	ddgMaxResults = 5
 
-	// ddgMaxRetries is the maximum number of retry attempts for transient failures.
-	ddgMaxRetries = 3
+	// ddgMaxRetries is the maximum number of retry attempts for transient
+	// failures. With ddgTimeout=12s this gives a worst-case of ~25s per
+	// search (vs ~127s with the old 30s×4 config).
+	ddgMaxRetries = 1
 )
 
 // ddgHTMLResult holds a single parsed search result from DuckDuckGo HTML search.

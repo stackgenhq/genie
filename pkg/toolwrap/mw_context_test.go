@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/appcd-dev/genie/pkg/agui"
+	"github.com/appcd-dev/genie/pkg/messenger"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -11,7 +12,7 @@ import (
 
 var _ = Describe("ContextEnrichMiddleware", func() {
 	It("should inject ThreadID and RunID into context", func() {
-		mw := toolwrap.ContextEnrichMiddleware(nil, "t1", "r1", nil)
+		mw := toolwrap.ContextEnrichMiddleware(nil, "t1", "r1", messenger.MessageOrigin{})
 		var capturedCtx context.Context
 		handler := mw.Wrap(func(ctx context.Context, _ *toolwrap.ToolCallContext) (any, error) {
 			capturedCtx = ctx
@@ -24,7 +25,7 @@ var _ = Describe("ContextEnrichMiddleware", func() {
 	})
 
 	It("should not overwrite existing context values", func() {
-		mw := toolwrap.ContextEnrichMiddleware(nil, "struct-t", "struct-r", nil)
+		mw := toolwrap.ContextEnrichMiddleware(nil, "struct-t", "struct-r", messenger.MessageOrigin{})
 		var capturedCtx context.Context
 		handler := mw.Wrap(func(ctx context.Context, _ *toolwrap.ToolCallContext) (any, error) {
 			capturedCtx = ctx

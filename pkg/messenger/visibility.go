@@ -8,15 +8,15 @@ package messenger
 //   - "private:{senderID}"  — only the sender can retrieve this memory
 //   - "group:{channelID}"   — anyone in the channel/group can retrieve this memory
 //   - "global"              — no restriction (e.g. runbooks, system content)
-func DeriveVisibility(origin *MessageOrigin) string {
-	if origin == nil {
+func (origin MessageOrigin) DeriveVisibility() string {
+	if origin.IsZero() {
 		return "global"
 	}
 
 	switch {
-	case IsPrivateContext(origin):
+	case origin.IsPrivateContext():
 		return "private:" + origin.Sender.ID
-	case IsGroupContext(origin):
+	case origin.IsGroupContext():
 		return "group:" + origin.Channel.ID
 	default:
 		return "global"
@@ -30,10 +30,7 @@ func DeriveVisibility(origin *MessageOrigin) string {
 //   - whatsapp: DM for 1:1, Group for group chats
 //   - slack/teams/discord/googlechat: DM or Channel/Group
 //   - agui/tui: defaults to private (no channel type set)
-func IsPrivateContext(origin *MessageOrigin) bool {
-	if origin == nil {
-		return true
-	}
+func (origin MessageOrigin) IsPrivateContext() bool {
 	// If the channel type is explicitly DM, it's private.
 	// If channel type is empty (agui, tui, unknown adapters), default to private.
 	return origin.Channel.Type == ChannelTypeDM || origin.Channel.Type == ""
@@ -42,9 +39,6 @@ func IsPrivateContext(origin *MessageOrigin) bool {
 // IsGroupContext returns true when the message is from a shared context
 // (channel, group) where memories should be accessible to other members.
 // This covers WhatsApp group chats, Slack channels, Teams channels, etc.
-func IsGroupContext(origin *MessageOrigin) bool {
-	if origin == nil {
-		return false
-	}
+func (origin MessageOrigin) IsGroupContext() bool {
 	return origin.Channel.Type == ChannelTypeGroup || origin.Channel.Type == ChannelTypeChannel
 }

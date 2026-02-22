@@ -22,7 +22,18 @@
 - [ ] New and existing tests pass locally (`make test`)
 - [ ] I have run the linter (`make lint`) with no errors
 - [ ] I have updated documentation if needed
-- [ ] I have updated [CHANGELOG.md](./CHANGELOG.md) under `[Unreleased]`
+- [ ] I have updated [CHANGELOG.md](./CHANGELOG.md) under `[Unreleased]` (**required**)
+
+## Changelog
+
+<!-- ⚠️ REQUIRED: Paste the entry you added to CHANGELOG.md below.
+     Every PR must update CHANGELOG.md under the [Unreleased] section.
+     Use the appropriate sub-heading: Added, Changed, Fixed, Removed, Security.
+
+     Example:
+     ### Fixed
+     - Resolved duplicate LLM output in Gemini streaming responses
+-->
 
 ## Screenshots / Recordings
 

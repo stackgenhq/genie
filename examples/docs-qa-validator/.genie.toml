@@ -1,0 +1,118 @@
+# ─── Web Research Intelligence Agent ────────────────────────────
+# This configuration enables Genie to research any company or website
+# by gathering information from the web, GitHub, and other public
+# sources, then synthesizing a comprehensive intelligence report.
+#
+# Prerequisites:
+#   export GEMINI_API_KEY="..."
+#   export GITHUB_TOKEN="..."       # For exploring company GitHub repos
+#   ollama serve && ollama pull nomic-embed-text  (optional)
+
+skills_roots = ["../skills"]
+
+[db_config]
+db_file = "${PWD}/.genie/web-research.db"
+
+# ── Model Configuration ─────────────────────────────────────────────
+# Planning model for research strategy and report synthesis.
+# Tool-calling model for fast web searches and HTTP requests.
+
+[model_config]
+
+# Planning: deep reasoning for research planning and report synthesis
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-pro-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "planning"
+
+# Tool Calling: fast, reliable function calling for web search and HTTP
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "tool_calling"
+
+# Efficiency: simple tasks like URL fetching and data extraction
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "efficiency"
+
+# Summarizer: large-context model for compressing oversized tool outputs
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "summarizer"
+
+# Frontdesk: request classification / triage
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "frontdesk"
+
+# ── GitHub (SCM) ────────────────────────────────────────────────────
+# Access GitHub to explore company repos, tech stack, open-source activity.
+[scm]
+provider = "github"
+token = "${GITHUB_TOKEN}"
+
+# ── MCP Servers ─────────────────────────────────────────────────────
+# Playwright MCP server for browser automation (JS-heavy sites, SPAs).
+# GitHub MCP server for structured repo exploration.
+[mcp]
+[[mcp.servers]]
+name = "playwright"
+transport = "stdio"
+command = "npx"
+args = ["-y", "playwright-mcp"]
+
+# ── Vector Memory (Ollama) ──────────────────────────────────────────
+# Local embedding-backed memory for caching research findings.
+# Requires: ollama serve && ollama pull nomic-embed-text
+[vector_memory]
+embedding_provider = "ollama"
+ollama_url = "http://localhost:11434"
+ollama_model = "nomic-embed-text"
+persistence_dir = "${PWD}/.genie/vector_store"
+
+# ── AG-UI Server ────────────────────────────────────────────────────
+# Browser-based chat interface for interactive research.
+[messenger.agui]
+port = 8080
+cors_origins = ["*"]
+
+# ── Human-in-the-Loop ──────────────────────────────────────────────
+# All read-only research tools are auto-approved. The agent only reads
+# public information — no write operations needed.
+[hitl]
+always_allowed = [
+  "playwright_*",
+  "http_request",
+  "web_search",
+  "memory_store",
+  "memory_search",
+  "read_file",
+  "list_file",
+  "read_multiple_files",
+  "search_content",
+  "search_file",
+  "scm_list_repos",
+  "scm_list_prs",
+  "scm_get_pr",
+]
+
+denied_tools = ["browser_*"]
+
+# ── PII Redaction ───────────────────────────────────────────────────
+# Scrub any secrets or sensitive data found during research.
+# NOTE: entropy_threshold was raised from 3.6→4.2 and min_secret_length
+# from 6→12 because the default settings were too aggressive — they
+# redacted normal words like company names ("Stripe" → [HIDDEN:hash]),
+# which broke the research agent's ability to understand user requests.
+[pii]
+entropy_threshold = 4.2
+min_secret_length = 16

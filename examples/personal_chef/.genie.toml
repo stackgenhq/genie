@@ -31,7 +31,7 @@ ollama_model = "nomic-embed-text"
 persistence_dir = "${PWD}/.genie/vector_store"
 
 
-[agui]
+[messenger.agui]
 port = 8080
 cors_origins = ["https://appcd-dev.github.io"]
 

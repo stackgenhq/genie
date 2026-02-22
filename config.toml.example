@@ -93,6 +93,50 @@ always_allowed = ["read_file", "list_file"]
 # base_url = "https://mycompany.atlassian.net"
 # email = "you@company.com"
 
+# ── Enterprise Connectors ─────────────────────────────────
+# Each connector is opt-in. Nested under [enterprise].
+
+# Atlassian (Jira + Confluence)
+# [enterprise.atlassian]
+# base_url = "https://yourco.atlassian.net"
+# email = "you@company.com"
+# token = "${ATLASSIAN_API_TOKEN}"
+
+# Salesforce CRM
+# [enterprise.salesforce]
+# instance_url = "https://yourco.my.salesforce.com"
+# token = "${SALESFORCE_TOKEN}"
+# client_id = "${SALESFORCE_CLIENT_ID}"
+# client_secret = "${SALESFORCE_CLIENT_SECRET}"
+
+# HubSpot CRM
+# [enterprise.hubspot]
+# token = "${HUBSPOT_TOKEN}"
+
+# Snowflake Data Warehouse
+# [enterprise.snowflake]
+# account = "abc12345.us-east-1"
+# user = "GENIE_SVC"
+# password = "${SNOWFLAKE_PASSWORD}"
+# database = "ANALYTICS"
+# warehouse = "COMPUTE_WH"
+# role = "READONLY"
+
+# Slack (agent search/read — separate from messenger)
+# [enterprise.slack_tools]
+# bot_token = "${SLACK_BOT_TOKEN}"
+
+# Google Drive (read-only)
+# [enterprise.gdrive]
+# credentials_file = "/path/to/service-account.json"
+# impersonate_email = "user@company.com"
+
+# BigQuery (read-only)
+# [enterprise.bigquery]
+# project_id = "my-gcp-project"
+# credentials_file = "/path/to/service-account.json"
+
+
 # ── Messenger ─────────────────────────────────────────────
 # [messenger]
 # platform = "slack"

@@ -87,7 +87,7 @@ func NewSummarizer(ctx context.Context, modelProvider modelprovider.ModelProvide
 		Description: "Summarizes content into structured output formats",
 	}
 
-	exp, err := bio.ToExpert(ctx, modelProvider, auditor, toolwrap.NewService(auditor, nil))
+	exp, err := bio.ToExpert(ctx, modelProvider, auditor, toolwrap.NewService(auditor, nil, nil))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create summarizer expert: %w", err)
 	}
@@ -130,7 +130,7 @@ func (s *summarizer) Summarize(ctx context.Context, req SummarizeRequest) (strin
 
 	resp, err := s.expert.Do(ctx, expert.Request{
 		Message:  message,
-		TaskType: modelprovider.TaskEfficiency,
+		TaskType: modelprovider.TaskSummarizer,
 		Mode: expert.ExpertConfig{
 			MaxLLMCalls:       1,
 			MaxToolIterations: 0,
@@ -160,17 +160,15 @@ func isValidOutputFormat(f OutputFormat) bool {
 	}
 }
 
-// extractTextFromChoices concatenates the text content from all model choices.
-// This is a local copy of the same helper in the codeowner package to
-// avoid creating a cross-package dependency for a small utility function.
+// extractTextFromChoices returns the text content from the last model choice.
+// Earlier versions concatenated ALL choices, which caused duplicate output when
+// the model returned multiple choices with identical content (e.g. the resume
+// appeared twice). Standard LLM usage only needs the first (best) choice.
 func extractTextFromChoices(choices []model.Choice) string {
-	var sb strings.Builder
-	for _, choice := range choices {
-		if choice.Message.Content != "" {
-			sb.WriteString(choice.Message.Content)
-		}
+	if len(choices) == 0 {
+		return ""
 	}
-	return sb.String()
+	return choices[len(choices)-1].Message.Content
 }
 
 // summarizeTool wraps a Summarizer as a trpc-agent-go tool so that any

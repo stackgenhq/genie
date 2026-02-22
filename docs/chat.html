@@ -1244,10 +1244,29 @@
         // Current conversation being built
         let currentConversation = null;
 
+        // ── Segmentation: platform + userId + chatId (threadId) ──
+        // Platform identifier for this UI channel.
+        const PLATFORM_ID = 'agui:http';
+
+        // Stable user ID persisted across sessions so the backend can
+        // correlate the same human across multiple chats.
+        function getOrCreateUserId() {
+            const KEY = 'genie-user-id';
+            let uid = localStorage.getItem(KEY);
+            if (!uid) {
+                uid = crypto.randomUUID();
+                localStorage.setItem(KEY, uid);
+            }
+            return uid;
+        }
+        const userId = getOrCreateUserId();
+
         // ── State ──
         let serverUrl = '';
         let isConnected = false;
         let isStreaming = false;
+        // Every chat session gets a fresh threadId so the LLM never
+        // sees memory/context from a previous chat.
         let threadId = crypto.randomUUID();
         let runCounter = 0;
         let currentAssistantBubble = null;
@@ -1293,9 +1312,12 @@
                     fetchAndShowResume();
 
                     // Initialize a new conversation for this server
+                    // with segmentation metadata.
                     currentConversation = {
                         threadId: threadId,
                         serverUrl: serverUrl,
+                        userId: userId,
+                        platform: PLATFORM_ID,
                         title: 'New conversation',
                         messages: [],
                         updatedAt: Date.now(),
@@ -1377,6 +1399,10 @@
                     body: JSON.stringify({
                         threadId: threadId,
                         runId: runId,
+                        // Segmentation fields: the backend uses these to
+                        // scope context/memory per platform+user+chat.
+                        userId: userId,
+                        platform: PLATFORM_ID,
                         messages: [{ role: 'user', content: message }]
                     })
                 });
@@ -2339,6 +2365,8 @@
             stopStreaming();
             finishStreaming();
 
+            // Every new chat gets a completely fresh threadId so the
+            // backend never carries over memory/context from a prior chat.
             threadId = crypto.randomUUID();
             runCounter = 0;
             currentAssistantBubble = null;
@@ -2348,11 +2376,13 @@
             // Clear messages
             messagesEl.innerHTML = '';
 
-            // Start a new conversation record
+            // Start a new conversation record with segmentation metadata
             if (isConnected && serverUrl) {
                 currentConversation = {
                     threadId: threadId,
                     serverUrl: serverUrl,
+                    userId: userId,
+                    platform: PLATFORM_ID,
                     title: 'New conversation',
                     messages: [],
                     updatedAt: Date.now(),

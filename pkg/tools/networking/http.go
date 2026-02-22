@@ -35,6 +35,11 @@ const (
 	defaultMaxResponseBytes int64 = 512 * 1024 // 512 KB
 	defaultTimeout                = 30         // seconds
 	maxTimeout                    = 120        // seconds
+
+	// defaultUserAgent is sent when the caller doesn't set one.
+	// Many sites (Wikipedia, Cloudflare-protected sites) reject requests
+	// without a recognisable User-Agent with 403.
+	defaultUserAgent = "Mozilla/5.0 (compatible; Genie/1.0; +https://stackgen.com)"
 )
 
 type httpTool struct {
@@ -127,6 +132,12 @@ func (t *httpTool) Do(ctx context.Context, req HTTPRequest) (string, error) {
 		httpReq.Header.Set("Content-Type", "application/json")
 	}
 
+	// Auto-set User-Agent if the caller didn't provide one.
+	// Many sites (Wikipedia, Cloudflare) reject bare requests with 403.
+	if httpReq.Header.Get("User-Agent") == "" {
+		httpReq.Header.Set("User-Agent", defaultUserAgent)
+	}
+
 	log.Info("executing HTTP request", "method", method, "url", req.URL)
 
 	resp, err := t.client.Do(httpReq)
@@ -158,6 +169,37 @@ func (t *httpTool) Do(ctx context.Context, req HTTPRequest) (string, error) {
 	}
 	sb.WriteString("\n")
 
+	// For HTTP error responses (4xx/5xx), return a short summary instead
+	// of the full HTML body. Error pages (especially 404s) contain the
+	// same nav/footer/country-picker boilerplate as normal pages (~500KB)
+	// but carry no useful information. Sending them to the summarizer
+	// wastes tokens.
+	if resp.StatusCode >= 400 {
+		snippet := string(body)
+		const maxSnippet = 500
+		if len(snippet) > maxSnippet {
+			snippet = snippet[:maxSnippet] + "..."
+		}
+		fmt.Fprintf(&sb, "[Error page — body truncated to save tokens]\n%s", snippet)
+		log.Info("HTTP error response, returning short summary",
+			"method", method, "url", req.URL,
+			"status", resp.StatusCode, "full_body_bytes", len(body))
+		return sb.String(), nil
+	}
+
+	// Detect Cloudflare challenge pages. These return HTTP 200 but contain
+	// a "Just a moment..." interstitial with no useful content. Without
+	// detection, 265KB of challenge HTML flows to the summarizer and
+	// produces a useless 90-char summary. The agent then retries the same
+	// URL repeatedly. Returning a clear signal prevents this.
+	if isCloudflareChallenge(body) {
+		log.Info("Cloudflare challenge detected, returning signal",
+			"method", method, "url", req.URL)
+		fmt.Fprintf(&sb, "[Cloudflare challenge page — this site requires browser JavaScript to access. "+
+			"Do NOT retry this URL. Try a different source or use a search engine to find cached/mirrored content.]")
+		return sb.String(), nil
+	}
+
 	if len(body) > 0 {
 		sb.Write(body)
 		if truncated {
@@ -171,4 +213,31 @@ func (t *httpTool) Do(ctx context.Context, req HTTPRequest) (string, error) {
 		"status", resp.StatusCode, "body_bytes", len(body))
 
 	return sb.String(), nil
+}
+
+// isCloudflareChallenge returns true if the response body looks like a
+// Cloudflare "Just a moment..." challenge page or similar JS-required
+// interstitial. These pages return HTTP 200 but contain no real content.
+func isCloudflareChallenge(body []byte) bool {
+	if len(body) < 100 {
+		return false
+	}
+	// Only check the first 2KB for speed.
+	check := body
+	if len(check) > 2048 {
+		check = check[:2048]
+	}
+	lower := strings.ToLower(string(check))
+	// Cloudflare challenge markers
+	if strings.Contains(lower, "just a moment") && strings.Contains(lower, "cf-browser-verification") {
+		return true
+	}
+	if strings.Contains(lower, "_cf_chl_opt") {
+		return true
+	}
+	// Generic JS-required interstitials
+	if strings.Contains(lower, "enable javascript and cookies to continue") {
+		return true
+	}
+	return false
 }

@@ -75,13 +75,6 @@ var _ = Describe("LoadGenieConfig", func() {
 		Expect(err.Error()).To(ContainSubstring("unsupported config file extension"))
 	})
 
-	It("should return defaults when path is empty", func() {
-		cfg, err := config.LoadGenieConfig(ctx, sp, "")
-		Expect(err).NotTo(HaveOccurred())
-		// Should have default AGUI config, etc.
-		Expect(cfg.AGUI).NotTo(BeZero())
-	})
-
 	It("should set SKILLS_ROOT from env when path is empty", func() {
 		fakeSP := &fakeSecretProvider{
 			secrets: map[string]string{
@@ -91,13 +84,6 @@ var _ = Describe("LoadGenieConfig", func() {
 		cfg, err := config.LoadGenieConfig(ctx, fakeSP, "")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(cfg.SkillsRoots).To(ContainElement("/tmp/my-skills"))
-	})
-
-	It("should return defaults when config file does not exist", func() {
-		cfg, err := config.LoadGenieConfig(ctx, sp, "/nonexistent/path/config.yaml")
-		Expect(err).NotTo(HaveOccurred())
-		// Should return default config
-		Expect(cfg.AGUI).NotTo(BeZero())
 	})
 
 	It("should set SKILLS_ROOT from env when config file has empty skills_roots", func() {

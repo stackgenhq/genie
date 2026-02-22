@@ -29,7 +29,7 @@ var _ = Describe("SendMessageTool", func() {
 	Describe("Declaration", func() {
 		It("should have name 'send_message'", func() {
 			decl := sendTool.Declaration()
-			Expect(decl.Name).To(Equal("send_message"))
+			Expect(decl.Name).To(Equal(messenger.ToolName))
 		})
 
 		It("should have a non-empty description", func() {
@@ -120,7 +120,7 @@ var _ = Describe("SendMessageTool", func() {
 				MessageID: "msg-ctx",
 			}, nil)
 
-			origin := &messenger.MessageOrigin{
+			origin := messenger.MessageOrigin{
 				Platform: messenger.PlatformSlack,
 				Channel:  messenger.Channel{ID: "C-FROM-CTX"},
 				ThreadID: "thread-from-ctx",

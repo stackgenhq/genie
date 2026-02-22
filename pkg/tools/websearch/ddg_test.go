@@ -147,7 +147,7 @@ var _ = Describe("DuckDuckGo HTML Search Tool", func() {
 			var attempt int32
 			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				attempt++
-				if attempt <= 2 {
+				if attempt <= 1 { // 202 on first attempt, 200 on retry
 					w.WriteHeader(http.StatusAccepted)
 					return
 				}
@@ -162,7 +162,7 @@ var _ = Describe("DuckDuckGo HTML Search Tool", func() {
 			res, err := t.Call(ctx, []byte(`{"query":"test"}`))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.(string)).To(ContainSubstring("Example News Site"))
-			Expect(attempt).To(BeNumerically("==", 3))
+			Expect(attempt).To(BeNumerically("==", 2)) // 1 retry + 1 success
 		})
 
 		It("should fail after max retries on persistent HTTP 202", func(ctx context.Context) {

@@ -39,7 +39,7 @@ func (c CircuitBreakerConfig) withDefaults() CircuitBreakerConfig {
 	return c
 }
 
-// circuitBreakerMiddleware implements the standard three-state circuit
+// CircuitBreakerMW implements the standard three-state circuit
 // breaker (closed → open → half-open → closed) using sony/gobreaker.
 //
 // The TwoStepCircuitBreaker separates the "allow" check from the
@@ -47,7 +47,7 @@ func (c CircuitBreakerConfig) withDefaults() CircuitBreakerConfig {
 // the in-memory state to a remote backend (Redis, DynamoDB) — you
 // only need to replace the inner breaker with one that reads/writes
 // counts externally. See [gobreaker.Counts] for available counters.
-type circuitBreakerMiddleware struct {
+type CircuitBreakerMW struct {
 	mu       sync.Mutex
 	breakers map[string]*gobreaker.TwoStepCircuitBreaker[any] // per-tool
 	cfg      CircuitBreakerConfig
@@ -55,15 +55,15 @@ type circuitBreakerMiddleware struct {
 
 // CircuitBreakerMiddleware creates a per-tool circuit breaker middleware
 // backed by sony/gobreaker. Each tool gets its own breaker instance.
-func CircuitBreakerMiddleware(cfg CircuitBreakerConfig) Middleware {
+func CircuitBreakerMiddleware(cfg CircuitBreakerConfig) *CircuitBreakerMW {
 	cfg = cfg.withDefaults()
-	return &circuitBreakerMiddleware{
+	return &CircuitBreakerMW{
 		breakers: make(map[string]*gobreaker.TwoStepCircuitBreaker[any]),
 		cfg:      cfg,
 	}
 }
 
-func (m *circuitBreakerMiddleware) getBreaker(name string) *gobreaker.TwoStepCircuitBreaker[any] {
+func (m *CircuitBreakerMW) getBreaker(name string) *gobreaker.TwoStepCircuitBreaker[any] {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if b, ok := m.breakers[name]; ok {
@@ -82,7 +82,23 @@ func (m *circuitBreakerMiddleware) getBreaker(name string) *gobreaker.TwoStepCir
 	return b
 }
 
-func (m *circuitBreakerMiddleware) Wrap(next Handler) Handler {
+// OpenTools returns the names of tools whose circuit breaker is currently
+// in the Open state. The adaptive loop uses this to remove broken tools
+// from the LLM's tool set — preventing wasted calls where the LLM tries
+// a broken tool only to get rejected by the middleware.
+func (m *CircuitBreakerMW) OpenTools() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var open []string
+	for name, b := range m.breakers {
+		if b.State() == gobreaker.StateOpen {
+			open = append(open, name)
+		}
+	}
+	return open
+}
+
+func (m *CircuitBreakerMW) Wrap(next Handler) Handler {
 	return func(ctx context.Context, tc *ToolCallContext) (any, error) {
 		logr := logger.GetLogger(ctx).With("fn", "CircuitBreakerMiddleware", "tool", tc.ToolName)
 		cb := m.getBreaker(tc.ToolName)

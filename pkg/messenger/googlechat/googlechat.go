@@ -290,6 +290,11 @@ func (m *Messenger) Platform() messenger.Platform {
 	return messenger.PlatformGoogleChat
 }
 
+// ConnectionInfo returns connection instructions for the Google Chat adapter.
+func (m *Messenger) ConnectionInfo() string {
+	return fmt.Sprintf("Listening for push events on %s — message me in Google Chat", m.cfg.ListenAddr)
+}
+
 // handleEvent processes incoming HTTP push events from Google Chat.
 func (m *Messenger) handleEvent(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

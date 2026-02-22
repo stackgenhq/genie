@@ -46,7 +46,7 @@ var _ = Describe("ExpertBio", func() {
 
 			fakeModelProvider := &modelproviderfakes.FakeModelProvider{}
 
-			exp, err := bio.ToExpert(context.Background(), fakeModelProvider, fakeAuditor, toolwrap.NewService(fakeAuditor, &hitlfakes.FakeApprovalStore{}))
+			exp, err := bio.ToExpert(context.Background(), fakeModelProvider, fakeAuditor, toolwrap.NewService(fakeAuditor, &hitlfakes.FakeApprovalStore{}, nil))
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(exp).NotTo(BeNil())
@@ -65,7 +65,7 @@ var _ = Describe("ExpertBio", func() {
 
 			fakeModelProvider := &modelproviderfakes.FakeModelProvider{}
 
-			exp, err := bio.ToExpert(context.Background(), fakeModelProvider, fakeAuditor, toolwrap.NewService(fakeAuditor, &hitlfakes.FakeApprovalStore{}))
+			exp, err := bio.ToExpert(context.Background(), fakeModelProvider, fakeAuditor, toolwrap.NewService(fakeAuditor, &hitlfakes.FakeApprovalStore{}, nil))
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(exp).NotTo(BeNil())
@@ -78,7 +78,7 @@ var _ = Describe("ExpertBio", func() {
 
 			fakeModelProvider := &modelproviderfakes.FakeModelProvider{}
 
-			exp, err := bio.ToExpert(context.Background(), fakeModelProvider, fakeAuditor, toolwrap.NewService(fakeAuditor, nil))
+			exp, err := bio.ToExpert(context.Background(), fakeModelProvider, fakeAuditor, toolwrap.NewService(fakeAuditor, nil, nil))
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(exp).NotTo(BeNil())

@@ -7,14 +7,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/expert"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/reactree/memory"
+	"github.com/appcd-dev/genie/pkg/tools"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
 	"trpc.group/trpc-go/trpc-agent-go/agent"
 	"trpc.group/trpc-go/trpc-agent-go/graph"
-	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
 // Plan represents a decomposed task with subgoals and a control flow strategy.
@@ -93,7 +94,7 @@ type OrchestratorConfig struct {
 	MaxDecisions int
 
 	EventChan     chan<- interface{}
-	ToolRegistry  map[string]tool.Tool
+	ToolRegistry  *tools.Registry
 	SenderContext string
 
 	// ToolWrapSvc wraps plan step tools with HITL approval, audit logging,
@@ -109,6 +110,14 @@ type OrchestratorConfig struct {
 	// Prevents stuck plan steps from hanging the parent agent indefinitely.
 	// Defaults to 3 minutes if zero.
 	Timeout time.Duration
+
+	// EnterpriseFeatures holds opt-in configurations for predictability.
+	EnterpriseFeatures EnterpriseFeatures
+
+	// ModelProvider resolves models for lightweight plan-step agents.
+	// When set (along with ToolRegistry), plan-step agents use a minimal
+	// sub-agent instruction instead of the full Expert persona.
+	ModelProvider modelprovider.ModelProvider
 }
 
 // OrchestratorResult captures the outcome of a planned execution.
@@ -163,31 +172,67 @@ func ExecutePlan(ctx context.Context, plan Plan, cfg OrchestratorConfig) (Orches
 		nodeIDs[i] = step.Name
 		stepCopy := step // capture for closure
 
-		tools := selectStepTools(stepCopy.Tools, cfg.ToolRegistry)
+		// Scope tools to only what this step needs.
+		// If the step specifies tools, use Include to filter.
+		// Otherwise, all tools are available.
+		tools := cfg.ToolRegistry.Include(stepCopy.Tools...).AllTools()
 
-		// Wrap tools with HITL approval, audit logging, and caching.
+		// 1. Enterprise Bounding: wrap tools with middleware if enabled.
+		if cfg.EnterpriseFeatures.EnableCriticMiddleware {
+			validator := NewDeterministicValidator(nil) // Block none as default for now
+			for i, tl := range tools {
+				tools[i] = WrapWithValidator(tl, validator)
+			}
+		}
+
+		// 2. Wrap tools with HITL approval, audit logging, and caching.
 		// This ensures plan step agents go through the same approval gate
 		// as single sub-agent tools (fixes HITL bypass bug).
 		if cfg.ToolWrapSvc != nil {
 			tools = cfg.ToolWrapSvc.Wrap(tools, cfg.WrapRequest)
 		}
 
+		// Working memory is injected into the prompt automatically
+		// (read) and stored back after agent completion (write).
+		// No scratchpad tools needed — follows trpc-agent-go pattern.
+
+		// Build a minimal sub-agent instruction from the tool names.
+		// This prevents plan-step agents from inheriting the full
+		// codeowner persona (which causes tool hallucination).
+		var toolNames []string
+		for _, tl := range tools {
+			toolNames = append(toolNames, tl.Declaration().Name)
+		}
+		subAgentInstruction := buildSubAgentInstruction(toolNames)
+
 		agentFunc := NewAgentNodeFunc(AgentNodeConfig{
-			Goal:          stepCopy.Goal,
-			Expert:        cfg.Expert,
-			WorkingMemory: cfg.WorkingMemory,
-			Episodic:      cfg.Episodic,
-			MaxDecisions:  cfg.MaxDecisions,
-			EventChan:     cfg.EventChan,
-			Tools:         tools,
-			SenderContext: cfg.SenderContext,
-			TaskType:      stepCopy.TaskType,
+			Goal:              stepCopy.Goal,
+			Expert:            cfg.Expert,
+			WorkingMemory:     cfg.WorkingMemory,
+			Episodic:          cfg.Episodic,
+			MaxDecisions:      cfg.MaxDecisions,
+			EventChan:         cfg.EventChan,
+			Tools:             tools,
+			SenderContext:     cfg.SenderContext,
+			TaskType:          stepCopy.TaskType,
+			SystemInstruction: subAgentInstruction,
+			ModelProvider:     cfg.ModelProvider,
 		})
 
 		// Wrap to capture output per-step.
 		wrappedFunc := func(ctx context.Context, state graph.State) (any, error) {
 			result, err := agentFunc(ctx, state)
 			if err != nil {
+				// Emit a failure progress message for this step.
+				if cfg.EventChan != nil {
+					select {
+					case cfg.EventChan <- agui.AgentToolResponseMsg{
+						ToolName: "plan_step_progress",
+						Response: fmt.Sprintf("❌ %s failed: %v", stepCopy.Name, err),
+					}:
+					default:
+					}
+				}
 				return result, err
 			}
 			if stateMap, ok := result.(graph.State); ok {
@@ -225,6 +270,30 @@ func ExecutePlan(ctx context.Context, plan Plan, cfg OrchestratorConfig) (Orches
 							Status:     memory.EpisodeSuccess,
 						})
 					}
+
+					// Emit a human-friendly progress message for this step.
+					if cfg.EventChan != nil {
+						// Build a short tweet-like summary.
+						tweet := fmt.Sprintf("✅ **%s** completed — gathered %d chars of findings.", stepCopy.Name, len(out))
+						select {
+						case cfg.EventChan <- agui.AgentToolResponseMsg{
+							ToolName: "plan_step_progress",
+							Response: tweet,
+						}:
+						default:
+						}
+					}
+				} else {
+					// Step completed but produced no output.
+					if cfg.EventChan != nil {
+						select {
+						case cfg.EventChan <- agui.AgentToolResponseMsg{
+							ToolName: "plan_step_progress",
+							Response: fmt.Sprintf("⚠️ **%s** finished but did not produce output.", stepCopy.Name),
+						}:
+						default:
+						}
+					}
 				}
 			}
 			return result, nil
@@ -244,8 +313,10 @@ func ExecutePlan(ctx context.Context, plan Plan, cfg OrchestratorConfig) (Orches
 		BuildSequenceWithEarlyExit(sg, nodeIDs)
 	case ControlFlowParallel:
 		aggregatorID := "plan_aggregator"
-		// For parallel: all nodes start from graph.Start (fan-out).
-		// Do NOT call SetEntryPoint — AddEdge(Start, ...) is sufficient.
+		// The graph library requires SetEntryPoint for Compile() validation.
+		// Set the first node as entry; BuildParallel wires all nodes via
+		// AddEdge(Start, ...) internally for actual fan-out execution.
+		sg.SetEntryPoint(nodeIDs[0])
 		for _, id := range nodeIDs {
 			sg.AddEdge(graph.Start, id)
 		}
@@ -299,24 +370,45 @@ func executeSingleStep(ctx context.Context, step PlanStep, cfg OrchestratorConfi
 	logr := logger.GetLogger(ctx).With("fn", "executeSingleStep", "step", step.Name)
 	logr.Info("executing single plan step")
 
-	tools := selectStepTools(step.Tools, cfg.ToolRegistry)
-
 	schema := NewReAcTreeSchema()
 	sg := graph.NewStateGraph(schema)
 
 	var capturedOutput string
 	var capturedStatus NodeStatus
 
+	toolsToUse := cfg.ToolRegistry.AllTools()
+
+	// Enterprise Bounding: wrap tools with middleware if enabled.
+	if cfg.EnterpriseFeatures.EnableCriticMiddleware {
+		validator := NewDeterministicValidator(nil) // Block none as default for now
+		for i, tl := range toolsToUse {
+			toolsToUse[i] = WrapWithValidator(tl, validator)
+		}
+	}
+
+	// Working memory is injected into the prompt automatically
+	// (read) and stored back after agent completion (write).
+	// No scratchpad tools needed — follows trpc-agent-go pattern.
+
+	// Build a minimal sub-agent instruction.
+	var toolNames []string
+	for _, tl := range toolsToUse {
+		toolNames = append(toolNames, tl.Declaration().Name)
+	}
+	subAgentInstruction := buildSubAgentInstruction(toolNames)
+
 	agentFunc := NewAgentNodeFunc(AgentNodeConfig{
-		Goal:          step.Goal,
-		Expert:        cfg.Expert,
-		WorkingMemory: cfg.WorkingMemory,
-		Episodic:      cfg.Episodic,
-		MaxDecisions:  cfg.MaxDecisions,
-		EventChan:     cfg.EventChan,
-		Tools:         tools,
-		SenderContext: cfg.SenderContext,
-		TaskType:      step.TaskType,
+		Goal:              step.Goal,
+		Expert:            cfg.Expert,
+		WorkingMemory:     cfg.WorkingMemory,
+		Episodic:          cfg.Episodic,
+		MaxDecisions:      cfg.MaxDecisions,
+		EventChan:         cfg.EventChan,
+		Tools:             toolsToUse,
+		SenderContext:     cfg.SenderContext,
+		TaskType:          step.TaskType,
+		SystemInstruction: subAgentInstruction,
+		ModelProvider:     cfg.ModelProvider,
 	})
 
 	wrappedFunc := func(ctx context.Context, state graph.State) (any, error) {
@@ -388,33 +480,6 @@ func executeSingleStep(ctx context.Context, step PlanStep, cfg OrchestratorConfi
 			step.Name: capturedOutput,
 		},
 	}, nil
-}
-
-// selectStepTools resolves tool names to tool.Tool instances from the registry.
-// send_message is always stripped (framework invariant from Phase 1).
-func selectStepTools(toolNames []string, registry map[string]tool.Tool) []tool.Tool {
-	var tools []tool.Tool
-
-	if len(toolNames) == 0 {
-		// Give all tools except create_agent and send_message.
-		for name, t := range registry {
-			if name == "create_agent" || name == "send_message" {
-				continue
-			}
-			tools = append(tools, t)
-		}
-		return tools
-	}
-
-	for _, name := range toolNames {
-		if name == "create_agent" || name == "send_message" {
-			continue
-		}
-		if t, ok := registry[name]; ok {
-			tools = append(tools, t)
-		}
-	}
-	return tools
 }
 
 // joinStepGoals creates a composite goal string from all plan steps.

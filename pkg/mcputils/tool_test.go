@@ -10,16 +10,9 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/sirupsen/logrus"
 )
 
 var _ = Describe("MCPTool", func() {
-	var logger *logrus.Logger
-
-	BeforeEach(func() {
-		logger = logrus.New()
-		logger.SetLevel(logrus.FatalLevel)
-	})
 
 	Describe("NewMCPTool", func() {
 		It("should create a new MCPTool with logger", func() {
@@ -41,7 +34,7 @@ var _ = Describe("MCPTool", func() {
 				},
 			}
 
-			tool := mcputils.NewMCPTool(mcpTool, logger)
+			tool := mcputils.NewMCPTool(mcpTool)
 			Expect(tool).ToNot(BeNil())
 		})
 
@@ -59,7 +52,7 @@ var _ = Describe("MCPTool", func() {
 				},
 			}
 
-			tool := mcputils.NewMCPTool(mcpTool, nil)
+			tool := mcputils.NewMCPTool(mcpTool)
 			Expect(tool).ToNot(BeNil())
 		})
 	})
@@ -86,7 +79,7 @@ var _ = Describe("MCPTool", func() {
 				},
 			}
 
-			tool := mcputils.NewMCPTool(mcpTool, logger)
+			tool := mcputils.NewMCPTool(mcpTool)
 			decl := tool.Declaration()
 
 			Expect(decl.Name).To(Equal("search_modules"))
@@ -126,7 +119,7 @@ var _ = Describe("MCPTool", func() {
 					},
 				}
 
-				tool := mcputils.NewMCPTool(mcpTool, logger)
+				tool := mcputils.NewMCPTool(mcpTool)
 
 				args := map[string]interface{}{
 					"query": "vpc",
@@ -165,7 +158,7 @@ var _ = Describe("MCPTool", func() {
 					},
 				}
 
-				tool := mcputils.NewMCPTool(mcpTool, logger)
+				tool := mcputils.NewMCPTool(mcpTool)
 
 				args := map[string]interface{}{
 					"query":    "vpc",
@@ -208,7 +201,7 @@ var _ = Describe("MCPTool", func() {
 					},
 				}
 
-				tool := mcputils.NewMCPTool(mcpTool, logger)
+				tool := mcputils.NewMCPTool(mcpTool)
 
 				invalidJSON := []byte("{invalid json")
 				result, err := tool.Call(context.Background(), invalidJSON)
@@ -234,7 +227,7 @@ var _ = Describe("MCPTool", func() {
 					},
 				}
 
-				tool := mcputils.NewMCPTool(mcpTool, logger)
+				tool := mcputils.NewMCPTool(mcpTool)
 
 				args := map[string]interface{}{}
 				jsonArgs, err := json.Marshal(args)
@@ -270,7 +263,7 @@ var _ = Describe("MCPTool", func() {
 					},
 				}
 
-				tool := mcputils.NewMCPTool(mcpTool, logger)
+				tool := mcputils.NewMCPTool(mcpTool)
 
 				args := map[string]interface{}{}
 				jsonArgs, err := json.Marshal(args)
@@ -302,7 +295,7 @@ var _ = Describe("MCPTool", func() {
 					},
 				}
 
-				tool := mcputils.NewMCPTool(mcpTool, logger)
+				tool := mcputils.NewMCPTool(mcpTool)
 
 				args := map[string]interface{}{}
 				jsonArgs, err := json.Marshal(args)

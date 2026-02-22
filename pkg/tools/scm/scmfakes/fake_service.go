@@ -119,10 +119,11 @@ type FakeService struct {
 		result1 []*scma.PullRequest
 		result2 error
 	}
-	ListReposStub        func(context.Context) ([]*scma.Repository, error)
+	ListReposStub        func(context.Context, scma.ListOptions) ([]*scma.Repository, error)
 	listReposMutex       sync.RWMutex
 	listReposArgsForCall []struct {
 		arg1 context.Context
+		arg2 scma.ListOptions
 	}
 	listReposReturns struct {
 		result1 []*scma.Repository
@@ -626,18 +627,19 @@ func (fake *FakeService) ListPullRequestsReturnsOnCall(i int, result1 []*scma.Pu
 	}{result1, result2}
 }
 
-func (fake *FakeService) ListRepos(arg1 context.Context) ([]*scma.Repository, error) {
+func (fake *FakeService) ListRepos(arg1 context.Context, arg2 scma.ListOptions) ([]*scma.Repository, error) {
 	fake.listReposMutex.Lock()
 	ret, specificReturn := fake.listReposReturnsOnCall[len(fake.listReposArgsForCall)]
 	fake.listReposArgsForCall = append(fake.listReposArgsForCall, struct {
 		arg1 context.Context
-	}{arg1})
+		arg2 scma.ListOptions
+	}{arg1, arg2})
 	stub := fake.ListReposStub
 	fakeReturns := fake.listReposReturns
-	fake.recordInvocation("ListRepos", []interface{}{arg1})
+	fake.recordInvocation("ListRepos", []interface{}{arg1, arg2})
 	fake.listReposMutex.Unlock()
 	if stub != nil {
-		return stub(arg1)
+		return stub(arg1, arg2)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
@@ -651,17 +653,17 @@ func (fake *FakeService) ListReposCallCount() int {
 	return len(fake.listReposArgsForCall)
 }
 
-func (fake *FakeService) ListReposCalls(stub func(context.Context) ([]*scma.Repository, error)) {
+func (fake *FakeService) ListReposCalls(stub func(context.Context, scma.ListOptions) ([]*scma.Repository, error)) {
 	fake.listReposMutex.Lock()
 	defer fake.listReposMutex.Unlock()
 	fake.ListReposStub = stub
 }
 
-func (fake *FakeService) ListReposArgsForCall(i int) context.Context {
+func (fake *FakeService) ListReposArgsForCall(i int) (context.Context, scma.ListOptions) {
 	fake.listReposMutex.RLock()
 	defer fake.listReposMutex.RUnlock()
 	argsForCall := fake.listReposArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.arg1, argsForCall.arg2
 }
 
 func (fake *FakeService) ListReposReturns(result1 []*scma.Repository, result2 error) {

@@ -60,19 +60,20 @@ func (s *NotifierStore) Create(ctx context.Context, req hitl.CreateRequest) (hit
 	}
 
 	// 2. Notify via messenger if we have a valid sender context
-	senderCtx := messenger.SenderContextFrom(ctx)
-	if senderCtx != "" {
+	origin := messenger.MessageOriginFrom(ctx)
+	if !origin.IsZero() {
 		if err := s.notifyMessenger(ctx, approval); err != nil {
 			logger.GetLogger(ctx).Warn("failed to notify messenger", "error", err)
 		}
 		// Append to FIFO queue for this sender so concurrent approvals
 		// are all tracked instead of overwriting each other.
+		senderKey := origin.String()
 		s.pendingMu.Lock()
-		s.pendingApprovals[senderCtx] = append(s.pendingApprovals[senderCtx], approval.ID)
+		s.pendingApprovals[senderKey] = append(s.pendingApprovals[senderKey], approval.ID)
 		logger.GetLogger(ctx).Info("pending approval queued",
-			"senderCtx", senderCtx,
+			"senderCtx", senderKey,
 			"approvalID", approval.ID,
-			"queueLen", len(s.pendingApprovals[senderCtx]),
+			"queueLen", len(s.pendingApprovals[senderKey]),
 		)
 		s.pendingMu.Unlock()
 	}
@@ -202,7 +203,7 @@ func (s *NotifierStore) notifyMessenger(ctx context.Context, approval hitl.Appro
 	// Prefer structured MessageOrigin for channel resolution.
 	var channelID string
 	origin := messenger.MessageOriginFrom(ctx)
-	if origin == nil {
+	if origin.IsZero() {
 		return fmt.Errorf("no originating channel context available")
 	}
 	channelID = origin.Channel.ID

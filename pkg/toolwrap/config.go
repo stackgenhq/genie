@@ -18,10 +18,15 @@ type MiddlewareConfig struct {
 	Sanitize       SanitizeMiddlewareConfig `yaml:"sanitize" toml:"sanitize"`
 }
 
-// DefaultMiddlewareConfig returns sensible defaults with all optional
-// middlewares disabled. The core middlewares (panic recovery, loop
-// detection, failure limit, caching, HITL, context enrichment, audit)
-// are always active and not governed by this config.
+// DefaultMiddlewareConfig returns sensible defaults.
+// Circuit breaker is enabled by default to prevent agents from burning
+// LLM calls retrying tools that are consistently failing (e.g. DuckDuckGo
+// rate-limited). All other optional middlewares start disabled.
 func DefaultMiddlewareConfig() MiddlewareConfig {
-	return MiddlewareConfig{}
+	return MiddlewareConfig{
+		CircuitBreaker: CircuitBreakerConfig{
+			Enabled:          true,
+			FailureThreshold: 3, // open after 3 consecutive failures
+		},
+	}
 }

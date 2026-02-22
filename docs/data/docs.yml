@@ -276,6 +276,166 @@ config_sections:
           - ["base_url", "string", "Instance URL (e.g. `https://mycompany.atlassian.net`)"]
           - ["email", "string", "Jira only — email address for Basic auth (used with API token)"]
 
+  - id: enterprise
+    icon: "🔌"
+    name: enterprise
+    sidebar_desc: Enterprise Connectors
+    detail_title: "🔌 enterprise"
+    detail_desc: >
+      <strong>Built-In Enterprise Service Connectors.</strong><br>
+      Genie ships with 7 SDK-backed connectors for popular enterprise services — all opt-in via config.
+      Each connector is nested under <code>[enterprise]</code> and provides typed, production-ready
+      tools for CRUD, search, and analytics. No boilerplate, no MCP setup required.<br><br>
+      All connectors authenticate via environment variable references (<code>${VAR}</code>) and
+      integrate with the Enterprise Secret Vault for cloud-native credential management.
+    subsections:
+      - label: "🔷 Atlassian (Jira + Confluence)"
+        columns: [Key, Type, Description]
+        rows:
+          - ["base_url", "string", "Atlassian Cloud instance URL, e.g. `https://yourco.atlassian.net`"]
+          - ["email", "string", "Account email for Basic auth"]
+          - ["token", "string", "API token — use `${ATLASSIAN_API_TOKEN}` (create at id.atlassian.com)"]
+      - label: Atlassian Tools
+        columns: [Tool, Description]
+        rows:
+          - ["`jira_search`", "Search Jira issues with JQL"]
+          - ["`jira_get_issue`", "Get full issue details by key"]
+          - ["`jira_create_issue`", "Create a new issue (project, summary, type)"]
+          - ["`jira_update_issue`", "Update issue fields (summary, description, assignee)"]
+          - ["`jira_transition_issue`", "Move issue through workflow (e.g. To Do → In Progress → Done)"]
+          - ["`jira_add_comment`", "Add a comment to an issue"]
+          - ["`confluence_search`", "Search Confluence pages with CQL"]
+          - ["`confluence_get_page`", "Get page content by ID"]
+      - label: "☁️ Salesforce"
+        columns: [Key, Type, Description]
+        rows:
+          - ["instance_url", "string", "Salesforce org URL, e.g. `https://yourco.my.salesforce.com`"]
+          - ["token", "string", "Direct access token — `${SALESFORCE_TOKEN}` (preferred)"]
+          - ["client_id", "string", "OAuth2 Client ID (alternative to direct token)"]
+          - ["client_secret", "string", "OAuth2 Client Secret — `${SALESFORCE_CLIENT_SECRET}`"]
+      - label: Salesforce Tools
+        columns: [Tool, Description]
+        rows:
+          - ["`salesforce_query`", "Execute SOQL queries"]
+          - ["`salesforce_get_record`", "Get a record by SObject type and ID"]
+          - ["`salesforce_create_record`", "Create a new SObject record"]
+          - ["`salesforce_update_record`", "Update fields on an existing record"]
+          - ["`salesforce_delete_record`", "Delete a record by ID"]
+          - ["`salesforce_describe`", "Describe SObject metadata (fields, types, relationships)"]
+      - label: "🟠 HubSpot"
+        columns: [Key, Type, Description]
+        rows:
+          - ["token", "string", "Private App access token — `${HUBSPOT_TOKEN}` (create in Settings > Integrations)"]
+      - label: HubSpot Tools
+        columns: [Tool, Description]
+        rows:
+          - ["`hubspot_get_contact`", "Get a contact by ID"]
+          - ["`hubspot_create_contact`", "Create a new contact"]
+          - ["`hubspot_update_contact`", "Update contact properties"]
+          - ["`hubspot_search_contacts`", "Search contacts by query"]
+          - ["`hubspot_get_company`", "Get a company by ID"]
+          - ["`hubspot_create_company`", "Create a new company"]
+          - ["`hubspot_get_deal`", "Get a deal by ID"]
+          - ["`hubspot_create_deal`", "Create a new deal"]
+          - ["`hubspot_list_pipelines`", "List all deal pipelines and stages"]
+      - label: "❄️ Snowflake"
+        columns: [Key, Type, Description]
+        rows:
+          - ["account", "string", "Snowflake account identifier, e.g. `abc12345.us-east-1`"]
+          - ["user", "string", "Snowflake username"]
+          - ["password", "string", "Password — `${SNOWFLAKE_PASSWORD}`"]
+          - ["database", "string", "Default database to query"]
+          - ["warehouse", "string", "Compute warehouse to use"]
+          - ["role", "string", "Snowflake role (optional)"]
+      - label: Snowflake Tools
+        columns: [Tool, Description]
+        rows:
+          - ["`snowflake_query`", "Execute SQL queries and return results"]
+          - ["`snowflake_list_databases`", "List available databases"]
+          - ["`snowflake_list_schemas`", "List schemas in a database"]
+          - ["`snowflake_list_tables`", "List tables in a schema"]
+          - ["`snowflake_describe_table`", "Describe table columns and types"]
+      - label: "💬 Slack Tools"
+        columns: [Key, Type, Description]
+        rows:
+          - ["bot_token", "string", "Slack Bot Token (`xoxb-...`) — `${SLACK_BOT_TOKEN}`. Needs `channels:read`, `chat:write` scopes."]
+      - label: Slack Tools (Agent Tools)
+        columns: [Tool, Description]
+        rows:
+          - ["`slack_search`", "Search messages across channels"]
+          - ["`slack_post_message`", "Post a message to a channel"]
+          - ["`slack_read_history`", "Read recent messages from a channel"]
+          - ["`slack_list_channels`", "List available channels"]
+      - label: "📁 Google Drive"
+        columns: [Key, Type, Description]
+        rows:
+          - ["credentials_file", "string", "Path to Google Cloud service account JSON key"]
+          - ["impersonate_email", "string", "Domain-wide delegation target email (optional)"]
+      - label: Google Drive Tools
+        columns: [Tool, Description]
+        rows:
+          - ["`gdrive_search`", "Search files by name or full-text query"]
+          - ["`gdrive_read_file`", "Read file content (Docs, Sheets, text files)"]
+          - ["`gdrive_list_files`", "List files in a folder"]
+      - label: "📊 BigQuery"
+        columns: [Key, Type, Description]
+        rows:
+          - ["project_id", "string", "Google Cloud project containing BigQuery datasets"]
+          - ["credentials_file", "string", "Service account key file (optional — uses ADC if omitted)"]
+      - label: BigQuery Tools
+        columns: [Tool, Description]
+        rows:
+          - ["`bigquery_query`", "Execute SQL queries against BigQuery"]
+          - ["`bigquery_list_datasets`", "List datasets in the project"]
+          - ["`bigquery_list_tables`", "List tables in a dataset"]
+          - ["`bigquery_describe_table`", "Describe table schema"]
+    code_example:
+      label: Example TOML
+      code: |
+        # Enable Atlassian (Jira + Confluence)
+        [enterprise.atlassian]
+        base_url = "https://yourco.atlassian.net"
+        email = "you@company.com"
+        token = "${ATLASSIAN_API_TOKEN}"
+
+        # Enable Salesforce
+        [enterprise.salesforce]
+        instance_url = "https://yourco.my.salesforce.com"
+        token = "${SALESFORCE_TOKEN}"
+
+        # Enable HubSpot
+        [enterprise.hubspot]
+        token = "${HUBSPOT_TOKEN}"
+
+        # Enable Snowflake
+        [enterprise.snowflake]
+        account = "abc12345.us-east-1"
+        user = "GENIE_SVC"
+        password = "${SNOWFLAKE_PASSWORD}"
+        database = "ANALYTICS"
+        warehouse = "COMPUTE_WH"
+
+  - id: db_config
+    icon: "🗄️"
+    name: db_config
+    sidebar_desc: Database Storage
+    detail_title: "🗄️ db_config"
+    detail_desc: >
+      <strong>Persistent Local Storage.</strong><br>
+      Genie uses a local SQLite database to store HITL approvals, conversation memory, cron task state,
+      session history, and clarification records. WAL mode is enabled for concurrent read/write performance.<br><br>
+      By default the database is created at <code>~/.genie/genie.db</code>. Override this path if you need
+      a project-specific or team-shared database location.
+    tables:
+      - columns: [Key, Type, Default, Description]
+        rows:
+          - ["db_file", "string", "`~/.genie/genie.db`", "Path to the SQLite database file. Parent directories are created automatically."]
+    code_example:
+      label: Example TOML
+      code: |
+        [db_config]
+        db_file = "/var/lib/genie/production.db"
+
   - id: email
     icon: "📧"
     name: email
@@ -976,176 +1136,6 @@ howto_guides:
       set -a && source .env && set +a
       genie grant
 
-  - step: 9
-    title: Deploying on Cloud Instances
-    desc: >
-      Run Genie as a persistent service on EC2, Azure VM, GCP Compute Engine, or any cloud instance.
-      Choose between Docker (simpler) or systemd (more control). Includes security hardening and
-      production-ready configuration.
-    code: |
-      # ═══════════════════════════════════════════════════════
-      # OPTION 1: Docker Deployment (Recommended)
-      # ═══════════════════════════════════════════════════════
-
-      # 1. Install Docker
-      curl -fsSL https://get.docker.com -o get-docker.sh
-      sudo sh get-docker.sh
-
-      # 2. Create config directory
-      mkdir -p ~/.genie
-      cat > ~/.genie/genie.toml <<EOF
-      [[model_config]]
-      provider = "openai"
-      model_name = "gpt-5.2"
-      token = "\${OPENAI_API_KEY}"
-      good_for_task = "planning"
-
-      [agui]
-      port = 8080
-      cors_origins = ["https://yourdomain.com"]
-      rate_limit = 0.5
-      max_concurrent = 5
-      EOF
-
-      # 3. Run Genie container with persistence
-      docker run -d \
-        --name genie \
-        --restart unless-stopped \
-        -p 8080:8080 \
-        -v ~/.genie:/home/genie/.config \
-        -v /var/lib/genie/data:/workspace \
-        -e OPENAI_API_KEY="\${OPENAI_API_KEY}" \
-        ghcr.io/stackgenhq/genie:latest grant
-
-      # Check logs
-      docker logs -f genie
-
-      # ═══════════════════════════════════════════════════════
-      # OPTION 2: Binary + Systemd (Production Setup)
-      # ═══════════════════════════════════════════════════════
-
-      # ─── EC2 / Amazon Linux / Ubuntu ───────────────────────
-      # 1. Download binary
-      curl -L https://github.com/appcd-dev/stackgen-genie/releases/latest/download/genie_Linux_x86_64.tar.gz -o genie.tar.gz
-      tar xzf genie.tar.gz
-      sudo mv genie /usr/local/bin/
-      sudo chmod +x /usr/local/bin/genie
-
-      # 2. Create genie user and directories
-      sudo useradd -r -s /bin/false genie
-      sudo mkdir -p /etc/genie /var/lib/genie
-      sudo chown genie:genie /var/lib/genie
-
-      # 3. Create configuration
-      sudo tee /etc/genie/genie.toml > /dev/null <<EOF
-      [[model_config]]
-      provider = "openai"
-      model_name = "gpt-5.2"
-      token = "\${OPENAI_API_KEY}"
-
-      [agui]
-      port = 8080
-      rate_limit = 0.5
-      max_concurrent = 5
-      EOF
-
-      # 4. Create systemd service
-      sudo tee /etc/systemd/system/genie.service > /dev/null <<EOF
-      [Unit]
-      Description=Genie Agentic Platform
-      After=network.target
-
-      [Service]
-      Type=simple
-      User=genie
-      Group=genie
-      WorkingDirectory=/var/lib/genie
-      Environment="OPENAI_API_KEY=your-key-here"
-      ExecStart=/usr/local/bin/genie grant --config /etc/genie/genie.toml
-      Restart=on-failure
-      RestartSec=10
-
-      [Install]
-      WantedBy=multi-user.target
-      EOF
-
-      # 5. Start and enable service
-      sudo systemctl daemon-reload
-      sudo systemctl enable genie
-      sudo systemctl start genie
-      sudo systemctl status genie
-
-      # View logs
-      sudo journalctl -u genie -f
-
-      # ═══════════════════════════════════════════════════════
-      # Security Hardening
-      # ═══════════════════════════════════════════════════════
-
-      # ─── Use Cloud Secret Managers ─────────────────────────
-      # AWS Secrets Manager (with IAM role on EC2)
-      [security.secrets]
-      OPENAI_API_KEY = "awssecretsmanager://genie/openai?region=us-east-1&decoder=string"
-      ANTHROPIC_API_KEY = "awssecretsmanager://genie/anthropic?region=us-east-1&decoder=string"
-
-      # GCP Secret Manager (with service account)
-      OPENAI_API_KEY = "gcpsecretmanager://projects/my-project/secrets/openai?decoder=string"
-
-      # Azure Key Vault (with managed identity)
-      OPENAI_API_KEY = "azurekeyvault://my-vault.vault.azure.net/secrets/openai?decoder=string"
-
-      # ─── Firewall Configuration ────────────────────────────
-      # EC2 Security Group: Only allow port 8080 from your IP/VPC
-      # UFW (Ubuntu):
-      sudo ufw allow from YOUR_IP to any port 8080
-      sudo ufw enable
-
-      # ─── HTTPS with Nginx Reverse Proxy ────────────────────
-      sudo apt install nginx certbot python3-certbot-nginx
-
-      # Create nginx config
-      sudo tee /etc/nginx/sites-available/genie <<EOF
-      server {
-          listen 80;
-          server_name genie.example.com;
-
-          location / {
-              proxy_pass http://localhost:8080;
-              proxy_http_version 1.1;
-              proxy_set_header Upgrade \$http_upgrade;
-              proxy_set_header Connection "upgrade";
-              proxy_set_header Host \$host;
-              proxy_set_header X-Real-IP \$remote_addr;
-              proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-              proxy_set_header X-Forwarded-Proto \$scheme;
-          }
-      }
-      EOF
-
-      sudo ln -s /etc/nginx/sites-available/genie /etc/nginx/sites-enabled/
-      sudo certbot --nginx -d genie.example.com
-      sudo systemctl reload nginx
-
-      # ═══════════════════════════════════════════════════════
-      # Monitoring & Maintenance
-      # ═══════════════════════════════════════════════════════
-
-      # Check service status
-      sudo systemctl status genie
-
-      # View recent logs
-      sudo journalctl -u genie --since "1 hour ago"
-
-      # Restart service
-      sudo systemctl restart genie
-
-      # Update Genie binary
-      curl -L https://github.com/appcd-dev/stackgen-genie/releases/latest/download/genie_Linux_x86_64.tar.gz -o genie.tar.gz
-      tar xzf genie.tar.gz
-      sudo systemctl stop genie
-      sudo mv genie /usr/local/bin/
-      sudo systemctl start genie
-
 # ═══════════════════════════════════════════════════════════
 # TAB 3: ARCHITECTURE
 # ═══════════════════════════════════════════════════════════
@@ -1155,33 +1145,37 @@ architecture:
   overview:
     title: System Overview
     desc: >
-      Genie is built from three core subsystems. Every request flows through
-      these layers, from the browser to the LLM and back.
+      Genie is built from three core subsystems. Requests arrive through any
+      messenger adapter (browser, Slack, WhatsApp, etc.) and flow through the
+      same pipeline to the LLM and back.
     diagram: |
-      ┌─────────┐  POST /   ┌─────────────────────┐  Chat()  ┌────────────────┐  Run()  ┌──────────────────┐
-      │ Browser │──────────▶│  AG-UI Server       │────────▶│  CodeOwner      │───────▶│  ReAcTree Engine  │
-      │ (SSE)   │◀──────────│  pkg/agui           │◀────────│  pkg/codeowner  │◀───────│  pkg/reactree     │
-      └─────────┘  events   │                     │ events  │                │ result │                    │
-                            │  • SSE streaming    │         │  • Classify    │        │  • Sequence        │
-                            │  • Dedup filter     │         │  • Memory      │        │  • Fallback        │
-                            │  • Rate limiting    │         │  • ReAcTree    │        │  • Parallel        │
-                            │  • HITL approval    │         │  • Agents.md   │        │  • Adaptive loop   │
-                            └─────────────────────┘         └────────────────┘        └──────────────────┘
+      ┌─────────┐              ┌─────────────────────────┐  Chat()  ┌────────────────┐  Run()  ┌──────────────────┐
+      │ Browser │─── POST / ──▶│                         │────────▶│  CodeOwner      │───────▶│  ReAcTree Engine  │
+      │ (SSE)   │◀── events ───│  Messenger Adapter      │◀────────│  pkg/codeowner  │◀───────│  pkg/reactree     │
+      └─────────┘              │  pkg/messenger/agui     │ events  │                │ result │                    │
+      ┌─────────┐              │  pkg/messenger/slack    │         │  • Classify    │        │  • Sequence        │
+      │  Slack  │◀─ Socket ──▶│  pkg/messenger/whatsapp │         │  • Memory      │        │  • Fallback        │
+      │  Teams  │  Mode/API   │  pkg/messenger/discord  │         │  • ReAcTree    │        │  • Parallel        │
+      │WhatsApp │              │  pkg/messenger/teams    │         │  • Agents.md   │        │  • Adaptive loop   │
+      │  etc.   │              │  ...                    │         │                │        │                    │
+      └─────────┘              └─────────────────────────┘         └────────────────┘        └──────────────────┘
 
   subsystems:
-    - title: "🖥️ AG-UI Server (pkg/agui)"
+    - title: "🖥️ AG-UI Server (pkg/messenger/agui)"
       desc: >
         HTTP server implementing the
         <a href="https://docs.ag-ui.com" target="_blank" class="text-purple-500 hover:text-purple-600">AG-UI protocol</a>.
         Accepts a POST with RunAgentInput, streams events back as SSE, and provides
         DDoS protection (per-IP rate limiting, concurrency semaphore, max body size).
+        This is one of several messenger adapters — all share the same
+        <code>messenger.Messenger</code> interface for Connect/Disconnect/Send/Receive.
       columns: [Component, File, Purpose]
       rows:
         - ["`Server`", "`server.go`", "HTTP server, chi router, handleRun, CORS, graceful shutdown"]
         - ["`SSEWriter`", "`sse.go`", "Writes `event: TYPE\\ndata: JSON\\n\\n` with auto-flush"]
         - ["`MapEvent`", "`event_mapper.go`", "Converts internal events → AG-UI wire JSON"]
-        - ["`EventAdapter`", "`adapter.go`", "Converts trpc-agent-go `*event.Event` → typed TUI messages"]
-        - ["`BackgroundWorker`", "`events.go`", "Worker pool for event-driven agent runs (webhooks, heartbeats, cron)"]
+        - ["`EventAdapter`", "`event_adapter.go`", "Converts trpc-agent-go `*event.Event` → typed TUI messages"]
+        - ["`BackgroundWorker`", "`server.go`", "Worker pool for event-driven agent runs (webhooks, heartbeats, cron)"]
         - ["`ipRateLimiter`", "`ratelimit.go`", "Per-IP token-bucket rate limiting middleware"]
         - ["Dedup filter", "`server_expert.go`", "Suppresses multi-stage text replays via cumulative content tracking"]
 
@@ -1206,7 +1200,7 @@ architecture:
         ReAcTree engine.
       columns: [Step, Detail]
       rows:
-        - ["1. Classify", "Front-desk expert (fast model) labels the request: `REFUSE`, `SALUTATION`, or `COMPLEX`"]
+        - ["1. Classify", "Front-desk expert (fast model) labels the request: `REFUSE`, `SALUTATION`, `OUT_OF_SCOPE`, or `COMPLEX`"]
         - ["2. Recall", "Search `memory.Service` for past turns relevant to the question (sender-scoped)"]
         - ["3. Execute", "For `COMPLEX` — run through the ReAcTree with working memory and tools"]
         - ["4. Store", "Persist the Q&A turn back into memory for future recall"]

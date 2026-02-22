@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/appcd-dev/genie/pkg/agui"
+	"github.com/appcd-dev/genie/pkg/hooks"
 	"github.com/appcd-dev/genie/pkg/logger"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -40,6 +41,13 @@ func (t *tree) runAdaptiveLoop_v2(ctx context.Context, req TreeRequest) (TreeRes
 		ls.iteration = i + 1
 		t.emitIterationProgress(ctx, req, ls)
 
+		// Hook: iteration start.
+		t.hooks.OnIterationStart(ctx, hooks.IterationStartEvent{
+			Goal:          req.Goal,
+			Iteration:     ls.iteration,
+			MaxIterations: ls.maxIterations,
+		})
+
 		// 1. Execute the iteration logic
 		err := t.executeIteration(ctx, req, ls)
 		if err != nil {
@@ -50,6 +58,47 @@ func (t *tree) runAdaptiveLoop_v2(ctx context.Context, req TreeRequest) (TreeRes
 
 		// 2. Process results and update context
 		t.updateLoopState(ls, req.EventChan)
+
+		// Hook: iteration end.
+		t.hooks.OnIterationEnd(ctx, hooks.IterationEndEvent{
+			Iteration:      ls.iteration,
+			Status:         ls.capturedStatus.String(),
+			ToolCallCounts: ls.toolCallCounts,
+			TaskCompleted:  ls.capturedTaskCompleted,
+			Output:         ls.capturedOutput,
+		})
+
+		// Enterprise: run RAR reflection if enabled.
+		if t.config.EnterpriseFeatures.EnableActionReflection {
+			// Derive the list of tools actually called during this iteration.
+			var toolsCalled []string
+			for name, count := range ls.toolCallCounts {
+				if count > 0 {
+					toolsCalled = append(toolsCalled, name)
+				}
+			}
+
+			reflResult, reflErr := t.reflector.Reflect(ctx, ReflectionRequest{
+				Goal:           req.Goal,
+				ProposedOutput: ls.capturedOutput,
+				IterationCount: ls.iteration,
+				ToolCallsMade:  toolsCalled,
+			})
+			if reflErr == nil {
+				// Hook: reflection result.
+				t.hooks.OnReflection(ctx, hooks.ReflectionEvent{
+					Iteration:     ls.iteration,
+					Monologue:     reflResult.Monologue,
+					ShouldProceed: reflResult.ShouldProceed,
+				})
+				if !reflResult.ShouldProceed {
+					logr.Warn("adaptive loop: reflection halted execution", "iteration", ls.iteration)
+					ls.lastStatus = Failure
+					ls.lastOutput = "Reflection review halted execution: " + reflResult.Monologue
+					break
+				}
+			}
+		}
 
 		// 3. Check termination conditions
 		if ls.capturedTaskCompleted {
@@ -147,7 +196,11 @@ func (t *tree) executeIteration(ctx context.Context, req TreeRequest, ls *loopSt
 		return fmt.Errorf("failed to compile graph at iteration %d: %w", ls.iteration, err)
 	}
 
-	executor, err := graph.NewExecutor(compiled, graph.WithMaxSteps(t.config.MaxTotalNodes))
+	opts := []graph.ExecutorOption{graph.WithMaxSteps(t.config.MaxTotalNodes)}
+	if t.config.Checkpointer != nil {
+		opts = append(opts, graph.WithCheckpointSaver(t.config.Checkpointer))
+	}
+	executor, err := graph.NewExecutor(compiled, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to create executor at iteration %d: %w", ls.iteration, err)
 	}
@@ -178,6 +231,24 @@ func (t *tree) prepareGraph(req TreeRequest, ls *loopState) (*graph.Graph, error
 	// Output suppression is handled at the result level by updateLoopState.
 	iterEventChan := req.EventChan
 
+	toolsToUse := ls.toolsForIteration(req.Tools)
+
+	// Enterprise: wrap tools with critic middleware if enabled.
+	if t.config.EnterpriseFeatures.EnableCriticMiddleware {
+		validator := NewDeterministicValidator(nil)
+		wrapped := make([]tool.Tool, len(toolsToUse))
+		for i, tl := range toolsToUse {
+			wrapped[i] = WrapWithValidator(tl, validator)
+		}
+		toolsToUse = wrapped
+	}
+
+	// Enterprise: wrap tools for dry run simulation if enabled.
+	if t.config.EnterpriseFeatures.EnableDryRunSimulation {
+		wrapped, _ := WrapToolsForDryRun(toolsToUse)
+		toolsToUse = wrapped
+	}
+
 	innerFunc := NewAgentNodeFunc(AgentNodeConfig{
 		Goal:                 req.Goal,
 		Expert:               t.expert,
@@ -185,7 +256,7 @@ func (t *tree) prepareGraph(req TreeRequest, ls *loopState) (*graph.Graph, error
 		Episodic:             t.resolveEpisodic(req),
 		MaxDecisions:         t.config.MaxDecisionsPerNode,
 		EventChan:            iterEventChan,
-		Tools:                ls.toolsForIteration(req.Tools),
+		Tools:                toolsToUse,
 		SenderContext:        req.SenderContext,
 		TaskType:             req.TaskType,
 		Attachments:          req.Attachments,

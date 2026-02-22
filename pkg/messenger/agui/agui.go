@@ -1,11 +1,9 @@
 // Package agui provides a Messenger adapter for the AG-UI SSE server.
 //
 // Unlike other adapters that connect to external platforms, this adapter
-// runs in-process and bridges the AG-UI server's SSE event channels to the
-// messenger Send/Receive interface. This allows AG-UI web chat messages to
-// flow through the same unified messenger pipeline as Slack, Teams, etc.
-//
-// Transport: In-process bridge (no network calls).
+// runs in-process and IS the AG-UI HTTP/SSE server. Connect() starts the
+// HTTP server that listens for browser SSE connections, and Disconnect()
+// shuts it down.
 //
 // # Thread Registration Model
 //
@@ -29,6 +27,9 @@ import (
 	"sync"
 	"time"
 
+	aguitypes "github.com/appcd-dev/genie/pkg/agui"
+	"github.com/appcd-dev/genie/pkg/clarify"
+	"github.com/appcd-dev/genie/pkg/hitl"
 	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/messenger"
 	"github.com/google/uuid"
@@ -69,9 +70,9 @@ type threadState struct {
 }
 
 // Messenger implements the [messenger.Messenger] interface for the AG-UI SSE
-// server. It bridges in-process AG-UI events to the messenger pipeline,
-// enabling the web chat to participate in messenger-level features (HITL
-// approval notifications, sender allowlists, etc.).
+// server. Unlike other messenger adapters that connect to external platforms,
+// this IS the server — Connect() starts the AG-UI HTTP/SSE server that
+// browsers connect to.
 //
 // The adapter uses a thread-registration model: InjectMessage registers a
 // thread's event channel so that Send() can route responses back to the
@@ -93,10 +94,13 @@ type Messenger struct {
 
 	// sessionSvc provides structured thread persistence using the framework's
 	// session.Service. Sessions are keyed by {AppName, UserID, SessionID=threadID}.
-	// This enables session history, state management, and potential migration
-	// to persistent backends (Redis, Postgres) by swapping the implementation.
 	sessionSvc session.Service
 	appName    string // resolved from Config.AppName or DefaultAppName
+
+	// --- AG-UI HTTP server (owned by this adapter) ---
+	server    *Server            // the AG-UI HTTP/SSE server; nil until ConfigureServer
+	serverCfn context.CancelFunc // cancel function for server shutdown
+	wg        sync.WaitGroup     // tracks background goroutines
 }
 
 // New creates a new AGUI Messenger with the given config and options.
@@ -116,8 +120,45 @@ func New(cfg Config, opts ...messenger.Option) *Messenger {
 	}
 }
 
-// Connect initialises the adapter and creates the incoming message channel.
-// Must be called before Send or Receive.
+// ServerConfig holds the dependencies needed to run the AG-UI HTTP server.
+// These are injected via ConfigureServer before Connect is called.
+type ServerConfig struct {
+	AGUIConfig    messenger.AGUIConfig
+	ChatHandler   Expert
+	ApprovalStore hitl.ApprovalStore
+	ClarifyStore  clarify.Store
+	BGWorker      *BackgroundWorker
+	Workers       []aguitypes.BGWorker
+
+	// ChatFunc is the raw chat function used to create a framework Runner.
+	// If non-nil, a Runner is wired automatically.
+	ChatFunc ChatFunc
+}
+
+// ConfigureServer injects the dependencies needed to run the AG-UI HTTP
+// server. This must be called before Connect(). The server is owned by
+// the AGUI messenger — Connect() starts it, Disconnect() stops it.
+func (m *Messenger) ConfigureServer(cfg ServerConfig) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.server = NewServer(
+		cfg.AGUIConfig,
+		cfg.ChatHandler,
+		cfg.ApprovalStore,
+		cfg.ClarifyStore,
+		cfg.BGWorker,
+		cfg.Workers...,
+	)
+	m.server.SetMessengerBridge(m)
+
+	if cfg.ChatFunc != nil {
+		m.server.SetRunner(NewRunner(cfg.ChatFunc))
+	}
+}
+
+// Connect starts the AG-UI HTTP/SSE server and begins listening for
+// browser connections. Must be called after ConfigureServer.
 func (m *Messenger) Connect(ctx context.Context) error {
 	log := logger.GetLogger(ctx).With("platform", "agui", "fn", "agui.Connect")
 	m.mu.Lock()
@@ -129,18 +170,33 @@ func (m *Messenger) Connect(ctx context.Context) error {
 
 	m.incoming = make(chan messenger.IncomingMessage, m.adapterCfg.MessageBufferSize)
 	m.closeDone = make(chan struct{})
-
-	// Create in-memory session service for thread tracking.
 	m.sessionSvc = inmemory.NewSessionService()
 
-	m.connected = true
+	// Start the AG-UI HTTP server in a background goroutine.
+	if m.server != nil {
+		var serverCtx context.Context
+		serverCtx, m.serverCfn = context.WithCancel(ctx)
 
-	log.Info("AGUI messenger adapter connected (in-process)",
-		"appName", m.appName)
+		m.wg.Add(1)
+		go func() {
+			defer m.wg.Done()
+			if err := m.server.Start(serverCtx); err != nil {
+				logger.GetLogger(serverCtx).Error("AG-UI HTTP server error", "error", err)
+			}
+		}()
+
+		log.Info("AG-UI HTTP server started",
+			"port", m.server.port,
+			"appName", m.appName)
+	}
+
+	m.connected = true
+	log.Info("AGUI messenger adapter connected", "appName", m.appName)
 	return nil
 }
 
-// Disconnect gracefully shuts down the adapter and cleans up all active threads.
+// Disconnect gracefully shuts down the AG-UI HTTP server, cleans up all
+// active threads, and releases resources.
 func (m *Messenger) Disconnect(ctx context.Context) error {
 	log := logger.GetLogger(ctx).With("platform", "agui", "fn", "agui.Disconnect")
 	m.mu.Lock()
@@ -151,6 +207,13 @@ func (m *Messenger) Disconnect(ctx context.Context) error {
 	}
 
 	close(m.closeDone)
+
+	// Stop the AG-UI HTTP server by cancelling its context.
+	if m.serverCfn != nil {
+		m.serverCfn()
+	}
+	// Wait for the server goroutine to finish.
+	m.wg.Wait()
 
 	// Clean up all active threads.
 	m.threadsMu.Lock()
@@ -252,6 +315,16 @@ func (m *Messenger) Receive(_ context.Context) (<-chan messenger.IncomingMessage
 // Platform returns the AGUI platform identifier.
 func (m *Messenger) Platform() messenger.Platform {
 	return messenger.PlatformAGUI
+}
+
+// ConnectionInfo returns connection instructions for the AG-UI adapter.
+func (m *Messenger) ConnectionInfo() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.server != nil {
+		return fmt.Sprintf("AG-UI HTTP server on :%d (%s)", m.server.port, m.appName)
+	}
+	return fmt.Sprintf("In-process AG-UI adapter (%s)", m.appName)
 }
 
 // FormatApproval returns the request unchanged — AG-UI SSE does not support

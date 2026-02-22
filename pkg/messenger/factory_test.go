@@ -8,16 +8,22 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/appcd-dev/genie/pkg/messenger"
+	_ "github.com/appcd-dev/genie/pkg/messenger/agui"
+	"github.com/appcd-dev/genie/pkg/messenger/messengerfakes"
 )
 
 var _ = Describe("Factory", func() {
+	var fakeMessenger *messengerfakes.FakeMessenger
+	BeforeEach(func() {
+		fakeMessenger = &messengerfakes.FakeMessenger{}
+	})
 	Describe("RegisterAdapter", func() {
 		It("should register and invoke a factory function", func() {
 			called := false
 			messenger.RegisterAdapter("test-platform", func(params map[string]string, opts ...messenger.Option) (messenger.Messenger, error) {
 				called = true
 				Expect(params).To(HaveKeyWithValue("key", "value"))
-				return &stubMessenger{}, nil
+				return fakeMessenger, nil
 			})
 
 			cfg := messenger.Config{
@@ -34,23 +40,13 @@ var _ = Describe("Factory", func() {
 		It("should return nil when no platform is configured", func(ctx context.Context) {
 			m, err := messenger.Config{}.InitMessenger(ctx)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(m).To(BeNil())
+			Expect(m).NotTo(BeNil())
 		})
 
 		It("should return an error for unsupported platform", func(ctx context.Context) {
 			m, err := messenger.Config{Platform: "nonexistent"}.InitMessenger(ctx)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("unsupported platform"))
-			Expect(m).To(BeNil())
-		})
-
-		It("should degrade gracefully when validation fails", func(ctx context.Context) {
-			// InitMessenger swallows validation errors and returns nil, nil.
-			m, err := messenger.Config{
-				Platform: messenger.PlatformSlack,
-				Slack:    messenger.SlackConfig{BotToken: "xoxb-test"},
-			}.InitMessenger(ctx)
-			Expect(err).NotTo(HaveOccurred())
 			Expect(m).To(BeNil())
 		})
 
@@ -82,7 +78,7 @@ var _ = Describe("Factory", func() {
 					if params["fail"] == "true" {
 						return nil, fmt.Errorf("intentional failure")
 					}
-					return &stubMessenger{}, nil
+					return fakeMessenger, nil
 				})
 			})
 

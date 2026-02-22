@@ -147,12 +147,12 @@ var _ = Describe("Summarizer", func() {
 		})
 
 		Context("when multiple choices are returned", func() {
-			It("should concatenate all choice content", func(ctx context.Context) {
+			It("should return last choice content (streaming accumulation)", func(ctx context.Context) {
 				stub := &stubExpert{
 					response: expert.Response{
 						Choices: []model.Choice{
 							{Message: model.Message{Content: "part1"}},
-							{Message: model.Message{Content: "part2"}},
+							{Message: model.Message{Content: "part1part2"}},
 						},
 					},
 				}

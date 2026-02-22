@@ -257,6 +257,11 @@ func (m *Messenger) Platform() messenger.Platform {
 	return messenger.PlatformTeams
 }
 
+// ConnectionInfo returns connection instructions for the Teams adapter.
+func (m *Messenger) ConnectionInfo() string {
+	return fmt.Sprintf("Listening for Bot Framework activities on %s — message me in your Teams workspace", m.cfg.ListenAddr)
+}
+
 // handleActivity processes incoming Bot Framework activities.
 func (m *Messenger) handleActivity(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

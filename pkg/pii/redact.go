@@ -145,6 +145,111 @@ func Redact(text string) string {
 	return scanner.ScanAndRedact(text)
 }
 
+// placeholderRe matches [HIDDEN:hex6] tokens produced by pii-shield's HMAC redaction.
+var placeholderRe = regexp.MustCompile(`\[HIDDEN:[0-9a-f]{6}\]`)
+
+// RedactWithReplacer redacts PII in text and returns the redacted string plus
+// a *strings.Replacer that can reverse individual [HIDDEN:hash] → original
+// mappings. Call replacer.Replace(llmOutput) in AfterModel to rehydrate.
+//
+// It works by diffing the original and redacted texts positionally: both are
+// split on whitespace/punctuation boundaries and matched token-by-token.
+// Where a token changed to a [HIDDEN:*] placeholder, that mapping is recorded.
+func RedactWithReplacer(text string) (redacted string, replacer *strings.Replacer) {
+	if text == "" {
+		return "", strings.NewReplacer()
+	}
+	redacted = scanner.ScanAndRedact(text)
+	if redacted == text {
+		return text, strings.NewReplacer()
+	}
+
+	// Extract all [HIDDEN:*] placeholders from the redacted text and build
+	// a replacement table by finding the corresponding original substrings.
+	var pairs []string
+	seen := make(map[string]bool)
+
+	// Strategy: find each placeholder's byte offset in redacted, then map
+	// back to the original by tracking cursor positions in both strings.
+	matches := placeholderRe.FindAllStringIndex(redacted, -1)
+	if len(matches) == 0 {
+		// No HMAC placeholders — redaction was structural only.
+		// Fall back to full-string replacement.
+		return redacted, strings.NewReplacer(redacted, text)
+	}
+
+	// Walk both strings in parallel to find what each placeholder replaced.
+	origIdx := 0
+	redIdx := 0
+	for _, m := range matches {
+		phStart, phEnd := m[0], m[1]
+		placeholder := redacted[phStart:phEnd]
+
+		if seen[placeholder] {
+			// Same HMAC hash → skip (deterministic, same input = same hash).
+			// Advance redIdx past this placeholder.
+			skip := phEnd - redIdx
+			origIdx += (phStart - redIdx) // advance past matching prefix
+			// Now scan forward in original to find end of replaced token.
+			// The token ends where the next matching suffix begins.
+			nextRedacted := ""
+			if phEnd < len(redacted) {
+				// Take next few chars of redacted as suffix anchor.
+				end := phEnd + 20
+				if end > len(redacted) {
+					end = len(redacted)
+				}
+				nextRedacted = redacted[phEnd:end]
+			}
+			if nextRedacted != "" {
+				if suffixStart := strings.Index(text[origIdx:], nextRedacted[:1]); suffixStart >= 0 {
+					origIdx += suffixStart
+				} else {
+					origIdx += skip
+				}
+			} else {
+				origIdx = len(text)
+			}
+			redIdx = phEnd
+			continue
+		}
+
+		// Advance past the matching prefix (same text in both strings).
+		prefixLen := phStart - redIdx
+		origIdx += prefixLen
+
+		// Find the end of the original token that was replaced.
+		// Look for the text that follows the placeholder in the redacted string.
+		var origToken string
+		if phEnd < len(redacted) {
+			// Find suffix anchor: next char(s) after placeholder in redacted.
+			suffixChar := redacted[phEnd : phEnd+1]
+			if nextInOrig := strings.Index(text[origIdx:], suffixChar); nextInOrig >= 0 {
+				origToken = text[origIdx : origIdx+nextInOrig]
+				origIdx += nextInOrig
+			} else {
+				origToken = text[origIdx:]
+				origIdx = len(text)
+			}
+		} else {
+			// Placeholder is at end of string.
+			origToken = text[origIdx:]
+			origIdx = len(text)
+		}
+
+		if origToken != "" && !seen[placeholder] {
+			pairs = append(pairs, placeholder, origToken)
+			seen[placeholder] = true
+		}
+		redIdx = phEnd
+	}
+
+	if len(pairs) == 0 {
+		return redacted, strings.NewReplacer(redacted, text)
+	}
+	return redacted, strings.NewReplacer(pairs...)
+}
+
 // ContainsPII returns true if redaction would modify the text.
 func ContainsPII(text string) bool {
 	if text == "" {

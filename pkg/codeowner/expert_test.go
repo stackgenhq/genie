@@ -18,6 +18,7 @@ import (
 	"github.com/appcd-dev/genie/pkg/reactree"
 	rtmemory "github.com/appcd-dev/genie/pkg/reactree/memory"
 	"github.com/appcd-dev/genie/pkg/reactree/reactreefakes"
+	"github.com/appcd-dev/genie/pkg/tools"
 	"github.com/appcd-dev/genie/pkg/ttlcache"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -79,7 +80,8 @@ var _ = Describe("CodeOwner", func() {
 				AppName: "test",
 				UserID:  "test",
 			},
-			auditor: &auditfakes.FakeAuditor{},
+			auditor:      &auditfakes.FakeAuditor{},
+			toolRegistry: tools.NewRegistry(ctx),
 			resume: ttlcache.NewItem(func(_ context.Context) (string, error) {
 				return "Kubernetes triage specialist with shell and kubectl tools.", nil
 			}, 5*time.Minute),
@@ -89,37 +91,47 @@ var _ = Describe("CodeOwner", func() {
 	Describe("classifyRequest", func() {
 		It("should return REFUSE when classifier says REFUSE", func() {
 			fakeFrontDeskExpert.DoReturns(fakeExpertResponse("REFUSE"), nil)
-			cat, err := co.classifyRequest(ctx, "how do I hack a system?")
+			cr, err := co.classifyRequest(ctx, "how do I hack a system?")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(cat).To(Equal(categoryRefuse))
+			Expect(cr.Category).To(Equal(categoryRefuse))
+			Expect(cr.Reason).To(BeEmpty())
 		})
 
 		It("should return SALUTATION when classifier says SALUTATION", func() {
 			fakeFrontDeskExpert.DoReturns(fakeExpertResponse("SALUTATION"), nil)
-			cat, err := co.classifyRequest(ctx, "hello there!")
+			cr, err := co.classifyRequest(ctx, "hello there!")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(cat).To(Equal(categorySalutation))
+			Expect(cr.Category).To(Equal(categorySalutation))
 		})
 
 		It("should return COMPLEX when classifier says COMPLEX", func() {
 			fakeFrontDeskExpert.DoReturns(fakeExpertResponse("COMPLEX"), nil)
-			cat, err := co.classifyRequest(ctx, "refactor the database layer")
+			cr, err := co.classifyRequest(ctx, "refactor the database layer")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(cat).To(Equal(categoryComplex))
+			Expect(cr.Category).To(Equal(categoryComplex))
 		})
 
 		It("should return OUT_OF_SCOPE when classifier says OUT_OF_SCOPE", func() {
 			fakeFrontDeskExpert.DoReturns(fakeExpertResponse("OUT_OF_SCOPE"), nil)
-			cat, err := co.classifyRequest(ctx, "how to make mango juice")
+			cr, err := co.classifyRequest(ctx, "how to make mango juice")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(cat).To(Equal(categoryOutOfScope))
+			Expect(cr.Category).To(Equal(categoryOutOfScope))
+			Expect(cr.Reason).To(BeEmpty())
+		})
+
+		It("should extract reason from OUT_OF_SCOPE | reason format", func() {
+			fakeFrontDeskExpert.DoReturns(fakeExpertResponse("OUT_OF_SCOPE | I'm a Kubernetes specialist and can't help with cooking recipes."), nil)
+			cr, err := co.classifyRequest(ctx, "how to make mango juice")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cr.Category).To(Equal(categoryOutOfScope))
+			Expect(cr.Reason).To(Equal("I'm a Kubernetes specialist and can't help with cooking recipes."))
 		})
 
 		It("should handle case-insensitive OUT_OF_SCOPE", func() {
 			fakeFrontDeskExpert.DoReturns(fakeExpertResponse("out_of_scope"), nil)
-			cat, err := co.classifyRequest(ctx, "recipe for pasta")
+			cr, err := co.classifyRequest(ctx, "recipe for pasta")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(cat).To(Equal(categoryOutOfScope))
+			Expect(cr.Category).To(Equal(categoryOutOfScope))
 		})
 
 		It("should inject resume into classifier message when resume is available", func() {
@@ -137,31 +149,31 @@ var _ = Describe("CodeOwner", func() {
 
 		It("should handle case-insensitive classifier output", func() {
 			fakeFrontDeskExpert.DoReturns(fakeExpertResponse("refuse"), nil)
-			cat, err := co.classifyRequest(ctx, "dangerous request")
+			cr, err := co.classifyRequest(ctx, "dangerous request")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(cat).To(Equal(categoryRefuse))
+			Expect(cr.Category).To(Equal(categoryRefuse))
 		})
 
 		It("should handle classifier output with extra whitespace", func() {
 			fakeFrontDeskExpert.DoReturns(fakeExpertResponse("  SALUTATION  \n"), nil)
-			cat, err := co.classifyRequest(ctx, "hi")
+			cr, err := co.classifyRequest(ctx, "hi")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(cat).To(Equal(categorySalutation))
+			Expect(cr.Category).To(Equal(categorySalutation))
 		})
 
 		It("should default to COMPLEX on unexpected response (fail-open)", func() {
 			fakeFrontDeskExpert.DoReturns(fakeExpertResponse("I don't understand"), nil)
-			cat, err := co.classifyRequest(ctx, "some question")
+			cr, err := co.classifyRequest(ctx, "some question")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(cat).To(Equal(categoryComplex))
+			Expect(cr.Category).To(Equal(categoryComplex))
 		})
 
 		It("should return error but default to COMPLEX when expert fails", func() {
 			fakeFrontDeskExpert.DoReturns(expert.Response{}, errors.New("model unreachable"))
-			cat, err := co.classifyRequest(ctx, "hello")
+			cr, err := co.classifyRequest(ctx, "hello")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("classification call failed"))
-			Expect(cat).To(Equal(categoryComplex))
+			Expect(cr.Category).To(Equal(categoryComplex))
 		})
 	})
 
@@ -182,8 +194,8 @@ var _ = Describe("CodeOwner", func() {
 			Expect(fakeTreeExecutor.RunCallCount()).To(Equal(0))
 		})
 
-		It("should short-circuit with resume message for OUT_OF_SCOPE category", func() {
-			fakeFrontDeskExpert.DoReturns(fakeExpertResponse("OUT_OF_SCOPE"), nil)
+		It("should short-circuit with reason message for OUT_OF_SCOPE category", func() {
+			fakeFrontDeskExpert.DoReturns(fakeExpertResponse("OUT_OF_SCOPE | I'm a Kubernetes specialist and can't help with cooking."), nil)
 
 			outputChan := make(chan string, 10)
 			err := co.Chat(ctx, CodeQuestion{
@@ -193,17 +205,14 @@ var _ = Describe("CodeOwner", func() {
 			Expect(err).NotTo(HaveOccurred())
 			var msg string
 			Expect(outputChan).To(Receive(&msg))
-			Expect(msg).To(ContainSubstring("Wrong person"))
-			Expect(msg).To(ContainSubstring("Kubernetes triage specialist"))
+			Expect(msg).To(ContainSubstring("can't help with that"))
+			Expect(msg).To(ContainSubstring("Kubernetes specialist"))
+			Expect(msg).To(ContainSubstring("cooking"))
 			// Tree executor should NOT be called
 			Expect(fakeTreeExecutor.RunCallCount()).To(Equal(0))
 		})
 
-		It("should use fallback message when resume is empty for OUT_OF_SCOPE", func() {
-			// Override resume to return empty
-			co.resume = ttlcache.NewItem(func(_ context.Context) (string, error) {
-				return "", nil
-			}, 5*time.Minute)
+		It("should use fallback reason when OUT_OF_SCOPE has no pipe", func() {
 			fakeFrontDeskExpert.DoReturns(fakeExpertResponse("OUT_OF_SCOPE"), nil)
 
 			outputChan := make(chan string, 10)
@@ -214,7 +223,8 @@ var _ = Describe("CodeOwner", func() {
 			Expect(err).NotTo(HaveOccurred())
 			var msg string
 			Expect(outputChan).To(Receive(&msg))
-			Expect(msg).To(ContainSubstring("mysterious specialist"))
+			Expect(msg).To(ContainSubstring("can't help with that"))
+			Expect(msg).To(ContainSubstring("within my area of expertise"))
 			Expect(fakeTreeExecutor.RunCallCount()).To(Equal(0))
 		})
 
@@ -246,7 +256,7 @@ var _ = Describe("CodeOwner", func() {
 			}, nil)
 
 			mTool := &mockTool{}
-			co.tools = reactree.ToolRegistry{mTool.Declaration().Name: mTool}
+			co.toolRegistry = tools.NewRegistry(ctx, tools.Tools{mTool})
 
 			outputChan := make(chan string, 10)
 			err := co.Chat(ctx, CodeQuestion{
@@ -303,15 +313,15 @@ var _ = Describe("CodeOwner", func() {
 			Expect(extractTextFromChoices(choices)).To(Equal("hello"))
 		})
 
-		It("should concatenate text from multiple choices", func() {
+		It("should return the last choice when multiple are present (streaming accumulation)", func() {
 			choices := []model.Choice{
 				{Message: model.Message{Content: "hello "}},
-				{Message: model.Message{Content: "world"}},
+				{Message: model.Message{Content: "hello world"}},
 			}
 			Expect(extractTextFromChoices(choices)).To(Equal("hello world"))
 		})
 
-		It("should skip choices with empty content", func() {
+		It("should return last choice content even when earlier choices are empty", func() {
 			choices := []model.Choice{
 				{Message: model.Message{Content: ""}},
 				{Message: model.Message{Content: "only this"}},
@@ -348,43 +358,6 @@ var _ = Describe("CodeOwner", func() {
 		})
 	})
 
-	Describe("filterTools", func() {
-		It("should preserve all tools when no exclusions given", func() {
-			webSearch := &namedMockTool{name: "web_search"}
-			listFile := &namedMockTool{name: "list_file"}
-			runShell := &namedMockTool{name: "run_shell"}
-			tools := []tool.Tool{webSearch, listFile, runShell}
-
-			result := filterTools(tools, nil)
-			Expect(result).To(HaveLen(3))
-			Expect(result).To(ContainElement(webSearch))
-			Expect(result).To(ContainElement(listFile))
-			Expect(result).To(ContainElement(runShell))
-		})
-
-		It("should remove excluded tools but keep others", func() {
-			webSearch := &namedMockTool{name: "web_search"}
-			listFile := &namedMockTool{name: "list_file"}
-			sendMsg := &namedMockTool{name: "send_message"}
-			tools := []tool.Tool{webSearch, listFile, sendMsg}
-
-			result := filterTools(tools, []string{"send_message"})
-			Expect(result).To(HaveLen(2))
-			Expect(result).To(ContainElement(webSearch))
-			Expect(result).To(ContainElement(listFile))
-			Expect(result).NotTo(ContainElement(sendMsg))
-		})
-
-		It("should not mutate the original tools slice", func() {
-			webSearch := &namedMockTool{name: "web_search"}
-			listFile := &namedMockTool{name: "list_file"}
-			tools := []tool.Tool{webSearch, listFile}
-
-			_ = filterTools(tools, []string{"list_file"})
-			Expect(tools).To(HaveLen(2)) // original unmodified
-		})
-	})
-
 	Describe("recallAccomplishments", func() {
 		It("should return empty string when vectorStore is nil", func() {
 			co.vectorStore = nil
@@ -399,7 +372,9 @@ var _ = Describe("CodeOwner", func() {
 
 			result := co.recallAccomplishments(ctx)
 			Expect(result).To(BeEmpty())
-			Expect(fakeStore.SearchWithFilterCallCount()).To(Equal(1))
+			// recallAccomplishments calls SearchWithFilter twice: once with visibility
+			// filter, then a fallback with sender_id when results are sparse (<2).
+			Expect(fakeStore.SearchWithFilterCallCount()).To(Equal(2))
 			_, query, limit, filter := fakeStore.SearchWithFilterArgsForCall(0)
 			Expect(query).To(Equal(rtmemory.AccomplishmentType))
 			Expect(limit).To(Equal(50))
@@ -439,8 +414,9 @@ var _ = Describe("CodeOwner", func() {
 
 			result := co.recallAccomplishments(ctx)
 			Expect(result).To(ContainSubstring("- accomplishment entry"))
-			// Verify filter was passed with type=accomplishment
-			Expect(fakeStore.SearchWithFilterCallCount()).To(Equal(1))
+			// recallAccomplishments calls SearchWithFilter twice: once with visibility
+			// filter, then a fallback with sender_id when results are sparse (<2).
+			Expect(fakeStore.SearchWithFilterCallCount()).To(Equal(2))
 			_, _, _, filter := fakeStore.SearchWithFilterArgsForCall(0)
 			Expect(filter).To(HaveKeyWithValue("type", rtmemory.AccomplishmentType))
 		})
@@ -616,14 +592,12 @@ var _ = Describe("CodeOwner", func() {
 			fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
 			fakeSummarizer.SummarizeReturns("Generated Resume Content", nil)
 
-			registry := make(reactree.ToolRegistry)
-
-			resume, err := co.createResume(ctx, fakeSummarizer, registry, "SysPrompt")
+			resume, err := co.createResume(ctx, fakeSummarizer, "SysPrompt")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resume).To(Equal("Generated Resume Content"))
 
 			// Verify it tried to recall accomplishments via SearchWithFilter
-			Expect(fakeStore.SearchWithFilterCallCount()).To(Equal(1))
+			Expect(fakeStore.SearchWithFilterCallCount()).To(Equal(2))
 
 			// Verify it called summarizer
 			Expect(fakeSummarizer.SummarizeCallCount()).To(Equal(1))

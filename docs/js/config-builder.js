@@ -35,7 +35,8 @@
             telegram: { token: 'TELEGRAM_BOT_TOKEN' },
             teams: { app_id: 'TEAMS_APP_ID', app_password: 'TEAMS_APP_PASSWORD', listen_addr: ':3978' },
             googlechat: { credentials_file: '', listen_addr: ':8080' },
-            whatsapp: { store_path: '' }
+            whatsapp: { store_path: '' },
+            agui: { port: 8080, cors_origins: ['https://appcd-dev.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576 }
         },
         scm: { provider: '', token: 'SCM_TOKEN', base_url: '' },
         pm: { provider: '', api_token: 'PM_API_TOKEN', base_url: '', email: '' },
@@ -54,13 +55,23 @@
             validation: { enabled: false }
         },
         db_config: { db_file: '' },
-        agui: { port: 8080, cors_origins: ['https://appcd-dev.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576 },
+
         langfuse: { public_key: 'LANGFUSE_PUBLIC_KEY', secret_key: 'LANGFUSE_SECRET_KEY', host: 'https://cloud.langfuse.com', enable_prompts: false },
         runbook: { runbook_paths: [] },
         cron: { enabled: false, tasks: [] },
         security: { secrets: [] },
         pii: { salt: '', entropy_threshold: 3.6, min_secret_length: 6, sensitive_keys: [] },
-        enable_pensieve: false
+        enable_pensieve: false,
+        // Enterprise Connectors (nested under [enterprise] in TOML)
+        enterprise: {
+            atlassian: { enabled: false, base_url: '', email: '', token: 'ATLASSIAN_API_TOKEN' },
+            salesforce: { enabled: false, instance_url: '', token: 'SALESFORCE_TOKEN', client_id: '', client_secret: '' },
+            hubspot: { enabled: false, token: 'HUBSPOT_TOKEN' },
+            snowflake: { enabled: false, account: '', user: '', password: 'SNOWFLAKE_PASSWORD', database: '', warehouse: '', role: '' },
+            slack_tools: { enabled: false, bot_token: 'SLACK_BOT_TOKEN' },
+            gdrive: { enabled: false, credentials_file: '', impersonate_email: '' },
+            bigquery: { enabled: false, project_id: '', credentials_file: '' }
+        }
     };
 
     var PROVIDERS = ['openai', 'gemini', 'anthropic'];
@@ -207,6 +218,13 @@
         renderMessenger();
         renderSCM();
         renderPM();
+        renderAtlassian();
+        renderSalesforce();
+        renderHubSpot();
+        renderSnowflake();
+        renderSlackTools();
+        renderGDrive();
+        renderBigQuery();
         renderBrowser();
         renderEmail();
         renderHITL();
@@ -437,6 +455,123 @@
         c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
     }
 
+    // ── Atlassian (Jira + Confluence) ──
+    function renderAtlassian() {
+        var c = $('atlassian-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var a = state.enterprise.atlassian;
+        var fields = [
+            fieldToggle('Enabled', a.enabled, function (v) { a.enabled = v; renderAll(); }, 'Connect to Atlassian Cloud (Jira + Confluence)')
+        ];
+        if (a.enabled) {
+            fields.push(fieldText('Base URL', a.base_url, function (v) { a.base_url = v; renderOutput(); }, 'https://yourcompany.atlassian.net', 'Your Atlassian Cloud instance URL'));
+            fields.push(fieldText('Email', a.email, function (v) { a.email = v; renderOutput(); }, 'you@company.com', 'Atlassian account email for Basic auth'));
+            fields.push(fieldEnvVar('API Token', a.token, function (v) { a.token = v; renderOutput(); }, 'ATLASSIAN_API_TOKEN', 'Atlassian API token — create at id.atlassian.com'));
+        }
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
+    }
+
+    // ── Salesforce ──
+    function renderSalesforce() {
+        var c = $('salesforce-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var sf = state.enterprise.salesforce;
+        var fields = [
+            fieldToggle('Enabled', sf.enabled, function (v) { sf.enabled = v; renderAll(); }, 'Connect to Salesforce CRM')
+        ];
+        if (sf.enabled) {
+            fields.push(fieldText('Instance URL', sf.instance_url, function (v) { sf.instance_url = v; renderOutput(); }, 'https://yourco.my.salesforce.com', 'Your Salesforce org instance URL'));
+            fields.push(fieldEnvVar('Access Token', sf.token, function (v) { sf.token = v; renderOutput(); }, 'SALESFORCE_TOKEN', 'Direct access token (preferred) — or use Client Credentials below'));
+            fields.push(fieldText('Client ID', sf.client_id, function (v) { sf.client_id = v; renderOutput(); }, '', 'OAuth2 Client ID — alternative to direct token'));
+            fields.push(fieldEnvVar('Client Secret', sf.client_secret, function (v) { sf.client_secret = v; renderOutput(); }, 'SALESFORCE_CLIENT_SECRET', 'OAuth2 Client Secret'));
+        }
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
+    }
+
+    // ── HubSpot ──
+    function renderHubSpot() {
+        var c = $('hubspot-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var h = state.enterprise.hubspot;
+        var fields = [
+            fieldToggle('Enabled', h.enabled, function (v) { h.enabled = v; renderAll(); }, 'Connect to HubSpot CRM')
+        ];
+        if (h.enabled) {
+            fields.push(fieldEnvVar('Private App Token', h.token, function (v) { h.token = v; renderOutput(); }, 'HUBSPOT_TOKEN', 'HubSpot Private App access token — create in Settings > Integrations'));
+        }
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
+    }
+
+    // ── Snowflake ──
+    function renderSnowflake() {
+        var c = $('snowflake-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var sf = state.enterprise.snowflake;
+        var fields = [
+            fieldToggle('Enabled', sf.enabled, function (v) { sf.enabled = v; renderAll(); }, 'Connect to Snowflake data warehouse')
+        ];
+        if (sf.enabled) {
+            fields.push(fieldText('Account', sf.account, function (v) { sf.account = v; renderOutput(); }, 'abc12345.us-east-1', 'Snowflake account identifier'));
+            fields.push(fieldText('User', sf.user, function (v) { sf.user = v; renderOutput(); }, 'GENIE_SVC', 'Snowflake username'));
+            fields.push(fieldEnvVar('Password', sf.password, function (v) { sf.password = v; renderOutput(); }, 'SNOWFLAKE_PASSWORD', 'Snowflake password'));
+            fields.push(fieldText('Database', sf.database, function (v) { sf.database = v; renderOutput(); }, 'ANALYTICS', 'Default database to query'));
+            fields.push(fieldText('Warehouse', sf.warehouse, function (v) { sf.warehouse = v; renderOutput(); }, 'COMPUTE_WH', 'Compute warehouse to use'));
+            fields.push(fieldText('Role', sf.role, function (v) { sf.role = v; renderOutput(); }, 'READONLY', 'Snowflake role (optional)'));
+        }
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
+    }
+
+    // ── Slack Tools ──
+    function renderSlackTools() {
+        var c = $('slacktools-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var st = state.enterprise.slack_tools;
+        var fields = [
+            fieldToggle('Enabled', st.enabled, function (v) { st.enabled = v; renderAll(); }, 'Enable Slack as a tool (search, post, read history)')
+        ];
+        if (st.enabled) {
+            fields.push(fieldEnvVar('Bot Token', st.bot_token, function (v) { st.bot_token = v; renderOutput(); }, 'SLACK_BOT_TOKEN', 'Slack Bot Token (xoxb-...) — needs channels:read, chat:write scopes'));
+        }
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
+    }
+
+    // ── Google Drive ──
+    function renderGDrive() {
+        var c = $('gdrive-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var gd = state.enterprise.gdrive;
+        var fields = [
+            fieldToggle('Enabled', gd.enabled, function (v) { gd.enabled = v; renderAll(); }, 'Connect to Google Drive (read-only)')
+        ];
+        if (gd.enabled) {
+            fields.push(fieldText('Credentials File', gd.credentials_file, function (v) { gd.credentials_file = v; renderOutput(); }, '/path/to/service-account.json', 'Google Cloud service account key file path'));
+            fields.push(fieldText('Impersonate Email', gd.impersonate_email, function (v) { gd.impersonate_email = v; renderOutput(); }, 'user@company.com', 'Domain-wide delegation target email (optional)'));
+        }
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
+    }
+
+    // ── BigQuery ──
+    function renderBigQuery() {
+        var c = $('bigquery-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var bq = state.enterprise.bigquery;
+        var fields = [
+            fieldToggle('Enabled', bq.enabled, function (v) { bq.enabled = v; renderAll(); }, 'Connect to Google BigQuery (read-only)')
+        ];
+        if (bq.enabled) {
+            fields.push(fieldText('Project ID', bq.project_id, function (v) { bq.project_id = v; renderOutput(); }, 'my-gcp-project', 'Google Cloud project containing your BigQuery datasets'));
+            fields.push(fieldText('Credentials File', bq.credentials_file, function (v) { bq.credentials_file = v; renderOutput(); }, '/path/to/service-account.json', 'Service account key file (optional — uses ADC if omitted)'));
+        }
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
+    }
+
     // ── Browser ──
     function renderBrowser() {
         var c = $('browser-body');
@@ -654,7 +789,7 @@
         var c = $('agui-body');
         if (!c) return;
         c.innerHTML = '';
-        var a = state.agui;
+        var a = state.messenger.agui;
         c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
             fieldNumber('Port', a.port, function (v) { a.port = v; renderOutput(); }, 1024, 65535, 'HTTP server port'),
             fieldText('CORS Origins (comma-separated)', (a.cors_origins || []).join(', '), function (v) { a.cors_origins = splitCSV(v); renderOutput(); }, 'https://myapp.com', 'Allowed origins for browser access'),
@@ -786,41 +921,44 @@
 
     function messengerToToml(lines) {
         var m = state.messenger;
-        if (!m.platform) return;
-        lines.push('[messenger]');
-        lines.push('platform = ' + q(m.platform));
-        if (m.buffer_size !== 100) lines.push('buffer_size = ' + m.buffer_size);
-        if (hasItems(m.allowed_senders)) lines.push('allowed_senders = [' + m.allowed_senders.filter(Boolean).map(q).join(', ') + ']');
-        lines.push('');
-        if (m.platform === 'slack') {
-            lines.push('[messenger.slack]');
-            if (m.slack.app_token) lines.push('app_token = ' + q('${' + m.slack.app_token + '}'));
-            if (m.slack.bot_token) lines.push('bot_token = ' + q('${' + m.slack.bot_token + '}'));
+        if (m.platform) {
+            lines.push('[messenger]');
+            lines.push('platform = ' + q(m.platform));
+            if (m.buffer_size !== 100) lines.push('buffer_size = ' + m.buffer_size);
+            if (hasItems(m.allowed_senders)) lines.push('allowed_senders = [' + m.allowed_senders.filter(Boolean).map(q).join(', ') + ']');
             lines.push('');
-        } else if (m.platform === 'discord') {
-            lines.push('[messenger.discord]');
-            if (m.discord.bot_token) lines.push('bot_token = ' + q('${' + m.discord.bot_token + '}'));
-            lines.push('');
-        } else if (m.platform === 'telegram') {
-            lines.push('[messenger.telegram]');
-            if (m.telegram.token) lines.push('token = ' + q('${' + m.telegram.token + '}'));
-            lines.push('');
-        } else if (m.platform === 'teams') {
-            lines.push('[messenger.teams]');
-            if (m.teams.app_id) lines.push('app_id = ' + q('${' + m.teams.app_id + '}'));
-            if (m.teams.app_password) lines.push('app_password = ' + q('${' + m.teams.app_password + '}'));
-            if (m.teams.listen_addr) lines.push('listen_addr = ' + q(m.teams.listen_addr));
-            lines.push('');
-        } else if (m.platform === 'googlechat') {
-            lines.push('[messenger.googlechat]');
-            if (m.googlechat.credentials_file) lines.push('credentials_file = ' + q(m.googlechat.credentials_file));
-            if (m.googlechat.listen_addr) lines.push('listen_addr = ' + q(m.googlechat.listen_addr));
-            lines.push('');
-        } else if (m.platform === 'whatsapp') {
-            lines.push('[messenger.whatsapp]');
-            if (m.whatsapp.store_path) lines.push('store_path = ' + q(m.whatsapp.store_path));
-            lines.push('');
+            if (m.platform === 'slack') {
+                lines.push('[messenger.slack]');
+                if (m.slack.app_token) lines.push('app_token = ' + q('${' + m.slack.app_token + '}'));
+                if (m.slack.bot_token) lines.push('bot_token = ' + q('${' + m.slack.bot_token + '}'));
+                lines.push('');
+            } else if (m.platform === 'discord') {
+                lines.push('[messenger.discord]');
+                if (m.discord.bot_token) lines.push('bot_token = ' + q('${' + m.discord.bot_token + '}'));
+                lines.push('');
+            } else if (m.platform === 'telegram') {
+                lines.push('[messenger.telegram]');
+                if (m.telegram.token) lines.push('token = ' + q('${' + m.telegram.token + '}'));
+                lines.push('');
+            } else if (m.platform === 'teams') {
+                lines.push('[messenger.teams]');
+                if (m.teams.app_id) lines.push('app_id = ' + q('${' + m.teams.app_id + '}'));
+                if (m.teams.app_password) lines.push('app_password = ' + q('${' + m.teams.app_password + '}'));
+                if (m.teams.listen_addr) lines.push('listen_addr = ' + q(m.teams.listen_addr));
+                lines.push('');
+            } else if (m.platform === 'googlechat') {
+                lines.push('[messenger.googlechat]');
+                if (m.googlechat.credentials_file) lines.push('credentials_file = ' + q(m.googlechat.credentials_file));
+                if (m.googlechat.listen_addr) lines.push('listen_addr = ' + q(m.googlechat.listen_addr));
+                lines.push('');
+            } else if (m.platform === 'whatsapp') {
+                lines.push('[messenger.whatsapp]');
+                if (m.whatsapp.store_path) lines.push('store_path = ' + q(m.whatsapp.store_path));
+                lines.push('');
+            }
         }
+        // AGUI config is always emitted — it's the default/fallback messenger
+        aguiToToml(lines);
     }
 
     /** Assemble full TOML output. */
@@ -838,12 +976,25 @@
         messengerToToml(lines);
         scmToToml(lines);
         pmToToml(lines);
+        // Enterprise connector group — emit a comment separator
+        var hasEnterprise = state.enterprise.atlassian.enabled || state.enterprise.salesforce.enabled ||
+            state.enterprise.hubspot.enabled || state.enterprise.snowflake.enabled ||
+            state.enterprise.slack_tools.enabled || state.enterprise.gdrive.enabled ||
+            state.enterprise.bigquery.enabled;
+        if (hasEnterprise) lines.push('# ── Enterprise Connectors ──');
+        atlassianToToml(lines);
+        salesforceToToml(lines);
+        hubspotToToml(lines);
+        snowflakeToToml(lines);
+        slackToolsToToml(lines);
+        gdriveToToml(lines);
+        bigqueryToToml(lines);
         browserToToml(lines);
         emailToToml(lines);
         hitlToToml(lines);
         toolwrapToToml(lines);
         dbConfigToToml(lines);
-        aguiToToml(lines);
+
         langfuseToToml(lines);
         securityToToml(lines);
         piiToToml(lines);
@@ -881,6 +1032,74 @@
         if (p.api_token) lines.push('api_token = ' + q('${' + p.api_token + '}'));
         if (p.base_url) lines.push('base_url = ' + q(p.base_url));
         if (p.provider === 'jira' && p.email) lines.push('email = ' + q(p.email));
+        lines.push('');
+    }
+
+    function atlassianToToml(lines) {
+        var a = state.enterprise.atlassian;
+        if (!a.enabled) return;
+        lines.push('[enterprise.atlassian]');
+        if (a.base_url) lines.push('base_url = ' + q(a.base_url));
+        if (a.email) lines.push('email = ' + q(a.email));
+        if (a.token) lines.push('token = ' + q('${' + a.token + '}'));
+        lines.push('');
+    }
+
+    function salesforceToToml(lines) {
+        var sf = state.enterprise.salesforce;
+        if (!sf.enabled) return;
+        lines.push('[enterprise.salesforce]');
+        if (sf.instance_url) lines.push('instance_url = ' + q(sf.instance_url));
+        if (sf.token) lines.push('token = ' + q('${' + sf.token + '}'));
+        if (sf.client_id) lines.push('client_id = ' + q(sf.client_id));
+        if (sf.client_secret) lines.push('client_secret = ' + q('${' + sf.client_secret + '}'));
+        lines.push('');
+    }
+
+    function hubspotToToml(lines) {
+        var h = state.enterprise.hubspot;
+        if (!h.enabled) return;
+        lines.push('[enterprise.hubspot]');
+        if (h.token) lines.push('token = ' + q('${' + h.token + '}'));
+        lines.push('');
+    }
+
+    function snowflakeToToml(lines) {
+        var sf = state.enterprise.snowflake;
+        if (!sf.enabled) return;
+        lines.push('[enterprise.snowflake]');
+        if (sf.account) lines.push('account = ' + q(sf.account));
+        if (sf.user) lines.push('user = ' + q(sf.user));
+        if (sf.password) lines.push('password = ' + q('${' + sf.password + '}'));
+        if (sf.database) lines.push('database = ' + q(sf.database));
+        if (sf.warehouse) lines.push('warehouse = ' + q(sf.warehouse));
+        if (sf.role) lines.push('role = ' + q(sf.role));
+        lines.push('');
+    }
+
+    function slackToolsToToml(lines) {
+        var st = state.enterprise.slack_tools;
+        if (!st.enabled) return;
+        lines.push('[enterprise.slack_tools]');
+        if (st.bot_token) lines.push('bot_token = ' + q('${' + st.bot_token + '}'));
+        lines.push('');
+    }
+
+    function gdriveToToml(lines) {
+        var gd = state.enterprise.gdrive;
+        if (!gd.enabled) return;
+        lines.push('[enterprise.gdrive]');
+        if (gd.credentials_file) lines.push('credentials_file = ' + q(gd.credentials_file));
+        if (gd.impersonate_email) lines.push('impersonate_email = ' + q(gd.impersonate_email));
+        lines.push('');
+    }
+
+    function bigqueryToToml(lines) {
+        var bq = state.enterprise.bigquery;
+        if (!bq.enabled) return;
+        lines.push('[enterprise.bigquery]');
+        if (bq.project_id) lines.push('project_id = ' + q(bq.project_id));
+        if (bq.credentials_file) lines.push('credentials_file = ' + q(bq.credentials_file));
         lines.push('');
     }
 
@@ -1034,8 +1253,8 @@
     }
 
     function aguiToToml(lines) {
-        var a = state.agui;
-        lines.push('[agui]');
+        var a = state.messenger.agui;
+        lines.push('[messenger.agui]');
         lines.push('port = ' + a.port);
         if (hasItems(a.cors_origins)) lines.push('cors_origins = [' + a.cors_origins.filter(Boolean).map(q).join(', ') + ']');
         lines.push('rate_limit = ' + a.rate_limit);
@@ -1185,37 +1404,40 @@
 
     function messengerToYaml(lines) {
         var m = state.messenger;
-        if (!m.platform) return;
         lines.push('messenger:');
-        lines.push('  platform: ' + m.platform);
-        if (m.buffer_size !== 100) lines.push('  buffer_size: ' + m.buffer_size);
-        if (hasItems(m.allowed_senders)) {
-            lines.push('  allowed_senders:');
-            m.allowed_senders.filter(Boolean).forEach(function (s) { lines.push('    - ' + yq(s)); });
+        if (m.platform) {
+            lines.push('  platform: ' + m.platform);
+            if (m.buffer_size !== 100) lines.push('  buffer_size: ' + m.buffer_size);
+            if (hasItems(m.allowed_senders)) {
+                lines.push('  allowed_senders:');
+                m.allowed_senders.filter(Boolean).forEach(function (s) { lines.push('    - ' + yq(s)); });
+            }
+            if (m.platform === 'slack') {
+                lines.push('  slack:');
+                if (m.slack.app_token) lines.push('    app_token: ' + yq('${' + m.slack.app_token + '}'));
+                if (m.slack.bot_token) lines.push('    bot_token: ' + yq('${' + m.slack.bot_token + '}'));
+            } else if (m.platform === 'discord') {
+                lines.push('  discord:');
+                if (m.discord.bot_token) lines.push('    bot_token: ' + yq('${' + m.discord.bot_token + '}'));
+            } else if (m.platform === 'telegram') {
+                lines.push('  telegram:');
+                if (m.telegram.token) lines.push('    token: ' + yq('${' + m.telegram.token + '}'));
+            } else if (m.platform === 'teams') {
+                lines.push('  teams:');
+                if (m.teams.app_id) lines.push('    app_id: ' + yq('${' + m.teams.app_id + '}'));
+                if (m.teams.app_password) lines.push('    app_password: ' + yq('${' + m.teams.app_password + '}'));
+                if (m.teams.listen_addr) lines.push('    listen_addr: ' + yq(m.teams.listen_addr));
+            } else if (m.platform === 'googlechat') {
+                lines.push('  googlechat:');
+                if (m.googlechat.credentials_file) lines.push('    credentials_file: ' + yq(m.googlechat.credentials_file));
+                if (m.googlechat.listen_addr) lines.push('    listen_addr: ' + yq(m.googlechat.listen_addr));
+            } else if (m.platform === 'whatsapp') {
+                lines.push('  whatsapp:');
+                if (m.whatsapp.store_path) lines.push('    store_path: ' + yq(m.whatsapp.store_path));
+            }
         }
-        if (m.platform === 'slack') {
-            lines.push('  slack:');
-            if (m.slack.app_token) lines.push('    app_token: ' + yq('${' + m.slack.app_token + '}'));
-            if (m.slack.bot_token) lines.push('    bot_token: ' + yq('${' + m.slack.bot_token + '}'));
-        } else if (m.platform === 'discord') {
-            lines.push('  discord:');
-            if (m.discord.bot_token) lines.push('    bot_token: ' + yq('${' + m.discord.bot_token + '}'));
-        } else if (m.platform === 'telegram') {
-            lines.push('  telegram:');
-            if (m.telegram.token) lines.push('    token: ' + yq('${' + m.telegram.token + '}'));
-        } else if (m.platform === 'teams') {
-            lines.push('  teams:');
-            if (m.teams.app_id) lines.push('    app_id: ' + yq('${' + m.teams.app_id + '}'));
-            if (m.teams.app_password) lines.push('    app_password: ' + yq('${' + m.teams.app_password + '}'));
-            if (m.teams.listen_addr) lines.push('    listen_addr: ' + yq(m.teams.listen_addr));
-        } else if (m.platform === 'googlechat') {
-            lines.push('  googlechat:');
-            if (m.googlechat.credentials_file) lines.push('    credentials_file: ' + yq(m.googlechat.credentials_file));
-            if (m.googlechat.listen_addr) lines.push('    listen_addr: ' + yq(m.googlechat.listen_addr));
-        } else if (m.platform === 'whatsapp') {
-            lines.push('  whatsapp:');
-            if (m.whatsapp.store_path) lines.push('    store_path: ' + yq(m.whatsapp.store_path));
-        }
+        // AGUI config is always emitted — it's the default/fallback messenger
+        aguiToYaml(lines, '  ');
         lines.push('');
     }
 
@@ -1235,12 +1457,13 @@
         messengerToYaml(lines);
         scmToYaml(lines);
         pmToYaml(lines);
+        enterpriseToYaml(lines);
         browserToYaml(lines);
         emailToYaml(lines);
         hitlToYaml(lines);
         toolwrapToYaml(lines);
         dbConfigToYaml(lines);
-        aguiToYaml(lines);
+
         securityToYaml(lines);
         piiToYaml(lines);
         runbookToYaml(lines);
@@ -1275,6 +1498,70 @@
         if (p.base_url) lines.push('  base_url: ' + yq(p.base_url));
         if (p.provider === 'jira' && p.email) lines.push('  email: ' + yq(p.email));
         lines.push('');
+    }
+
+    function enterpriseToYaml(lines) {
+        var ent = state.enterprise;
+        var sub = [];
+        // Atlassian
+        var a = ent.atlassian;
+        if (a.enabled) {
+            sub.push('  atlassian:');
+            if (a.base_url) sub.push('    base_url: ' + yq(a.base_url));
+            if (a.email) sub.push('    email: ' + yq(a.email));
+            if (a.token) sub.push('    token: ' + yq('${' + a.token + '}'));
+        }
+        // Salesforce
+        var sf = ent.salesforce;
+        if (sf.enabled) {
+            sub.push('  salesforce:');
+            if (sf.instance_url) sub.push('    instance_url: ' + yq(sf.instance_url));
+            if (sf.token) sub.push('    token: ' + yq('${' + sf.token + '}'));
+            if (sf.client_id) sub.push('    client_id: ' + yq(sf.client_id));
+            if (sf.client_secret) sub.push('    client_secret: ' + yq('${' + sf.client_secret + '}'));
+        }
+        // HubSpot
+        var h = ent.hubspot;
+        if (h.enabled) {
+            sub.push('  hubspot:');
+            if (h.token) sub.push('    token: ' + yq('${' + h.token + '}'));
+        }
+        // Snowflake
+        var sn = ent.snowflake;
+        if (sn.enabled) {
+            sub.push('  snowflake:');
+            if (sn.account) sub.push('    account: ' + yq(sn.account));
+            if (sn.user) sub.push('    user: ' + yq(sn.user));
+            if (sn.password) sub.push('    password: ' + yq('${' + sn.password + '}'));
+            if (sn.database) sub.push('    database: ' + yq(sn.database));
+            if (sn.warehouse) sub.push('    warehouse: ' + yq(sn.warehouse));
+            if (sn.role) sub.push('    role: ' + yq(sn.role));
+        }
+        // Slack Tools
+        var st = ent.slack_tools;
+        if (st.enabled) {
+            sub.push('  slack_tools:');
+            if (st.bot_token) sub.push('    bot_token: ' + yq('${' + st.bot_token + '}'));
+        }
+        // Google Drive
+        var gd = ent.gdrive;
+        if (gd.enabled) {
+            sub.push('  gdrive:');
+            if (gd.credentials_file) sub.push('    credentials_file: ' + yq(gd.credentials_file));
+            if (gd.impersonate_email) sub.push('    impersonate_email: ' + yq(gd.impersonate_email));
+        }
+        // BigQuery
+        var bq = ent.bigquery;
+        if (bq.enabled) {
+            sub.push('  bigquery:');
+            if (bq.project_id) sub.push('    project_id: ' + yq(bq.project_id));
+            if (bq.credentials_file) sub.push('    credentials_file: ' + yq(bq.credentials_file));
+        }
+        if (sub.length > 0) {
+            lines.push('enterprise:');
+            sub.forEach(function (l) { lines.push(l); });
+            lines.push('');
+        }
     }
 
     function browserToYaml(lines) {
@@ -1395,19 +1682,20 @@
         lines.push('');
     }
 
-    function aguiToYaml(lines) {
-        var a = state.agui;
-        lines.push('agui:');
-        lines.push('  port: ' + a.port);
+    function aguiToYaml(lines, indent) {
+        var a = state.messenger.agui;
+        var pfx = indent || '';
+        var inner = pfx + '  ';
+        lines.push(pfx + 'agui:');
+        lines.push(inner + 'port: ' + a.port);
         if (hasItems(a.cors_origins)) {
-            lines.push('  cors_origins:');
-            a.cors_origins.filter(Boolean).forEach(function (o) { lines.push('    - ' + yq(o)); });
+            lines.push(inner + 'cors_origins:');
+            a.cors_origins.filter(Boolean).forEach(function (o) { lines.push(inner + '  - ' + yq(o)); });
         }
-        lines.push('  rate_limit: ' + a.rate_limit);
-        lines.push('  rate_burst: ' + a.rate_burst);
-        lines.push('  max_concurrent: ' + a.max_concurrent);
-        lines.push('  max_body_bytes: ' + a.max_body_bytes);
-        lines.push('');
+        lines.push(inner + 'rate_limit: ' + a.rate_limit);
+        lines.push(inner + 'rate_burst: ' + a.rate_burst);
+        lines.push(inner + 'max_concurrent: ' + a.max_concurrent);
+        lines.push(inner + 'max_body_bytes: ' + a.max_body_bytes);
     }
 
     function langfuseToYaml(lines) {

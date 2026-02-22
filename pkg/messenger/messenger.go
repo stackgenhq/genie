@@ -38,6 +38,11 @@ const (
 	PlatformAGUI Platform = "agui"
 )
 
+// String returns a human-friendly display name for the platform.
+func (p Platform) String() string {
+	return string(p)
+}
+
 // ChannelType classifies a conversation channel.
 type ChannelType string
 
@@ -218,6 +223,8 @@ type Messenger interface {
 	// Cards) for the given approval. Adapters that do not support rich
 	// formatting should return the request unchanged.
 	FormatApproval(req SendRequest, info ApprovalInfo) SendRequest
+
+	ConnectionInfo() string
 
 	// FormatClarification enriches a SendRequest with platform-specific rich
 	// formatting for a clarifying question posed by the agent.

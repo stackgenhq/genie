@@ -94,24 +94,39 @@ func (s *searchTool) Search(ctx context.Context, req SearchRequest) (string, err
 	case ProviderBing:
 		result, err = s.searchBackend(ctx, req, log, "Bing")
 	default:
-		return s.searchBackend(ctx, req, log, "DuckDuckGo")
+		// DuckDuckGo is the primary (and only) provider — no fallback.
+		result, err = s.searchBackend(ctx, req, log, "DuckDuckGo")
+		if err != nil {
+			return "", fmt.Errorf(
+				"web_search failed for query %q: %w. "+
+					"Search is unavailable — use http_request to visit relevant websites directly instead",
+				req.Query, err,
+			)
+		}
+		return result, nil
 	}
 
-	// success? return
+	// Google/Bing succeeded?
 	if err == nil {
 		return result, nil
 	}
 
-	// failure? log and fallback to DDG (unless we were already using DDG)
+	// Google/Bing failed — fall back to DDG
 	log.Warn("web_search: primary provider failed, falling back to duckduckgo",
 		"provider", s.provider,
 		"error", err,
 	)
 
-	// Fallback to DuckDuckGo
-	// We instantiate a fresh DDG tool for the fallback to ensure clean state
-	// but pass any original options (e.g. for testing)
-	return s.fallbackSearchDDG(ctx, req, log, s.ddgOpts...)
+	result, fbErr := s.fallbackSearchDDG(ctx, req, log, s.ddgOpts...)
+	if fbErr != nil {
+		return "", fmt.Errorf(
+			"web_search failed for query %q (primary: %s, fallback: DuckDuckGo). "+
+				"Search services may be rate-limited or unavailable. "+
+				"Try using http_request to visit relevant websites directly instead of searching",
+			req.Query, s.provider,
+		)
+	}
+	return result, nil
 }
 
 func (s *searchTool) fallbackSearchDDG(ctx context.Context, req SearchRequest, log *slog.Logger, opts ...DDGOption) (string, error) {

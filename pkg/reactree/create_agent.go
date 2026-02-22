@@ -4,16 +4,19 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
 	"time"
 
 	"github.com/appcd-dev/genie/pkg/agentutils"
 	"github.com/appcd-dev/genie/pkg/agui"
+	"github.com/appcd-dev/genie/pkg/dedup"
 	"github.com/appcd-dev/genie/pkg/expert"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/messenger"
 	"github.com/appcd-dev/genie/pkg/reactree/memory"
 	"github.com/appcd-dev/genie/pkg/retrier"
+	"github.com/appcd-dev/genie/pkg/tools"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
 	"go.opentelemetry.io/otel"
 	"trpc.group/trpc-go/trpc-agent-go/agent/llmagent"
@@ -26,7 +29,10 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )
 
-const summarizeThreshold = 2000
+const (
+	summarizeThreshold  = 2000
+	CreateAgentToolName = "create_agent"
+)
 
 // CreateAgentRequest is the input for the create_agent tool.
 type CreateAgentRequest struct {
@@ -63,13 +69,27 @@ type createAgentTool struct {
 	modelProvider modelprovider.ModelProvider
 	expert        expert.Expert // used by orchestrator for multi-step plans
 	summarizer    agentutils.Summarizer
-	toolRegistry  map[string]tool.Tool
+	toolRegistry  *tools.Registry // full registry (used by main agent description)
+	// subAgentRegistry is the tool registry with orchestration-only tools
+	// (create_agent, send_message) stripped. Sub-agents must not recursively
+	// spawn agents or send messages directly — only the main agent can.
+	subAgentRegistry *tools.Registry
 	// toolWrapSvc wraps sub-agent tools with HITL approval, audit logging,
 	// and caching. When nil, sub-agent tools execute without HITL gating.
 	toolWrapSvc   *toolwrap.Service
 	workingMemory *memory.WorkingMemory
 	episodic      memory.EpisodicMemory
+	description   string
+
+	// inflight deduplicates identical parallel create_agent calls
+	// from the LLM (same agent_name + goal). Backed by singleflight.
+	inflight dedup.Group[CreateAgentResponse]
 }
+
+// orchestrationOnlyTools lists tool names that are available to the main agent
+// but must NOT be given to sub-agents. Sub-agents must not recursively spawn
+// agents or send messages directly — those are orchestration concerns.
+var orchestrationOnlyTools = []string{"create_agent", messenger.ToolName}
 
 // NewCreateAgentTool creates a tool that spawns sub-agents with dynamic tool
 // subsets. The llmModel is the LLM to use for sub-agents. The toolRegistry is
@@ -81,28 +101,31 @@ func NewCreateAgentTool(
 	modelProvider modelprovider.ModelProvider,
 	expert expert.Expert,
 	summarizer agentutils.Summarizer,
-	toolRegistry ToolRegistry,
+	toolRegistry *tools.Registry,
 	workingMemory *memory.WorkingMemory,
 	episodic memory.EpisodicMemory,
 	toolWrapSvc *toolwrap.Service,
-) tool.Tool {
-	// Build description listing available tools
-	var toolList []string
-	for name := range toolRegistry {
-		toolList = append(toolList, name)
-	}
+) *createAgentTool {
+	// Build a sub-agent registry that excludes orchestration-only tools.
+	// Sub-agents must not call create_agent (no recursive spawning) or
+	// send_message (only the main agent orchestrates user communication).
+	subAgentRegistry := toolRegistry.Exclude(orchestrationOnlyTools...)
+
+	// Build description listing tools available to sub-agents.
+	toolList := subAgentRegistry.ToolNames()
 
 	t := &createAgentTool{
-		modelProvider: modelProvider,
-		expert:        expert,
-		summarizer:    summarizer,
-		toolRegistry:  toolRegistry,
-		toolWrapSvc:   toolWrapSvc,
-		workingMemory: workingMemory,
-		episodic:      episodic,
+		modelProvider:    modelProvider,
+		expert:           expert,
+		summarizer:       summarizer,
+		toolRegistry:     toolRegistry,
+		subAgentRegistry: subAgentRegistry,
+		toolWrapSvc:      toolWrapSvc,
+		workingMemory:    workingMemory,
+		episodic:         episodic,
 	}
 
-	desc := fmt.Sprintf(
+	t.description = fmt.Sprintf(
 		"Spawn a sub-agent with selected tools for multi-step tasks. "+
 			"task_type: tool_calling (file/shell, fastest), planning (reasoning), "+
 			"terminal_calling (CLI), novel_reasoning (creative). "+
@@ -119,10 +142,14 @@ func NewCreateAgentTool(
 		strings.Join(toolList, ", "),
 	)
 
+	return t
+}
+
+func (t *createAgentTool) GetTool() tool.Tool {
 	return function.NewFunctionTool(
 		t.execute,
 		function.WithName("create_agent"),
-		function.WithDescription(desc),
+		function.WithDescription(t.description),
 	)
 }
 
@@ -130,63 +157,25 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 	logr := logger.GetLogger(ctx).With("fn", "createAgentTool.execute", "goal", toolwrap.TruncateForAudit(req.Goal, 80), "name", req.AgentName)
 	logr.Info("create_agent invoked", "tool_names", req.ToolNames, "task_type", req.TaskType, "steps", len(req.Steps))
 
+	// Dedup: identical parallel calls (same name+goal) are collapsed
+	// via singleflight so only one sub-agent runs.
+	dedupKey := req.AgentName + ":" + req.Goal
+	resp, err, shared := t.inflight.Do(dedupKey, func() (CreateAgentResponse, error) {
+		return t.executeInner(ctx, req)
+	})
+	if shared {
+		logr.Warn("duplicate create_agent call coalesced", "agent_name", req.AgentName)
+	}
+	return resp, err
+}
+
+func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentRequest) (CreateAgentResponse, error) {
+	logr := logger.GetLogger(ctx).With("fn", "createAgentTool.executeInner", "goal", toolwrap.TruncateForAudit(req.Goal, 80), "name", req.AgentName)
+
 	// Multi-step plan: delegate to orchestrator (paper's Expand action).
 	if len(req.Steps) > 0 {
 		return t.executePlan(ctx, req)
 	}
-
-	// Select tools from registry, excluding create_agent to prevent
-	// recursive sub-agent spawning (parent → sub → sub → ...).
-	var selectedTools []tool.Tool
-	if len(req.ToolNames) == 0 {
-		for name, tl := range t.toolRegistry {
-			if name == "create_agent" {
-				continue
-			}
-			selectedTools = append(selectedTools, tl)
-		}
-	} else {
-		for _, name := range req.ToolNames {
-			if name == "create_agent" {
-				continue
-			}
-			if tl, ok := t.toolRegistry[name]; ok {
-				selectedTools = append(selectedTools, tl)
-			}
-		}
-	}
-
-	// Always inject ask_clarifying_question so sub-agents can ask the user
-	// for clarification when they encounter ambiguity mid-task.
-	const clarifyToolName = "ask_clarifying_question"
-	if len(req.ToolNames) > 0 { // only inject when specific tools were requested
-		hasClarify := false
-		for _, name := range req.ToolNames {
-			if name == clarifyToolName {
-				hasClarify = true
-				break
-			}
-		}
-		if !hasClarify {
-			if tl, ok := t.toolRegistry[clarifyToolName]; ok {
-				selectedTools = append(selectedTools, tl)
-			}
-		}
-	}
-
-	// FRAMEWORK INVARIANT: Sub-agents NEVER get send_message.
-	// The orchestrator (parent agent) is the ONLY entity that communicates
-	// with users. Sub-agents return results via their output, which the
-	// parent can then format and send. This prevents the N-copies bug
-	// where each LLM iteration inside a sub-agent fires send_message.
-	for i := len(selectedTools) - 1; i >= 0; i-- {
-		if selectedTools[i].Declaration().Name == "send_message" {
-			logr.Info("stripping send_message from sub-agent tools (framework invariant)")
-			selectedTools = append(selectedTools[:i], selectedTools[i+1:]...)
-		}
-	}
-
-	logr.Info("sub-agent tools selected", "count", len(selectedTools))
 
 	// Wrap sub-agent tools with HITL approval, audit logging, and caching.
 	// This ensures every sub-agent tool call (run_shell, save_file, etc.)
@@ -201,12 +190,21 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 		"runID", runID,
 		"hasEventChan", evChan != nil,
 	)
-	selectedTools = t.toolWrapSvc.Wrap(selectedTools, toolwrap.WrapRequest{
+	// Scope sub-agent tools to only the ones the planner requested.
+	// If req.ToolNames is empty, all sub-agent tools are available.
+	scopedRegistry := t.subAgentRegistry
+	if len(req.ToolNames) > 0 {
+		scopedRegistry = scopedRegistry.Include(req.ToolNames...)
+	}
+	selectedTools := t.toolWrapSvc.Wrap(scopedRegistry.AllTools(), toolwrap.WrapRequest{
 		EventChan:     evChan,
 		ThreadID:      threadID,
 		RunID:         runID,
 		MessageOrigin: messenger.MessageOriginFrom(ctx),
 	})
+
+	// Working memory is injected into the prompt automatically.
+	// No scratchpad tools needed — follows trpc-agent-go pattern.
 
 	if req.TaskType == "" {
 		req.TaskType = modelprovider.TaskPlanning
@@ -221,8 +219,8 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 	}
 	// Apply reasonable defaults and hard caps.
 	// Minimums ensure simple tasks finish; maximums prevent runaway loops.
-	if req.MaxToolIterations < 3 {
-		req.MaxToolIterations = 3
+	if req.MaxToolIterations < 5 {
+		req.MaxToolIterations = 5
 	}
 	const maxToolIterCap = 10
 	if req.MaxToolIterations > maxToolIterCap {
@@ -238,53 +236,17 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 		req.MaxLLMCalls = maxLLMCallsCap
 	}
 
-	// Build a set of available tool names for dynamic instruction generation.
-	availableToolNames := make(map[string]bool, len(selectedTools))
+	// Build a list of tool names for the sub-agent instruction and logging.
 	var toolNameList []string
 	for _, tl := range selectedTools {
-		name := tl.Declaration().Name
-		availableToolNames[name] = true
-		toolNameList = append(toolNameList, name)
+		toolNameList = append(toolNameList, tl.Declaration().Name)
 	}
 	logr.Info("sub-agent available tools", "tools", toolNameList)
 
-	// Base instruction — dynamically built based on available tools.
-	instruction := "You are a focused sub-agent. Complete the given task using ONLY your available tools. " +
-		"Be concise — return the essential result without commentary. " +
-		"If working memory already contains relevant data, use it instead of re-reading files. " +
-		"IMPORTANT: File operation tools only accept RELATIVE paths under the workspace directory. " +
-		"OUTPUT: Return your result as text in your final response. Do NOT try to call send_message — " +
-		"you do not have it. The parent agent will handle all user communication. "
-
-	instruction += "Do not rewrite the same file multiple times unless fixing an error. Write files once and move to the next task. " +
-		"ERROR BUDGET: If the same tool (e.g. web_search) fails 2 times — even with DIFFERENT arguments — " +
-		"stop calling that tool. Report the failure to the user instead of retrying with rephrased queries. " +
-		"ANTI-LOOP: After calling a tool, process its result immediately. " +
-		"NEVER call the same tool with the same arguments more than once — if you already received a result, use it directly. " +
-		"NEVER re-search with slightly different wording — if a search returned results, extract the answer from what you have. " +
-		"If a search FAILED due to errors or rate limits, do NOT retry with different wording. Report the failure. " +
-		"Once you have the data you need, summarize it and return your final answer. Do NOT repeat the answer more than once. " +
-		"DO NOT ASSUME: If the goal is ambiguous, critical details are missing (e.g. which environment, branch, or target), " +
-		"or multiple valid approaches exist, use ask_clarifying_question to ask the user before proceeding. " +
-		"Never guess or fill in blanks — ask first, act second. " +
-		"CRITICAL: You may ONLY call tools that are in your available tool set. Do NOT attempt to call tools that are not listed. " +
-		"JUSTIFICATION: When calling any tool, include a \"_justification\" field in the arguments explaining why this action is necessary."
-
-	// Inject shared working memory context so sub-agent knows what has been done
-	if t.workingMemory != nil {
-		snapshot := t.workingMemory.Snapshot()
-		if len(snapshot) > 0 {
-			instruction += "\n\nSHARED WORKING MEMORY (Read-Only):\n"
-			for k, v := range snapshot {
-				// Truncate values if they are too long to fit in context efficiently
-				val := v
-				if len(val) > 200 {
-					val = val[:197] + "..."
-				}
-				instruction += fmt.Sprintf("- %s: %s\n", k, val)
-			}
-		}
-	}
+	// Build sub-agent instruction from the shared builder.
+	// This ensures plan-step agents and single sub-agents get the
+	// same focused instruction (no persona contamination).
+	instruction := buildSubAgentInstruction(toolNameList)
 
 	// Create a fresh sub-agent with only the selected tools
 	subAgent := llmagent.New(
@@ -330,12 +292,6 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 	runCtx, span := tracer.Start(ctx, req.AgentName+" execution")
 	defer span.End()
 
-	// Wall-clock deadline prevents sub-agents from running indefinitely
-	// (e.g. browser tools stuck in 60s timeout loops).
-	const subAgentTimeout = 2 * time.Minute
-	runCtx, cancel := context.WithTimeout(runCtx, subAgentTimeout)
-	defer cancel()
-
 	// Retry transient upstream LLM errors (503 / rate-limit / overloaded)
 	// so that temporary provider capacity issues don't fail the sub-agent.
 	var evCh <-chan *event.Event
@@ -359,14 +315,18 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 		}, nil
 	}
 
-	// Collect response
+	// Collect response — accumulate partial output even if errors occur.
+	// On context deadline, we keep whatever was gathered instead of losing it.
 	var sb strings.Builder
+	var lastErr string
+	timedOut := false
 	for ev := range evCh {
 		if ev.Error != nil {
-			return CreateAgentResponse{
-				Status: "error",
-				Output: fmt.Sprintf("sub-agent error: %s", ev.Error.Message),
-			}, nil
+			lastErr = ev.Error.Message
+			// Don't early-return: keep collecting any remaining events.
+			// The channel will close shortly and we'll handle the error below.
+			logr.Warn("sub-agent event error (continuing to collect output)", "error", lastErr)
+			continue
 		}
 		if ev.Response != nil {
 			for _, choice := range ev.Choices {
@@ -377,8 +337,44 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 		}
 	}
 
+	// Check if the context deadline caused the sub-agent to stop.
+	if runCtx.Err() != nil {
+		timedOut = true
+		logr.Warn("sub-agent context expired, returning partial results",
+			"error", runCtx.Err().Error(),
+			"partial_output_length", sb.Len())
+	}
+
 	result := sb.String()
-	logr.Info("sub-agent execution completed", "output_length", len(result))
+
+	// When the sub-agent produced no LLM output (e.g. deadline hit mid-generation),
+	// check working memory for data stored by tool calls that completed before
+	// the deadline (http_request → summarize → memory_store pipeline).
+	if result == "" && t.workingMemory != nil {
+		wmKey := fmt.Sprintf("subagent:%s:result", req.AgentName)
+		if stored, ok := t.workingMemory.Recall(wmKey); ok && stored != "" {
+			result = stored
+			logr.Info("recovered sub-agent output from working memory", "key", wmKey, "length", len(result))
+		}
+	}
+
+	logr.Info("sub-agent execution completed",
+		"output_length", len(result), "timed_out", timedOut, "had_error", lastErr != "")
+
+	// Determine final status and annotate output.
+	status := "success"
+	if timedOut {
+		status = "partial"
+		prefix := fmt.Sprintf("[TIME LIMIT REACHED] The sub-agent %q ran out of time. Here is what was found before the deadline:\n\n", req.AgentName)
+		if result == "" {
+			result = prefix + "No output was captured before the deadline. The sub-agent may have been waiting for external calls (web_search, http_request) to complete."
+		} else {
+			result = prefix + result
+		}
+	} else if lastErr != "" && result == "" {
+		status = "error"
+		result = fmt.Sprintf("sub-agent error: %s", lastErr)
+	}
 
 	// Store sub-agent result in working memory so the parent can retrieve
 	// it via memory_search and compose a single user-facing message.
@@ -388,7 +384,7 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 		logr.Info("sub-agent result stored in working memory", "key", wmKey, "length", len(result))
 	}
 
-	// Store successful result as an episode for future in-context retrieval.
+	// Store result as an episode for future in-context retrieval.
 	// Paper Section 4.2: episodic memory stores subgoal-level experiences
 	// so future agent nodes with similar goals get relevant examples.
 	if t.episodic != nil && result != "" {
@@ -398,16 +394,21 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 		if len(runes) > maxTrajectoryRunes {
 			trajectory = string(runes[:maxTrajectoryRunes]) + "... (truncated)"
 		}
+		episodeStatus := memory.EpisodeSuccess
+		if timedOut {
+			episodeStatus = memory.EpisodeFailure
+		}
 		t.episodic.Store(ctx, memory.Episode{
 			Goal:       req.Goal,
 			Trajectory: trajectory,
-			Status:     memory.EpisodeSuccess,
+			Status:     episodeStatus,
 		})
 		logr.Info("sub-agent result stored in episodic memory", "goal", toolwrap.TruncateForAudit(req.Goal, 60))
 	}
 
 	// Summarize large sub-agent output to keep context concise for the parent agent.
-	if t.summarizer != nil && len(result) > summarizeThreshold {
+	// Skip summarization if we already timed out — the summarizer would also fail.
+	if !timedOut && t.summarizer != nil && len(result) > summarizeThreshold {
 		logr.Info("summarizing large sub-agent output", "original_length", len(result), "threshold", summarizeThreshold)
 		summarized, err := t.summarizer.Summarize(ctx, agentutils.SummarizeRequest{
 			Content:              result,
@@ -421,11 +422,15 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 		}
 	}
 
-	return CreateAgentResponse{
+	if status == "success" {
 		// Prefix tells the parent agent not to re-present this data, since
 		// the sub-agent already streamed it to the user during execution.
-		Output: "[SHOWN TO USER] Do not repeat; confirm completion or add NEW info only.\n" + result,
-		Status: "success",
+		result = "[SHOWN TO USER] Do not repeat; confirm completion or add NEW info only.\n" + result
+	}
+
+	return CreateAgentResponse{
+		Output: result,
+		Status: status,
 	}, nil
 }
 
@@ -479,7 +484,7 @@ func (t *createAgentTool) executePlan(ctx context.Context, req CreateAgentReques
 		Episodic:      t.episodic,
 		MaxDecisions:  maxDecisions,
 		EventChan:     evChan,
-		ToolRegistry:  t.toolRegistry,
+		ToolRegistry:  t.subAgentRegistry, // use filtered registry — no create_agent/send_message
 		SenderContext: "",
 		ToolWrapSvc:   t.toolWrapSvc,
 		WrapRequest: toolwrap.WrapRequest{
@@ -488,6 +493,7 @@ func (t *createAgentTool) executePlan(ctx context.Context, req CreateAgentReques
 			RunID:         agui.RunIDFromContext(ctx),
 			MessageOrigin: messenger.MessageOriginFrom(ctx),
 		},
+		ModelProvider: t.modelProvider,
 	})
 	if err != nil {
 		return CreateAgentResponse{
@@ -498,9 +504,13 @@ func (t *createAgentTool) executePlan(ctx context.Context, req CreateAgentReques
 
 	// Combine step outputs into a single response.
 	var sb strings.Builder
+	var succeeded, failed []string
 	for _, step := range plan.Steps {
-		if out, ok := result.Outputs[step.Name]; ok {
+		if out, ok := result.Outputs[step.Name]; ok && out != "" {
 			fmt.Fprintf(&sb, "## %s\n\n%s\n\n", step.Name, out)
+			succeeded = append(succeeded, step.Name)
+		} else {
+			failed = append(failed, step.Name)
 		}
 	}
 	output := sb.String()
@@ -517,7 +527,32 @@ func (t *createAgentTool) executePlan(ctx context.Context, req CreateAgentReques
 		status = "partial"
 	}
 
-	logr.Info("plan execution completed", "status", status, "output_length", len(output))
+	// When output is empty, provide rich context so the parent agent can
+	// adapt its retry strategy instead of re-running the same failing plan.
+	if output == "" && status != "success" {
+		var detail strings.Builder
+		detail.WriteString("⚠️ Research swarm completed with no results.\n\n")
+		if len(failed) > 0 {
+			detail.WriteString("**Failed steps:** " + strings.Join(failed, ", ") + "\n\n")
+		}
+		detail.WriteString("**Suggested next steps:**\n")
+		detail.WriteString("- If web_search failed, use `http_request` to visit known websites directly (e.g. the company homepage, Wikipedia, Crunchbase)\n")
+		detail.WriteString("- If http_request timed out, try fewer URLs per agent\n")
+		detail.WriteString("- Split the work differently or use alternative data sources\n")
+		output = detail.String()
+	} else if len(failed) > 0 && len(succeeded) > 0 {
+		// Append a note about which steps failed so the parent agent knows.
+		fmt.Fprintf(&sb, "\n---\n⚠️ Partial results: the following steps did not produce output: %s. Consider re-running them with alternative tools.\n", strings.Join(failed, ", "))
+		output = sb.String()
+	}
+
+	// Prefix with status so the LLM sees it naturally in prose.
+	if status == "partial" && !strings.HasPrefix(output, "⚠️") {
+		output = "⚠️ [Partial results] " + output
+	}
+
+	logr.Info("plan execution completed", "status", status, "output_length", len(output),
+		"succeeded", succeeded, "failed", failed)
 
 	return CreateAgentResponse{
 		Output: output,

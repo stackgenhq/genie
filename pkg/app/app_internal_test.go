@@ -74,7 +74,7 @@ var _ = Describe("Application handleMessengerInput", func() {
 			// Setup: Create a pending approval
 			fakeStore.CreateReturns(hitl.ApprovalRequest{ID: approvalID, ToolName: "test_tool"}, nil)
 
-			origin := &messenger.MessageOrigin{
+			origin := messenger.MessageOrigin{
 				Platform: realMsg.Platform,
 				Sender:   realMsg.Sender,
 				Channel:  realMsg.Channel,
@@ -199,7 +199,7 @@ var _ = Describe("Application handleMessengerInput", func() {
 		It("takes priority over pending approval", func() {
 			// Also set up a pending approval for the same senderCtx
 			fakeStore.CreateReturns(hitl.ApprovalRequest{ID: "app-456", ToolName: "test_tool"}, nil)
-			origin := &messenger.MessageOrigin{
+			origin := messenger.MessageOrigin{
 				Platform: realMsg.Platform,
 				Sender:   realMsg.Sender,
 				Channel:  realMsg.Channel,

@@ -60,4 +60,11 @@ const (
 	// Cost leaders: Grok 4.1 ($0.20), Gemini 3 Flash ($0.50)
 	// Use this for: High-volume processing, cost-sensitive operations, real-time applications
 	TaskEfficiency TaskType = "efficiency"
+
+	// TaskSummarizer represents tasks requiring large-context summarization of
+	// verbose tool outputs. Typically mapped to a model with a very large context
+	// window (e.g., 1M tokens) so it can ingest and compress raw HTML, API
+	// responses, or other bulk data before handing it back to a smaller agent.
+	// Use this for: Auto-summarizing oversized tool results, condensing documents
+	TaskSummarizer TaskType = "summarizer"
 )

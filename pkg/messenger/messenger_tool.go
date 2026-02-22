@@ -12,6 +12,8 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
+const ToolName = "send_message"
+
 // sendMessageArgs is the JSON schema input for the send_message tool.
 type sendMessageArgs struct {
 	Type      string `json:"type,omitempty"`
@@ -93,7 +95,7 @@ func WithReactionLedger(l MessageLedger) SendMessageToolOption {
 // Declaration returns the tool metadata.
 func (t *messageTool) Declaration() *tool.Declaration {
 	return &tool.Declaration{
-		Name:        "send_message",
+		Name:        ToolName,
 		Description: fmt.Sprintf("Send a message or react to a message on %s. Use type=\"message\" (default) to send text, or type=\"reaction\" to react with an emoji. If channel_id is omitted, the message is sent to the originating channel.", t.messenger.Platform()),
 		InputSchema: &tool.Schema{
 			Type: "object",
@@ -143,7 +145,7 @@ func (t *messageTool) Call(ctx context.Context, jsonArgs []byte) (any, error) {
 		}
 		channelID := args.ChannelID
 		messageID := args.MessageID
-		if origin := MessageOriginFrom(ctx); origin != nil {
+		if origin := MessageOriginFrom(ctx); !origin.IsZero() {
 			if channelID == "" {
 				channelID = origin.Channel.ID
 			}
@@ -181,7 +183,7 @@ func (t *messageTool) Call(ctx context.Context, jsonArgs []byte) (any, error) {
 	channelID := args.ChannelID
 	threadID := args.ThreadID
 	var replyToMessageID string
-	if origin := MessageOriginFrom(ctx); origin != nil {
+	if origin := MessageOriginFrom(ctx); !origin.IsZero() {
 		if channelID == "" {
 			channelID = origin.Channel.ID
 		}
@@ -265,7 +267,10 @@ func (t *messageTool) Call(ctx context.Context, jsonArgs []byte) (any, error) {
 	// emoji reactions (👍/👎) can be correlated to this goal/output.
 	if t.ledger != nil && !isInformational(args.Text) {
 		goalCtx := GoalFromContext(ctx)
-		senderKey := SenderContextFrom(ctx)
+		senderKey := ""
+		if origin := MessageOriginFrom(ctx); !origin.IsZero() {
+			senderKey = origin.String()
+		}
 		t.ledger.Record(ctx, resp.MessageID, goalCtx, args.Text, senderKey)
 	}
 

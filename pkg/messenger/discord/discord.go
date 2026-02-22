@@ -176,6 +176,11 @@ func (m *Messenger) Platform() messenger.Platform {
 	return messenger.PlatformDiscord
 }
 
+// ConnectionInfo returns connection instructions for the Discord adapter.
+func (m *Messenger) ConnectionInfo() string {
+	return "Connected via Discord WebSocket gateway — message me in your Discord server"
+}
+
 // messageCreate is the discordgo event handler that converts Discord messages
 // to IncomingMessage and publishes them to the incoming channel.
 func (m *Messenger) messageCreate(_ *discordgo.Session, event *discordgo.MessageCreate) {

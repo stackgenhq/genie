@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/audit"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/messenger"
+	messengeragui "github.com/appcd-dev/genie/pkg/messenger/agui"
 	"github.com/appcd-dev/genie/pkg/osutils"
 	rtmemory "github.com/appcd-dev/genie/pkg/reactree/memory"
 	"github.com/appcd-dev/genie/pkg/retrier"
@@ -21,9 +21,9 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/session"
 	"trpc.group/trpc-go/trpc-agent-go/session/inmemory"
 	"trpc.group/trpc-go/trpc-agent-go/session/summary"
+	"trpc.group/trpc-go/trpc-agent-go/tool"
 
 	"trpc.group/trpc-go/trpc-agent-go/model"
-	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
 type ExpertBio struct {
@@ -53,7 +53,7 @@ func (e ExpertBio) ToExpert(
 	exp := &expert{
 		bio:           e,
 		modelProvider: modelProvider,
-		eventAdapter:  agui.NewEventAdapter(e.Name),
+		eventAdapter:  messengeragui.NewEventAdapter(e.Name),
 		auditor:       auditor,
 		toolwrapSvc:   toolwrapSvc,
 	}
@@ -142,7 +142,7 @@ type Expert interface {
 type expert struct {
 	bio           ExpertBio
 	modelProvider modelprovider.ModelProvider
-	eventAdapter  *agui.EventAdapter
+	eventAdapter  *messengeragui.EventAdapter
 	// Auditor is an audit logger for recording LLM calls and tool invocations.
 	auditor audit.Auditor
 
@@ -190,7 +190,7 @@ func (e *expert) getRunner(ctx context.Context, req Request) (runner.Runner, err
 	allTools := append(e.bio.Tools, req.AdditionalTools...)
 	origin := messenger.MessageOriginFrom(ctx)
 	logr.Info("wrapping tools with MessageOrigin",
-		"hasOrigin", origin != nil,
+		"hasOrigin", !origin.IsZero(),
 		"origin", fmt.Sprintf("%v", origin),
 	)
 	wrappedTools := e.toolwrapSvc.Wrap(allTools, toolwrap.WrapRequest{
@@ -211,6 +211,9 @@ func (e *expert) getRunner(ctx context.Context, req Request) (runner.Runner, err
 		llmagent.WithModel(modelInstance),
 		llmagent.WithDescription(e.bio.Description),
 		llmagent.WithInstruction(e.bio.Personality),
+		// PII protection: redact user messages before sending to the LLM,
+		// rehydrate originals in the response so the user sees unmasked output.
+		llmagent.WithModelCallbacks(NewPIIModelCallbacks()),
 	)
 
 	theExpert := llmagent.New(

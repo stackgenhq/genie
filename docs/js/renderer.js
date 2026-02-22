@@ -97,14 +97,24 @@
     }
 
     function renderHowToTab(guides) {
+        var total = guides.length;
         var html = '<section class="py-6 md:py-8 px-4 md:px-6 doc-section-wrapper"><div class="max-w-4xl mx-auto">';
         html += '<div class="text-center mb-6 md:mb-8"><h2 class="text-xl md:text-2xl font-bold mb-2">How-To Guides</h2><p class="text-xs md:text-sm text-gray-500">Step-by-step guides to get up and running quickly.</p></div>';
-        html += '<div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">';
-        guides.forEach(function (g) {
-            html += '<div class="howto-card">';
+
+        // Step indicator bar
+        html += '<div class="flex items-center justify-center gap-1 mb-6" id="howto-steps">';
+        guides.forEach(function (g, i) {
+            html += '<button onclick="showHowToStep(' + i + ')" class="howto-step-dot' + (i === 0 ? ' active' : '') + '" title="Step ' + g.step + ': ' + g.title + '">' + g.step + '</button>';
+        });
+        html += '</div>';
+
+        // Slides container
+        html += '<div style="position:relative; min-height: 320px;">';
+        guides.forEach(function (g, i) {
+            html += '<div class="howto-slide' + (i === 0 ? ' active' : '') + '" data-step="' + i + '">';
+            html += '<div class="howto-card" style="margin:0;">';
             html += '<div class="flex items-center gap-3 mb-3"><span class="step-number">' + g.step + '</span><h4>' + g.title + '</h4></div>';
             html += '<p>' + g.desc + '</p>';
-            // Render code block
             var lines = g.code.trim().split('\n');
             html += '<div class="code-block">';
             lines.forEach(function (line, idx) {
@@ -115,9 +125,22 @@
                 }
                 if (idx < lines.length - 1) html += '<br>';
             });
-            html += '</div></div>';
+            html += '</div></div></div>';
         });
-        html += '</div></div></section>';
+        html += '</div>';
+
+        // Navigation controls
+        html += '<div class="flex items-center justify-between mt-6">';
+        html += '<button onclick="showHowToStep(window._howtoStep - 1)" id="howto-prev" class="howto-nav-btn" disabled>';
+        html += '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg> Previous';
+        html += '</button>';
+        html += '<span class="text-xs text-gray-400" id="howto-counter">Step 1 of ' + total + '</span>';
+        html += '<button onclick="showHowToStep(window._howtoStep + 1)" id="howto-next" class="howto-nav-btn">';
+        html += 'Next <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>';
+        html += '</button>';
+        html += '</div>';
+
+        html += '</div></section>';
         return html;
     }
 
@@ -272,6 +295,29 @@
         document.querySelectorAll('.cfg-detail-panel').forEach(function (el) { el.classList.remove('active'); });
         var panel = document.getElementById('detail-' + id);
         if (panel) panel.classList.add('active');
+    };
+
+    /* ── How-To Slider ── */
+    window._howtoStep = 0;
+    window.showHowToStep = function (idx) {
+        var slides = document.querySelectorAll('.howto-slide');
+        var dots = document.querySelectorAll('.howto-step-dot');
+        var total = slides.length;
+        if (idx < 0 || idx >= total) return;
+        window._howtoStep = idx;
+
+        slides.forEach(function (s) { s.classList.remove('active'); });
+        dots.forEach(function (d) { d.classList.remove('active'); });
+
+        slides[idx].classList.add('active');
+        dots[idx].classList.add('active');
+
+        var prev = document.getElementById('howto-prev');
+        var next = document.getElementById('howto-next');
+        var counter = document.getElementById('howto-counter');
+        if (prev) prev.disabled = idx === 0;
+        if (next) next.disabled = idx === total - 1;
+        if (counter) counter.textContent = 'Step ' + (idx + 1) + ' of ' + total;
     };
 
     /* ── Boot ── */

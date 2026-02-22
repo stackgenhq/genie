@@ -8,6 +8,7 @@ import (
 	"github.com/appcd-dev/genie/pkg/config"
 	geniedb "github.com/appcd-dev/genie/pkg/db"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
+	"github.com/appcd-dev/genie/pkg/messenger"
 	"github.com/appcd-dev/genie/pkg/security"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -99,10 +100,10 @@ var _ = Describe("Application Integration", Label("integration"), func() {
 			Expect(app.clarifyStore).NotTo(BeNil(), "clarify store should be initialised")
 			Expect(app.cronStore).NotTo(BeNil(), "cron store should be initialised")
 			Expect(app.shortMemory).NotTo(BeNil(), "short memory should be initialised")
-			Expect(app.aguiAdapter).NotTo(BeNil(), "AGUI adapter should be initialised")
 
-			// Messenger is expected to be nil — no platform configured.
-			Expect(app.msgr).To(BeNil(), "messenger should be nil without config")
+			// Messenger defaults to AGUI when no external platform is configured.
+			Expect(app.msgr).NotTo(BeNil(), "messenger should default to AGUI")
+			Expect(app.msgr.Platform()).To(Equal(messenger.PlatformAGUI))
 
 			// Clean up — should not panic even without Start().
 			app.Close(ctx)

@@ -32,6 +32,7 @@ func (a auditMiddleware) Wrap(next Handler) Handler {
 			Action:    tc.ToolName,
 			Metadata: map[string]interface{}{
 				"args":            redactSensitiveArgs(tc.Args),
+				"justification":   tc.Justification,
 				"response_length": len(responseStr),
 				"truncated":       truncated,
 				"error":           errStr,

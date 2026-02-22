@@ -959,6 +959,67 @@ html {
   color: #64748b;
 }
 
+/* ── How-To Slider ── */
+.howto-slide {
+  display: none;
+  animation: fadeIn 0.35s ease-out;
+}
+.howto-slide.active {
+  display: block;
+}
+
+.howto-step-dot {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  border: 2px solid #e5e7eb;
+  background: #fff;
+  color: #9ca3af;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  font-family: 'Inter', sans-serif;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.howto-step-dot:hover {
+  border-color: #8247E7;
+  color: #8247E7;
+}
+.howto-step-dot.active {
+  background: linear-gradient(135deg, #8247E7, #6d28d9);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(130, 71, 231, 0.35);
+}
+
+.howto-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  border-radius: 0.75rem;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #374151;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: 'Inter', sans-serif;
+}
+.howto-nav-btn:hover:not(:disabled) {
+  border-color: #8247E7;
+  color: #8247E7;
+  background: rgba(130, 71, 231, 0.04);
+}
+.howto-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 /* ── Docs page: FAQ accordion ── */
 .faq-item {
   border: 1px solid #e5e7eb;

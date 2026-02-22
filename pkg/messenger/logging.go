@@ -108,6 +108,10 @@ func (lm *LoggingMessenger) Platform() Platform {
 	return lm.inner.Platform()
 }
 
+func (lm *LoggingMessenger) ConnectionInfo() string {
+	return lm.inner.ConnectionInfo()
+}
+
 func (lm *LoggingMessenger) FormatApproval(req SendRequest, info ApprovalInfo) SendRequest {
 	log := logger.GetLogger(lm.ctx).With("fn", "messenger.FormatApproval", "platform", string(lm.inner.Platform()))
 	log.Debug("formatting approval notification",
@@ -123,4 +127,11 @@ func (lm *LoggingMessenger) FormatClarification(req SendRequest, info Clarificat
 		"requestID", info.RequestID,
 	)
 	return lm.inner.FormatClarification(req, info)
+}
+
+// Unwrap returns the underlying Messenger, allowing callers to access
+// the concrete messenger type through the logging wrapper. This follows
+// the standard Go unwrap convention (similar to errors.Unwrap).
+func (lm *LoggingMessenger) Unwrap() Messenger {
+	return lm.inner
 }

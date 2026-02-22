@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/appcd-dev/genie/pkg/agui"
+	messengeragui "github.com/appcd-dev/genie/pkg/messenger/agui"
 	"github.com/appcd-dev/genie/pkg/osutils"
 	"github.com/spf13/cobra"
 )
@@ -79,9 +79,9 @@ func (c *connectCmd) run(cmd *cobra.Command, _ []string) error {
 			continue
 		}
 
-		input := agui.RunAgentInput{
+		input := messengeragui.RunAgentInput{
 			ThreadID: threadID,
-			Messages: []agui.Message{{Role: "user", Content: line}},
+			Messages: []messengeragui.Message{{Role: "user", Content: line}},
 		}
 		body, err := json.Marshal(input)
 		if err != nil {

@@ -181,3 +181,64 @@ var _ = Describe("Config", func() {
 		})
 	})
 })
+
+var _ = Describe("RedactWithReplacer", func() {
+	// Use a stable salt so hashes are deterministic within the test run.
+	BeforeEach(func() {
+		cfg := pii.Config{Salt: "test-salt-for-replacer-0123456789ab"}
+		cfg.Apply()
+	})
+	AfterEach(func() {
+		pii.DefaultConfig().Apply()
+	})
+
+	It("returns empty string and no-op replacer for empty input", func() {
+		redacted, replacer := pii.RedactWithReplacer("")
+		Expect(redacted).To(Equal(""))
+		Expect(replacer.Replace("anything")).To(Equal("anything"))
+	})
+
+	It("returns original text and no-op replacer when no PII detected", func() {
+		text := "The deployment was successful."
+		redacted, replacer := pii.RedactWithReplacer(text)
+		Expect(redacted).To(Equal(text))
+		Expect(replacer.Replace("The deployment was successful.")).To(Equal(text))
+	})
+
+	It("redacts secrets and produces a non-empty redacted string", func() {
+		text := "password=SuperSecret123!"
+		redacted, _ := pii.RedactWithReplacer(text)
+		Expect(redacted).To(ContainSubstring("[HIDDEN:"))
+		Expect(redacted).NotTo(ContainSubstring("SuperSecret123"))
+	})
+
+	It("produces deterministic results for same input", func() {
+		text := "api_key=xK9mP2nQ5rT8wZ3vAbCdEfGh"
+		r1, rep1 := pii.RedactWithReplacer(text)
+		r2, rep2 := pii.RedactWithReplacer(text)
+		Expect(r1).To(Equal(r2))
+		// Both replacers should produce the same output for the same input.
+		probe := "The key is " + r1
+		Expect(rep1.Replace(probe)).To(Equal(rep2.Replace(probe)))
+	})
+
+	It("replacer can rehydrate placeholders in LLM output", func() {
+		text := "secret=MyV3ryS3cr3tT0k3n!"
+		redacted, replacer := pii.RedactWithReplacer(text)
+		Expect(redacted).To(ContainSubstring("[HIDDEN:"))
+
+		// Simulate an LLM echoing back the redacted text.
+		llmOutput := "I see a credential: " + redacted
+		rehydrated := replacer.Replace(llmOutput)
+		// The rehydrated output should contain the original text.
+		Expect(rehydrated).To(ContainSubstring(text))
+	})
+
+	It("replacer is safe to use on text without placeholders", func() {
+		text := "token=abcdef1234567890verylong"
+		_, replacer := pii.RedactWithReplacer(text)
+		// Applying replacer to unrelated text should not modify it.
+		unrelated := "Hello, this is a normal message."
+		Expect(replacer.Replace(unrelated)).To(Equal(unrelated))
+	})
+})

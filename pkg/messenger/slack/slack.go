@@ -221,6 +221,11 @@ func (m *Messenger) Platform() messenger.Platform {
 	return messenger.PlatformSlack
 }
 
+// ConnectionInfo returns connection instructions for the Slack adapter.
+func (m *Messenger) ConnectionInfo() string {
+	return "Connected via Slack Socket Mode — message me in your Slack workspace"
+}
+
 // handleEvents processes Socket Mode events and converts them to IncomingMessages.
 func (m *Messenger) handleEvents(ctx context.Context) {
 	for {
