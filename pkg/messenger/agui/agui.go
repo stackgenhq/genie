@@ -24,6 +24,7 @@ package agui
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -97,10 +98,9 @@ type Messenger struct {
 	sessionSvc session.Service
 	appName    string // resolved from Config.AppName or DefaultAppName
 
-	// --- AG-UI HTTP server (owned by this adapter) ---
-	server    *Server            // the AG-UI HTTP/SSE server; nil until ConfigureServer
-	serverCfn context.CancelFunc // cancel function for server shutdown
-	wg        sync.WaitGroup     // tracks background goroutines
+	// --- AG-UI HTTP server handler (returned by Connect) ---
+	server         *Server                         // the AG-UI HTTP/SSE server; nil until ConfigureServer
+	handlerWrapper func(http.Handler) http.Handler // set before ConfigureServer
 }
 
 // New creates a new AGUI Messenger with the given config and options.
@@ -155,48 +155,65 @@ func (m *Messenger) ConfigureServer(cfg ServerConfig) {
 	if cfg.ChatFunc != nil {
 		m.server.SetRunner(NewRunner(cfg.ChatFunc))
 	}
+
+	// Apply any handler wrapper that was set before ConfigureServer.
+	if m.handlerWrapper != nil {
+		m.server.SetHandlerWrapper(m.handlerWrapper)
+	}
 }
 
-// Connect starts the AG-UI HTTP/SSE server and begins listening for
-// browser connections. Must be called after ConfigureServer.
-func (m *Messenger) Connect(ctx context.Context) error {
+// SetHandlerWrapper configures a function that wraps the HTTP handler
+// before the server starts serving. This is used by the guild worker
+// to add agent routing middleware around the core AG-UI handler.
+// Safe to call before or after ConfigureServer.
+func (m *Messenger) SetHandlerWrapper(fn func(http.Handler) http.Handler) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.handlerWrapper = fn
+	if m.server != nil {
+		m.server.SetHandlerWrapper(fn)
+	}
+}
+
+// Connect initializes the AG-UI messenger adapter and returns an
+// http.Handler for the AG-UI SSE server. Must be called after
+// ConfigureServer.
+//
+// The adapter DOES NOT start its own http.Server. The caller mounts
+// the returned handler on a shared HTTP mux.
+func (m *Messenger) Connect(ctx context.Context) (http.Handler, error) {
 	log := logger.GetLogger(ctx).With("platform", "agui", "fn", "agui.Connect")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.connected {
-		return messenger.ErrAlreadyConnected
+		return nil, messenger.ErrAlreadyConnected
 	}
 
 	m.incoming = make(chan messenger.IncomingMessage, m.adapterCfg.MessageBufferSize)
 	m.closeDone = make(chan struct{})
 	m.sessionSvc = inmemory.NewSessionService()
 
-	// Start the AG-UI HTTP server in a background goroutine.
+	m.connected = true
+
+	// Return the AG-UI server's HTTP handler for mounting.
+	var handler http.Handler
 	if m.server != nil {
-		var serverCtx context.Context
-		serverCtx, m.serverCfn = context.WithCancel(ctx)
-
-		m.wg.Add(1)
-		go func() {
-			defer m.wg.Done()
-			if err := m.server.Start(serverCtx); err != nil {
-				logger.GetLogger(serverCtx).Error("AG-UI HTTP server error", "error", err)
-			}
-		}()
-
-		log.Info("AG-UI HTTP server started",
-			"port", m.server.port,
+		handler = m.server.Handler()
+		log.Info("AGUI messenger adapter connected",
+			"appName", m.appName,
+			"handler", "AG-UI server handler returned for caller to mount")
+	} else {
+		log.Info("AGUI messenger adapter connected (no server configured)",
 			"appName", m.appName)
 	}
 
-	m.connected = true
-	log.Info("AGUI messenger adapter connected", "appName", m.appName)
-	return nil
+	return handler, nil
 }
 
-// Disconnect gracefully shuts down the AG-UI HTTP server, cleans up all
-// active threads, and releases resources.
+// Disconnect cleans up all active threads and releases resources.
+// The caller is responsible for stopping the HTTP server that was serving
+// the handler returned from Connect.
 func (m *Messenger) Disconnect(ctx context.Context) error {
 	log := logger.GetLogger(ctx).With("platform", "agui", "fn", "agui.Disconnect")
 	m.mu.Lock()
@@ -207,13 +224,6 @@ func (m *Messenger) Disconnect(ctx context.Context) error {
 	}
 
 	close(m.closeDone)
-
-	// Stop the AG-UI HTTP server by cancelling its context.
-	if m.serverCfn != nil {
-		m.serverCfn()
-	}
-	// Wait for the server goroutine to finish.
-	m.wg.Wait()
 
 	// Clean up all active threads.
 	m.threadsMu.Lock()
@@ -322,7 +332,7 @@ func (m *Messenger) ConnectionInfo() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if m.server != nil {
-		return fmt.Sprintf("AG-UI HTTP server on :%d (%s)", m.server.port, m.appName)
+		return fmt.Sprintf("AG-UI adapter ready (%s) — handler mounted on shared HTTP server", m.appName)
 	}
 	return fmt.Sprintf("In-process AG-UI adapter (%s)", m.appName)
 }

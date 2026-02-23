@@ -28,6 +28,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -64,23 +65,27 @@ type Config struct {
 }
 
 // Messenger implements the [messenger.Messenger] interface for Microsoft Teams.
-// It runs an HTTP server to receive Bot Framework activities and uses the
-// adapter to send proactive messages.
+// It provides an HTTP handler for receiving Bot Framework activities and uses
+// the adapter to send proactive messages. The caller is responsible for
+// mounting the handler on a shared HTTP mux.
 type Messenger struct {
 	cfg        Config
 	adapterCfg messenger.AdapterConfig
 	adapter    core.Adapter
 	incoming   chan messenger.IncomingMessage
-	server     *http.Server
 	connected  bool
 	cancel     context.CancelFunc
-	wg         sync.WaitGroup
 	mu         sync.RWMutex
 }
 
 // New creates a new Teams Messenger with the given config and options.
 func New(cfg Config, opts ...messenger.Option) (*Messenger, error) {
 	adapterCfg := messenger.ApplyOptions(opts...)
+
+	if cfg.ListenAddr != "" {
+		slog.Warn("Teams ListenAddr is deprecated and ignored — the shared HTTP server is managed by the application",
+			"listen_addr", cfg.ListenAddr)
+	}
 
 	setting := core.AdapterSetting{
 		AppID:       cfg.AppID,
@@ -99,14 +104,19 @@ func New(cfg Config, opts ...messenger.Option) (*Messenger, error) {
 	}, nil
 }
 
-// Connect starts the HTTP server to receive Bot Framework activities from Teams.
-func (m *Messenger) Connect(ctx context.Context) error {
+// Connect initializes the Teams Bot Framework adapter and returns an
+// http.Handler for receiving Bot Framework activities. The caller mounts
+// this handler on a shared HTTP mux at the desired context path
+// (e.g., /agents/{name}/teams/events).
+//
+// The adapter DOES NOT start its own http.Server.
+func (m *Messenger) Connect(ctx context.Context) (http.Handler, error) {
 	log := logger.GetLogger(ctx).With("platform", "teams", "fn", "teams.Connect")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.connected {
-		return messenger.ErrAlreadyConnected
+		return nil, messenger.ErrAlreadyConnected
 	}
 
 	m.incoming = make(chan messenger.IncomingMessage, m.adapterCfg.MessageBufferSize)
@@ -114,30 +124,12 @@ func (m *Messenger) Connect(ctx context.Context) error {
 	_, cancel := context.WithCancel(ctx)
 	m.cancel = cancel
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/messages", m.handleActivity)
-
-	m.server = &http.Server{
-		Addr:              m.cfg.ListenAddr,
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-
-	m.wg.Add(1)
-	go func() {
-		defer m.wg.Done()
-		log.Info("starting Teams webhook listener", "addr", m.cfg.ListenAddr)
-		if err := m.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.GetLogger(ctx).With("platform", "teams").Error("Teams webhook server error", "error", err)
-		}
-	}()
-
 	m.connected = true
-	log.Info("connected to Teams via Bot Framework")
-	return nil
+	log.Info("Teams adapter connected (handler returned for caller to mount)")
+	return http.HandlerFunc(m.handleActivity), nil
 }
 
-// Disconnect gracefully shuts down the Teams webhook server.
+// Disconnect gracefully shuts down the Teams adapter.
 func (m *Messenger) Disconnect(ctx context.Context) error {
 	log := logger.GetLogger(ctx).With("platform", "teams", "fn", "teams.Disconnect")
 	m.mu.Lock()
@@ -148,16 +140,11 @@ func (m *Messenger) Disconnect(ctx context.Context) error {
 	}
 
 	m.cancel()
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(ctx, 5*time.Second)
-	defer shutdownCancel()
-
-	if err := m.server.Shutdown(shutdownCtx); err != nil {
-		log.Error("Teams server shutdown error", "error", err)
-	}
-
-	m.wg.Wait()
-	close(m.incoming)
+	// Note: we don't close(m.incoming) here because the shared HTTP server
+	// may still have in-flight requests writing to it. The caller's
+	// http.Server.Shutdown() drains connections before Disconnect is called.
+	// The channel will be GC'd when all references are released.
+	m.incoming = nil
 	m.connected = false
 	log.Info("disconnected from Teams")
 	return nil
@@ -330,6 +317,13 @@ func (m *Messenger) convertAndPublish(ctx context.Context, act schema.Activity) 
 			ContentType: a.ContentType,
 		}
 		msg.Content.Attachments = append(msg.Content.Attachments, att)
+	}
+
+	m.mu.RLock()
+	connected := m.connected
+	m.mu.RUnlock()
+	if !connected {
+		return
 	}
 
 	select {

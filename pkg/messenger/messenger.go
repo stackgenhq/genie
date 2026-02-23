@@ -13,6 +13,7 @@ package messenger
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 )
 
@@ -196,10 +197,21 @@ func (msg IncomingMessage) String() string {
 //
 //counterfeiter:generate . Messenger
 type Messenger interface {
-	// Connect establishes a connection to the messaging platform.
-	// It must be called before Send or Receive. Calling Connect on an
-	// already-connected Messenger returns ErrAlreadyConnected.
-	Connect(ctx context.Context) error
+	// Connect establishes a connection to the messaging platform and returns
+	// an optional http.Handler for receiving inbound webhook/push events.
+	//
+	// HTTP-push adapters (Teams, Google Chat, Slack Events API, Telegram
+	// webhook) return a non-nil handler that the caller mounts on a shared
+	// HTTP mux at the desired context path (e.g., /agents/{name}/{platform}/events).
+	// The adapter MUST NOT start its own http.Server.
+	//
+	// Outbound-only adapters (Slack Socket Mode, Discord WebSocket, Telegram
+	// long-polling, WhatsApp) return a nil handler because they initiate
+	// connections to the platform rather than receiving inbound HTTP.
+	//
+	// Calling Connect on an already-connected Messenger returns
+	// (nil, ErrAlreadyConnected).
+	Connect(ctx context.Context) (http.Handler, error)
 
 	// Disconnect gracefully shuts down the platform connection.
 	// After Disconnect, the Receive channel will be closed and further

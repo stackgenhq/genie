@@ -23,6 +23,7 @@ package discord
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -86,25 +87,26 @@ func New(cfg Config, opts ...messenger.Option) (*Messenger, error) {
 }
 
 // Connect opens the WebSocket gateway connection to Discord.
-func (m *Messenger) Connect(ctx context.Context) error {
+// Returns a nil http.Handler since Discord uses outbound WebSocket (no inbound HTTP).
+func (m *Messenger) Connect(ctx context.Context) (http.Handler, error) {
 	log := logger.GetLogger(ctx).With("platform", "discord", "fn", "discord.Connect")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.connected {
-		return messenger.ErrAlreadyConnected
+		return nil, messenger.ErrAlreadyConnected
 	}
 
 	m.incoming = make(chan messenger.IncomingMessage, m.adapterCfg.MessageBufferSize)
 	m.connCtx = ctx
 
 	if err := m.session.Open(); err != nil {
-		return fmt.Errorf("failed to open discord session: %w", err)
+		return nil, fmt.Errorf("failed to open discord session: %w", err)
 	}
 
 	m.connected = true
 	log.Info("connected to Discord via WebSocket gateway")
-	return nil
+	return nil, nil
 }
 
 // Disconnect gracefully shuts down the Discord session.

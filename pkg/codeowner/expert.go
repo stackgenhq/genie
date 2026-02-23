@@ -45,13 +45,6 @@ var classifyPrompt string
 type CodeQuestion struct {
 	Question  string
 	EventChan chan<- interface{}
-	OutputDir string
-
-	// SenderContext identifies who sent this message and from where.
-	// Format: "platform:senderID:channelID" (e.g. "slack:U12345:C67890")
-	// or "tui:local" for terminal input. Used for prompt context and
-	// memory isolation (each unique sender gets separate conversation history).
-	SenderContext string
 
 	// Attachments holds file/media attachments from the incoming message.
 	// Image attachments are passed as multimodal content to the LLM so it
@@ -102,6 +95,7 @@ type codeOwner struct {
 	resume          *ttlcache.Item[string]
 	resumeCancel    context.CancelFunc
 	vectorStore     vector.IStore
+	agentName       string // GUILD agent name; empty for standalone Genie.
 
 	// Per-sender memory isolation. These maps use sync.Map for concurrent
 	// access and lazily create instances on first access per sender.
@@ -135,9 +129,16 @@ func NewCodeOwner(
 	memorySvc memory.Service,
 	runbookCfg runbook.Config,
 	sessionSvc session.Service,
+	agentPersona string,
 ) (CodeOwner, error) {
-	// Build the persona prompt, appending project-level coding standards if available.
-	fullPersona := langfuse.GetPrompt(ctx, "genie_codeowner_persona", persona)
+	// Build the persona prompt. When agentPersona is provided (GUILD agents),
+	// use it instead of the default Genie persona. This enables per-agent
+	// identity customisation.
+	basePersona := persona
+	if agentPersona != "" {
+		basePersona = agentPersona
+	}
+	fullPersona := langfuse.GetPrompt(ctx, "genie_codeowner_persona", basePersona)
 	if agentsGuide := loadAgentsGuide(workingDirectory); agentsGuide != "" {
 		fullPersona += "\n\n## Project Standards (from Agents.md)\n\n" + agentsGuide
 		logger.GetLogger(ctx).Info("Agents.md loaded and appended to persona")
@@ -165,9 +166,16 @@ func NewCodeOwner(
 		}
 	}
 
+	// Derive agent name from context or default to "genie".
+	agentName := audit.AgentNameFromContext(ctx)
+	expertName := "genie"
+	if agentName != "" {
+		expertName = agentName
+	}
+
 	expertBio := expert.ExpertBio{
 		Personality: fullPersona,
-		Name:        "genie",
+		Name:        expertName,
 		Description: "Genie — strategic AI planner that decomposes requests into structured plans and orchestrates sub-agents",
 	}
 
@@ -278,6 +286,7 @@ func NewCodeOwner(
 		toolRegistry:      codeOwnerTools,
 		auditor:           auditor,
 		vectorStore:       vectorStore,
+		agentName:         agentName,
 		episodicMemoryCfg: episodicMemoryCfg,
 	}
 	// keep updating the resume less than 24 hours
@@ -373,12 +382,11 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 	defer chatSpan.End()
 
 	logr := logger.GetLogger(ctx).With("fn", "codeExpert.Chat")
-	logr.Info("codeOwner.Chat invoked", "question", toolwrap.TruncateForAudit(req.Question, 100), "sender", req.SenderContext)
+	logr.Info("codeOwner.Chat invoked", "question", toolwrap.TruncateForAudit(req.Question, 100))
 
-	// Step 1: Front desk classification — use a fast, cheap model to triage the request.
+	// Step 1: Front desk classification (only when not in agent context).
 	cr, err := c.classifyRequest(ctx, req.Question)
 	if err != nil {
-		// Classification failed — fall through to complex (fail-open)
 		logr.Warn("front desk classification failed, defaulting to complex", "error", err)
 		cr = classificationResult{Category: categoryComplex}
 	}
@@ -391,8 +399,7 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 		Actor:     "front-desk",
 		Action:    string(category),
 		Metadata: map[string]interface{}{
-			"question":       req.Question,
-			"sender_context": req.SenderContext,
+			"question": req.Question,
 		},
 	})
 
@@ -416,14 +423,6 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 		return nil
 
 	case categorySalutation:
-		// Use the main expert for a lightweight, tool-free salutation response.
-		// We use the main expert (not frontDeskExpert) because frontDeskExpert
-		// has the classifier prompt and would just output the category label.
-		//
-		// We wrap the user's message with an instruction to keep the response
-		// conversational. The full persona prompt says "check the environment"
-		// which, combined with MaxToolIterations=0, causes the model to
-		// hallucinate file listings it never actually fetched.
 		salutationMsg := fmt.Sprintf(
 			"IMPORTANT: Respond conversationally to the greeting below. "+
 				"Do NOT describe files, directories, or workspace contents. "+
@@ -438,15 +437,14 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 				MaxLLMCalls:       1,
 				MaxToolIterations: 0,
 			},
-			EventChannel:  req.EventChan,
-			SenderContext: req.SenderContext,
+			EventChannel: req.EventChan,
 		})
 		if err != nil {
 			return fmt.Errorf("front desk salutation response failed: %w", err)
 		}
 		output := extractTextFromChoices(resp.Choices)
 		outputChan <- output
-		c.storeConversation(ctx, req.Question, output, req.SenderContext)
+		c.storeConversation(ctx, req.Question, output)
 		return nil
 	}
 
@@ -459,7 +457,7 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 
 	// Retrieve relevant past conversation turns from memory.
 	// Uses sender-based key so each sender/thread has isolated history.
-	pastContext := c.recallConversation(ctx, req.Question, req.SenderContext)
+	pastContext := c.recallConversation(ctx, req.Question)
 
 	// Build the message with past conversation context injected
 	message := req.Question
@@ -468,11 +466,6 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 			"## Relevant Past Conversations\n%s\n\n## Current Question\n%s",
 			pastContext, req.Question,
 		)
-	}
-
-	// Inject sender context so the LLM knows who is asking and from where.
-	if req.SenderContext != "" {
-		message = fmt.Sprintf("## Sender\n%s\n\n%s", req.SenderContext, message)
 	}
 
 	runCtx := ctx
@@ -519,11 +512,10 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 		Goal:           message,
 		EventChan:      req.EventChan,
 		Tools:          c.toolRegistry.GetTools(),
-		SenderContext:  req.SenderContext,
 		TaskType:       taskType,
 		Attachments:    req.Attachments,
-		WorkingMemory:  c.workingMemoryForSender(req.SenderContext),
-		EpisodicMemory: c.episodicMemoryForSender(req.SenderContext),
+		WorkingMemory:  c.workingMemoryForSender(ctx),
+		EpisodicMemory: c.episodicMemoryForSender(ctx),
 	})
 
 	if err != nil {
@@ -534,7 +526,7 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 	outputChan <- res.Output
 
 	// Store the conversation turn in memory for future recall (best-effort).
-	c.storeConversation(ctx, req.Question, res.Output, req.SenderContext)
+	c.storeConversation(ctx, req.Question, res.Output)
 
 	// Persist a concise accomplishment so the agent's resume can reference
 	// real work it has completed, boosting user confidence.
@@ -546,9 +538,8 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 		Actor:     "code-owner",
 		Action:    "chat_turn_completed",
 		Metadata: map[string]interface{}{
-			"question":       req.Question,
-			"answer":         res.Output,
-			"sender_context": req.SenderContext,
+			"question": req.Question,
+			"answer":   res.Output,
 		},
 	})
 
@@ -558,8 +549,8 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 // recallConversation searches memory.Service for past turns relevant
 // to the current question and formats them as context.
 // Uses senderID-based key so each sender/thread has isolated history.
-func (c *codeOwner) recallConversation(ctx context.Context, question, senderID string) string {
-	convKey := c.conversationKeyFromContext(ctx, senderID)
+func (c *codeOwner) recallConversation(ctx context.Context, question string) string {
+	convKey := c.conversationKeyFromContext(ctx)
 	key := c.memoryKeyForSender(convKey)
 	// Try to search for relevant memories
 	entries, err := c.memorySvc.SearchMemories(ctx, key, question)
@@ -609,8 +600,7 @@ func (c *codeOwner) recallConversation(ctx context.Context, question, senderID s
 		Actor:     "code-owner",
 		Action:    "recall_conversation",
 		Metadata: map[string]interface{}{
-			"sender_id": senderID,
-			"results":   limit,
+			"results": limit,
 		},
 	})
 
@@ -620,7 +610,7 @@ func (c *codeOwner) recallConversation(ctx context.Context, question, senderID s
 // storeConversation persists a Q&A turn into memory.Service.
 // Uses senderID-based key so each sender/thread has isolated history.
 // PII is redacted before storage to prevent sensitive data leakage.
-func (c *codeOwner) storeConversation(ctx context.Context, question, answer, senderID string) {
+func (c *codeOwner) storeConversation(ctx context.Context, question, answer string) {
 	// Format the turn as a structured summary for retrieval.
 	// Truncate both question and answer to prevent tool output from
 	// prior turns from entering conversation memory and bloating
@@ -634,7 +624,7 @@ func (c *codeOwner) storeConversation(ctx context.Context, question, answer, sen
 
 	topics := []string{"conversation", "chat-turn"}
 
-	convKey := c.conversationKeyFromContext(ctx, senderID)
+	convKey := c.conversationKeyFromContext(ctx)
 	key := c.memoryKeyForSender(convKey)
 	_ = c.memorySvc.AddMemory(ctx, key, summary, topics)
 
@@ -643,9 +633,7 @@ func (c *codeOwner) storeConversation(ctx context.Context, question, answer, sen
 		EventType: audit.EventMemoryAccess,
 		Actor:     "code-owner",
 		Action:    "store_conversation",
-		Metadata: map[string]interface{}{
-			"sender_id": senderID,
-		},
+		Metadata:  map[string]interface{}{},
 	})
 }
 
@@ -816,7 +804,9 @@ func (c *codeOwner) memoryKeyForSender(senderID string) memory.UserKey {
 // workingMemoryForSender returns (or creates) an isolated WorkingMemory
 // instance for the given sender. This prevents User A's observations from
 // leaking into User B's context.
-func (c *codeOwner) workingMemoryForSender(sender string) *rtmemory.WorkingMemory {
+func (c *codeOwner) workingMemoryForSender(ctx context.Context) *rtmemory.WorkingMemory {
+	origin := messenger.MessageOriginFrom(ctx)
+	sender := origin.DeriveVisibility()
 	if sender == "" {
 		sender = "default"
 	}
@@ -830,7 +820,9 @@ func (c *codeOwner) workingMemoryForSender(sender string) *rtmemory.WorkingMemor
 
 // episodicMemoryForSender returns (or creates) an isolated EpisodicMemory
 // instance for the given sender. Each sender has its own episode pool.
-func (c *codeOwner) episodicMemoryForSender(sender string) rtmemory.EpisodicMemory {
+func (c *codeOwner) episodicMemoryForSender(ctx context.Context) rtmemory.EpisodicMemory {
+	origin := messenger.MessageOriginFrom(ctx)
+	sender := origin.DeriveVisibility()
 	if sender == "" {
 		sender = "default"
 	}
@@ -845,12 +837,16 @@ func (c *codeOwner) episodicMemoryForSender(sender string) rtmemory.EpisodicMemo
 // conversationKeyFromContext returns the appropriate memory key for
 // conversation history isolation. In group chats, all members share
 // history (keyed by channel ID). In DMs, each sender has private history.
-func (c *codeOwner) conversationKeyFromContext(ctx context.Context, senderID string) string {
+//
+// When running under GUILD with multiple agents, the key is prefixed
+// with the agent name so agents sharing a channel have isolated memory.
+func (c *codeOwner) conversationKeyFromContext(ctx context.Context) string {
 	origin := messenger.MessageOriginFrom(ctx)
-	if origin.IsGroupContext() {
-		return "group:" + origin.Channel.ID
+	key := origin.DeriveVisibility()
+	if c.agentName != "" {
+		key = c.agentName + ":" + key
 	}
-	return senderID
+	return key
 }
 
 // ForgetUser clears all memory stores associated with a given sender.

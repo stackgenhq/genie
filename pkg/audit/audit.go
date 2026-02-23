@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/appcd-dev/genie/pkg/messenger"
 	"github.com/appcd-dev/genie/pkg/pii"
 )
 
@@ -86,11 +87,13 @@ func NewFileAuditor(filePath string) (*FileAuditor, error) {
 // Metadata values are PII-redacted before writing to prevent sensitive data
 // (user messages, API keys, tool arguments) from persisting in the audit log.
 func (a *FileAuditor) Log(ctx context.Context, req LogRequest) {
+	messengerContext := messenger.MessageOriginFrom(ctx)
 	attrs := []any{
 		slog.String("event_type", string(req.EventType)),
 		slog.String("actor", req.Actor),
 		slog.String("action", req.Action),
 		slog.Time("timestamp", time.Now().UTC()),
+		slog.String("messenger_context", messengerContext.String()),
 	}
 
 	if len(req.Metadata) > 0 {

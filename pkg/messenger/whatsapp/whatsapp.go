@@ -26,6 +26,7 @@ package whatsapp
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -107,18 +108,19 @@ func New(cfg Config, opts ...messenger.Option) (*Messenger, error) {
 // Connect establishes a connection to WhatsApp via the Web multi-device
 // protocol. If no stored session exists, it prints a QR code to the
 // terminal for pairing.
-func (m *Messenger) Connect(ctx context.Context) error {
+// Returns a nil http.Handler since WhatsApp uses an outbound protocol.
+func (m *Messenger) Connect(ctx context.Context) (http.Handler, error) {
 	log := logger.GetLogger(ctx).With("platform", "whatsapp", "fn", "whatsapp.Connect")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.connected {
-		return messenger.ErrAlreadyConnected
+		return nil, messenger.ErrAlreadyConnected
 	}
 
 	// Ensure store directory exists.
 	if err := os.MkdirAll(m.cfg.StorePath, 0o700); err != nil {
-		return fmt.Errorf("whatsapp: failed to create store dir %s: %w", m.cfg.StorePath, err)
+		return nil, fmt.Errorf("whatsapp: failed to create store dir %s: %w", m.cfg.StorePath, err)
 	}
 
 	// Initialize SQLite-backed device store.
@@ -126,14 +128,14 @@ func (m *Messenger) Connect(ctx context.Context) error {
 	dbURI := fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)", dbPath)
 	container, err := sqlstore.New(ctx, "sqlite", dbURI, waLog.Noop)
 	if err != nil {
-		return fmt.Errorf("whatsapp: failed to open store: %w", err)
+		return nil, fmt.Errorf("whatsapp: failed to open store: %w", err)
 	}
 	m.container = container
 
 	// Get or create the device store.
 	device, err := container.GetFirstDevice(ctx)
 	if err != nil {
-		return fmt.Errorf("whatsapp: failed to get device store: %w", err)
+		return nil, fmt.Errorf("whatsapp: failed to get device store: %w", err)
 	}
 
 	client := whatsmeow.NewClient(device, waLog.Noop)
@@ -153,7 +155,7 @@ func (m *Messenger) Connect(ctx context.Context) error {
 
 		qrChan, _ := client.GetQRChannel(ctx)
 		if err := client.Connect(); err != nil {
-			return fmt.Errorf("whatsapp: failed to connect for QR pairing: %w", err)
+			return nil, fmt.Errorf("whatsapp: failed to connect for QR pairing: %w", err)
 		}
 
 		// Wait for QR code events.
@@ -172,13 +174,13 @@ func (m *Messenger) Connect(ctx context.Context) error {
 			case "success":
 				log.Info("WhatsApp QR pairing successful")
 			case "timeout":
-				return fmt.Errorf("whatsapp: QR code scan timed out — please restart and try again")
+				return nil, fmt.Errorf("whatsapp: QR code scan timed out — please restart and try again")
 			}
 		}
 	} else {
 		log.Info("reconnecting to WhatsApp with stored session")
 		if err := client.Connect(); err != nil {
-			return fmt.Errorf("whatsapp: failed to connect: %w", err)
+			return nil, fmt.Errorf("whatsapp: failed to connect: %w", err)
 		}
 	}
 
@@ -187,7 +189,7 @@ func (m *Messenger) Connect(ctx context.Context) error {
 
 	m.connected = true
 	log.Info("connected to WhatsApp via Web protocol")
-	return nil
+	return nil, nil
 }
 
 // Disconnect gracefully shuts down the WhatsApp connection.

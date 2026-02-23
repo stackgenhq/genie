@@ -111,8 +111,8 @@ var _ = Describe("Config", func() {
 	Describe("DefaultConfig", func() {
 		It("returns sensible defaults", func() {
 			cfg := pii.DefaultConfig()
-			Expect(cfg.EntropyThreshold).To(Equal(3.6))
-			Expect(cfg.MinSecretLength).To(Equal(6))
+			Expect(cfg.EntropyThreshold).To(Equal(4.2))
+			Expect(cfg.MinSecretLength).To(Equal(12))
 			Expect(cfg.Salt).To(BeEmpty())
 			Expect(cfg.SensitiveKeys).To(BeEmpty())
 			Expect(cfg.CustomRegexes).To(BeEmpty())

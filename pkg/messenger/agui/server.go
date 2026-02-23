@@ -242,6 +242,10 @@ type Server struct {
 	// features like run registration, cancellation, and session tracking.
 	// When set, it wraps the same chat pipeline as the Expert handler.
 	runner trunner.Runner
+
+	// handlerWrapper, if set, wraps the Handler() output before serving.
+	// Used by the guild worker to add agent routing.
+	handlerWrapper func(http.Handler) http.Handler
 }
 
 // NewServer creates a new AG-UI HTTP server from the given configuration.
@@ -300,6 +304,13 @@ func (s *Server) SetMessengerBridge(bridge MessengerBridge) {
 // dedup and event translation pipeline.
 func (s *Server) SetRunner(r trunner.Runner) {
 	s.runner = r
+}
+
+// SetHandlerWrapper configures a function that wraps the HTTP handler
+// before the server starts serving. This is used by the guild worker
+// to add agent routing middleware around the core AG-UI handler.
+func (s *Server) SetHandlerWrapper(fn func(http.Handler) http.Handler) {
+	s.handlerWrapper = fn
 }
 
 // Runner returns the configured framework runner for direct programmatic
@@ -384,9 +395,13 @@ func newDocsProxy() *httputil.ReverseProxy {
 func (s *Server) Start(ctx context.Context) error {
 	logr := logger.GetLogger(ctx).With("fn", "agui.Server.Start")
 	addr := fmt.Sprintf(":%d", s.port)
+	handler := s.Handler()
+	if s.handlerWrapper != nil {
+		handler = s.handlerWrapper(handler)
+	}
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           s.Handler(),
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

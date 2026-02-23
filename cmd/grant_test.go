@@ -33,7 +33,6 @@ func chatLoopHandler(
 			go func() {
 				codeOwner.Chat(ctx, codeowner.CodeQuestion{
 					Question:  input,
-					OutputDir: outputDir,
 					EventChan: eventChan,
 				}, outputChan)
 			}()
@@ -317,7 +316,6 @@ var _ = Describe("ChatLoop", func() {
 						go func() {
 							codeOwner.Chat(ctx, codeowner.CodeQuestion{
 								Question:  input,
-								OutputDir: outputDir,
 								EventChan: eventChan,
 							}, outputChan)
 						}()

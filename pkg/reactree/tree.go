@@ -131,11 +131,10 @@ type TreeExecutor interface {
 
 // TreeRequest contains all inputs for a single tree execution.
 type TreeRequest struct {
-	Goal          string
-	EventChan     chan<- interface{}
-	Tools         []tool.Tool
-	SenderContext string
-	TaskType      modelprovider.TaskType
+	Goal      string
+	EventChan chan<- interface{}
+	Tools     []tool.Tool
+	TaskType  modelprovider.TaskType
 	// Attachments are file/media attachments from the incoming message.
 	// Image attachments are passed as multimodal content to the LLM.
 	Attachments []messenger.Attachment
@@ -282,7 +281,6 @@ func (t *tree) runSingleNode(ctx context.Context, req TreeRequest) (TreeResult, 
 		MaxDecisions:  t.config.MaxDecisionsPerNode,
 		EventChan:     req.EventChan,
 		Tools:         toolsToUse,
-		SenderContext: req.SenderContext,
 		Attachments:   req.Attachments,
 	})
 
@@ -404,7 +402,6 @@ func (t *tree) runMultiStage(ctx context.Context, req TreeRequest) (TreeResult, 
 			EventChan:     req.EventChan,
 			Tools:         toolsToUse,
 			TaskType:      stage.TaskType,
-			SenderContext: req.SenderContext,
 			Attachments:   req.Attachments,
 		})
 

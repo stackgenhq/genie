@@ -28,10 +28,10 @@ var _ = Describe("WithLogging", func() {
 		It("should delegate Connect and return no error on success", func(ctx context.Context) {
 			fake := &messengerfakes.FakeMessenger{}
 			fake.PlatformReturns(messenger.PlatformSlack)
-			fake.ConnectReturns(nil)
+			fake.ConnectReturns(nil, nil)
 			wrapped := messenger.WithLogging(ctx, fake)
 
-			err := wrapped.Connect(ctx)
+			_, err := wrapped.Connect(ctx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(fake.ConnectCallCount()).To(Equal(1))
 		})
@@ -39,10 +39,10 @@ var _ = Describe("WithLogging", func() {
 		It("should log error on Connect failure", func(ctx context.Context) {
 			fake := &messengerfakes.FakeMessenger{}
 			fake.PlatformReturns(messenger.PlatformSlack)
-			fake.ConnectReturns(errors.New("connection failed"))
+			fake.ConnectReturns(nil, errors.New("connection failed"))
 			wrapped := messenger.WithLogging(ctx, fake)
 
-			err := wrapped.Connect(ctx)
+			_, err := wrapped.Connect(ctx)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("connection failed"))
 		})

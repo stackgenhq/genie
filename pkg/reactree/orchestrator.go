@@ -93,9 +93,8 @@ type OrchestratorConfig struct {
 	// in Algorithm 1, line 11). Prevents runaway iteration.
 	MaxDecisions int
 
-	EventChan     chan<- interface{}
-	ToolRegistry  *tools.Registry
-	SenderContext string
+	EventChan    chan<- interface{}
+	ToolRegistry *tools.Registry
 
 	// ToolWrapSvc wraps plan step tools with HITL approval, audit logging,
 	// and caching — same as single sub-agent tools. Without this, plan step
@@ -213,7 +212,6 @@ func ExecutePlan(ctx context.Context, plan Plan, cfg OrchestratorConfig) (Orches
 			MaxDecisions:      cfg.MaxDecisions,
 			EventChan:         cfg.EventChan,
 			Tools:             tools,
-			SenderContext:     cfg.SenderContext,
 			TaskType:          stepCopy.TaskType,
 			SystemInstruction: subAgentInstruction,
 			ModelProvider:     cfg.ModelProvider,
@@ -405,7 +403,6 @@ func executeSingleStep(ctx context.Context, step PlanStep, cfg OrchestratorConfi
 		MaxDecisions:      cfg.MaxDecisions,
 		EventChan:         cfg.EventChan,
 		Tools:             toolsToUse,
-		SenderContext:     cfg.SenderContext,
 		TaskType:          step.TaskType,
 		SystemInstruction: subAgentInstruction,
 		ModelProvider:     cfg.ModelProvider,

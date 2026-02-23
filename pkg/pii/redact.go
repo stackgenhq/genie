@@ -28,13 +28,13 @@ type Config struct {
 
 	// EntropyThreshold is the Shannon entropy score above which a token is
 	// considered a potential secret. Lower = more aggressive (more redaction,
-	// more false positives). Higher = more permissive. Default: 3.6.
+	// more false positives). Higher = more permissive. Default: 4.2.
 	// Range: 2.0 (very aggressive) to 5.0 (very permissive).
 	EntropyThreshold float64 `yaml:"entropy_threshold" toml:"entropy_threshold"`
 
 	// MinSecretLength is the minimum character length for a token to be
 	// considered as a potential secret. Tokens shorter than this are never
-	// redacted (unless they are values of sensitive keys). Default: 6.
+	// redacted (unless they are values of sensitive keys). Default: 12.
 	MinSecretLength int `yaml:"min_secret_length" toml:"min_secret_length"`
 
 	// SensitiveKeys is a list of key names whose values should always be
@@ -65,8 +65,8 @@ type CustomRegexRule struct {
 // DefaultConfig returns a PII config with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
-		EntropyThreshold: 3.6,
-		MinSecretLength:  6,
+		EntropyThreshold: 4.2,
+		MinSecretLength:  12,
 	}
 }
 

@@ -485,7 +485,6 @@ func (t *createAgentTool) executePlan(ctx context.Context, req CreateAgentReques
 		MaxDecisions:  maxDecisions,
 		EventChan:     evChan,
 		ToolRegistry:  t.subAgentRegistry, // use filtered registry — no create_agent/send_message
-		SenderContext: "",
 		ToolWrapSvc:   t.toolWrapSvc,
 		WrapRequest: toolwrap.WrapRequest{
 			EventChan:     evChan,

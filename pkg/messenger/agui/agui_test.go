@@ -60,8 +60,10 @@ var _ = Describe("AGUI Messenger", func() {
 		})
 
 		It("should return ErrAlreadyConnected on double Connect", func() {
-			Expect(m.Connect(context.Background())).To(Succeed())
-			Expect(m.Connect(context.Background())).To(MatchError(messenger.ErrAlreadyConnected))
+			_, err := m.Connect(context.Background())
+			Expect(err).NotTo(HaveOccurred())
+			_, err = m.Connect(context.Background())
+			Expect(err).To(MatchError(messenger.ErrAlreadyConnected))
 			Expect(m.Disconnect(context.Background())).To(Succeed())
 		})
 	})
@@ -384,7 +386,7 @@ func TestAdapterRace(t *testing.T) {
 	t.Parallel()
 
 	m := aguimsg.New(aguimsg.Config{})
-	if err := m.Connect(context.Background()); err != nil {
+	if _, err := m.Connect(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = m.Disconnect(context.Background()) }()

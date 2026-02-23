@@ -3,6 +3,7 @@ package messenger
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/appcd-dev/genie/pkg/logger"
 )
@@ -25,16 +26,16 @@ func WithLogging(ctx context.Context, m Messenger) Messenger {
 	return &LoggingMessenger{inner: m, ctx: ctx}
 }
 
-func (lm *LoggingMessenger) Connect(ctx context.Context) error {
+func (lm *LoggingMessenger) Connect(ctx context.Context) (http.Handler, error) {
 	log := logger.GetLogger(ctx).With("fn", "messenger.Connect", "platform", string(lm.inner.Platform()))
 	log.Info("connecting to messenger")
-	err := lm.inner.Connect(ctx)
+	handler, err := lm.inner.Connect(ctx)
 	if err != nil {
 		log.Error("failed to connect to messenger", "error", err)
 	} else {
 		log.Info("messenger connected")
 	}
-	return err
+	return handler, err
 }
 
 func (lm *LoggingMessenger) Disconnect(ctx context.Context) error {

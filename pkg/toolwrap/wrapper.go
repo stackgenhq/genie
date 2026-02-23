@@ -20,10 +20,44 @@ import (
 
 const maxToolResultSize = 80000
 
+// ToolCaller is the pluggable contract for invoking a tool.
+//
+// The default implementation casts to tool.CallableTool and calls Call()
+// directly. Alternative implementations (e.g. toolexec) may route through
+// Temporal activities, gRPC, or any other execution backend.
+//
+// This interface lives in toolwrap — not in toolexec — so the middleware
+// package has zero knowledge of Temporal, keeping the dependency graph clean.
+type ToolCaller interface {
+	// CallTool executes the named tool with the given JSON arguments.
+	// Implementations must be safe for concurrent use.
+	CallTool(ctx context.Context, toolName string, args []byte) (any, error)
+}
+
+// DirectCaller is the default ToolCaller that invokes tools in-process
+// via the tool.CallableTool interface. This is the legacy execution path
+// and is used when no alternative caller is configured.
+type DirectCaller struct{}
+
+// CallTool implements ToolCaller by casting to tool.CallableTool. This is
+// never used directly — it exists as documentation. The Wrapper.execute()
+// method uses the same logic inline for backward compatibility.
+func (DirectCaller) CallTool(_ context.Context, _ string, _ []byte) (any, error) {
+	// Intentionally not implemented — the Wrapper has the concrete tool.Tool
+	// reference and calls ct.Call() directly. This type exists so callers
+	// can reference the default behaviour.
+	return nil, fmt.Errorf("DirectCaller.CallTool must not be called directly; use Wrapper.execute")
+}
+
 // Wrapper wraps a tool with a composable middleware chain.
 // After decoupling, the Wrapper is a thin shell: just the underlying tool
 // and a pre-built middleware chain. All mutable state lives inside the
 // middleware closures.
+//
+// When a ToolCaller is set, the terminal handler delegates to it instead
+// of calling tool.CallableTool.Call() directly. This allows plugging in
+// alternative execution strategies (e.g. Temporal activities) without
+// changing any middleware.
 type Wrapper struct {
 	tool.Tool
 	middleware Middleware
@@ -93,7 +127,17 @@ func (w *Wrapper) Call(ctx context.Context, jsonArgs []byte) (any, error) {
 }
 
 // execute is the terminal Handler that calls the real underlying tool.
+//
+// When a ToolCaller is configured on the Wrapper, the call is delegated
+// to it (e.g. Temporal activity execution). If the caller returns a
+// "not found" error (common for internal orchestrator tools like
+// create_agent / finish_task that don't exist in the tool registry),
+// execution falls back to the direct in-process path.
+//
+// Without this fallback, injecting a ToolCaller would break internal
+// tools that are never registered in the external tool registry.
 func (w *Wrapper) execute(ctx context.Context, tc *ToolCallContext) (any, error) {
+	// Default: direct in-process invocation.
 	ct, ok := w.Tool.(tool.CallableTool)
 	if !ok {
 		return nil, fmt.Errorf("tool is not callable")

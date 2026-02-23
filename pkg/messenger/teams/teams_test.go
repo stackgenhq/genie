@@ -80,8 +80,9 @@ var _ = Describe("Teams Messenger", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			err = m.Connect(context.Background())
+			handler, err := m.Connect(context.Background())
 			Expect(err).NotTo(HaveOccurred())
+			Expect(handler).NotTo(BeNil())
 
 			// Receive should work after connect.
 			ch, err := m.Receive(context.Background())
@@ -89,7 +90,7 @@ var _ = Describe("Teams Messenger", func() {
 			Expect(ch).NotTo(BeNil())
 
 			// Double connect should return ErrAlreadyConnected.
-			err = m.Connect(context.Background())
+			_, err = m.Connect(context.Background())
 			Expect(err).To(MatchError(messenger.ErrAlreadyConnected))
 
 			// Disconnect.
@@ -112,8 +113,9 @@ var _ = Describe("Teams Messenger", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			err = m.Connect(context.Background())
+			handler, err := m.Connect(context.Background())
 			Expect(err).NotTo(HaveOccurred())
+			Expect(handler).NotTo(BeNil())
 			defer func() { _ = m.Disconnect(context.Background()) }()
 
 			// Create a test request with invalid body.

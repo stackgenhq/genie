@@ -81,10 +81,6 @@ type Request struct {
 	// and read_multiple_files, preventing redundant reads within the same session.
 	WorkingMemory *rtmemory.WorkingMemory
 
-	// SenderContext identifies the user/channel for this request.
-	// Used to isolate session history for multi-user environments.
-	SenderContext string
-
 	// Attachments holds file/media attachments from the incoming message.
 	// Image attachments with LocalPath are added as multimodal content parts
 	// so the LLM can "see" them. Other attachments are described textually.
@@ -286,8 +282,8 @@ func (e *expert) Do(ctx context.Context, req Request) (Response, error) {
 	})
 
 	sessionID := e.sessionID
-	if req.SenderContext != "" {
-		sessionID = req.SenderContext
+	if sessionID == "" {
+		sessionID = messenger.MessageOriginFrom(ctx).String()
 	}
 
 	// Retry transient upstream LLM errors (503 / rate-limit / overloaded).

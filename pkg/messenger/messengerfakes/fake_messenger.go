@@ -3,22 +3,25 @@ package messengerfakes
 
 import (
 	"context"
+	"net/http"
 	"sync"
 
 	"github.com/appcd-dev/genie/pkg/messenger"
 )
 
 type FakeMessenger struct {
-	ConnectStub        func(context.Context) error
+	ConnectStub        func(context.Context) (http.Handler, error)
 	connectMutex       sync.RWMutex
 	connectArgsForCall []struct {
 		arg1 context.Context
 	}
 	connectReturns struct {
-		result1 error
+		result1 http.Handler
+		result2 error
 	}
 	connectReturnsOnCall map[int]struct {
-		result1 error
+		result1 http.Handler
+		result2 error
 	}
 	ConnectionInfoStub        func() string
 	connectionInfoMutex       sync.RWMutex
@@ -106,7 +109,7 @@ type FakeMessenger struct {
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeMessenger) Connect(arg1 context.Context) error {
+func (fake *FakeMessenger) Connect(arg1 context.Context) (http.Handler, error) {
 	fake.connectMutex.Lock()
 	ret, specificReturn := fake.connectReturnsOnCall[len(fake.connectArgsForCall)]
 	fake.connectArgsForCall = append(fake.connectArgsForCall, struct {
@@ -120,9 +123,9 @@ func (fake *FakeMessenger) Connect(arg1 context.Context) error {
 		return stub(arg1)
 	}
 	if specificReturn {
-		return ret.result1
+		return ret.result1, ret.result2
 	}
-	return fakeReturns.result1
+	return fakeReturns.result1, fakeReturns.result2
 }
 
 func (fake *FakeMessenger) ConnectCallCount() int {
@@ -131,7 +134,7 @@ func (fake *FakeMessenger) ConnectCallCount() int {
 	return len(fake.connectArgsForCall)
 }
 
-func (fake *FakeMessenger) ConnectCalls(stub func(context.Context) error) {
+func (fake *FakeMessenger) ConnectCalls(stub func(context.Context) (http.Handler, error)) {
 	fake.connectMutex.Lock()
 	defer fake.connectMutex.Unlock()
 	fake.ConnectStub = stub
@@ -144,27 +147,30 @@ func (fake *FakeMessenger) ConnectArgsForCall(i int) context.Context {
 	return argsForCall.arg1
 }
 
-func (fake *FakeMessenger) ConnectReturns(result1 error) {
+func (fake *FakeMessenger) ConnectReturns(result1 http.Handler, result2 error) {
 	fake.connectMutex.Lock()
 	defer fake.connectMutex.Unlock()
 	fake.ConnectStub = nil
 	fake.connectReturns = struct {
-		result1 error
-	}{result1}
+		result1 http.Handler
+		result2 error
+	}{result1, result2}
 }
 
-func (fake *FakeMessenger) ConnectReturnsOnCall(i int, result1 error) {
+func (fake *FakeMessenger) ConnectReturnsOnCall(i int, result1 http.Handler, result2 error) {
 	fake.connectMutex.Lock()
 	defer fake.connectMutex.Unlock()
 	fake.ConnectStub = nil
 	if fake.connectReturnsOnCall == nil {
 		fake.connectReturnsOnCall = make(map[int]struct {
-			result1 error
+			result1 http.Handler
+			result2 error
 		})
 	}
 	fake.connectReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
+		result1 http.Handler
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeMessenger) ConnectionInfo() string {

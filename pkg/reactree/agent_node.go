@@ -37,9 +37,6 @@ type AgentNodeConfig struct {
 	// If empty, defaults to TaskPlanning.
 	TaskType modelprovider.TaskType
 
-	// SenderContext identifies the user/channel for this request.
-	SenderContext string
-
 	// Attachments are file/media attachments from the incoming message.
 	// Image attachments are passed as multimodal content to the LLM.
 	Attachments []messenger.Attachment
@@ -124,7 +121,6 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 				AdditionalTools: cfg.Tools,
 				WorkingMemory:   wm,
 				TaskType:        cfg.TaskType,
-				SenderContext:   cfg.SenderContext,
 				Attachments:     cfg.Attachments,
 			})
 		}

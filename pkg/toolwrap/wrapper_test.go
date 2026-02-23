@@ -480,3 +480,23 @@ var _ = Describe("Service.Wrap", func() {
 		Expect(svc.Wrap(nil, toolwrap.WrapRequest{})).To(BeEmpty())
 	})
 })
+
+// =============================================================================
+// ToolCaller Delegation Tests
+// =============================================================================
+
+// fakeToolCaller is a test double for the ToolCaller interface.
+type fakeToolCaller struct {
+	callCount int
+	toolName  string
+	args      []byte
+	result    any
+	err       error
+}
+
+func (c *fakeToolCaller) CallTool(_ context.Context, toolName string, args []byte) (any, error) {
+	c.callCount++
+	c.toolName = toolName
+	c.args = args
+	return c.result, c.err
+}

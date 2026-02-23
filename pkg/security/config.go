@@ -18,3 +18,10 @@ type Config struct {
 	//   "SLACK_BOT_TOKEN": "file:///run/secrets/slack-token?decoder=string"
 	Secrets map[string]string `yaml:"secrets" toml:"secrets"`
 }
+
+func (c Config) Provider() SecretProvider {
+	if len(c.Secrets) > 0 {
+		return NewManager(c)
+	}
+	return NewEnvProvider()
+}

@@ -257,7 +257,6 @@ func (t *tree) prepareGraph(req TreeRequest, ls *loopState) (*graph.Graph, error
 		MaxDecisions:         t.config.MaxDecisionsPerNode,
 		EventChan:            iterEventChan,
 		Tools:                toolsToUse,
-		SenderContext:        req.SenderContext,
 		TaskType:             req.TaskType,
 		Attachments:          req.Attachments,
 		BudgetExhaustedTools: ls.budgetExhaustedTools(),

@@ -44,17 +44,20 @@ import (
 	"github.com/appcd-dev/genie/pkg/runbook"
 	"github.com/appcd-dev/genie/pkg/skills"
 	"github.com/appcd-dev/genie/pkg/tools"
-	"github.com/appcd-dev/genie/pkg/tools/atlassian"
-	"github.com/appcd-dev/genie/pkg/tools/bigquery"
-	"github.com/appcd-dev/genie/pkg/tools/email"
-	"github.com/appcd-dev/genie/pkg/tools/gdrive"
-	"github.com/appcd-dev/genie/pkg/tools/hubspot"
+	"github.com/appcd-dev/genie/pkg/tools/calendar"
+	"github.com/appcd-dev/genie/pkg/tools/codeskim"
+	"github.com/appcd-dev/genie/pkg/tools/datetime"
+	"github.com/appcd-dev/genie/pkg/tools/doctool"
+	"github.com/appcd-dev/genie/pkg/tools/encodetool"
+	"github.com/appcd-dev/genie/pkg/tools/jsontool"
+	mathtool "github.com/appcd-dev/genie/pkg/tools/math"
+	"github.com/appcd-dev/genie/pkg/tools/metrics"
 	"github.com/appcd-dev/genie/pkg/tools/networking"
-	"github.com/appcd-dev/genie/pkg/tools/pm"
-	"github.com/appcd-dev/genie/pkg/tools/salesforce"
-	"github.com/appcd-dev/genie/pkg/tools/scm"
-	"github.com/appcd-dev/genie/pkg/tools/slacktools"
-	"github.com/appcd-dev/genie/pkg/tools/snowflake"
+	"github.com/appcd-dev/genie/pkg/tools/ocrtool"
+	"github.com/appcd-dev/genie/pkg/tools/pkgsearch"
+	"github.com/appcd-dev/genie/pkg/tools/regextool"
+	"github.com/appcd-dev/genie/pkg/tools/sqltool"
+	"github.com/appcd-dev/genie/pkg/tools/webfetch"
 
 	"github.com/appcd-dev/genie/pkg/tools/websearch"
 
@@ -230,6 +233,7 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 		memorySvc,
 		a.cfg.Runbook,
 		sessionStore,
+		"",
 	)
 	if err != nil {
 		return fmt.Errorf("codeowner init: %w", err)
@@ -291,11 +295,15 @@ func (a *Application) Start(ctx context.Context) error {
 		log.Info("AG-UI server configured on AGUI messenger")
 	}
 
-	// Connect the messenger — for AGUI this starts the HTTP server,
-	// for external platforms this opens the connection to the platform API.
-	if err := a.msgr.Connect(ctx); err != nil {
+	// Connect the messenger — each adapter returns an optional http.Handler.
+	// HTTP-push adapters (Teams, Google Chat, AGUI) return a non-nil handler
+	// that needs to be mounted on the application's HTTP mux.
+	// Outbound adapters (Slack Socket Mode, Discord, Telegram) return nil.
+	messengerHandler, err := a.msgr.Connect(ctx)
+	if err != nil {
 		return fmt.Errorf("messenger connect: %w", err)
 	}
+	_ = messengerHandler // TODO: mount on shared HTTP mux
 
 	// --- Messenger receive loop (external messengers only) ---
 	if a.msgr.Platform() != messenger.PlatformAGUI {
@@ -403,11 +411,9 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 			}
 
 			if err := a.codeOwner.Chat(ctx, codeowner.CodeQuestion{
-				Question:      message,
-				OutputDir:     a.workingDir,
-				EventChan:     agentsMessage,
-				SenderContext: "agui:http",
-				BrowserTab:    tabCtx,
+				Question:   message,
+				EventChan:  agentsMessage,
+				BrowserTab: tabCtx,
 			}, outputChan); err != nil {
 				agui.EmitError(ctx, agentsMessage, err, "while processing AG-UI chat message")
 			}
@@ -430,9 +436,27 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.IStore) *tools.Registry {
 	log := logger.GetLogger(ctx).With("fn", "app.initToolRegistry")
 
+	// --- Secret provider (used by all auth-requiring tools) ---
+	sp := a.cfg.Security.Provider()
+
 	providers := []tools.ToolProviders{
 		websearch.NewToolProvider(a.cfg.WebSearch),
 		networking.NewToolProvider(),
+
+		// --- Utility tools (stateless, no external dependencies) ---
+		mathtool.NewToolProvider(),
+		datetime.NewToolProvider(),
+		encodetool.NewToolProvider(),
+		jsontool.NewToolProvider(),
+		regextool.NewToolProvider(),
+		webfetch.NewToolProvider(),
+		doctool.NewToolProvider(),
+		pkgsearch.NewToolProvider(),
+		codeskim.NewToolProvider(),
+		ocrtool.NewToolProvider(),
+		tools.Tools(sqltool.NewToolProvider(sp).GetTools("sql")),
+		tools.Tools(calendar.NewToolProvider(sp).GetTools("calendar")),
+		metrics.NewToolProvider(),
 	}
 
 	// --- MCP tools ---
@@ -473,92 +497,13 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 		log.Info("Browser initialized", "headless", true)
 	}
 
-	// --- SCM tools ---
-	if scmSvc, err := scm.New(a.cfg.SCM); err == nil {
-		if vErr := scmSvc.Validate(ctx); vErr != nil {
-			log.Warn("SCM health check failed", "error", vErr)
-		}
-		providers = append(providers, scm.NewToolProvider(scmSvc))
-		log.Debug("SCM tool provider added")
-	}
-
-	// --- PM tools ---
-	if pmSvc, err := pm.New(a.cfg.ProjectManagement); err == nil {
-		if vErr := pmSvc.Validate(ctx); vErr != nil {
-			log.Warn("PM health check failed", "error", vErr)
-		}
-		providers = append(providers, pm.NewToolProvider(pmSvc))
-	}
-	log.Debug("PM tool provider added")
-
-	// --- Email tools ---
-	if emailSvc, err := a.cfg.Email.New(); err == nil {
-		providers = append(providers, email.NewToolProvider(emailSvc))
-	}
-	log.Debug("Email tool provider added")
-
-	// --- Slack tools (search/read — distinct from messenger) ---
-	if slSvc, err := slacktools.New(a.cfg.Enterprise.SlackTools); err == nil {
-		if vErr := slSvc.Validate(ctx); vErr != nil {
-			log.Warn("Slack tools health check failed", "error", vErr)
-		}
-		providers = append(providers, slacktools.NewToolProvider(slSvc))
-		log.Debug("Slack tools provider added")
-	}
-
-	// --- Salesforce tools ---
-	if sforceSvc, err := salesforce.New(a.cfg.Enterprise.Salesforce); err == nil {
-		if vErr := sforceSvc.Validate(ctx); vErr != nil {
-			log.Warn("Salesforce health check failed", "error", vErr)
-		}
-		providers = append(providers, salesforce.NewToolProvider(sforceSvc))
-		log.Debug("Salesforce tool provider added")
-	}
-
-	// --- Atlassian tools (Jira + Confluence) ---
-	if atlSvc, err := atlassian.New(a.cfg.Enterprise.Atlassian); err == nil {
-		if vErr := atlSvc.Validate(ctx); vErr != nil {
-			log.Warn("Atlassian health check failed", "error", vErr)
-		}
-		providers = append(providers, atlassian.NewToolProvider(atlSvc))
-		log.Debug("Atlassian tool provider added")
-	}
-
-	// --- Snowflake tools ---
-	if sfSvc, err := snowflake.New(a.cfg.Enterprise.Snowflake); err == nil {
-		if vErr := sfSvc.Validate(ctx); vErr != nil {
-			log.Warn("Snowflake health check failed", "error", vErr)
-		}
-		providers = append(providers, snowflake.NewToolProvider(sfSvc))
-		log.Debug("Snowflake tool provider added")
-	}
-
-	// --- BigQuery tools ---
-	if bqSvc, err := bigquery.New(a.cfg.Enterprise.BigQuery); err == nil {
-		if vErr := bqSvc.Validate(ctx); vErr != nil {
-			log.Warn("BigQuery health check failed", "error", vErr)
-		}
-		providers = append(providers, bigquery.NewToolProvider(bqSvc))
-		log.Debug("BigQuery tool provider added")
-	}
-
-	// --- Google Drive tools ---
-	if gdSvc, err := gdrive.New(a.cfg.Enterprise.GDrive); err == nil {
-		if vErr := gdSvc.Validate(ctx); vErr != nil {
-			log.Warn("Google Drive health check failed", "error", vErr)
-		}
-		providers = append(providers, gdrive.NewToolProvider(gdSvc))
-		log.Debug("Google Drive tool provider added")
-	}
-
-	// --- HubSpot tools ---
-	if hsSvc, err := hubspot.New(a.cfg.Enterprise.HubSpot); err == nil {
-		if vErr := hsSvc.Validate(ctx); vErr != nil {
-			log.Warn("HubSpot health check failed", "error", vErr)
-		}
-		providers = append(providers, hubspot.NewToolProvider(hsSvc))
-		log.Debug("HubSpot tool provider added")
-	}
+	// NOTE: SCM, PM, Email, Slack, Salesforce, Atlassian, Snowflake,
+	// BigQuery, Google Drive, and HubSpot tools are now registered above
+	// in the providers slice. Each provider internally resolves secrets
+	// from the SecretProvider and constructs the service in GetTools().
+	// If required credentials are missing, the provider returns nil
+	// (tools silently excluded from registry) instead of failing loudly.
+	log.Debug("Auth-requiring tool providers registered (secret resolution deferred to GetTools)")
 
 	// --- Clarify tool ---
 	// Clarify emitter bridges clarify → AG-UI + messenger.
@@ -867,12 +812,10 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 		}
 
 		if err := a.codeOwner.Chat(traceCtx, codeowner.CodeQuestion{
-			Question:      msg.Content.Text,
-			OutputDir:     a.workingDir,
-			EventChan:     eventChan,
-			SenderContext: senderCtx,
-			BrowserTab:    tabCtx,
-			Attachments:   msg.Content.Attachments,
+			Question:    msg.Content.Text,
+			EventChan:   eventChan,
+			BrowserTab:  tabCtx,
+			Attachments: msg.Content.Attachments,
 		}, agentThoughts); err != nil {
 			agui.EmitError(ctx, eventChan, err, "while processing messenger message")
 		}

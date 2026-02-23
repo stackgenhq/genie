@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"log/slog"
 	"net/http"
 	"os"
 	"sync"
@@ -56,17 +57,15 @@ type Config struct {
 }
 
 // Messenger implements the [messenger.Messenger] interface for Google Chat.
-// It manages the Chat API client, an HTTP push listener for incoming events,
-// and connection state through an internal mutex.
+// It manages the Chat API client, returns an HTTP handler for incoming push
+// events, and tracks connection state through an internal mutex.
 type Messenger struct {
 	cfg        Config
 	adapterCfg messenger.AdapterConfig
 	chatSvc    *chat.Service
 	incoming   chan messenger.IncomingMessage
-	server     *http.Server
 	connected  bool
 	cancel     context.CancelFunc
-	wg         sync.WaitGroup
 	mu         sync.RWMutex
 }
 
@@ -118,37 +117,45 @@ type gcUser struct {
 // New creates a new Google Chat Messenger with the given config and options.
 func New(cfg Config, opts ...messenger.Option) *Messenger {
 	adapterCfg := messenger.ApplyOptions(opts...)
+
+	if cfg.ListenAddr != "" {
+		slog.Warn("Google Chat ListenAddr is deprecated and ignored — the shared HTTP server is managed by the application",
+			"listen_addr", cfg.ListenAddr)
+	}
+
 	return &Messenger{
 		cfg:        cfg,
 		adapterCfg: adapterCfg,
 	}
 }
 
-// Connect initializes the Chat API client and starts the HTTP push listener.
-func (m *Messenger) Connect(ctx context.Context) error {
+// Connect initializes the Chat API client and returns an http.Handler
+// for receiving Google Chat push events. The caller mounts this handler
+// on a shared HTTP mux at the desired context path.
+//
+// The adapter DOES NOT start its own http.Server.
+func (m *Messenger) Connect(ctx context.Context) (http.Handler, error) {
 	log := logger.GetLogger(ctx).With("platform", "googlechat", "fn", "googlechat.Connect")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.connected {
-		return messenger.ErrAlreadyConnected
+		return nil, messenger.ErrAlreadyConnected
 	}
 
 	// Initialize the Chat API service.
 	var chatOpts []option.ClientOption
 	if m.cfg.CredentialsFile != "" {
-		// Read credentials file content to avoid deprecated WithCredentialsFile
-		// which is flagged as a potential security risk by staticcheck
 		creds, err := os.ReadFile(m.cfg.CredentialsFile)
 		if err != nil {
-			return fmt.Errorf("failed to read credentials file: %w", err)
+			return nil, fmt.Errorf("failed to read credentials file: %w", err)
 		}
 		chatOpts = append(chatOpts, option.WithAuthCredentialsJSON(option.ServiceAccount, creds))
 	}
 
 	svc, err := chat.NewService(ctx, chatOpts...)
 	if err != nil {
-		return fmt.Errorf("failed to create Google Chat service: %w", err)
+		return nil, fmt.Errorf("failed to create Google Chat service: %w", err)
 	}
 	m.chatSvc = svc
 
@@ -157,27 +164,9 @@ func (m *Messenger) Connect(ctx context.Context) error {
 	_, cancel := context.WithCancel(ctx)
 	m.cancel = cancel
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", m.handleEvent)
-
-	m.server = &http.Server{
-		Addr:              m.cfg.ListenAddr,
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-
-	m.wg.Add(1)
-	go func() {
-		defer m.wg.Done()
-		log.Info("starting Google Chat HTTP push listener", "addr", m.cfg.ListenAddr)
-		if err := m.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.GetLogger(ctx).With("platform", "googlechat").Error("Google Chat HTTP server error", "error", err)
-		}
-	}()
-
 	m.connected = true
-	log.Info("connected to Google Chat")
-	return nil
+	log.Info("Google Chat adapter connected (handler returned for caller to mount)")
+	return http.HandlerFunc(m.handleEvent), nil
 }
 
 // Disconnect gracefully shuts down the Google Chat adapter.
@@ -191,16 +180,7 @@ func (m *Messenger) Disconnect(ctx context.Context) error {
 	}
 
 	m.cancel()
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(ctx, 5*time.Second)
-	defer shutdownCancel()
-
-	if err := m.server.Shutdown(shutdownCtx); err != nil {
-		log.Error("Google Chat server shutdown error", "error", err)
-	}
-
-	m.wg.Wait()
-	close(m.incoming)
+	m.incoming = nil
 	m.connected = false
 	log.Info("disconnected from Google Chat")
 	return nil
@@ -369,6 +349,13 @@ func (m *Messenger) convertAndPublish(ctx context.Context, event chatEvent) {
 			ContentType: a.ContentType,
 		}
 		msg.Content.Attachments = append(msg.Content.Attachments, att)
+	}
+
+	m.mu.RLock()
+	connected := m.connected
+	m.mu.RUnlock()
+	if !connected {
+		return
 	}
 
 	select {

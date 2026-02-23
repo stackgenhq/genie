@@ -22,6 +22,7 @@ package telegram
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strconv"
 	"sync"
 	"time"
@@ -83,13 +84,14 @@ func New(cfg Config, opts ...messenger.Option) (*Messenger, error) {
 }
 
 // Connect starts the Telegram bot with long-polling.
-func (m *Messenger) Connect(ctx context.Context) error {
+// Returns a nil http.Handler since Telegram long-polling is outbound.
+func (m *Messenger) Connect(ctx context.Context) (http.Handler, error) {
 	log := logger.GetLogger(ctx).With("platform", "telegram", "fn", "telegram.Connect")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.connected {
-		return messenger.ErrAlreadyConnected
+		return nil, messenger.ErrAlreadyConnected
 	}
 
 	m.incoming = make(chan messenger.IncomingMessage, m.adapterCfg.MessageBufferSize)
@@ -106,7 +108,7 @@ func (m *Messenger) Connect(ctx context.Context) error {
 
 	m.connected = true
 	log.Info("connected to Telegram via long-polling")
-	return nil
+	return nil, nil
 }
 
 // Disconnect gracefully shuts down the Telegram bot.

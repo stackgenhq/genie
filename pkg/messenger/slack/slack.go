@@ -27,6 +27,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -50,25 +51,37 @@ func init() {
 // Config holds Slack-specific configuration.
 type Config struct {
 	// AppToken is the Slack app-level token (xapp-...) required for Socket Mode.
+	// Not needed when using HTTP Events API mode (SigningSecret + SharedMux).
 	AppToken string
 	// BotToken is the Slack bot user OAuth token (xoxb-...).
 	BotToken string
+	// SigningSecret is used to verify incoming HTTP Events API requests.
+	// When set together with WithSharedMux(), the adapter operates in HTTP
+	// push mode instead of Socket Mode: incoming events arrive as signed
+	// HTTP POST requests rather than over a WebSocket connection.
+	// See: https://api.slack.com/authentication/verifying-requests-from-slack
+	SigningSecret string
 }
 
-// Messenger implements the [messenger.Messenger] interface for Slack using
-// Socket Mode. It manages the WebSocket lifecycle, event routing, incoming
-// message buffer, and connection state through an internal mutex.
+// Messenger implements the [messenger.Messenger] interface for Slack.
+// It supports two transport modes:
+//   - Socket Mode (default): outbound WebSocket, no public endpoint required.
+//   - HTTP Events API: inbound HTTP push, requires SigningSecret + SharedMux.
+//
+// It manages the event routing, incoming message buffer, and connection
+// state through an internal mutex.
 type Messenger struct {
-	cfg        Config
-	adapterCfg messenger.AdapterConfig
-	api        *slack.Client
-	socket     *socketmode.Client
-	incoming   chan messenger.IncomingMessage
-	connected  bool
-	cancel     context.CancelFunc
-	connCtx    context.Context
-	wg         sync.WaitGroup
-	mu         sync.RWMutex
+	cfg           Config
+	adapterCfg    messenger.AdapterConfig
+	api           *slack.Client
+	socket        *socketmode.Client
+	incoming      chan messenger.IncomingMessage
+	eventsHandler *eventsHTTPHandler // non-nil when using HTTP Events API mode
+	connected     bool
+	cancel        context.CancelFunc
+	connCtx       context.Context
+	wg            sync.WaitGroup
+	mu            sync.RWMutex
 }
 
 // New creates a new Slack Messenger with the given config and options.
@@ -80,14 +93,28 @@ func New(cfg Config, opts ...messenger.Option) *Messenger {
 	}
 }
 
-// Connect establishes a Socket Mode connection to Slack.
-func (m *Messenger) Connect(ctx context.Context) error {
+// useHTTPEventsAPI returns true when the adapter should use HTTP Events API
+// mode instead of Socket Mode. This requires a signing secret to be configured.
+func (m *Messenger) useHTTPEventsAPI() bool {
+	return m.cfg.SigningSecret != ""
+}
+
+// Connect establishes a connection to Slack and returns an optional
+// http.Handler.
+//
+// In HTTP Events API mode (SigningSecret set): returns a non-nil handler
+// that the caller mounts at a context path. Events arrive as signed HTTP
+// POST requests.
+//
+// In Socket Mode (default): returns nil handler and opens an outbound
+// WebSocket connection. No inbound HTTP required.
+func (m *Messenger) Connect(ctx context.Context) (http.Handler, error) {
 	log := logger.GetLogger(ctx).With("platform", "slack", "fn", "slack.Connect")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.connected {
-		return messenger.ErrAlreadyConnected
+		return nil, messenger.ErrAlreadyConnected
 	}
 
 	m.api = slack.New(
@@ -95,12 +122,25 @@ func (m *Messenger) Connect(ctx context.Context) error {
 		slack.OptionAppLevelToken(m.cfg.AppToken),
 	)
 
-	m.socket = socketmode.New(m.api)
 	m.incoming = make(chan messenger.IncomingMessage, m.adapterCfg.MessageBufferSize)
 
 	connCtx, cancel := context.WithCancel(ctx)
 	m.cancel = cancel
 	m.connCtx = connCtx
+
+	if m.useHTTPEventsAPI() {
+		// HTTP Events API mode: return handler for caller to mount.
+		m.eventsHandler = &eventsHTTPHandler{
+			signingSecret: m.cfg.SigningSecret,
+			incoming:      m.incoming,
+		}
+		m.connected = true
+		log.Info("connected to Slack via HTTP Events API")
+		return m.eventsHandler, nil
+	}
+
+	// Socket Mode: outbound WebSocket connection (nil handler).
+	m.socket = socketmode.New(m.api)
 
 	m.wg.Add(1)
 	go func() {
@@ -118,7 +158,7 @@ func (m *Messenger) Connect(ctx context.Context) error {
 
 	m.connected = true
 	log.Info("connected to Slack via Socket Mode")
-	return nil
+	return nil, nil
 }
 
 // Disconnect gracefully shuts down the Slack connection.
@@ -132,8 +172,15 @@ func (m *Messenger) Disconnect(ctx context.Context) error {
 	}
 
 	m.cancel()
-	m.wg.Wait()
-	close(m.incoming)
+	if m.useHTTPEventsAPI() {
+		// HTTP Events API mode: don't close the channel, in-flight
+		// requests from the shared HTTP server may still write to it.
+		m.incoming = nil
+	} else {
+		// Socket Mode: goroutines are drained by wg.Wait() first.
+		m.wg.Wait()
+		close(m.incoming)
+	}
 	m.connected = false
 	log.Info("disconnected from Slack")
 	return nil
@@ -223,6 +270,9 @@ func (m *Messenger) Platform() messenger.Platform {
 
 // ConnectionInfo returns connection instructions for the Slack adapter.
 func (m *Messenger) ConnectionInfo() string {
+	if m.useHTTPEventsAPI() {
+		return "Connected via Slack HTTP Events API — configure your Request URL to point to the GUILD ingress"
+	}
 	return "Connected via Slack Socket Mode — message me in your Slack workspace"
 }
 
