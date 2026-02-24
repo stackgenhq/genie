@@ -11,7 +11,7 @@ git:
 
 builds:
   - id: linux-build
-    binary: &binaryName genie
+    binary: &binaryName genie-beta
     goos:
       - linux
     goarch:
@@ -127,7 +127,7 @@ archives:
 blobs:
   - provider: s3
     bucket: appcd-public-releases
-    directory: binaries/genie/{{ .Tag }}
+    directory: binaries/genie-beta/{{ .Tag }}
     region: us-east-2
     ids:
       - darwin-archives
