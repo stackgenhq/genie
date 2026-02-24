@@ -13,6 +13,7 @@ import (
 	"time"
 
 	aguisdk "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
+	"github.com/appcd-dev/genie/pkg/agui"
 	aguitypes "github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/clarify"
 	"github.com/appcd-dev/genie/pkg/hitl"
@@ -175,6 +176,8 @@ func (w *BackgroundWorker) runAgent(ctx context.Context, req aguitypes.EventRequ
 
 	// Create a dummy channel that discards events (since there's no UI connected)
 	eventChan := make(chan interface{}, 100)
+	origin := messenger.MessageOriginFrom(ctx)
+	agui.Register(origin, eventChan)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -198,7 +201,8 @@ func (w *BackgroundWorker) runAgent(ctx context.Context, req aguitypes.EventRequ
 	// This blocks until the agent completes (or context is cancelled by timeout).
 	w.chatHandler.Handle(ctx, chatReq)
 
-	// Close channel to signal drainer to exit
+	// Deregister before close to prevent sends to closed channel.
+	agui.Deregister(origin)
 	close(eventChan)
 	wg.Wait()
 
@@ -528,13 +532,13 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	if userMessage == "" || strings.TrimSpace(userMessage) == "" {
-		http.Error(w, `{"error":"user message is empty or whitespace only"}`, http.StatusBadRequest)
+	if len(strings.TrimSpace(userMessage)) == 0 {
+		http.Error(w, `{"error":"user message is empty"}`, http.StatusBadRequest)
 		return
 	}
 
 	// Set up SSE writer
-	sse, err := NewSSEWriter(w)
+	sseWriter, err := NewSSEWriter(w)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 		return
@@ -560,6 +564,11 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	// Create event channel for this request
 	eventChan := make(chan interface{}, 100)
 
+	// Register the event channel on the global bus so any code with
+	// a context containing this MessageOrigin can emit events.
+	origin := messenger.MessageOriginFrom(ctx)
+	agui.Register(origin, eventChan)
+
 	// If a messenger bridge is configured, register this thread so that
 	// subsystems (HITL notifications, send_message tool) can route
 	// responses back to the SSE client via the adapter.
@@ -572,7 +581,12 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 
 	// Start the chat handler in a goroutine
 	go func() {
-		defer close(eventChan)
+		defer func() {
+			// Deregister BEFORE closing the channel to prevent
+			// sends to a closed channel from concurrent emitters.
+			agui.Deregister(origin)
+			close(eventChan)
+		}()
 		s.chatHandler.Handle(ctx, ChatRequest{
 			ThreadID:  input.ThreadID,
 			RunID:     input.RunID,
@@ -589,7 +603,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		for {
 			select {
 			case <-ticker.C:
-				if err := sse.WriteComment("ping"); err != nil {
+				if err := sseWriter.WriteComment("ping"); err != nil {
 					return
 				}
 			case <-streamDone:
@@ -601,7 +615,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Stream events as SSE. Content dedup is handled by the converter
-	// goroutine in NewChatHandlerFromCodeOwner. Here we only suppress
+	// goroutine in NewChatHandler. Here we only suppress
 	// duplicate RUN_STARTED events from EmitThinking calls per stage.
 	runStarted := false
 	for event := range eventChan {
@@ -623,7 +637,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 			runStarted = true
 		}
 
-		if err := sse.WriteEvent(eventType, data); err != nil {
+		if err := sseWriter.WriteEvent(eventType, data); err != nil {
 			logr.Debug("SSE write failed (client likely disconnected)", "error", err)
 			break
 		}

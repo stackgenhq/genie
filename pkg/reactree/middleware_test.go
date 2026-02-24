@@ -4,27 +4,11 @@ import (
 	"context"
 
 	"github.com/appcd-dev/genie/pkg/reactree"
+	"github.com/appcd-dev/genie/pkg/tools/toolsfakes"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
-
-// mockCallableTool is a dummy tool for testing the middleware wrapper.
-type mockCallableTool struct {
-	name        string
-	calledCount int
-}
-
-func (m *mockCallableTool) Declaration() *tool.Declaration {
-	return &tool.Declaration{Name: m.name}
-}
-
-func (m *mockCallableTool) Call(ctx context.Context, jsonArgs []byte) (any, error) {
-	m.calledCount++
-	return "success", nil
-}
-
-var _ tool.CallableTool = (*mockCallableTool)(nil)
 
 var _ = Describe("Critic Middleware", func() {
 	var ctx context.Context
@@ -51,9 +35,11 @@ var _ = Describe("Critic Middleware", func() {
 	Context("ValidatingToolWrapper", func() {
 		It("should forward calls if validator passes", func() {
 			validator := reactree.NewDeterministicValidator([]string{"block_me"})
-			mockTool := &mockCallableTool{name: "safe_tool"}
+			ft := &toolsfakes.FakeCallableTool{}
+			ft.DeclarationReturns(&tool.Declaration{Name: "safe_tool"})
+			ft.CallReturns("success", nil)
 
-			wrapped := reactree.WrapWithValidator(mockTool, validator)
+			wrapped := reactree.WrapWithValidator(ft, validator)
 
 			// Needs to be asserted to CallableTool to call
 			callable, ok := wrapped.(tool.CallableTool)
@@ -62,14 +48,16 @@ var _ = Describe("Critic Middleware", func() {
 			res, err := callable.Call(ctx, []byte("{}"))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res).To(Equal("success"))
-			Expect(mockTool.calledCount).To(Equal(1))
+			Expect(ft.CallCallCount()).To(Equal(1))
 		})
 
 		It("should block calls and return error if validator fails", func() {
 			validator := reactree.NewDeterministicValidator([]string{"unsafe_tool"})
-			mockTool := &mockCallableTool{name: "unsafe_tool"}
+			ft := &toolsfakes.FakeCallableTool{}
+			ft.DeclarationReturns(&tool.Declaration{Name: "unsafe_tool"})
+			ft.CallReturns("success", nil)
 
-			wrapped := reactree.WrapWithValidator(mockTool, validator)
+			wrapped := reactree.WrapWithValidator(ft, validator)
 
 			callable, ok := wrapped.(tool.CallableTool)
 			Expect(ok).To(BeTrue())
@@ -77,13 +65,14 @@ var _ = Describe("Critic Middleware", func() {
 			_, err := callable.Call(ctx, []byte("{}"))
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("action pruned by critic"))
-			Expect(mockTool.calledCount).To(Equal(0)) // Tool should not have been called
+			Expect(ft.CallCallCount()).To(Equal(0)) // Tool should not have been called
 		})
 
 		It("should return unmodified tool if validator is nil", func() {
-			mockTool := &mockCallableTool{name: "safe_tool"}
-			wrapped := reactree.WrapWithValidator(mockTool, nil)
-			Expect(wrapped).To(Equal(mockTool)) // Exact same pointer
+			ft := &toolsfakes.FakeCallableTool{}
+			ft.DeclarationReturns(&tool.Declaration{Name: "safe_tool"})
+			wrapped := reactree.WrapWithValidator(ft, nil)
+			Expect(wrapped).To(Equal(ft)) // Exact same pointer
 		})
 	})
 })

@@ -8,7 +8,6 @@ type ctxKey int
 const (
 	ctxKeyThreadID ctxKey = iota
 	ctxKeyRunID
-	ctxKeyEventChan
 )
 
 // ThreadIDFromContext returns the ThreadID stored in the context by the AG-UI handler.
@@ -25,20 +24,6 @@ func RunIDFromContext(ctx context.Context) string {
 		return v
 	}
 	return ""
-}
-
-// WithEventChan stores the event channel in context so sub-agent tool wrappers
-// can emit HITL approval events back to the parent UI stream.
-func WithEventChan(ctx context.Context, ch chan<- interface{}) context.Context {
-	return context.WithValue(ctx, ctxKeyEventChan, ch)
-}
-
-// EventChanFromContext returns the EventChan stored in context, or nil.
-func EventChanFromContext(ctx context.Context) chan<- interface{} {
-	if v, ok := ctx.Value(ctxKeyEventChan).(chan<- interface{}); ok {
-		return v
-	}
-	return nil
 }
 
 // WithThreadID stores the ThreadID in context so nested tools (e.g. create_agent)

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/appcd-dev/genie/pkg/agui"
+	"github.com/appcd-dev/genie/pkg/messenger"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -30,24 +31,21 @@ var _ = Describe("Context Helpers", func() {
 			Expect(agui.RunIDFromContext(context.Background())).To(Equal(""))
 		})
 	})
-
-	Describe("WithEventChan / EventChanFromContext", func() {
-		It("should store and retrieve event channel", func() {
-			ch := make(chan<- interface{}, 1)
-			ctx := agui.WithEventChan(context.Background(), ch)
-			Expect(agui.EventChanFromContext(ctx)).NotTo(BeNil())
-		})
-
-		It("should return nil when not set", func() {
-			Expect(agui.EventChanFromContext(context.Background())).To(BeNil())
-		})
-	})
 })
 
-var _ = Describe("EmitAgentMessage", func() {
-	It("should emit message to event channel", func() {
+var _ = Describe("EmitAgentMessage (via bus)", func() {
+	It("should emit message to registered channel", func() {
 		ch := make(chan interface{}, 10)
-		agui.EmitAgentMessage(context.Background(), ch, "agent", "Hello, user!")
+		origin := messenger.MessageOrigin{
+			Platform: messenger.PlatformAGUI,
+			Channel:  messenger.Channel{ID: "test-emit"},
+			Sender:   messenger.Sender{ID: "user"},
+		}
+		ctx := messenger.WithMessageOrigin(context.Background(), origin)
+		agui.Register(origin, ch)
+		defer agui.Deregister(origin)
+
+		agui.EmitAgentMessage(ctx, "agent", "Hello, user!")
 
 		Expect(ch).To(HaveLen(1))
 		evt := <-ch
@@ -57,16 +55,25 @@ var _ = Describe("EmitAgentMessage", func() {
 		Expect(msg.Message).To(Equal("Hello, user!"))
 	})
 
-	It("should not panic with nil channel", func() {
+	It("should not panic with no registered channel", func() {
 		Expect(func() {
-			agui.EmitAgentMessage(context.Background(), nil, "agent", "test")
+			agui.EmitAgentMessage(context.Background(), "agent", "test")
 		}).NotTo(Panic())
 	})
 
 	It("should drop message when channel is full", func() {
 		ch := make(chan interface{}) // unbuffered = always full when no receiver
+		origin := messenger.MessageOrigin{
+			Platform: messenger.PlatformAGUI,
+			Channel:  messenger.Channel{ID: "test-full"},
+			Sender:   messenger.Sender{ID: "user"},
+		}
+		ctx := messenger.WithMessageOrigin(context.Background(), origin)
+		agui.Register(origin, ch)
+		defer agui.Deregister(origin)
+
 		Expect(func() {
-			agui.EmitAgentMessage(context.Background(), ch, "agent", "dropped")
+			agui.EmitAgentMessage(ctx, "agent", "dropped")
 		}).NotTo(Panic())
 	})
 })

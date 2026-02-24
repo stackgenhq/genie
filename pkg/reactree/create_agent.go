@@ -180,15 +180,13 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	// Wrap sub-agent tools with HITL approval, audit logging, and caching.
 	// This ensures every sub-agent tool call (run_shell, save_file, etc.)
 	// goes through the same approval gate as parent-agent tools.
-	// Extract per-request fields (EventChan, ThreadID, RunID) from context
+	// Extract per-request fields (ThreadID, RunID) from context
 	// so HITL approval events propagate to the UI correctly.
 	threadID := agui.ThreadIDFromContext(ctx)
 	runID := agui.RunIDFromContext(ctx)
-	evChan := agui.EventChanFromContext(ctx)
 	logr.Info("wrapping sub-agent tools with HITL",
 		"threadID", threadID,
 		"runID", runID,
-		"hasEventChan", evChan != nil,
 	)
 	// Scope sub-agent tools to only the ones the planner requested.
 	// If req.ToolNames is empty, all sub-agent tools are available.
@@ -196,12 +194,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	if len(req.ToolNames) > 0 {
 		scopedRegistry = scopedRegistry.Include(req.ToolNames...)
 	}
-	selectedTools := t.toolWrapSvc.Wrap(scopedRegistry.AllTools(), toolwrap.WrapRequest{
-		EventChan:     evChan,
-		ThreadID:      threadID,
-		RunID:         runID,
-		MessageOrigin: messenger.MessageOriginFrom(ctx),
-	})
+	selectedTools := t.toolWrapSvc.Wrap(scopedRegistry.AllTools(), toolwrap.WrapRequest{})
 
 	// Working memory is injected into the prompt automatically.
 	// No scratchpad tools needed — follows trpc-agent-go pattern.
@@ -251,7 +244,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	// Create a fresh sub-agent with only the selected tools
 	subAgent := llmagent.New(
 		req.AgentName,
-		llmagent.WithModel(modelToUse),
+		llmagent.WithModels(modelToUse),
 		llmagent.WithTools(selectedTools),
 		llmagent.WithInstruction(instruction),
 		llmagent.WithDescription("Focused sub-agent for delegated tasks"),
@@ -270,7 +263,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	// instead of genie's manual accumulateContext() truncation.
 	sessionSvc := inmemory.NewSessionService(
 		inmemory.WithSummarizer(summary.NewSummarizer(
-			modelToUse,
+			modelToUse.GetAny(),
 			summary.WithTokenThreshold(2000),
 			summary.WithName("subagent-summarizer"),
 		)),
@@ -422,12 +415,6 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 		}
 	}
 
-	if status == "success" {
-		// Prefix tells the parent agent not to re-present this data, since
-		// the sub-agent already streamed it to the user during execution.
-		result = "[SHOWN TO USER] Do not repeat; confirm completion or add NEW info only.\n" + result
-	}
-
 	return CreateAgentResponse{
 		Output: result,
 		Status: status,
@@ -475,23 +462,14 @@ func (t *createAgentTool) executePlan(ctx context.Context, req CreateAgentReques
 		maxDecisions = maxLLMCallsCap
 	}
 
-	// Get the event channel from context for progress events.
-	evChan := agui.EventChanFromContext(ctx)
-
 	result, err := ExecutePlan(ctx, plan, OrchestratorConfig{
 		Expert:        t.expert,
 		WorkingMemory: t.workingMemory,
 		Episodic:      t.episodic,
 		MaxDecisions:  maxDecisions,
-		EventChan:     evChan,
 		ToolRegistry:  t.subAgentRegistry, // use filtered registry — no create_agent/send_message
 		ToolWrapSvc:   t.toolWrapSvc,
-		WrapRequest: toolwrap.WrapRequest{
-			EventChan:     evChan,
-			ThreadID:      agui.ThreadIDFromContext(ctx),
-			RunID:         agui.RunIDFromContext(ctx),
-			MessageOrigin: messenger.MessageOriginFrom(ctx),
-		},
+		WrapRequest:   toolwrap.WrapRequest{},
 		ModelProvider: t.modelProvider,
 	})
 	if err != nil {

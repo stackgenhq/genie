@@ -185,6 +185,6 @@ var _ = Describe("Web Fetch ToolProvider", func() {
 		p := NewToolProvider()
 		tools := p.GetTools()
 		Expect(tools).To(HaveLen(1))
-		Expect(tools[0].Declaration().Name).To(Equal("util_web_fetch"))
+		Expect(tools[0].Declaration().Name).To(Equal("web_fetch"))
 	})
 })

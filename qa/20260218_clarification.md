@@ -17,7 +17,7 @@ Validates that the orchestrator (persona prompt) and sub-agents (`create_agent` 
 
 ### Arrange
 - Server running with default configuration
-- Open `docs/gh-pages/chat.html` in a browser, connect
+- Open `docs/chat.html` in a browser, connect
 
 ### Act
 1. Send: `Deploy the app`
@@ -43,7 +43,7 @@ Validates the full clarification round-trip: question → user input → agent r
 
 ### Arrange
 - Server running with default configuration
-- Open `docs/gh-pages/chat.html` in a browser, connect
+- Open `docs/chat.html` in a browser, connect
 - A clarification card is visible from a previous ambiguous request
 
 ### Act

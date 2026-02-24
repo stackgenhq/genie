@@ -27,6 +27,11 @@ import (
 	_ "trpc.group/trpc-go/trpc-agent-go/knowledge/document/reader/text"
 )
 
+type Runbook interface {
+	Load(ctx context.Context) (int, error)
+	KeepWatching(ctx context.Context)
+}
+
 const (
 	// conventionDir is the auto-discovered runbook directory inside
 	// the working directory. This follows convention-over-configuration:
@@ -63,6 +68,15 @@ func NewLoader(workingDirectory string, cfg Config, vectorStore vector.IStore) *
 		config:           cfg,
 		workingDirectory: workingDirectory,
 		vectorStore:      vectorStore,
+	}
+}
+
+func (l *Loader) KeepWatching(ctx context.Context) {
+	// Start a file watcher to keep runbooks in sync with the vector store.
+	if watcher, err := NewWatcher(l, l.vectorStore, l.WatchDirs()); err != nil {
+		logger.GetLogger(ctx).Warn("failed to start runbook watcher", "error", err)
+	} else {
+		go watcher.Start(ctx)
 	}
 }
 

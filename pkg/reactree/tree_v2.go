@@ -57,7 +57,7 @@ func (t *tree) runAdaptiveLoop_v2(ctx context.Context, req TreeRequest) (TreeRes
 		}
 
 		// 2. Process results and update context
-		t.updateLoopState(ls, req.EventChan)
+		t.updateLoopState(ls)
 
 		// Hook: iteration end.
 		t.hooks.OnIterationEnd(ctx, hooks.IterationEndEvent{
@@ -69,7 +69,7 @@ func (t *tree) runAdaptiveLoop_v2(ctx context.Context, req TreeRequest) (TreeRes
 		})
 
 		// Enterprise: run RAR reflection if enabled.
-		if t.config.EnterpriseFeatures.EnableActionReflection {
+		if t.config.Toggles.EnableActionReflection {
 			// Derive the list of tools actually called during this iteration.
 			var toolsCalled []string
 			for name, count := range ls.toolCallCounts {
@@ -226,15 +226,10 @@ func (t *tree) prepareGraph(req TreeRequest, ls *loopState) (*graph.Graph, error
 	schema := NewReAcTreeSchema()
 	sg := graph.NewStateGraph(schema)
 
-	// Always forward EventChan so the user sees tool-call progress indicators
-	// ("Thinking...") during every iteration, including validation probes.
-	// Output suppression is handled at the result level by updateLoopState.
-	iterEventChan := req.EventChan
-
 	toolsToUse := ls.toolsForIteration(req.Tools)
 
 	// Enterprise: wrap tools with critic middleware if enabled.
-	if t.config.EnterpriseFeatures.EnableCriticMiddleware {
+	if t.config.Toggles.EnableCriticMiddleware {
 		validator := NewDeterministicValidator(nil)
 		wrapped := make([]tool.Tool, len(toolsToUse))
 		for i, tl := range toolsToUse {
@@ -244,7 +239,7 @@ func (t *tree) prepareGraph(req TreeRequest, ls *loopState) (*graph.Graph, error
 	}
 
 	// Enterprise: wrap tools for dry run simulation if enabled.
-	if t.config.EnterpriseFeatures.EnableDryRunSimulation {
+	if t.config.Toggles.EnableDryRunSimulation {
 		wrapped, _ := WrapToolsForDryRun(toolsToUse)
 		toolsToUse = wrapped
 	}
@@ -255,7 +250,6 @@ func (t *tree) prepareGraph(req TreeRequest, ls *loopState) (*graph.Graph, error
 		WorkingMemory:        t.resolveWorkingMemory(req),
 		Episodic:             t.resolveEpisodic(req),
 		MaxDecisions:         t.config.MaxDecisionsPerNode,
-		EventChan:            iterEventChan,
 		Tools:                toolsToUse,
 		TaskType:             req.TaskType,
 		Attachments:          req.Attachments,
@@ -294,16 +288,16 @@ func (t *tree) prepareGraph(req TreeRequest, ls *loopState) (*graph.Graph, error
 }
 
 // updateLoopState handles logic for output suppression and context accumulation.
-func (t *tree) updateLoopState(ls *loopState, eventChan chan<- any) {
+func (t *tree) updateLoopState(ls *loopState) {
 	// If task is complete but we already had output, suppress the "validation probe" chatter
 	if !ls.capturedTaskCompleted || !ls.priorHadOutput {
 		ls.lastOutput = ls.capturedOutput
 		ls.lastStatus = ls.capturedStatus
 	}
 
-	// Since EventChan is always forwarded, mark text as streamed whenever
-	// the completing iteration produced output and was sent to the user.
-	if eventChan != nil && ls.capturedTaskCompleted && ls.capturedOutput != "" {
+	// Mark text as streamed when the completing iteration produced output.
+	// The bus handles event routing — we just need to track that streaming happened.
+	if ls.capturedTaskCompleted && ls.capturedOutput != "" {
 		ls.textWasStreamed = true
 	}
 
@@ -365,17 +359,17 @@ func (ls *loopState) checkRepetition() bool {
 
 // ensureUserFeedback provides fallback UI messages if the loop was silent.
 func (t *tree) ensureUserFeedback(ctx context.Context, req TreeRequest, ls *loopState) {
-	if ls.textWasStreamed || req.EventChan == nil {
+	if ls.textWasStreamed || agui.ChannelFor(ctx) == nil {
 		return
 	}
 
 	switch {
 	case ls.lastOutput != "":
-		agui.EmitAgentMessage(ctx, req.EventChan, "genie", ls.lastOutput)
+		agui.EmitAgentMessage(ctx, "genie", ls.lastOutput)
 	case ls.contextBuffer.Len() > 0:
-		agui.EmitAgentMessage(ctx, req.EventChan, "genie", "I ran into issues but found this:\n\n"+ls.contextBuffer.String())
+		agui.EmitAgentMessage(ctx, "genie", "I ran into issues but found this:\n\n"+ls.contextBuffer.String())
 	default:
-		agui.EmitAgentMessage(ctx, req.EventChan, "genie", "I encountered an issue and couldn't complete this request.")
+		agui.EmitAgentMessage(ctx, "genie", "I encountered an issue and couldn't complete this request.")
 	}
 }
 
@@ -388,9 +382,9 @@ func (ls *loopState) toResult() TreeResult {
 }
 
 func (t *tree) emitIterationProgress(ctx context.Context, req TreeRequest, ls *loopState) {
-	if req.EventChan == nil {
+	if agui.ChannelFor(ctx) == nil {
 		return
 	}
-	agui.EmitStageProgress(ctx, req.EventChan, fmt.Sprintf("Iteration %d", ls.iteration), ls.iteration-1, ls.maxIterations)
-	agui.EmitThinking(ctx, req.EventChan, "code-owner", fmt.Sprintf("Thinking (%d/%d)...", ls.iteration, ls.maxIterations))
+	agui.EmitStageProgress(ctx, fmt.Sprintf("Iteration %d", ls.iteration), ls.iteration-1, ls.maxIterations)
+	agui.EmitThinking(ctx, "code-owner", fmt.Sprintf("Thinking (%d/%d)...", ls.iteration, ls.maxIterations))
 }

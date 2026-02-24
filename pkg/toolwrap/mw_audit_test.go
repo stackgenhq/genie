@@ -4,36 +4,11 @@ import (
 	"context"
 	"errors"
 
-	"github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/audit/auditfakes"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
-
-var _ = Describe("EmitterMiddleware", func() {
-	It("should emit AgentToolResponseMsg to event channel", func() {
-		eventChan := make(chan interface{}, 10)
-		mw := toolwrap.EmitterMiddleware(eventChan)
-		handler := mw.Wrap(passthrough("result"))
-
-		_, err := handler(context.Background(), tc("my_tool"))
-		Expect(err).NotTo(HaveOccurred())
-
-		Eventually(eventChan).Should(Receive(Satisfy(func(msg interface{}) bool {
-			toolMsg, ok := msg.(agui.AgentToolResponseMsg)
-			return ok && toolMsg.ToolName == "my_tool" && toolMsg.Response == "result"
-		})))
-	})
-
-	It("should not panic when eventChan is nil", func() {
-		mw := toolwrap.EmitterMiddleware(nil)
-		handler := mw.Wrap(passthrough("ok"))
-		result, err := handler(context.Background(), tc("test"))
-		Expect(err).NotTo(HaveOccurred())
-		Expect(result).To(Equal("ok"))
-	})
-})
 
 var _ = Describe("AuditMiddleware", func() {
 	It("should log successful calls via auditor", func() {

@@ -42,7 +42,7 @@ var _ = Describe("Summarizer", func() {
 			fakeModelProvider := &modelproviderfakes.FakeModelProvider{}
 			fakeModel := &modelproviderfakes.FakeModel{}
 			fakeModel.InfoReturns(model.Info{Name: "test-model"})
-			fakeModelProvider.GetModelReturns(fakeModel, nil)
+			fakeModelProvider.GetModelReturns(map[string]model.Model{"test-model": fakeModel}, nil)
 
 			s, err := agentutils.NewSummarizer(ctx, fakeModelProvider, fakeAuditor)
 			Expect(err).NotTo(HaveOccurred())

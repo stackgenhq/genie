@@ -79,19 +79,44 @@ func DefaultModelConfig(ctx context.Context, sp security.SecretProvider) ModelCo
 
 type ProviderConfigs []ProviderConfig
 
-func (providers ProviderConfigs) getForTask(taskType TaskType) (ProviderConfig, bool, error) {
+func (providers ProviderConfigs) Providers() []string {
+	result := []string{}
+	for _, provider := range providers {
+		result = append(result, provider.Provider)
+	}
+	return result
+}
+
+func (providers ProviderConfigs) toModels(ctx context.Context) (map[string]model.Model, error) {
+	models := map[string]model.Model{}
+	for _, provider := range providers {
+		model, err := provider.toModel(ctx)
+		if err != nil {
+			return nil, err
+		}
+		models[provider.String()] = model
+	}
+	return models, nil
+}
+
+func (providers ProviderConfigs) getForTask(taskType TaskType) (ProviderConfigs, bool, error) {
+	result := ProviderConfigs{}
 	for _, provider := range providers {
 		if provider.GoodForTask == taskType {
-			return provider, false, nil // exact match, no fallback
+			result = append(result, provider)
 		}
 	}
 	if len(providers) == 0 {
-		return ProviderConfig{}, false, fmt.Errorf("no providers configured")
+		return []ProviderConfig{}, false, fmt.Errorf("no providers configured")
 	}
-	return providers[0], true, nil // fallback to single/first provider
+	if len(result) == 0 {
+		return providers, true, nil // fallback to single/first provider
+	}
+	return result, false, nil // fallback to single/first provider
 }
 
 type ProviderConfig struct {
+	Name        string   `json:"name" yaml:"name" toml:"name"`
 	Provider    string   `json:"provider" yaml:"provider" toml:"provider"`
 	ModelName   string   `json:"model_name" yaml:"model_name" toml:"model_name"`
 	Variant     string   `json:"variant" yaml:"variant" toml:"variant"`
@@ -100,12 +125,87 @@ type ProviderConfig struct {
 	GoodForTask TaskType `json:"good_for_task" yaml:"good_for_task" toml:"good_for_task"`
 }
 
+func (p ProviderConfig) String() string {
+	if p.Name != "" {
+		return p.Name
+	}
+	return fmt.Sprintf("%s/%s", p.Provider, p.ModelName)
+}
+
+func (p ProviderConfig) toModel(ctx context.Context) (model.Model, error) {
+	switch strings.ToLower(p.Provider) {
+	case "openai":
+		opts := []openai.Option{}
+		if p.Token != "" {
+			opts = append(opts, openai.WithAPIKey(p.Token))
+		}
+		if p.Host != "" {
+			opts = append(opts, openai.WithBaseURL(p.Host))
+		}
+		if p.Variant != "" {
+			opts = append(opts, openai.WithVariant(openai.Variant(p.Variant)))
+		}
+		return openai.New(p.ModelName, opts...), nil
+	case "gemini":
+		opts := []gemini.Option{}
+		if p.Token != "" {
+			opts = append(opts, gemini.WithGeminiClientConfig(&genai.ClientConfig{
+				APIKey: p.Token,
+			}))
+		}
+		return gemini.New(ctx, p.ModelName, opts...)
+	case "anthropic":
+		opts := []anthropic.Option{}
+		if p.Token != "" {
+			opts = append(opts, anthropic.WithAPIKey(p.Token))
+		}
+		if p.Host != "" {
+			opts = append(opts, anthropic.WithBaseURL(p.Host))
+		}
+		return anthropic.New(p.ModelName, opts...), nil
+	case "ollama":
+		opts := []ollama.Option{}
+		if p.Host != "" {
+			opts = append(opts, ollama.WithHost(p.Host))
+		}
+		return ollama.New(p.ModelName, opts...), nil
+	case "huggingface":
+		opts := []huggingface.Option{}
+		if p.Host != "" {
+			opts = append(opts, huggingface.WithBaseURL(p.Host))
+		}
+		if p.Token != "" {
+			opts = append(opts, huggingface.WithAPIKey(p.Token))
+		}
+		return huggingface.New(p.ModelName, opts...)
+	}
+	return nil, fmt.Errorf("unknown model provider: %s", p.Provider)
+}
+
+// ModelMap is a map of model names to models
+type ModelMap map[string]model.Model
+
+func (m ModelMap) GetAny() model.Model {
+	for _, model := range m {
+		return model
+	}
+	return nil
+}
+
+func (m ModelMap) Providers() []string {
+	providers := []string{}
+	for name := range m {
+		providers = append(providers, name)
+	}
+	return providers
+}
+
 //go:generate go tool counterfeiter -generate
 
 //counterfeiter:generate trpc.group/trpc-go/trpc-agent-go/model.Model
 //counterfeiter:generate . ModelProvider
 type ModelProvider interface {
-	GetModel(ctx context.Context, taskType TaskType) (model.Model, error)
+	GetModel(ctx context.Context, taskType TaskType) (ModelMap, error)
 }
 
 type envBasedModelProvider struct {
@@ -118,10 +218,10 @@ func (c ModelConfig) NewEnvBasedModelProvider() ModelProvider {
 	}
 }
 
-func (e *envBasedModelProvider) GetModel(ctx context.Context, taskType TaskType) (model.Model, error) {
+func (e *envBasedModelProvider) GetModel(ctx context.Context, taskType TaskType) (ModelMap, error) {
 	logr := logger.GetLogger(ctx).With("fn", "envBasedModelProvider.GetModel")
 
-	providerConfig, usedFallback, err := e.cfg.Providers.getForTask(taskType)
+	eligibleProviders, usedFallback, err := e.cfg.Providers.getForTask(taskType)
 	if err != nil {
 		return nil, fmt.Errorf("no LLM providers configured: please set OPENAI_API_KEY, GEMINI_API_KEY, or ANTHROPIC_API_KEY environment variable: %w", err)
 	}
@@ -129,57 +229,9 @@ func (e *envBasedModelProvider) GetModel(ctx context.Context, taskType TaskType)
 	// Debug: Log provider selection with fallback information
 	logr.Debug("provider selected for task",
 		"requested_task_type", taskType,
-		"selected_provider", providerConfig.Provider,
-		"selected_model", providerConfig.ModelName,
-		"provider_good_for", providerConfig.GoodForTask,
+		"selected_provider", eligibleProviders.Providers(),
 		"used_fallback", usedFallback,
 	)
 
-	switch strings.ToLower(providerConfig.Provider) {
-	case "openai":
-		opts := []openai.Option{}
-		if providerConfig.Token != "" {
-			opts = append(opts, openai.WithAPIKey(providerConfig.Token))
-		}
-		if providerConfig.Host != "" {
-			opts = append(opts, openai.WithBaseURL(providerConfig.Host))
-		}
-		if providerConfig.Variant != "" {
-			opts = append(opts, openai.WithVariant(openai.Variant(providerConfig.Variant)))
-		}
-		return openai.New(providerConfig.ModelName, opts...), nil
-	case "gemini":
-		opts := []gemini.Option{}
-		if providerConfig.Token != "" {
-			opts = append(opts, gemini.WithGeminiClientConfig(&genai.ClientConfig{
-				APIKey: providerConfig.Token,
-			}))
-		}
-		return gemini.New(ctx, providerConfig.ModelName, opts...)
-	case "anthropic":
-		opts := []anthropic.Option{}
-		if providerConfig.Token != "" {
-			opts = append(opts, anthropic.WithAPIKey(providerConfig.Token))
-		}
-		if providerConfig.Host != "" {
-			opts = append(opts, anthropic.WithBaseURL(providerConfig.Host))
-		}
-		return anthropic.New(providerConfig.ModelName, opts...), nil
-	case "ollama":
-		opts := []ollama.Option{}
-		if providerConfig.Host != "" {
-			opts = append(opts, ollama.WithHost(providerConfig.Host))
-		}
-		return ollama.New(providerConfig.ModelName, opts...), nil
-	case "huggingface":
-		opts := []huggingface.Option{}
-		if providerConfig.Host != "" {
-			opts = append(opts, huggingface.WithBaseURL(providerConfig.Host))
-		}
-		if providerConfig.Token != "" {
-			opts = append(opts, huggingface.WithAPIKey(providerConfig.Token))
-		}
-		return huggingface.New(providerConfig.ModelName, opts...)
-	}
-	return nil, fmt.Errorf("unknown model provider: %s", providerConfig.Provider)
+	return eligibleProviders.toModels(ctx)
 }

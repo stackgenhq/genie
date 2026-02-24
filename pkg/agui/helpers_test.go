@@ -5,9 +5,22 @@ import (
 	"fmt"
 
 	"github.com/appcd-dev/genie/pkg/agui"
+	"github.com/appcd-dev/genie/pkg/messenger"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
+
+// testOrigin creates a unique MessageOrigin and registers the channel on the bus.
+func testOrigin(ch chan interface{}, id string) (context.Context, func()) {
+	origin := messenger.MessageOrigin{
+		Platform: messenger.PlatformAGUI,
+		Channel:  messenger.Channel{ID: id},
+		Sender:   messenger.Sender{ID: "test"},
+	}
+	ctx := messenger.WithMessageOrigin(context.Background(), origin)
+	agui.Register(origin, ch)
+	return ctx, func() { agui.Deregister(origin) }
+}
 
 var _ = Describe("Helpers", func() {
 	var eventChan chan interface{}
@@ -17,16 +30,19 @@ var _ = Describe("Helpers", func() {
 	})
 
 	Describe("EmitStageProgress", func() {
-		It("should emit StageProgressMsg", func(ctx context.Context) {
-			agui.EmitStageProgress(ctx, eventChan, "Testing", 1, 4)
+		It("should emit StageProgressMsg", func() {
+			ctx, cleanup := testOrigin(eventChan, "stage-progress-1")
+			defer cleanup()
+			agui.EmitStageProgress(ctx, "Testing", 1, 4)
 
 			Eventually(eventChan).Should(Receive(BeAssignableToTypeOf(agui.StageProgressMsg{})))
 
-			// Let's do it properly
-
 			// Reset chan
 			eventChan = make(chan interface{}, 10)
-			agui.EmitStageProgress(ctx, eventChan, "Testing", 1, 4)
+			ctx, cleanup2 := testOrigin(eventChan, "stage-progress-2")
+			defer cleanup2()
+
+			agui.EmitStageProgress(ctx, "Testing", 1, 4)
 			var receivedMsg interface{}
 			Eventually(eventChan).Should(Receive(&receivedMsg))
 
@@ -39,8 +55,10 @@ var _ = Describe("Helpers", func() {
 	})
 
 	Describe("EmitThinking", func() {
-		It("should emit AgentThinkingMsg", func(ctx context.Context) {
-			agui.EmitThinking(ctx, eventChan, "Agent", "Thinking...")
+		It("should emit AgentThinkingMsg", func() {
+			ctx, cleanup := testOrigin(eventChan, "thinking")
+			defer cleanup()
+			agui.EmitThinking(ctx, "Agent", "Thinking...")
 
 			var receivedMsg interface{}
 			Eventually(eventChan).Should(Receive(&receivedMsg))
@@ -52,8 +70,10 @@ var _ = Describe("Helpers", func() {
 	})
 
 	Describe("EmitCompletion", func() {
-		It("should emit AgentCompleteMsg", func(ctx context.Context) {
-			agui.EmitCompletion(ctx, eventChan, true, "Done", "/output")
+		It("should emit AgentCompleteMsg", func() {
+			ctx, cleanup := testOrigin(eventChan, "completion")
+			defer cleanup()
+			agui.EmitCompletion(ctx, true, "Done", "/output")
 
 			var receivedMsg interface{}
 			Eventually(eventChan).Should(Receive(&receivedMsg))
@@ -66,9 +86,11 @@ var _ = Describe("Helpers", func() {
 	})
 
 	Describe("EmitError", func() {
-		It("should emit AgentErrorMsg", func(ctx context.Context) {
+		It("should emit AgentErrorMsg", func() {
+			ctx, cleanup := testOrigin(eventChan, "error")
+			defer cleanup()
 			err := fmt.Errorf("oops")
-			agui.EmitError(ctx, eventChan, err, "context")
+			agui.EmitError(ctx, err, "context")
 
 			var receivedMsg interface{}
 			Eventually(eventChan).Should(Receive(&receivedMsg))

@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -23,7 +24,6 @@ import (
 	"github.com/appcd-dev/genie/pkg/audit"
 	"github.com/appcd-dev/genie/pkg/browser"
 	"github.com/appcd-dev/genie/pkg/clarify"
-	"github.com/appcd-dev/genie/pkg/codeowner"
 	"github.com/appcd-dev/genie/pkg/config"
 	"github.com/appcd-dev/genie/pkg/cron"
 	geniedb "github.com/appcd-dev/genie/pkg/db"
@@ -41,6 +41,8 @@ import (
 	_ "github.com/appcd-dev/genie/pkg/messenger/teams"    // register adapter
 	_ "github.com/appcd-dev/genie/pkg/messenger/telegram" // register adapter
 	_ "github.com/appcd-dev/genie/pkg/messenger/whatsapp" // register adapter
+	"github.com/appcd-dev/genie/pkg/orchestrator"
+	"github.com/appcd-dev/genie/pkg/osutils"
 	"github.com/appcd-dev/genie/pkg/runbook"
 	"github.com/appcd-dev/genie/pkg/skills"
 	"github.com/appcd-dev/genie/pkg/tools"
@@ -67,14 +69,6 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/skill"
 )
 
-// Params holds the inputs required to create an Application.
-type Params struct {
-	Config     config.GenieConfig
-	WorkingDir string
-	AuditPath  string
-	Version    string
-}
-
 // Application orchestrates the Genie lifecycle. Create one with
 // NewApplication, call Bootstrap to initialise all dependencies, then Start
 // to run the HTTP server. Call Close to release resources.
@@ -86,7 +80,7 @@ type Application struct {
 
 	// --- populated during Bootstrap ---
 	db            *gorm.DB
-	codeOwner     codeowner.CodeOwner
+	codeOwner     orchestrator.Orchestrator
 	approvalStore hitl.ApprovalStore
 	cronStore     cron.ICronStore
 	msgr          messenger.Messenger
@@ -114,18 +108,23 @@ type Application struct {
 
 // NewApplication creates a new Application with validated parameters.
 // No side-effects — heavy initialisation happens in Bootstrap.
-func NewApplication(p Params) (*Application, error) {
-	if p.WorkingDir == "" {
+func NewApplication(
+	config config.GenieConfig,
+	workingDir string,
+	auditPath string,
+	version string,
+) (*Application, error) {
+	if workingDir == "" {
 		return nil, fmt.Errorf("working directory is required")
 	}
-	if p.AuditPath == "" {
-		p.AuditPath = filepath.Join(p.WorkingDir, "genie_audit.ndjson")
+	if auditPath == "" {
+		auditPath = filepath.Join(workingDir, "genie_audit.ndjson")
 	}
 	return &Application{
-		cfg:        p.Config,
-		workingDir: p.WorkingDir,
-		auditPath:  p.AuditPath,
-		version:    p.Version,
+		cfg:        config,
+		workingDir: workingDir,
+		auditPath:  auditPath,
+		version:    version,
 	}, nil
 }
 
@@ -221,19 +220,24 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 	sessionStore := geniedb.NewSessionStore(a.db)
 	log.Info("GORM-backed session store initialized for persistent chat history")
 
+	// --- Runbook loader ---
+	runbookLoader := runbook.NewLoader(a.workingDir, a.cfg.Runbook, vectorStore)
+	runbookLoader.KeepWatching(ctx)
+	personaFromAgentsMD := loadAgentsGuide(a.workingDir)
+
 	// --- CodeOwner ---
-	a.codeOwner, err = codeowner.NewCodeOwner(
+	a.codeOwner, err = orchestrator.NewOrchestrator(
 		ctx,
 		a.cfg.ModelConfig.NewEnvBasedModelProvider(),
-		a.workingDir,
 		registry,
+		runbookLoader,
 		vectorStore,
 		a.auditor,
 		a.approvalStore,
 		memorySvc,
 		a.cfg.Runbook,
 		sessionStore,
-		"",
+		personaFromAgentsMD,
 	)
 	if err != nil {
 		return fmt.Errorf("codeowner init: %w", err)
@@ -241,6 +245,27 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 	log.Info("CodeOwner agent initialized")
 
 	return nil
+}
+
+// loadAgentsGuide reads the Agents.md file from the given directory.
+// If the file exists, its contents are returned so they can be appended
+// to the agent's persona prompt, ensuring the agent honors project-level
+// coding standards. Returns an empty string if the file does not exist
+// or cannot be read (best-effort, non-fatal).
+func loadAgentsGuide(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	// case insensitive search for agents.mds
+	agentsFile, err := osutils.FindFileCaseInsensitive(dir, "agents.md")
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(agentsFile)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // Start creates the BackgroundWorker, wires the cron dispatcher through it,
@@ -254,7 +279,7 @@ func (a *Application) Start(ctx context.Context) error {
 
 	// The BackgroundWorker needs an Expert (Handle + Resume). For all
 	// platforms we use a lightweight wrapper that just calls codeOwner.
-	bgExpert := messengeragui.NewChatHandlerFromCodeOwner(a.codeOwner.Resume, chatHandler)
+	bgExpert := messengeragui.NewChatHandler(a.codeOwner.Resume, chatHandler)
 	bgWorker := messengeragui.NewBackgroundWorker(bgExpert, runtime.NumCPU())
 
 	// Spawn replay goroutines for recoverable pending approvals.
@@ -303,7 +328,32 @@ func (a *Application) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("messenger connect: %w", err)
 	}
-	_ = messengerHandler // TODO: mount on shared HTTP mux
+
+	// Mount the handler returned by Connect() on an HTTP server.
+	// HTTP-push adapters (AGUI, Teams, Google Chat) return a non-nil handler.
+	if messengerHandler != nil {
+		addr := fmt.Sprintf(":%d", aguiCfg.Port)
+		srv := &http.Server{
+			Addr:              addr,
+			Handler:           messengerHandler,
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		// Graceful shutdown on context cancellation.
+		go func() {
+			<-ctx.Done()
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := srv.Shutdown(shutdownCtx); err != nil {
+				log.Warn("HTTP server shutdown error", "error", err)
+			}
+		}()
+		go func() {
+			log.Info("Starting HTTP server", "addr", addr)
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Error("HTTP server error", "error", err)
+			}
+		}()
+	}
 
 	// --- Messenger receive loop (external messengers only) ---
 	if a.msgr.Platform() != messenger.PlatformAGUI {
@@ -388,7 +438,7 @@ func (a *Application) Close(ctx context.Context) {
 }
 
 // buildChatHandler returns a function matching the shape expected by
-// agui.NewChatHandlerFromCodeOwner. It bridges the AG-UI server to the
+// agui.NewChatHandler. It bridges the AG-UI server to the
 // underlying codeOwner.Chat() pipeline.
 func (a *Application) buildChatHandler() func(ctx context.Context, message string, agentsMessage chan<- interface{}) error {
 	return func(ctx context.Context, message string, agentsMessage chan<- interface{}) error {
@@ -404,23 +454,22 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 				var err error
 				tabCtx, cancel, err = a.browser.NewTab(ctx)
 				if err != nil {
-					agui.EmitError(ctx, agentsMessage, err, "failed to create browser tab")
+					agui.EmitError(ctx, err, "failed to create browser tab")
 					return
 				}
 				defer cancel()
 			}
 
-			if err := a.codeOwner.Chat(ctx, codeowner.CodeQuestion{
+			if err := a.codeOwner.Chat(ctx, orchestrator.CodeQuestion{
 				Question:   message,
-				EventChan:  agentsMessage,
 				BrowserTab: tabCtx,
 			}, outputChan); err != nil {
-				agui.EmitError(ctx, agentsMessage, err, "while processing AG-UI chat message")
+				agui.EmitError(ctx, err, "while processing AG-UI chat message")
 			}
 		}()
 		for output := range outputChan {
 			if output != "" {
-				agui.EmitAgentMessage(ctx, agentsMessage, "genie", output)
+				agui.EmitAgentMessage(ctx, "genie", output)
 			}
 		}
 		<-chatDone
@@ -509,20 +558,6 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 	// Clarify emitter bridges clarify → AG-UI + messenger.
 	// Stays here because it references Application fields.
 	emitter := func(ctx context.Context, evt clarify.ClarificationEvent) error {
-		evChan := agui.EventChanFromContext(ctx)
-		if evChan != nil {
-			select {
-			case evChan <- agui.ClarificationRequestMsg{
-				Type:      agui.EventClarificationRequest,
-				RequestID: evt.RequestID,
-				Question:  evt.Question,
-				Context:   evt.Context,
-			}:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
-
 		origin := messenger.MessageOriginFrom(ctx)
 		sendReq := messenger.SendRequest{
 			Channel: origin.Channel,
@@ -589,23 +624,6 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 // (Slack, Teams, Telegram, Google Chat, Discord) and dispatches them to
 // the codeowner agent.
 func (a *Application) startMessengerLoop(ctx context.Context) {
-	eventChan := make(chan interface{}, 100)
-	// Drain eventChan — there is no UI consumer on the messenger path,
-	// so without this goroutine downstream tool/chat sends would block
-	// once the buffer fills, stalling the messenger handlers.
-	go func() {
-		for {
-			select {
-			case _, ok := <-eventChan:
-				if !ok {
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
 	// seenMessages deduplicates incoming messages by ID.
 	// WhatsApp can deliver the same message multiple times:
 	//   - Two goroutines reading from the channel simultaneously
@@ -630,7 +648,7 @@ func (a *Application) startMessengerLoop(ctx context.Context) {
 					}
 					_ = a.shortMemory.Set(ctx, seenMemoryType, msg.ID, "1", seenTTL)
 				}
-				go a.handleMessengerInput(context.WithoutCancel(ctx), msg, eventChan)
+				go a.handleMessengerInput(context.WithoutCancel(ctx), msg)
 			case <-ctx.Done():
 				return
 			}
@@ -641,7 +659,24 @@ func (a *Application) startMessengerLoop(ctx context.Context) {
 // handleMessengerInput processes an incoming message from a remote messaging
 // platform (Slack, Teams, Telegram, Google Chat, Discord). The response is
 // sent back to the same channel/thread via messenger.Send().
-func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.IncomingMessage, eventChan chan<- interface{}) {
+func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.IncomingMessage) {
+	// Create a per-message drain channel. Each message gets its own
+	// channel registered on the event bus so concurrent messages don't
+	// overwrite each other's bus registrations.
+	eventChan := make(chan interface{}, 100)
+	go func() {
+		for range eventChan {
+			// drain — no UI consumer on the messenger path
+		}
+	}()
+	// Route interactive actions (button clicks) through a dedicated handler
+	// before any text-based processing. Interactions carry structured data
+	// (ActionID, ActionValue) and should never be processed as text messages.
+	if msg.Type == messenger.MessageTypeInteraction {
+		a.handleInteractiveAction(ctx, msg)
+		return
+	}
+
 	if msg.Content.Text == "" && len(msg.Content.Attachments) == 0 {
 		return
 	}
@@ -680,6 +715,14 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 		MessageID: msg.ID,
 	}
 	messengerCtx := messenger.WithMessageOrigin(ctx, origin)
+
+	// Register a per-message drain channel on the event bus so downstream
+	// code (HITL middleware, Emit* helpers) can find it via MessageOrigin.
+	agui.Register(origin, eventChan)
+	defer func() {
+		agui.Deregister(origin)
+		close(eventChan)
+	}()
 
 	// Check for pending clarification reply first.
 	const clarifyMemoryType = "pending_clarification"
@@ -769,7 +812,7 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 
 	// Emit attributed user bubble
 	senderLabel := fmt.Sprintf("%s (%s)", msg.Sender.DisplayName, msg.Platform)
-	agui.EmitAgentMessage(ctx, eventChan, senderLabel, msg.Content.Text)
+	agui.EmitAgentMessage(ctx, senderLabel, msg.Content.Text)
 
 	log.Info("received messenger message",
 		"platform", msg.Platform,
@@ -785,7 +828,7 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 
 		// Create a root OTel span for this message so Langfuse traces get
 		// populated with input, tags, name, userId, and sessionId.
-		tracer := otel.Tracer("genie")
+		tracer := otel.Tracer(os.Args[0])
 		traceCtx, span := tracer.Start(messengerCtx, "handle_message")
 		span.SetAttributes(
 			attribute.String("langfuse.trace.name", fmt.Sprintf("%s message", msg.Platform)),
@@ -805,24 +848,23 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 			var err error
 			tabCtx, cancel, err = a.browser.NewTab(ctx)
 			if err != nil {
-				agui.EmitError(ctx, eventChan, err, "failed to create browser tab")
+				agui.EmitError(ctx, err, "failed to create browser tab")
 				return
 			}
 			defer cancel()
 		}
 
-		if err := a.codeOwner.Chat(traceCtx, codeowner.CodeQuestion{
+		if err := a.codeOwner.Chat(traceCtx, orchestrator.CodeQuestion{
 			Question:    msg.Content.Text,
-			EventChan:   eventChan,
 			BrowserTab:  tabCtx,
 			Attachments: msg.Content.Attachments,
 		}, agentThoughts); err != nil {
-			agui.EmitError(ctx, eventChan, err, "while processing messenger message")
+			agui.EmitError(ctx, err, "while processing messenger message")
 		}
 	}()
 
 	for response := range agentThoughts {
-		agui.EmitAgentMessage(ctx, eventChan, "Genie", response)
+		agui.EmitAgentMessage(ctx, "Genie", response)
 
 		if _, err := a.msgr.Send(ctx, messenger.SendRequest{
 			Channel:  msg.Channel,
@@ -889,6 +931,110 @@ func (a *Application) replayOnApproval(ctx context.Context, ra hitl.ReplayableAp
 	})
 	if err != nil {
 		log.Error("Failed to dispatch replayed question to background worker", "error", err)
+	}
+}
+
+// handleInteractiveAction processes a MessageTypeInteraction incoming message
+// (e.g. a Slack button click on an approval notification). It parses the
+// ActionID to determine the action type (approve/reject/revisit) and resolves
+// the corresponding approval. After resolution, it updates the original
+// message to disarm the interactive buttons.
+//
+// ActionID conventions:
+//   - "approve_{approvalID}" → approve the request
+//   - "reject_{approvalID}"  → reject the request
+//   - "revisit_{approvalID}" → reject with feedback (revisit)
+//
+// Without this handler, button clicks from FormatApproval-rendered messages
+// would be silently discarded after the adapter acknowledges them.
+func (a *Application) handleInteractiveAction(ctx context.Context, msg messenger.IncomingMessage) {
+	log := logger.GetLogger(ctx).With("fn", "app.handleInteractiveAction")
+
+	action := msg.Interaction
+	if action == nil {
+		log.Warn("received interaction message with nil InteractionData")
+		return
+	}
+
+	log.Info("processing interactive action",
+		"actionID", action.ActionID,
+		"actionValue", action.ActionValue,
+		"blockID", action.BlockID,
+		"sender", msg.Sender.ID,
+		"channel", msg.Channel.ID,
+	)
+
+	// Determine the action type and approval ID from the ActionID.
+	var status hitl.ApprovalStatus
+	var replyText string
+	var feedback string
+	approvalID := action.ActionValue
+
+	switch {
+	case strings.HasPrefix(action.ActionID, "approve_"):
+		status = hitl.StatusApproved
+		replyText = fmt.Sprintf("✅ **Approved** by %s", msg.Sender.DisplayName)
+	case strings.HasPrefix(action.ActionID, "reject_"):
+		status = hitl.StatusRejected
+		replyText = fmt.Sprintf("❌ **Rejected** by %s", msg.Sender.DisplayName)
+	case strings.HasPrefix(action.ActionID, "revisit_"):
+		status = hitl.StatusRejected
+		feedback = "Sent back for revision via button click"
+		replyText = fmt.Sprintf("🔄 **Sent back for revision** by %s", msg.Sender.DisplayName)
+	default:
+		log.Debug("unrecognized interactive action, ignoring",
+			"actionID", action.ActionID)
+		return
+	}
+
+	if approvalID == "" {
+		log.Warn("interactive action has empty approval ID",
+			"actionID", action.ActionID)
+		return
+	}
+
+	// Resolve the approval in the HITL store.
+	err := a.notifierStore.Resolve(ctx, hitl.ResolveRequest{
+		ApprovalID: approvalID,
+		Decision:   status,
+		ResolvedBy: msg.Sender.DisplayName,
+		Feedback:   feedback,
+	})
+	if err != nil {
+		log.Error("failed to resolve approval via interactive action",
+			"error", err,
+			"approvalID", approvalID,
+			"actionID", action.ActionID,
+		)
+		// Still try to update the message to indicate failure.
+		replyText = fmt.Sprintf("⚠️ Failed to resolve: %s", err)
+	}
+
+	// Remove from the pending FIFO queue so text-based replies don't
+	// accidentally resolve a different approval.
+	if err == nil {
+		senderCtx := msg.String()
+		a.notifierStore.RemovePendingByApprovalID(ctx, senderCtx, approvalID)
+	}
+
+	// Disarm the original message buttons by updating the message content.
+	// This prevents other users from clicking stale buttons.
+	updateErr := a.msgr.UpdateMessage(ctx, messenger.UpdateRequest{
+		MessageID: msg.ID,
+		Channel:   msg.Channel,
+		Content:   messenger.MessageContent{Text: replyText},
+	})
+	if updateErr != nil {
+		log.Warn("failed to update interactive message (buttons may remain active)",
+			"error", updateErr,
+			"messageID", msg.ID,
+		)
+		// Fall back to sending a new reply message if update failed.
+		_, _ = a.msgr.Send(ctx, messenger.SendRequest{
+			Channel:  msg.Channel,
+			ThreadID: msg.ThreadID,
+			Content:  messenger.MessageContent{Text: replyText},
+		})
 	}
 }
 

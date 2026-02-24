@@ -1,4 +1,4 @@
-package codeowner
+package shelltool
 
 import (
 	"context"

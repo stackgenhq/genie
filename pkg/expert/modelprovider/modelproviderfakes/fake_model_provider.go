@@ -6,29 +6,28 @@ import (
 	"sync"
 
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
-	"trpc.group/trpc-go/trpc-agent-go/model"
 )
 
 type FakeModelProvider struct {
-	GetModelStub        func(context.Context, modelprovider.TaskType) (model.Model, error)
+	GetModelStub        func(context.Context, modelprovider.TaskType) (modelprovider.ModelMap, error)
 	getModelMutex       sync.RWMutex
 	getModelArgsForCall []struct {
 		arg1 context.Context
 		arg2 modelprovider.TaskType
 	}
 	getModelReturns struct {
-		result1 model.Model
+		result1 modelprovider.ModelMap
 		result2 error
 	}
 	getModelReturnsOnCall map[int]struct {
-		result1 model.Model
+		result1 modelprovider.ModelMap
 		result2 error
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeModelProvider) GetModel(arg1 context.Context, arg2 modelprovider.TaskType) (model.Model, error) {
+func (fake *FakeModelProvider) GetModel(arg1 context.Context, arg2 modelprovider.TaskType) (modelprovider.ModelMap, error) {
 	fake.getModelMutex.Lock()
 	ret, specificReturn := fake.getModelReturnsOnCall[len(fake.getModelArgsForCall)]
 	fake.getModelArgsForCall = append(fake.getModelArgsForCall, struct {
@@ -54,7 +53,7 @@ func (fake *FakeModelProvider) GetModelCallCount() int {
 	return len(fake.getModelArgsForCall)
 }
 
-func (fake *FakeModelProvider) GetModelCalls(stub func(context.Context, modelprovider.TaskType) (model.Model, error)) {
+func (fake *FakeModelProvider) GetModelCalls(stub func(context.Context, modelprovider.TaskType) (modelprovider.ModelMap, error)) {
 	fake.getModelMutex.Lock()
 	defer fake.getModelMutex.Unlock()
 	fake.GetModelStub = stub
@@ -67,28 +66,28 @@ func (fake *FakeModelProvider) GetModelArgsForCall(i int) (context.Context, mode
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeModelProvider) GetModelReturns(result1 model.Model, result2 error) {
+func (fake *FakeModelProvider) GetModelReturns(result1 modelprovider.ModelMap, result2 error) {
 	fake.getModelMutex.Lock()
 	defer fake.getModelMutex.Unlock()
 	fake.GetModelStub = nil
 	fake.getModelReturns = struct {
-		result1 model.Model
+		result1 modelprovider.ModelMap
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeModelProvider) GetModelReturnsOnCall(i int, result1 model.Model, result2 error) {
+func (fake *FakeModelProvider) GetModelReturnsOnCall(i int, result1 modelprovider.ModelMap, result2 error) {
 	fake.getModelMutex.Lock()
 	defer fake.getModelMutex.Unlock()
 	fake.GetModelStub = nil
 	if fake.getModelReturnsOnCall == nil {
 		fake.getModelReturnsOnCall = make(map[int]struct {
-			result1 model.Model
+			result1 modelprovider.ModelMap
 			result2 error
 		})
 	}
 	fake.getModelReturnsOnCall[i] = struct {
-		result1 model.Model
+		result1 modelprovider.ModelMap
 		result2 error
 	}{result1, result2}
 }

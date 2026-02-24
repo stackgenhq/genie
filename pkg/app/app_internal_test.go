@@ -7,13 +7,13 @@ import (
 	"time"
 
 	"github.com/appcd-dev/genie/pkg/clarify"
-	"github.com/appcd-dev/genie/pkg/codeowner/codeownerfakes"
 	geniedb "github.com/appcd-dev/genie/pkg/db"
 	"github.com/appcd-dev/genie/pkg/hitl"
 	"github.com/appcd-dev/genie/pkg/hitl/hitlfakes"
 	"github.com/appcd-dev/genie/pkg/messenger"
 	messengerhitl "github.com/appcd-dev/genie/pkg/messenger/hitl"
 	"github.com/appcd-dev/genie/pkg/messenger/messengerfakes"
+	"github.com/appcd-dev/genie/pkg/orchestrator/orchestratorfakes"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -22,20 +22,18 @@ var _ = Describe("Application handleMessengerInput", func() {
 	var (
 		fakeStore     *hitlfakes.FakeApprovalStore
 		fakeMessenger *messengerfakes.FakeMessenger
-		fakeCodeOwner *codeownerfakes.FakeCodeOwner
+		fakeCodeOwner *orchestratorfakes.FakeOrchestrator
 		notifierStore *messengerhitl.NotifierStore
 		application   *Application
 		ctx           context.Context
-		eventChan     chan interface{}
 	)
 
 	BeforeEach(func() {
 		fakeStore = &hitlfakes.FakeApprovalStore{}
 		fakeMessenger = &messengerfakes.FakeMessenger{}
-		fakeCodeOwner = &codeownerfakes.FakeCodeOwner{}
+		fakeCodeOwner = &orchestratorfakes.FakeOrchestrator{}
 		notifierStore = messengerhitl.NewNotifierStore(fakeStore, fakeMessenger)
 		ctx = context.Background()
-		eventChan = make(chan interface{}, 10)
 
 		// Create a temp DB-backed shortMemory for tests.
 		tmpDir := GinkgoT().TempDir()
@@ -87,7 +85,7 @@ var _ = Describe("Application handleMessengerInput", func() {
 		It("approves when user says 'Yes'", func() {
 			realMsg.Content.Text = "Yes"
 
-			application.handleMessengerInput(ctx, realMsg, eventChan)
+			application.handleMessengerInput(ctx, realMsg)
 
 			// Verify Resolve called
 			Expect(fakeStore.ResolveCallCount()).To(Equal(1))
@@ -107,7 +105,7 @@ var _ = Describe("Application handleMessengerInput", func() {
 		It("rejects when user says 'No'", func() {
 			realMsg.Content.Text = "No"
 
-			application.handleMessengerInput(ctx, realMsg, eventChan)
+			application.handleMessengerInput(ctx, realMsg)
 
 			Expect(fakeStore.ResolveCallCount()).To(Equal(1))
 			_, resolveReq := fakeStore.ResolveArgsForCall(0)
@@ -130,7 +128,7 @@ var _ = Describe("Application handleMessengerInput", func() {
 				Sender:   messenger.Sender{ID: "user1"},
 				Channel:  messenger.Channel{ID: "C123"},
 			}
-			application.handleMessengerInput(ctx, msg, eventChan)
+			application.handleMessengerInput(ctx, msg)
 
 			Eventually(fakeCodeOwner.ChatCallCount).Should(Equal(1))
 		})
@@ -173,7 +171,7 @@ var _ = Describe("Application handleMessengerInput", func() {
 				resultCh <- waitResult{resp, err}
 			}()
 
-			application.handleMessengerInput(ctx, realMsg, eventChan)
+			application.handleMessengerInput(ctx, realMsg)
 
 			// Verify answer was delivered
 			Eventually(resultCh, 1*time.Second).Should(Receive(WithTransform(
@@ -223,7 +221,7 @@ var _ = Describe("Application handleMessengerInput", func() {
 				resultCh <- waitResult{resp, err}
 			}()
 
-			application.handleMessengerInput(ctx, realMsg, eventChan)
+			application.handleMessengerInput(ctx, realMsg)
 
 			// Should resolve clarification, NOT approval
 			Eventually(resultCh, 10*time.Second).Should(Receive(WithTransform(
@@ -247,7 +245,7 @@ var _ = Describe("Application handleMessengerInput", func() {
 			// Store a request ID that doesn't exist in the clarify store
 			_ = application.shortMemory.Set(ctx, "pending_clarification", senderCtx, "non-existent-id", 10*time.Minute)
 
-			application.handleMessengerInput(ctx, msg, eventChan)
+			application.handleMessengerInput(ctx, msg)
 
 			// Should send error message
 			Expect(fakeMessenger.SendCallCount()).To(Equal(1))
@@ -275,5 +273,28 @@ var _ = Describe("truncateForLog", func() {
 
 	It("should handle empty string", func() {
 		Expect(truncateForLog("", 10)).To(Equal(""))
+	})
+})
+
+var _ = Describe("loadAgentsGuide", func() {
+	It("should return contents when Agents.md exists", func() {
+		tmpDir := GinkgoT().TempDir()
+		content := "# Coding Standards\n\nFollow these rules."
+		err := os.WriteFile(filepath.Join(tmpDir, "Agents.md"), []byte(content), 0644)
+		Expect(err).NotTo(HaveOccurred())
+
+		result := loadAgentsGuide(tmpDir)
+		Expect(result).To(Equal(content))
+	})
+
+	It("should return empty string when Agents.md does not exist", func() {
+		tmpDir := GinkgoT().TempDir()
+		result := loadAgentsGuide(tmpDir)
+		Expect(result).To(BeEmpty())
+	})
+
+	It("should return empty string when directory is empty", func() {
+		result := loadAgentsGuide("")
+		Expect(result).To(BeEmpty())
 	})
 })

@@ -480,5 +480,13 @@ func (m *Messenger) FormatClarification(req messenger.SendRequest, info messenge
 	return req
 }
 
+// UpdateMessage is a no-op for Teams — the adapter does not currently
+// support editing previously sent messages. Returns nil to satisfy the
+// Messenger interface without error. Teams Adaptive Card updates will
+// be added incrementally.
+func (m *Messenger) UpdateMessage(_ context.Context, _ messenger.UpdateRequest) error {
+	return nil
+}
+
 // Compile-time interface compliance check.
 var _ messenger.Messenger = (*Messenger)(nil)

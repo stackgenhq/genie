@@ -11,9 +11,8 @@ var _ = Describe("ModelProvider Internal", func() {
 			It("should return an error", func() {
 				var providers ProviderConfigs
 				config, usedFallback, err := providers.getForTask(TaskEfficiency)
-				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(ContainSubstring("no providers configured"))
-				Expect(config).To(Equal(ProviderConfig{}))
+				Expect(err).To(MatchError("no providers configured"))
+				Expect(config.Providers()).To(BeEmpty())
 				Expect(usedFallback).To(BeFalse())
 			})
 		})
@@ -33,7 +32,7 @@ var _ = Describe("ModelProvider Internal", func() {
 				config, usedFallback, err := providers.getForTask(TaskToolCalling)
 				Expect(err).NotTo(HaveOccurred())
 				// Should fallback to the first provider
-				Expect(config.Provider).To(Equal("openai"))
+				Expect(config.Providers()).To(Equal([]string{"openai"}))
 				Expect(usedFallback).To(BeTrue())
 			})
 		})
@@ -53,7 +52,7 @@ var _ = Describe("ModelProvider Internal", func() {
 
 				config, usedFallback, err := providers.getForTask(TaskToolCalling)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(config.Provider).To(Equal("gemini"))
+				Expect(config.Providers()).To(Equal([]string{"gemini"}))
 				Expect(usedFallback).To(BeFalse())
 			})
 		})

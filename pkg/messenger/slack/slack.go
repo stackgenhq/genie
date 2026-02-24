@@ -300,6 +300,66 @@ func (m *Messenger) processEvent(ctx context.Context, evt socketmode.Event) {
 		}
 		m.socket.Ack(*evt.Request)
 		m.handleEventsAPI(ctx, eventsAPIEvent)
+	case socketmode.EventTypeInteractive:
+		m.socket.Ack(*evt.Request)
+		m.handleInteractive(ctx, evt)
+	}
+}
+
+// handleInteractive processes Socket Mode interactive payloads (block_actions)
+// and converts them into IncomingMessage with Type == MessageTypeInteraction.
+// This allows the app layer to route button clicks (e.g. approval Approve/Reject)
+// through the same Receive channel as text messages.
+//
+// Without this handler, interactive buttons rendered by FormatApproval are
+// purely decorative — clicks are silently discarded by Slack because no
+// handler acknowledges them.
+func (m *Messenger) handleInteractive(ctx context.Context, evt socketmode.Event) {
+	log := logger.GetLogger(ctx).With("platform", "slack", "fn", "handleInteractive")
+
+	// The interactive payload is stored as a json.RawMessage in the event data.
+	raw, ok := evt.Data.(slack.InteractionCallback)
+	if !ok {
+		log.Warn("unexpected interactive payload type", "type", fmt.Sprintf("%T", evt.Data))
+		return
+	}
+
+	if raw.Type != slack.InteractionTypeBlockActions {
+		log.Debug("ignoring non-block_actions interaction", "type", raw.Type)
+		return
+	}
+
+	for _, action := range raw.ActionCallback.BlockActions {
+		msg := messenger.IncomingMessage{
+			ID:       raw.MessageTs,
+			Platform: messenger.PlatformSlack,
+			Type:     messenger.MessageTypeInteraction,
+			Channel: messenger.Channel{
+				ID:   raw.Channel.ID,
+				Name: raw.Channel.Name,
+				Type: messenger.ChannelTypeChannel,
+			},
+			Sender: messenger.Sender{
+				ID:          raw.User.ID,
+				Username:    raw.User.Name,
+				DisplayName: raw.User.Name,
+			},
+			Timestamp: time.Now(),
+			Interaction: &messenger.InteractionData{
+				ActionID:    action.ActionID,
+				ActionValue: action.Value,
+				BlockID:     action.BlockID,
+				ActionType:  string(action.Type),
+				ResponseURL: raw.ResponseURL,
+			},
+		}
+
+		select {
+		case m.incoming <- msg:
+		default:
+			log.Warn("incoming message buffer full, dropping interaction",
+				"channel", raw.Channel.ID, "action", action.ActionID)
+		}
 	}
 }
 
@@ -508,6 +568,56 @@ func (m *Messenger) FormatClarification(req messenger.SendRequest, info messenge
 	req.Metadata["blocks"] = blocks
 
 	return req
+}
+
+// UpdateMessage replaces the content of a previously sent Slack message
+// using the chat.update API. Used to disarm approval/clarification buttons
+// after resolution (e.g. replacing buttons with "✅ Approved by @user").
+//
+// The MessageID must be in the "channelID:timestamp" format returned by Send.
+// If Metadata["blocks"] is set, the blocks are used for the update.
+func (m *Messenger) UpdateMessage(ctx context.Context, req messenger.UpdateRequest) error {
+	m.mu.RLock()
+	connected := m.connected
+	m.mu.RUnlock()
+
+	if !connected {
+		return messenger.ErrNotConnected
+	}
+
+	// Parse the composite message ID (channelID:timestamp from Send).
+	// Fall back to using req.Channel.ID + req.MessageID as separate parts.
+	channelID := req.Channel.ID
+	ts := req.MessageID
+	if parts := splitMessageID(ts); len(parts) == 2 {
+		channelID = parts[0]
+		ts = parts[1]
+	}
+
+	opts := []slack.MsgOption{
+		slack.MsgOptionText(req.Content.Text, false),
+	}
+
+	if blocks := extractBlocks(req.Metadata); len(blocks) > 0 {
+		opts = append(opts, slack.MsgOptionBlocks(blocks...))
+	}
+
+	_, _, _, err := m.api.UpdateMessageContext(ctx, channelID, ts, opts...)
+	if err != nil {
+		return fmt.Errorf("slack update message: %w", err)
+	}
+	return nil
+}
+
+// splitMessageID splits a composite "channelID:timestamp" message ID.
+// Returns nil if the ID doesn't contain a colon separator.
+func splitMessageID(id string) []string {
+	for i := range id {
+		if id[i] == ':' {
+			return []string{id[:i], id[i+1:]}
+		}
+	}
+	return nil
 }
 
 // Compile-time interface compliance check.

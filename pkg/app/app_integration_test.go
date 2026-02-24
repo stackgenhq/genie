@@ -37,16 +37,13 @@ func newIntegrationConfig(tmpDir string) config.GenieConfig {
 
 var _ = Describe("NewApplication", func() {
 	It("should fail when WorkingDir is empty", func() {
-		_, err := NewApplication(Params{})
+		_, err := NewApplication(config.GenieConfig{}, "", "", "")
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("working directory is required"))
 	})
 
 	It("should create an application with valid params", func() {
-		app, err := NewApplication(Params{
-			WorkingDir: "/tmp/test-genie",
-			Version:    "test-v1",
-		})
+		app, err := NewApplication(config.GenieConfig{}, "/tmp/test-genie", "", "test-v1")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(app).NotTo(BeNil())
 		Expect(app.workingDir).To(Equal("/tmp/test-genie"))
@@ -54,18 +51,13 @@ var _ = Describe("NewApplication", func() {
 	})
 
 	It("should default AuditPath when not provided", func() {
-		app, err := NewApplication(Params{
-			WorkingDir: "/tmp/test-genie",
-		})
+		app, err := NewApplication(config.GenieConfig{}, "/tmp/test-genie", "", "")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(app.auditPath).To(Equal("/tmp/test-genie/genie_audit.ndjson"))
 	})
 
 	It("should use custom AuditPath when provided", func() {
-		app, err := NewApplication(Params{
-			WorkingDir: "/tmp/test-genie",
-			AuditPath:  "/custom/audit.ndjson",
-		})
+		app, err := NewApplication(config.GenieConfig{}, "/tmp/test-genie", "/custom/audit.ndjson", "")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(app.auditPath).To(Equal("/custom/audit.ndjson"))
 	})
@@ -82,11 +74,7 @@ var _ = Describe("Application Integration", Label("integration"), func() {
 	Describe("Bootstrap + Close lifecycle", func() {
 		It("should bootstrap with minimal config and close cleanly", func() {
 			cfg := newIntegrationConfig(tmpDir)
-			app, err := NewApplication(Params{
-				WorkingDir: tmpDir,
-				Config:     cfg,
-				Version:    "test-integration",
-			})
+			app, err := NewApplication(cfg, tmpDir, "", "test-integration")
 			Expect(err).NotTo(HaveOccurred())
 
 			ctx := context.Background()
@@ -111,10 +99,7 @@ var _ = Describe("Application Integration", Label("integration"), func() {
 
 		It("should create the database file on disk", func() {
 			cfg := newIntegrationConfig(tmpDir)
-			app, err := NewApplication(Params{
-				WorkingDir: tmpDir,
-				Config:     cfg,
-			})
+			app, err := NewApplication(cfg, tmpDir, "", "")
 			Expect(err).NotTo(HaveOccurred())
 
 			ctx := context.Background()
@@ -128,10 +113,7 @@ var _ = Describe("Application Integration", Label("integration"), func() {
 
 		It("should create the audit log file", func() {
 			cfg := newIntegrationConfig(tmpDir)
-			app, err := NewApplication(Params{
-				WorkingDir: tmpDir,
-				Config:     cfg,
-			})
+			app, err := NewApplication(cfg, tmpDir, "", "")
 			Expect(err).NotTo(HaveOccurred())
 
 			ctx := context.Background()
@@ -147,10 +129,7 @@ var _ = Describe("Application Integration", Label("integration"), func() {
 	Describe("buildChatHandler", func() {
 		It("should return a callable handler function", func() {
 			cfg := newIntegrationConfig(tmpDir)
-			app, err := NewApplication(Params{
-				WorkingDir: tmpDir,
-				Config:     cfg,
-			})
+			app, err := NewApplication(cfg, tmpDir, "", "")
 			Expect(err).NotTo(HaveOccurred())
 
 			ctx := context.Background()
@@ -164,9 +143,7 @@ var _ = Describe("Application Integration", Label("integration"), func() {
 
 	Describe("Close idempotency", func() {
 		It("should not panic when Close is called on a partially initialised application", func() {
-			app, err := NewApplication(Params{
-				WorkingDir: tmpDir,
-			})
+			app, err := NewApplication(config.GenieConfig{}, tmpDir, "", "")
 			Expect(err).NotTo(HaveOccurred())
 
 			// Close without Bootstrap — all fields are nil.

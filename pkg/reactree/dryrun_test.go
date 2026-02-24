@@ -4,27 +4,11 @@ import (
 	"context"
 
 	"github.com/appcd-dev/genie/pkg/reactree"
+	"github.com/appcd-dev/genie/pkg/tools/toolsfakes"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
-
-// mockDryRunTool is a minimal callable tool used for dry run testing.
-type mockDryRunTool struct {
-	name   string
-	called bool
-}
-
-func (m *mockDryRunTool) Declaration() *tool.Declaration {
-	return &tool.Declaration{Name: m.name}
-}
-
-func (m *mockDryRunTool) Call(ctx context.Context, jsonArgs []byte) (any, error) {
-	m.called = true
-	return "real result", nil
-}
-
-var _ tool.CallableTool = (*mockDryRunTool)(nil)
 
 var _ = Describe("DryRun Simulation", func() {
 	var ctx context.Context
@@ -35,14 +19,15 @@ var _ = Describe("DryRun Simulation", func() {
 
 	Context("DryRunToolWrapper", func() {
 		It("should intercept calls and return simulated response", func() {
-			realTool := &mockDryRunTool{name: "read_file"}
+			realTool := &toolsfakes.FakeCallableTool{}
+			realTool.DeclarationReturns(&tool.Declaration{Name: "read_file"})
 			wrapper := reactree.NewDryRunToolWrapper(realTool)
 
 			result, err := wrapper.Call(ctx, []byte(`{"path": "/foo.go"}`))
 			Expect(err).NotTo(HaveOccurred())
 
 			// Real tool should NOT have been called
-			Expect(realTool.called).To(BeFalse())
+			Expect(realTool.CallCallCount()).To(Equal(0))
 
 			// Result should be a dry-run JSON stub
 			resultStr, ok := result.(string)
@@ -52,7 +37,8 @@ var _ = Describe("DryRun Simulation", func() {
 		})
 
 		It("should record invocations", func() {
-			realTool := &mockDryRunTool{name: "shell"}
+			realTool := &toolsfakes.FakeCallableTool{}
+			realTool.DeclarationReturns(&tool.Declaration{Name: "shell"})
 			wrapper := reactree.NewDryRunToolWrapper(realTool)
 
 			_, _ = wrapper.Call(ctx, []byte("{}"))
@@ -65,11 +51,13 @@ var _ = Describe("DryRun Simulation", func() {
 
 	Context("WrapToolsForDryRun", func() {
 		It("should wrap all tools and collect unique invocations", func() {
-			tools := []tool.Tool{
-				&mockDryRunTool{name: "read_file"},
-				&mockDryRunTool{name: "write_file"},
-				&mockDryRunTool{name: "shell"},
-			}
+			fake1 := &toolsfakes.FakeCallableTool{}
+			fake1.DeclarationReturns(&tool.Declaration{Name: "read_file"})
+			fake2 := &toolsfakes.FakeCallableTool{}
+			fake2.DeclarationReturns(&tool.Declaration{Name: "write_file"})
+			fake3 := &toolsfakes.FakeCallableTool{}
+			fake3.DeclarationReturns(&tool.Declaration{Name: "shell"})
+			tools := []tool.Tool{fake1, fake2, fake3}
 
 			wrapped, collector := reactree.WrapToolsForDryRun(tools)
 			Expect(wrapped).To(HaveLen(3))

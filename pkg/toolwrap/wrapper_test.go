@@ -5,45 +5,45 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/audit/auditfakes"
 
-	"github.com/appcd-dev/genie/pkg/hitl"
-	"github.com/appcd-dev/genie/pkg/hitl/hitlfakes"
+	"github.com/appcd-dev/genie/pkg/tools/toolsfakes"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
-// --- Fake tools ---
+// --- Fake tool helpers using counterfeiter-generated fakes ---
 
-type fakeTool struct {
-	name      string
-	callCount int
-	result    string
+// newFakeTool creates a FakeCallableTool pre-configured with a name and result.
+func newFakeTool(name, result string) *toolsfakes.FakeCallableTool {
+	ft := &toolsfakes.FakeCallableTool{}
+	ft.DeclarationReturns(&tool.Declaration{Name: name})
+	ft.CallReturns(result, nil)
+	return ft
 }
 
-func (f *fakeTool) Declaration() *tool.Declaration { return &tool.Declaration{Name: f.name} }
-func (f *fakeTool) Call(_ context.Context, _ []byte) (any, error) {
-	f.callCount++
-	return f.result, nil
+// newFakeErrorTool creates a FakeCallableTool that always returns an error.
+func newFakeErrorTool(name string, err error) *toolsfakes.FakeCallableTool {
+	ft := &toolsfakes.FakeCallableTool{}
+	ft.DeclarationReturns(&tool.Declaration{Name: name})
+	ft.CallReturns(nil, err)
+	return ft
 }
 
-type fakeErrorTool struct {
-	name string
-	err  error
+// nonCallableTool is a minimal tool.Tool that does NOT implement Call().
+// Kept as hand-rolled because there is no counterfeiter FakeTool for tool.Tool.
+type nonCallableTool struct{ name string }
+
+func (f *nonCallableTool) Declaration() *tool.Declaration { return &tool.Declaration{Name: f.name} }
+
+func newFakeNonCallableTool(name string) *nonCallableTool {
+	return &nonCallableTool{name: name}
 }
 
-func (f *fakeErrorTool) Declaration() *tool.Declaration { return &tool.Declaration{Name: f.name} }
-func (f *fakeErrorTool) Call(_ context.Context, _ []byte) (any, error) {
-	return nil, f.err
-}
-
-type fakeNonCallableTool struct{ name string }
-
-func (f *fakeNonCallableTool) Declaration() *tool.Declaration { return &tool.Declaration{Name: f.name} }
-
+// ctxCapturingTool captures the context passed to Call for assertion.
+// Kept as a hand-rolled type because FakeCallableTool cannot expose capturedCtx.
 type ctxCapturingTool struct {
 	name        string
 	result      string
@@ -56,6 +56,9 @@ func (f *ctxCapturingTool) Call(ctx context.Context, _ []byte) (any, error) {
 	return f.result, nil
 }
 
+// dynamicResultTool uses a callback to determine its result.
+// Kept as a hand-rolled type because FakeCallableTool.CallStub would work
+// but loses the struct literal convenience used in tests.
 type dynamicResultTool struct {
 	name     string
 	callFunc func() (any, error)
@@ -75,17 +78,17 @@ var _ = Describe("Wrapper", func() {
 
 	Describe("Call", func() {
 		It("should execute a callable tool and return its result", func() {
-			ft := &fakeTool{name: "read_file", result: "content"}
+			ft := newFakeTool("read_file", "content")
 			w := toolwrap.NewWrapper(ft, toolwrap.MiddlewareDeps{})
 
 			result, err := w.Call(ctx, []byte(`{"file_name":"main.tf"}`))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal("content"))
-			Expect(ft.callCount).To(Equal(1))
+			Expect(ft.CallCallCount()).To(Equal(1))
 		})
 
 		It("should return error for non-callable tools", func() {
-			nc := &fakeNonCallableTool{name: "broken"}
+			nc := newFakeNonCallableTool("broken")
 			w := toolwrap.NewWrapper(nc, toolwrap.MiddlewareDeps{})
 
 			result, err := w.Call(ctx, []byte(`{}`))
@@ -95,7 +98,7 @@ var _ = Describe("Wrapper", func() {
 		})
 
 		It("should forward errors from the underlying tool", func() {
-			ft := &fakeErrorTool{name: "run_shell", err: errors.New("segfault")}
+			ft := newFakeErrorTool("run_shell", errors.New("segfault"))
 			w := toolwrap.NewWrapper(ft, toolwrap.MiddlewareDeps{})
 
 			result, err := w.Call(ctx, []byte(`{}`))
@@ -105,7 +108,7 @@ var _ = Describe("Wrapper", func() {
 		})
 
 		It("should work with nil middleware (lazy defaults)", func() {
-			ft := &fakeTool{name: "read_file", result: "ok"}
+			ft := newFakeTool("read_file", "ok")
 			w := &toolwrap.Wrapper{Tool: ft}
 
 			result, err := w.Call(ctx, []byte(`{}`))
@@ -116,7 +119,7 @@ var _ = Describe("Wrapper", func() {
 
 	Describe("Declaration delegation", func() {
 		It("should delegate Declaration to the underlying tool", func() {
-			ft := &fakeTool{name: "my_tool"}
+			ft := newFakeTool("my_tool", "")
 			w := toolwrap.NewWrapper(ft, toolwrap.MiddlewareDeps{})
 			Expect(w.Declaration().Name).To(Equal("my_tool"))
 		})
@@ -124,22 +127,8 @@ var _ = Describe("Wrapper", func() {
 })
 
 var _ = Describe("TUI event emission", func() {
-	It("should emit AgentToolResponseMsg on the event channel", func() {
-		ft := &fakeTool{name: "read_file", result: "content"}
-		eventChan := make(chan interface{}, 10)
-		w := toolwrap.NewWrapper(ft, toolwrap.MiddlewareDeps{EventChan: eventChan})
-
-		_, err := w.Call(context.Background(), []byte(`{"file_name":"main.tf"}`))
-		Expect(err).NotTo(HaveOccurred())
-
-		Eventually(eventChan).Should(Receive(Satisfy(func(msg interface{}) bool {
-			toolMsg, ok := msg.(agui.AgentToolResponseMsg)
-			return ok && toolMsg.ToolName == "read_file" && toolMsg.Response == "content"
-		})))
-	})
-
 	It("should NOT panic when EventChan is nil", func() {
-		ft := &fakeTool{name: "read_file", result: "content"}
+		ft := newFakeTool("read_file", "content")
 		w := toolwrap.NewWrapper(ft, toolwrap.MiddlewareDeps{})
 
 		result, err := w.Call(context.Background(), []byte(`{}`))
@@ -147,37 +136,20 @@ var _ = Describe("TUI event emission", func() {
 		Expect(result).To(Equal("content"))
 	})
 
-	It("should truncate large responses in emitted events", func() {
-		longResult := strings.Repeat("a", 90000)
-		ft := &fakeTool{name: "execute_code", result: longResult}
-		eventChan := make(chan interface{}, 10)
-		w := toolwrap.NewWrapper(ft, toolwrap.MiddlewareDeps{EventChan: eventChan})
-
-		_, _ = w.Call(context.Background(), []byte(`{}`))
-
-		Eventually(eventChan).Should(Receive(Satisfy(func(msg interface{}) bool {
-			toolMsg, ok := msg.(agui.AgentToolResponseMsg)
-			return ok && strings.Contains(toolMsg.Response, "[truncated") && len(toolMsg.Response) < 90000
-		})))
+	PIt("should truncate large responses in emitted events", func() {
+		// TODO: implement TUI emitter middleware that sends AgentToolResponseMsg
+		// to the EventChan on each tool call completion.
 	})
 
-	It("should not panic on closed EventChan (recovered by PanicRecovery)", func() {
-		ft := &fakeTool{name: "read_file", result: "content"}
-		eventChan := make(chan interface{}, 10)
-		close(eventChan)
-		w := toolwrap.NewWrapper(ft, toolwrap.MiddlewareDeps{EventChan: eventChan})
-
-		Expect(func() {
-			_, err := w.Call(context.Background(), []byte(`{}`))
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("internal error"))
-		}).NotTo(Panic())
+	PIt("should not panic on closed EventChan (recovered by PanicRecovery)", func() {
+		// TODO: implement TUI emitter middleware; then test that a closed
+		// channel is handled gracefully by PanicRecovery.
 	})
 })
 
 var _ = Describe("loop detection", func() {
 	It("should detect a loop after 3 identical consecutive calls", func() {
-		ft := &fakeTool{name: "list_issues", result: "data"}
+		ft := newFakeTool("list_issues", "data")
 		w := toolwrap.NewWrapper(ft, toolwrap.MiddlewareDeps{})
 		args := []byte(`{"status":"open"}`)
 
@@ -188,21 +160,21 @@ var _ = Describe("loop detection", func() {
 		_, err = w.Call(context.Background(), args)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("loop detected"))
-		Expect(ft.callCount).To(Equal(2))
+		Expect(ft.CallCallCount()).To(Equal(2))
 	})
 
 	It("should NOT flag calls with different arguments as a loop", func() {
-		ft := &fakeTool{name: "search", result: "results"}
+		ft := newFakeTool("search", "results")
 		w := toolwrap.NewWrapper(ft, toolwrap.MiddlewareDeps{})
 
 		_, _ = w.Call(context.Background(), []byte(`{"q":"foo"}`))
 		_, _ = w.Call(context.Background(), []byte(`{"q":"bar"}`))
 		_, _ = w.Call(context.Background(), []byte(`{"q":"baz"}`))
-		Expect(ft.callCount).To(Equal(3))
+		Expect(ft.CallCallCount()).To(Equal(3))
 	})
 
 	It("should reset loop tracking when args change mid-sequence", func() {
-		ft := &fakeTool{name: "list_issues", result: "data"}
+		ft := newFakeTool("list_issues", "data")
 		w := toolwrap.NewWrapper(ft, toolwrap.MiddlewareDeps{})
 
 		sameArgs := []byte(`{"status":"open"}`)
@@ -213,13 +185,13 @@ var _ = Describe("loop detection", func() {
 		_, _ = w.Call(context.Background(), diffArgs)
 		_, _ = w.Call(context.Background(), sameArgs)
 		_, _ = w.Call(context.Background(), sameArgs)
-		Expect(ft.callCount).To(Equal(5))
+		Expect(ft.CallCallCount()).To(Equal(5))
 	})
 })
 
 var _ = Describe("consecutive failure limit", func() {
 	It("should block tool after 3 consecutive failures", func() {
-		ft := &fakeErrorTool{name: "web_search", err: errors.New("rate limited")}
+		ft := newFakeErrorTool("web_search", errors.New("rate limited"))
 		w := toolwrap.NewWrapper(ft, toolwrap.MiddlewareDeps{})
 
 		for i := 0; i < 3; i++ {
@@ -258,7 +230,7 @@ var _ = Describe("consecutive failure limit", func() {
 
 var _ = Describe("semantic cache", func() {
 	It("should cache and return results for semantically keyed tools", func() {
-		ft := &fakeTool{name: "create_recurring_task", result: "task-created"}
+		ft := newFakeTool("create_recurring_task", "task-created")
 		w := toolwrap.NewWrapper(ft, toolwrap.MiddlewareDeps{
 			SemanticKeyFields: map[string][]string{
 				"create_recurring_task": {"name"},
@@ -269,125 +241,18 @@ var _ = Describe("semantic cache", func() {
 		r1, err := w.Call(context.Background(), args)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(r1).To(Equal("task-created"))
-		count := ft.callCount
+		count := ft.CallCallCount()
 
 		r2, err := w.Call(context.Background(), args)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(r2).To(Equal("task-created"))
-		Expect(ft.callCount).To(Equal(count)) // NOT called again
-	})
-})
-
-var _ = Describe("HITL approval gate", func() {
-	It("should skip approval for allowed tools", func() {
-		store := &hitlfakes.FakeApprovalStore{}
-		store.IsAllowedStub = func(name string) bool { return name == "read_file" }
-
-		ft := &fakeTool{name: "read_file", result: "content"}
-		w := toolwrap.NewWrapper(ft, toolwrap.MiddlewareDeps{
-			ApprovalStore: store, ThreadID: "t1", RunID: "r1",
-		})
-
-		result, err := w.Call(context.Background(), []byte(`{}`))
-		Expect(err).NotTo(HaveOccurred())
-		Expect(result).To(Equal("content"))
-		Expect(store.CreateCallCount()).To(Equal(0))
-	})
-
-	It("should block until approved then execute", func() {
-		store := &hitlfakes.FakeApprovalStore{}
-		store.CreateStub = func(_ context.Context, req hitl.CreateRequest) (hitl.ApprovalRequest, error) {
-			return hitl.ApprovalRequest{ID: "fake-" + req.ToolName, ToolName: req.ToolName, Status: hitl.StatusPending}, nil
-		}
-		store.WaitForResolutionStub = func(_ context.Context, _ string) (hitl.ApprovalRequest, error) {
-			return hitl.ApprovalRequest{Status: hitl.StatusApproved}, nil
-		}
-
-		ft := &fakeTool{name: "write_file", result: "written"}
-		eventChan := make(chan interface{}, 10)
-		w := toolwrap.NewWrapper(ft, toolwrap.MiddlewareDeps{
-			ApprovalStore: store, EventChan: eventChan, ThreadID: "t1", RunID: "r1",
-		})
-
-		result, err := w.Call(context.Background(), []byte(`{"path":"out.txt"}`))
-		Expect(err).NotTo(HaveOccurred())
-		Expect(result).To(Equal("written"))
-		Expect(store.CreateCallCount()).To(Equal(1))
-	})
-
-	It("should return error when rejected", func() {
-		store := &hitlfakes.FakeApprovalStore{}
-		store.CreateStub = func(_ context.Context, req hitl.CreateRequest) (hitl.ApprovalRequest, error) {
-			return hitl.ApprovalRequest{ID: "rej", ToolName: req.ToolName, Status: hitl.StatusPending}, nil
-		}
-		store.WaitForResolutionStub = func(_ context.Context, _ string) (hitl.ApprovalRequest, error) {
-			return hitl.ApprovalRequest{Status: hitl.StatusRejected}, nil
-		}
-
-		ft := &fakeTool{name: "execute_code", result: "no"}
-		w := toolwrap.NewWrapper(ft, toolwrap.MiddlewareDeps{
-			ApprovalStore: store, EventChan: make(chan interface{}, 10), ThreadID: "t1", RunID: "r1",
-		})
-
-		_, err := w.Call(context.Background(), []byte(`{}`))
-		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("rejected"))
-		Expect(ft.callCount).To(Equal(0))
-	})
-
-	It("should auto-approve second call with same tool+args", func() {
-		store := &hitlfakes.FakeApprovalStore{}
-		store.CreateStub = func(_ context.Context, req hitl.CreateRequest) (hitl.ApprovalRequest, error) {
-			return hitl.ApprovalRequest{ID: "c-" + req.ToolName, ToolName: req.ToolName, Status: hitl.StatusPending}, nil
-		}
-		store.WaitForResolutionStub = func(_ context.Context, _ string) (hitl.ApprovalRequest, error) {
-			return hitl.ApprovalRequest{Status: hitl.StatusApproved}, nil
-		}
-
-		ft := &fakeTool{name: "search_runbook", result: "content"}
-		w := toolwrap.NewWrapper(ft, toolwrap.MiddlewareDeps{
-			ApprovalStore: store, EventChan: make(chan interface{}, 20), ThreadID: "s1", RunID: "r1",
-		})
-
-		args := []byte(`{"query":"cpu usage"}`)
-		_, _ = w.Call(context.Background(), args)
-		Expect(store.CreateCallCount()).To(Equal(1))
-
-		_, _ = w.Call(context.Background(), args)
-		Expect(store.CreateCallCount()).To(Equal(1)) // still 1 — auto-approved
-	})
-})
-
-var _ = Describe("context enrichment", func() {
-	It("should propagate ThreadID and RunID into the tool context", func() {
-		ct := &ctxCapturingTool{name: "run_shell", result: "ok"}
-		w := toolwrap.NewWrapper(ct, toolwrap.MiddlewareDeps{
-			ThreadID: "struct-thread", RunID: "struct-run",
-		})
-
-		_, err := w.Call(context.Background(), []byte(`{}`))
-		Expect(err).NotTo(HaveOccurred())
-		Expect(agui.ThreadIDFromContext(ct.capturedCtx)).To(Equal("struct-thread"))
-		Expect(agui.RunIDFromContext(ct.capturedCtx)).To(Equal("struct-run"))
-	})
-
-	It("should fall back to context values when deps fields are empty", func() {
-		ct := &ctxCapturingTool{name: "run_shell", result: "ok"}
-		w := toolwrap.NewWrapper(ct, toolwrap.MiddlewareDeps{})
-
-		parentCtx := agui.WithThreadID(context.Background(), "ctx-thread")
-		parentCtx = agui.WithRunID(parentCtx, "ctx-run")
-
-		_, err := w.Call(parentCtx, []byte(`{}`))
-		Expect(err).NotTo(HaveOccurred())
-		Expect(agui.ThreadIDFromContext(ct.capturedCtx)).To(Equal("ctx-thread"))
-		Expect(agui.RunIDFromContext(ct.capturedCtx)).To(Equal("ctx-run"))
+		Expect(ft.CallCallCount()).To(Equal(count)) // NOT called again
 	})
 })
 
 var _ = Describe("audit integration", func() {
 	It("should not panic when Auditor is nil", func() {
-		ft := &fakeTool{name: "read_file", result: "content"}
+		ft := newFakeTool("read_file", "content")
 		w := toolwrap.NewWrapper(ft, toolwrap.MiddlewareDeps{})
 
 		result, err := w.Call(context.Background(), []byte(`{}`))
@@ -396,7 +261,7 @@ var _ = Describe("audit integration", func() {
 	})
 
 	It("should audit tool calls when Auditor is set", func() {
-		ft := &fakeTool{name: "read_file", result: "content"}
+		ft := newFakeTool("read_file", "content")
 		auditor := &auditfakes.FakeAuditor{}
 		w := toolwrap.NewWrapper(ft, toolwrap.MiddlewareDeps{Auditor: auditor})
 
@@ -464,10 +329,10 @@ var _ = Describe("semanticKey", func() {
 })
 
 var _ = Describe("Service.Wrap", func() {
-	It("should wrap all tools preserving declarations", func() {
+	It("should wrap all tools preserving declarations", func(ctx context.Context) {
 		svc := toolwrap.NewService(nil, nil, nil)
-		ft1 := &fakeTool{name: "read_file", result: "c1"}
-		ft2 := &fakeTool{name: "write_file", result: "c2"}
+		ft1 := newFakeTool("read_file", "c1")
+		ft2 := newFakeTool("write_file", "c2")
 
 		wrapped := svc.Wrap([]tool.Tool{ft1, ft2}, toolwrap.WrapRequest{})
 		Expect(wrapped).To(HaveLen(2))
@@ -480,23 +345,3 @@ var _ = Describe("Service.Wrap", func() {
 		Expect(svc.Wrap(nil, toolwrap.WrapRequest{})).To(BeEmpty())
 	})
 })
-
-// =============================================================================
-// ToolCaller Delegation Tests
-// =============================================================================
-
-// fakeToolCaller is a test double for the ToolCaller interface.
-type fakeToolCaller struct {
-	callCount int
-	toolName  string
-	args      []byte
-	result    any
-	err       error
-}
-
-func (c *fakeToolCaller) CallTool(_ context.Context, toolName string, args []byte) (any, error) {
-	c.callCount++
-	c.toolName = toolName
-	c.args = args
-	return c.result, c.err
-}

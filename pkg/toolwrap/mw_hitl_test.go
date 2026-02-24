@@ -7,6 +7,7 @@ import (
 	"github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/hitl"
 	"github.com/appcd-dev/genie/pkg/hitl/hitlfakes"
+	"github.com/appcd-dev/genie/pkg/messenger"
 	rtmemory "github.com/appcd-dev/genie/pkg/reactree/memory"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
 	. "github.com/onsi/ginkgo/v2"
@@ -26,7 +27,7 @@ var _ = Describe("HITLApprovalMiddleware", func() {
 
 	It("should skip approval for allowed tools", func() {
 		store.IsAllowedReturns(true)
-		mw := toolwrap.HITLApprovalMiddleware(store, eventChan, "t1", "r1", nil)
+		mw := toolwrap.HITLApprovalMiddleware(store, nil)
 		handler := mw.Wrap(passthrough("ok"))
 
 		result, err := handler(context.Background(), tc("read_file"))
@@ -36,7 +37,7 @@ var _ = Describe("HITLApprovalMiddleware", func() {
 	})
 
 	It("should pass through when store is nil", func() {
-		mw := toolwrap.HITLApprovalMiddleware(nil, eventChan, "t1", "r1", nil)
+		mw := toolwrap.HITLApprovalMiddleware(nil, nil)
 		handler := mw.Wrap(passthrough("ok"))
 
 		result, err := handler(context.Background(), tc("dangerous_tool"))
@@ -51,7 +52,7 @@ var _ = Describe("HITLApprovalMiddleware", func() {
 			Status: hitl.StatusApproved,
 		}, nil)
 
-		mw := toolwrap.HITLApprovalMiddleware(store, eventChan, "t1", "r1", nil)
+		mw := toolwrap.HITLApprovalMiddleware(store, nil)
 		handler := mw.Wrap(passthrough("executed"))
 
 		result, err := handler(context.Background(), tc("write_file"))
@@ -67,9 +68,19 @@ var _ = Describe("HITLApprovalMiddleware", func() {
 			Status: hitl.StatusApproved,
 		}, nil)
 
-		mw := toolwrap.HITLApprovalMiddleware(store, eventChan, "t1", "r1", nil)
+		// Register the eventChan on the bus with a MessageOrigin
+		origin := messenger.MessageOrigin{
+			Platform: messenger.PlatformAGUI,
+			Channel:  messenger.Channel{ID: "hitl-emit-test"},
+			Sender:   messenger.Sender{ID: "test"},
+		}
+		agui.Register(origin, eventChan)
+		defer agui.Deregister(origin)
+		ctx := messenger.WithMessageOrigin(context.Background(), origin)
+
+		mw := toolwrap.HITLApprovalMiddleware(store, nil)
 		handler := mw.Wrap(passthrough("ok"))
-		handler(context.Background(), tc("deploy")) //nolint:errcheck
+		handler(ctx, tc("deploy")) //nolint:errcheck
 
 		Eventually(eventChan).Should(Receive(Satisfy(func(msg interface{}) bool {
 			req, ok := msg.(agui.ToolApprovalRequestMsg)
@@ -84,7 +95,7 @@ var _ = Describe("HITLApprovalMiddleware", func() {
 			Status: hitl.StatusRejected,
 		}, nil)
 
-		mw := toolwrap.HITLApprovalMiddleware(store, eventChan, "t1", "r1", nil)
+		mw := toolwrap.HITLApprovalMiddleware(store, nil)
 		handler := mw.Wrap(passthrough("should-not-execute"))
 
 		_, err := handler(context.Background(), tc("delete_all"))
@@ -100,7 +111,7 @@ var _ = Describe("HITLApprovalMiddleware", func() {
 			Feedback: "too dangerous",
 		}, nil)
 
-		mw := toolwrap.HITLApprovalMiddleware(store, eventChan, "t1", "r1", nil)
+		mw := toolwrap.HITLApprovalMiddleware(store, nil)
 		handler := mw.Wrap(passthrough("nope"))
 
 		_, err := handler(context.Background(), tc("rm_rf"))
@@ -117,7 +128,7 @@ var _ = Describe("HITLApprovalMiddleware", func() {
 		}, nil)
 
 		wm := rtmemory.NewWorkingMemory()
-		mw := toolwrap.HITLApprovalMiddleware(store, eventChan, "t1", "r1", wm)
+		mw := toolwrap.HITLApprovalMiddleware(store, wm)
 		handler := mw.Wrap(passthrough("nope"))
 
 		_, err := handler(context.Background(), tc("deploy"))
@@ -136,7 +147,7 @@ var _ = Describe("HITLApprovalMiddleware", func() {
 			Status: hitl.StatusApproved,
 		}, nil)
 
-		mw := toolwrap.HITLApprovalMiddleware(store, eventChan, "t1", "r1", nil)
+		mw := toolwrap.HITLApprovalMiddleware(store, nil)
 		handler := mw.Wrap(passthrough("ok"))
 		tc := &toolwrap.ToolCallContext{ToolName: "write_file", Args: []byte(`{"path":"a.txt"}`)}
 
@@ -153,7 +164,7 @@ var _ = Describe("HITLApprovalMiddleware", func() {
 		store.IsAllowedReturns(false)
 		store.CreateReturns(hitl.ApprovalRequest{}, errors.New("db down"))
 
-		mw := toolwrap.HITLApprovalMiddleware(store, eventChan, "t1", "r1", nil)
+		mw := toolwrap.HITLApprovalMiddleware(store, nil)
 		handler := mw.Wrap(passthrough("nope"))
 
 		_, err := handler(context.Background(), tc("write_file"))
@@ -166,7 +177,7 @@ var _ = Describe("HITLApprovalMiddleware", func() {
 		store.CreateReturns(hitl.ApprovalRequest{ID: "a6"}, nil)
 		store.WaitForResolutionReturns(hitl.ApprovalRequest{}, errors.New("timeout"))
 
-		mw := toolwrap.HITLApprovalMiddleware(store, eventChan, "t1", "r1", nil)
+		mw := toolwrap.HITLApprovalMiddleware(store, nil)
 		handler := mw.Wrap(passthrough("nope"))
 
 		_, err := handler(context.Background(), tc("write_file"))

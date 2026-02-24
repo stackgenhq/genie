@@ -21,12 +21,9 @@ const maxApprovalCacheSize = 256
 // It owns the session-scoped approval cache and handles justification
 // extraction, approval creation, and feedback storage.
 type hitlApprovalMiddleware struct {
-	store     hitl.ApprovalStore
-	eventChan chan<- interface{}
-	threadID  string
-	runID     string
-	wm        *rtmemory.WorkingMemory
-	blocking  bool // true = block in WaitForResolution; false = return interrupt.Error
+	store    hitl.ApprovalStore
+	wm       *rtmemory.WorkingMemory
+	blocking bool // true = block in WaitForResolution; false = return interrupt.Error
 
 	approvalMu    sync.Mutex
 	approvalCache map[string]struct{}
@@ -50,18 +47,15 @@ func WithNonBlockingHITL() HITLOption {
 }
 
 // HITLApprovalMiddleware creates a new HITL approval middleware.
+// Approval request events are emitted via the agui event bus (keyed by
+// MessageOrigin in context), so no explicit event channel is needed.
 func HITLApprovalMiddleware(
 	store hitl.ApprovalStore,
-	eventChan chan<- interface{},
-	threadID, runID string,
 	wm *rtmemory.WorkingMemory,
 	opts ...HITLOption,
 ) Middleware {
 	m := &hitlApprovalMiddleware{
 		store:         store,
-		eventChan:     eventChan,
-		threadID:      threadID,
-		runID:         runID,
 		wm:            wm,
 		blocking:      true,
 		approvalCache: make(map[string]struct{}),
@@ -108,8 +102,6 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 
 		logr.Info("HITL approval gate entered",
 			"threadID", tid, "runID", rid,
-			"hasEventChan", m.eventChan != nil,
-			"hasCtxEventChan", agui.EventChanFromContext(ctx) != nil,
 		)
 
 		approval, err := m.store.Create(ctx, hitl.CreateRequest{
@@ -167,36 +159,21 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 }
 
 func (m *hitlApprovalMiddleware) effectiveThreadID(ctx context.Context) string {
-	if m.threadID != "" {
-		return m.threadID
-	}
 	return agui.ThreadIDFromContext(ctx)
 }
 
 func (m *hitlApprovalMiddleware) effectiveRunID(ctx context.Context) string {
-	if m.runID != "" {
-		return m.runID
-	}
 	return agui.RunIDFromContext(ctx)
 }
 
 func (m *hitlApprovalMiddleware) emitApprovalRequest(ctx context.Context, approvalID, toolName, args, justification string) {
-	evChan := m.eventChan
-	if evChan == nil {
-		evChan = agui.EventChanFromContext(ctx)
-	}
-	if evChan != nil {
-		select {
-		case evChan <- agui.ToolApprovalRequestMsg{
-			Type:          agui.EventToolApprovalRequest,
-			ApprovalID:    approvalID,
-			ToolName:      toolName,
-			Arguments:     args,
-			Justification: justification,
-		}:
-		case <-ctx.Done():
-		}
-	}
+	agui.Emit(ctx, agui.ToolApprovalRequestMsg{
+		Type:          agui.EventToolApprovalRequest,
+		ApprovalID:    approvalID,
+		ToolName:      toolName,
+		Arguments:     args,
+		Justification: justification,
+	})
 }
 
 func (m *hitlApprovalMiddleware) storeApproval(key string) {

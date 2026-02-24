@@ -93,7 +93,6 @@ type OrchestratorConfig struct {
 	// in Algorithm 1, line 11). Prevents runaway iteration.
 	MaxDecisions int
 
-	EventChan    chan<- interface{}
 	ToolRegistry *tools.Registry
 
 	// ToolWrapSvc wraps plan step tools with HITL approval, audit logging,
@@ -101,7 +100,7 @@ type OrchestratorConfig struct {
 	// agents would bypass human approval for write tools.
 	ToolWrapSvc *toolwrap.Service
 
-	// WrapRequest carries per-request fields (EventChan, ThreadID, RunID)
+	// WrapRequest carries per-request fields (ThreadID, RunID)
 	// needed for HITL wrapping to propagate approval events to the UI.
 	WrapRequest toolwrap.WrapRequest
 
@@ -110,8 +109,8 @@ type OrchestratorConfig struct {
 	// Defaults to 3 minutes if zero.
 	Timeout time.Duration
 
-	// EnterpriseFeatures holds opt-in configurations for predictability.
-	EnterpriseFeatures EnterpriseFeatures
+	// Toggles holds opt-in configurations for predictability.
+	Toggles Toggles
 
 	// ModelProvider resolves models for lightweight plan-step agents.
 	// When set (along with ToolRegistry), plan-step agents use a minimal
@@ -177,7 +176,7 @@ func ExecutePlan(ctx context.Context, plan Plan, cfg OrchestratorConfig) (Orches
 		tools := cfg.ToolRegistry.Include(stepCopy.Tools...).AllTools()
 
 		// 1. Enterprise Bounding: wrap tools with middleware if enabled.
-		if cfg.EnterpriseFeatures.EnableCriticMiddleware {
+		if cfg.Toggles.EnableCriticMiddleware {
 			validator := NewDeterministicValidator(nil) // Block none as default for now
 			for i, tl := range tools {
 				tools[i] = WrapWithValidator(tl, validator)
@@ -210,7 +209,6 @@ func ExecutePlan(ctx context.Context, plan Plan, cfg OrchestratorConfig) (Orches
 			WorkingMemory:     cfg.WorkingMemory,
 			Episodic:          cfg.Episodic,
 			MaxDecisions:      cfg.MaxDecisions,
-			EventChan:         cfg.EventChan,
 			Tools:             tools,
 			TaskType:          stepCopy.TaskType,
 			SystemInstruction: subAgentInstruction,
@@ -222,15 +220,10 @@ func ExecutePlan(ctx context.Context, plan Plan, cfg OrchestratorConfig) (Orches
 			result, err := agentFunc(ctx, state)
 			if err != nil {
 				// Emit a failure progress message for this step.
-				if cfg.EventChan != nil {
-					select {
-					case cfg.EventChan <- agui.AgentToolResponseMsg{
-						ToolName: "plan_step_progress",
-						Response: fmt.Sprintf("❌ %s failed: %v", stepCopy.Name, err),
-					}:
-					default:
-					}
-				}
+				agui.Emit(ctx, agui.AgentToolResponseMsg{
+					ToolName: "plan_step_progress",
+					Response: fmt.Sprintf("❌ %s failed: %v", stepCopy.Name, err),
+				})
 				return result, err
 			}
 			if stateMap, ok := result.(graph.State); ok {
@@ -270,28 +263,18 @@ func ExecutePlan(ctx context.Context, plan Plan, cfg OrchestratorConfig) (Orches
 					}
 
 					// Emit a human-friendly progress message for this step.
-					if cfg.EventChan != nil {
-						// Build a short tweet-like summary.
-						tweet := fmt.Sprintf("✅ **%s** completed — gathered %d chars of findings.", stepCopy.Name, len(out))
-						select {
-						case cfg.EventChan <- agui.AgentToolResponseMsg{
-							ToolName: "plan_step_progress",
-							Response: tweet,
-						}:
-						default:
-						}
-					}
+					// Build a short tweet-like summary.
+					tweet := fmt.Sprintf("✅ **%s** completed — gathered %d chars of findings.", stepCopy.Name, len(out))
+					agui.Emit(ctx, agui.AgentToolResponseMsg{
+						ToolName: "plan_step_progress",
+						Response: tweet,
+					})
 				} else {
 					// Step completed but produced no output.
-					if cfg.EventChan != nil {
-						select {
-						case cfg.EventChan <- agui.AgentToolResponseMsg{
-							ToolName: "plan_step_progress",
-							Response: fmt.Sprintf("⚠️ **%s** finished but did not produce output.", stepCopy.Name),
-						}:
-						default:
-						}
-					}
+					agui.Emit(ctx, agui.AgentToolResponseMsg{
+						ToolName: "plan_step_progress",
+						Response: fmt.Sprintf("⚠️ **%s** finished but did not produce output.", stepCopy.Name),
+					})
 				}
 			}
 			return result, nil
@@ -377,7 +360,7 @@ func executeSingleStep(ctx context.Context, step PlanStep, cfg OrchestratorConfi
 	toolsToUse := cfg.ToolRegistry.AllTools()
 
 	// Enterprise Bounding: wrap tools with middleware if enabled.
-	if cfg.EnterpriseFeatures.EnableCriticMiddleware {
+	if cfg.Toggles.EnableCriticMiddleware {
 		validator := NewDeterministicValidator(nil) // Block none as default for now
 		for i, tl := range toolsToUse {
 			toolsToUse[i] = WrapWithValidator(tl, validator)
@@ -401,7 +384,6 @@ func executeSingleStep(ctx context.Context, step PlanStep, cfg OrchestratorConfi
 		WorkingMemory:     cfg.WorkingMemory,
 		Episodic:          cfg.Episodic,
 		MaxDecisions:      cfg.MaxDecisions,
-		EventChan:         cfg.EventChan,
 		Tools:             toolsToUse,
 		TaskType:          step.TaskType,
 		SystemInstruction: subAgentInstruction,

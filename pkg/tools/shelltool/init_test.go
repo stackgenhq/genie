@@ -1,4 +1,4 @@
-package codeowner
+package shelltool_test
 
 import (
 	"testing"
@@ -7,8 +7,8 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestCodeOwner(t *testing.T) {
+func TestShellTool(t *testing.T) {
 	t.Parallel()
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "CodeOwner Suite")
+	RunSpecs(t, "ShellTool Suite")
 }

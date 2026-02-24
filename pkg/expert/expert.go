@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/audit"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/logger"
@@ -66,9 +67,6 @@ func (e ExpertBio) ToExpert(
 type Request struct {
 	Message         string
 	AdditionalTools []tool.Tool
-	// EventChannel is an optional channel for emitting TUI events.
-	// If provided, the expert will emit events for thinking, streaming, tool calls, etc.
-	EventChannel chan<- interface{}
 	// Process each choices as they are generated
 	ChoiceProcessor func(choices ...model.Choice) `json:"-"`
 	// TaskType to use
@@ -156,14 +154,6 @@ type expert struct {
 	runner       runner.Runner
 	sessionID    string
 	lastTaskType modelprovider.TaskType
-
-	// lastEventChan tracks the EventChannel used when the runner was last
-	// created. When a new request arrives with a different EventChannel
-	// (e.g. a new HTTP request), the runner must be recreated so that
-	// Wrapper instances reference the correct, open channel.
-	// Without this, stale Wrappers from a previous request panic
-	// with "send on closed channel".
-	lastEventChan chan<- interface{}
 }
 
 func (e *expert) getRunner(ctx context.Context, req Request) (runner.Runner, error) {
@@ -178,9 +168,7 @@ func (e *expert) getRunner(ctx context.Context, req Request) (runner.Runner, err
 	}
 
 	// Debug: Log model information
-	logr.Debug("model selected for expert",
-		"model_name", modelInstance.Info().Name,
-	)
+	logr.Debug("model selected for expert", "providers", modelInstance.Providers())
 
 	// Combine tools and wrap them using the toolwrap service.
 	allTools := append(e.bio.Tools, req.AdditionalTools...)
@@ -190,9 +178,7 @@ func (e *expert) getRunner(ctx context.Context, req Request) (runner.Runner, err
 		"origin", fmt.Sprintf("%v", origin),
 	)
 	wrappedTools := e.toolwrapSvc.Wrap(allTools, toolwrap.WrapRequest{
-		EventChan:     req.EventChannel,
 		WorkingMemory: req.WorkingMemory,
-		MessageOrigin: origin,
 	})
 
 	// Debug: Log tool definitions being sent
@@ -204,7 +190,7 @@ func (e *expert) getRunner(ctx context.Context, req Request) (runner.Runner, err
 
 	opts := append(req.mode(),
 		llmagent.WithTools(wrappedTools),
-		llmagent.WithModel(modelInstance),
+		llmagent.WithModels(modelInstance),
 		llmagent.WithDescription(e.bio.Description),
 		llmagent.WithInstruction(e.bio.Personality),
 		// PII protection: redact user messages before sending to the LLM,
@@ -222,7 +208,7 @@ func (e *expert) getRunner(ctx context.Context, req Request) (runner.Runner, err
 	if sessionSvc == nil {
 		sessionSvc = inmemory.NewSessionService(
 			inmemory.WithSummarizer(summary.NewSummarizer(
-				modelInstance,
+				modelInstance.GetAny(),
 				summary.WithTokenThreshold(4000),
 				summary.WithName("expert-summarizer"),
 			)),
@@ -245,21 +231,13 @@ func (e *expert) Do(ctx context.Context, req Request) (Response, error) {
 	if taskType == "" {
 		taskType = modelprovider.TaskPlanning
 	}
-	// Recreate the runner when the task type changes OR when the event
-	// channel changes. The latter is critical: toolwrap.Wrapper instances
-	// capture a reference to EventChannel at construction time. If the
-	// runner is reused across HTTP requests, the embedded Wrappers
-	// still point to the previous request's (now-closed) event channel,
-	// causing "send on closed channel" panics.
-	eventChanChanged := req.EventChannel != nil && req.EventChannel != e.lastEventChan
-	if e.runner == nil || taskType != e.lastTaskType || eventChanChanged {
+	if e.runner == nil || taskType != e.lastTaskType {
 		r, err := e.getRunner(ctx, req)
 		if err != nil {
 			return Response{}, fmt.Errorf("could not create a runner for the expert: %w", err)
 		}
 		e.runner = r
 		e.lastTaskType = taskType
-		e.lastEventChan = req.EventChannel
 		e.sessionID = uuid.NewString() // stable session ID for the lifetime of this expert
 	}
 
@@ -314,7 +292,7 @@ func (e *expert) Do(ctx context.Context, req Request) (Response, error) {
 			req.ChoiceProcessor(ev.Choices...)
 		}
 		response.Choices = append(response.Choices, ev.Choices...)
-		e.emitEventToTUI(ctx, ev, req.EventChannel)
+		e.emitEventToTUI(ctx, ev)
 
 		// Debug: log agent thought content for observability
 		for _, choice := range ev.Choices {
@@ -343,22 +321,15 @@ func (e *expert) Do(ctx context.Context, req Request) (Response, error) {
 // emitEventToTUI converts trpc-agent-go events to TUI messages and sends them to the event channel.
 // This method exists to bridge the agent's event stream to the TUI's message system.
 // Without this method, the TUI would not receive real-time updates about agent activity.
-func (e *expert) emitEventToTUI(ctx context.Context, event *event.Event, eventChan chan<- interface{}) {
-	if eventChan == nil || e.eventAdapter == nil {
+func (e *expert) emitEventToTUI(ctx context.Context, event *event.Event) {
+	if e.eventAdapter == nil {
 		return
 	}
-
-	// Recover from panics when sending on a potentially closed channel.
-	defer func() {
-		if r := recover(); r != nil {
-			logger.GetLogger(ctx).Warn("recovered panic in emitEventToTUI", "panic", r)
-		}
-	}()
 
 	// Use the event adapter to convert trpc-agent-go events to TUI messages
 	messages := e.eventAdapter.ConvertEvent(event)
 	for _, msg := range messages {
-		eventChan <- msg
+		agui.Emit(ctx, msg)
 	}
 }
 

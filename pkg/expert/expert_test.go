@@ -7,27 +7,12 @@ import (
 	"github.com/appcd-dev/genie/pkg/expert"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider/modelproviderfakes"
 	"github.com/appcd-dev/genie/pkg/hitl/hitlfakes"
+	"github.com/appcd-dev/genie/pkg/tools/toolsfakes"
 	"github.com/appcd-dev/genie/pkg/toolwrap"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
-
-// fakeTool is a minimal callable tool for expert tests.
-type fakeTool struct {
-	name      string
-	callCount int
-	result    string
-}
-
-func (f *fakeTool) Declaration() *tool.Declaration {
-	return &tool.Declaration{Name: f.name}
-}
-
-func (f *fakeTool) Call(_ context.Context, _ []byte) (any, error) {
-	f.callCount++
-	return f.result, nil
-}
 
 var _ = Describe("ExpertBio", func() {
 	var (
@@ -53,14 +38,19 @@ var _ = Describe("ExpertBio", func() {
 		})
 
 		It("should create an expert with tools attached", func() {
+			readFile := &toolsfakes.FakeCallableTool{}
+			readFile.DeclarationReturns(&tool.Declaration{Name: "read_file"})
+			readFile.CallReturns("content", nil)
+
+			executeCode := &toolsfakes.FakeCallableTool{}
+			executeCode.DeclarationReturns(&tool.Declaration{Name: "execute_code"})
+			executeCode.CallReturns("output", nil)
+
 			bio := expert.ExpertBio{
 				Name:        "tool-expert",
 				Description: "An expert with tools",
 				Personality: "Use tools wisely",
-				Tools: []tool.Tool{
-					&fakeTool{name: "read_file", result: "content"},
-					&fakeTool{name: "execute_code", result: "output"},
-				},
+				Tools:       []tool.Tool{readFile, executeCode},
 			}
 
 			fakeModelProvider := &modelproviderfakes.FakeModelProvider{}

@@ -17,7 +17,7 @@ Users receive concise, readable responses even when the underlying tool output i
 
 ### Arrange
 - Server running (Test 1)
-- Connected via `docs/gh-pages/chat.html` (Test 2)
+- Connected via `docs/chat.html` (Test 2)
 
 ### Act
 Send a request that triggers a large tool output, e.g.:
@@ -45,7 +45,7 @@ Users always get clear feedback, even when internal summarisation fails.
 
 ### Arrange
 - Server running (Test 1)
-- Connected via `docs/gh-pages/chat.html` (Test 2)
+- Connected via `docs/chat.html` (Test 2)
 
 ### Act
 Send a request that triggers tool usage and observe the response:
@@ -73,7 +73,7 @@ Sub-agent outputs exceeding the threshold are automatically summarised, keeping 
 
 ### Arrange
 - Server running (Test 1)
-- Connected via `docs/gh-pages/chat.html` (Test 2)
+- Connected via `docs/chat.html` (Test 2)
 
 ### Act
 Send a request that triggers a sub-agent with a large output, e.g.:

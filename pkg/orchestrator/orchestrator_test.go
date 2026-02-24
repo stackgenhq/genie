@@ -1,11 +1,9 @@
-package codeowner
+package orchestrator
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -19,6 +17,7 @@ import (
 	rtmemory "github.com/appcd-dev/genie/pkg/reactree/memory"
 	"github.com/appcd-dev/genie/pkg/reactree/reactreefakes"
 	"github.com/appcd-dev/genie/pkg/tools"
+	"github.com/appcd-dev/genie/pkg/tools/toolsfakes"
 	"github.com/appcd-dev/genie/pkg/ttlcache"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -28,24 +27,11 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
-type mockTool struct{}
-
-func (m *mockTool) Declaration() *tool.Declaration {
-	return &tool.Declaration{Name: "mock"}
-}
-func (m *mockTool) Call(ctx context.Context, jsonArgs []byte) (any, error) {
-	return nil, nil
-}
-
-type namedMockTool struct {
-	name string
-}
-
-func (m *namedMockTool) Declaration() *tool.Declaration {
-	return &tool.Declaration{Name: m.name}
-}
-func (m *namedMockTool) Call(ctx context.Context, jsonArgs []byte) (any, error) {
-	return nil, nil
+// newFakeCallableTool creates a FakeCallableTool with the given name.
+func newFakeCallableTool(name string) *toolsfakes.FakeCallableTool {
+	ft := &toolsfakes.FakeCallableTool{}
+	ft.DeclarationReturns(&tool.Declaration{Name: name})
+	return ft
 }
 
 // fakeExpertResponse builds a fake expert response with the given text content.
@@ -62,7 +48,7 @@ var _ = Describe("CodeOwner", func() {
 		fakeExpert          *expertfakes.FakeExpert
 		fakeFrontDeskExpert *expertfakes.FakeExpert
 		fakeTreeExecutor    *reactreefakes.FakeTreeExecutor
-		co                  *codeOwner
+		co                  *orchestrator
 		ctx                 context.Context
 	)
 
@@ -71,7 +57,7 @@ var _ = Describe("CodeOwner", func() {
 		fakeExpert = &expertfakes.FakeExpert{}
 		fakeFrontDeskExpert = &expertfakes.FakeExpert{}
 		fakeTreeExecutor = &reactreefakes.FakeTreeExecutor{}
-		co = &codeOwner{
+		co = &orchestrator{
 			expert:          fakeExpert,
 			frontDeskExpert: fakeFrontDeskExpert,
 			treeExecutor:    fakeTreeExecutor,
@@ -255,7 +241,7 @@ var _ = Describe("CodeOwner", func() {
 				Output: "Here is the refactored code...",
 			}, nil)
 
-			mTool := &mockTool{}
+			mTool := newFakeCallableTool("mock")
 			co.toolRegistry = tools.NewRegistry(ctx, tools.Tools{mTool})
 
 			outputChan := make(chan string, 10)
@@ -332,29 +318,6 @@ var _ = Describe("CodeOwner", func() {
 		It("should return empty string for nil/empty choices", func() {
 			Expect(extractTextFromChoices(nil)).To(Equal(""))
 			Expect(extractTextFromChoices([]model.Choice{})).To(Equal(""))
-		})
-	})
-
-	Describe("loadAgentsGuide", func() {
-		It("should return contents when Agents.md exists", func() {
-			tmpDir := GinkgoT().TempDir()
-			content := "# Coding Standards\n\nFollow these rules."
-			err := os.WriteFile(filepath.Join(tmpDir, "Agents.md"), []byte(content), 0644)
-			Expect(err).NotTo(HaveOccurred())
-
-			result := loadAgentsGuide(tmpDir)
-			Expect(result).To(Equal(content))
-		})
-
-		It("should return empty string when Agents.md does not exist", func() {
-			tmpDir := GinkgoT().TempDir()
-			result := loadAgentsGuide(tmpDir)
-			Expect(result).To(BeEmpty())
-		})
-
-		It("should return empty string when directory is empty", func() {
-			result := loadAgentsGuide("")
-			Expect(result).To(BeEmpty())
 		})
 	})
 

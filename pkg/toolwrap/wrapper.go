@@ -8,9 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/appcd-dev/genie/pkg/audit"
-	"github.com/appcd-dev/genie/pkg/hitl"
 	"github.com/appcd-dev/genie/pkg/logger"
-	"github.com/appcd-dev/genie/pkg/messenger"
 	"github.com/appcd-dev/genie/pkg/pii"
 	rtmemory "github.com/appcd-dev/genie/pkg/reactree/memory"
 	"github.com/tidwall/gjson"
@@ -76,12 +74,7 @@ func NewWrapper(t tool.Tool, deps MiddlewareDeps) *Wrapper {
 // chain. These are supplied per-request via WrapRequest and per-service
 // via the Service constructor.
 type MiddlewareDeps struct {
-	EventChan     chan<- interface{}
-	Auditor       audit.Auditor
-	ApprovalStore hitl.ApprovalStore
-	ThreadID      string
-	RunID         string
-	MessageOrigin messenger.MessageOrigin
+	Auditor audit.Auditor
 	// SemanticKeyFields maps tool names to the JSON argument fields that
 	// form the semantic identity of a call for deduplication.
 	SemanticKeyFields map[string][]string
@@ -156,7 +149,9 @@ func (w *Wrapper) execute(ctx context.Context, tc *ToolCallContext) (any, error)
 //
 // Bracketed items are opt-in and only included when their Enabled flag is
 // true in MiddlewareConfig.
-func (deps MiddlewareDeps) DefaultMiddlewares() Middleware {
+func (deps MiddlewareDeps) DefaultMiddlewares(
+	others ...Middleware,
+) Middleware {
 	cfg := deps.Config
 	mws := []Middleware{
 		PanicRecoveryMiddleware(),
@@ -171,7 +166,6 @@ func (deps MiddlewareDeps) DefaultMiddlewares() Middleware {
 	}
 
 	mws = append(mws,
-		EmitterMiddleware(deps.EventChan),
 		LoggerMiddleware(),
 		AuditMiddleware(deps.Auditor),
 	)
@@ -210,16 +204,10 @@ func (deps MiddlewareDeps) DefaultMiddlewares() Middleware {
 	}
 
 	mws = append(mws,
-		HITLApprovalMiddleware(deps.ApprovalStore, deps.EventChan,
-			deps.ThreadID, deps.RunID, deps.WorkingMemory),
-		ContextEnrichMiddleware(deps.EventChan, deps.ThreadID,
-			deps.RunID, deps.MessageOrigin),
-		// Auto-summarize oversized tool results (innermost, so audit/emitter
-		// see the compressed result).
 		AutoSummarizeMiddleware(deps.Summarize, deps.SummarizeThreshold),
 	)
 
-	return CompositeMiddleware(mws)
+	return CompositeMiddleware(append(mws, others...))
 }
 
 // --- Package-level helpers (no Wrapper dependency) ---

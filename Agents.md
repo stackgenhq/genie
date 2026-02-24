@@ -983,11 +983,11 @@ if ok {
 #### Rules
 
 - **Config Reference**: When adding, removing, or modifying fields in any config struct under `pkg/config/`, `pkg/mcp/`, `pkg/messenger/`, `pkg/memory/vector/`, `pkg/tools/secops/`, `pkg/tools/websearch/`, `pkg/iacgen/generator/`, or `pkg/expert/modelprovider/`, the following files must be updated:
-  1. `docs/gh-pages/docs.html` — Update the relevant config reference section with the new field, its type, default value, and a human-friendly description
-  2. `docs/gh-pages/js/config-builder.js` — Update the form state, section renderer, TOML serializer, and YAML serializer to include the new field with a non-technical tooltip
+  1. `docs/docs.html` — Update the relevant config reference section with the new field, its type, default value, and a human-friendly description
+  2. `docs/js/config-builder.js` — Update the form state, section renderer, TOML serializer, and YAML serializer to include the new field with a non-technical tooltip
   3. `config.toml.example` — Add or update the example entry with an inline comment
 - **Tooltips**: Every form field in the Config Builder must have a tooltip (the last argument to `fieldText`, `fieldNumber`, `fieldSelect`, `fieldToggle`, or `fieldEnvVar`). Tooltips must be non-technical and explain what the setting does in plain language
-- **Docker Examples**: When changing how Genie runs (new flags, entrypoints, volume requirements), update the Docker use cases section in `docs/gh-pages/docs.html`
+- **Docker Examples**: When changing how Genie runs (new flags, entrypoints, volume requirements), update the Docker use cases section in `docs/docs.html`
 
 #### Godoc Comment Format
 
@@ -1421,7 +1421,7 @@ func LoadConfig() GenieConfig {
 #### Rules
 
 - **Every new end-user-facing feature** must have a corresponding entry in `qa/` before the feature is considered complete
-- **Blackbox only**: Validation steps must be executable by a human tester using the chat UI (`docs/gh-pages/chat.html`) or HTTP endpoints (e.g., `curl`). Never reference unit tests, `go test` commands, or internal source paths
+- **Blackbox only**: Validation steps must be executable by a human tester using the chat UI (`docs/chat.html`) or HTTP endpoints (e.g., `curl`). Never reference unit tests, `go test` commands, or internal source paths
 - Each entry must cover the following four aspects:
   1. **Why it was developed** — the motivation and context behind the feature
   2. **What problem it solves** — the specific pain point or gap it addresses
@@ -1446,7 +1446,7 @@ Explain how this feature is beneficial to users, the system, or the development 
 
 ### Arrange
 - Server running (Test 1)
-- Connected via `docs/gh-pages/chat.html` (Test 2)
+- Connected via `docs/chat.html` (Test 2)
 
 ### Act
 Describe the user actions to perform (e.g., send a chat message, click a button, call an HTTP endpoint).

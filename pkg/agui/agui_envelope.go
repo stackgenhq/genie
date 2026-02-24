@@ -19,7 +19,7 @@ type CloudEvent struct {
 	// ID is a unique identifier for this event (UUID v4).
 	ID string `json:"id"`
 	// Source identifies the context in which the event happened, e.g.
-	// "genie/reactree/stage-2" or "genie/codeowner".
+	// "genie/reactree/stage-2" or "genie/orchestrator".
 	Source string `json:"source"`
 	// Type is the CloudEvents type, e.g. "ai.genie.agui.RUN_STARTED".
 	Type string `json:"type"`

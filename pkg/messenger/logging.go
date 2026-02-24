@@ -54,11 +54,14 @@ func (lm *LoggingMessenger) Send(ctx context.Context, req SendRequest) (SendResp
 	log := logger.GetLogger(ctx).With("fn", "messenger.Send", "platform", string(lm.inner.Platform()))
 
 	log.Info("sending outgoing message",
+		"type", string(req.Type),
 		"channel", req.Channel.ID,
 		"threadID", req.ThreadID,
 		"textLength", len(req.Content.Text),
 	)
-	if len(req.Content.Text) == 0 {
+	// Only enforce non-empty text for regular messages — reactions and
+	// updates may legitimately have no text body.
+	if req.Type == SendTypeMessage && len(req.Content.Text) == 0 {
 		return SendResponse{}, fmt.Errorf("cannot send empty message text")
 	}
 
@@ -93,6 +96,7 @@ func (lm *LoggingMessenger) Receive(ctx context.Context) (<-chan IncomingMessage
 		defer close(logged)
 		for msg := range ch {
 			log.Info("received incoming message",
+				"type", string(msg.Type),
 				"sender", msg.Sender.ID,
 				"displayName", msg.Sender.DisplayName,
 				"channel", msg.Channel.ID,
@@ -128,6 +132,27 @@ func (lm *LoggingMessenger) FormatClarification(req SendRequest, info Clarificat
 		"requestID", info.RequestID,
 	)
 	return lm.inner.FormatClarification(req, info)
+}
+
+// UpdateMessage delegates to the inner Messenger with structured logging.
+// This wraps message updates (e.g. replacing approval buttons with resolved
+// status) with consistent observability.
+func (lm *LoggingMessenger) UpdateMessage(ctx context.Context, req UpdateRequest) error {
+	log := logger.GetLogger(ctx).With("fn", "messenger.UpdateMessage", "platform", string(lm.inner.Platform()))
+	log.Info("updating message",
+		"messageID", req.MessageID,
+		"channel", req.Channel.ID,
+	)
+	err := lm.inner.UpdateMessage(ctx, req)
+	if err != nil {
+		log.Error("failed to update message",
+			"error", err,
+			"messageID", req.MessageID,
+		)
+		return err
+	}
+	log.Info("message updated", "messageID", req.MessageID)
+	return nil
 }
 
 // Unwrap returns the underlying Messenger, allowing callers to access

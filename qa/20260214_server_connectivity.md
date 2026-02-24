@@ -44,7 +44,7 @@ Confirms end-to-end connectivity from the browser to the running server.
 
 ### Arrange
 - Server is running on port 8080 (Test 1)
-- Open `docs/gh-pages/chat.html` in a browser
+- Open `docs/chat.html` in a browser
 
 ### Act
 1. Verify the **Endpoint** field reads `http://localhost:8080`
@@ -68,7 +68,7 @@ Without error handling, the UI could crash or hang indefinitely on a bad connect
 Provides a clear, non-destructive failure mode so users know to check their server.
 
 ### Arrange
-- Open `docs/gh-pages/chat.html` in a browser
+- Open `docs/chat.html` in a browser
 
 ### Act
 1. Change the endpoint to `http://localhost:9999` (no server running)

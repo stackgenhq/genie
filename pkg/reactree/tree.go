@@ -64,33 +64,12 @@ type TreeConfig struct {
 	// asks at most one clarifying question before using defaults.
 	ToolBudgets map[string]int
 
-	// EnterpriseFeatures holds opt-in configurations for predictability, bounding,
+	// Toggles holds opt-in configurations for predictability, bounding,
 	// and enterprise readiness.
-	EnterpriseFeatures EnterpriseFeatures
+	Toggles Toggles
 
 	// Checkpointer is used to save and restore execution state.
 	Checkpointer graph.CheckpointSaver `json:"-"`
-}
-
-// EnterpriseFeatures configures optional predictability and bounding mechanisms.
-// All fields default to zero values (disabled). Callers opt in by setting booleans
-// and injecting the corresponding dependency.
-type EnterpriseFeatures struct {
-	EnableCriticMiddleware bool `mapstructure:"enable_critic_middleware"`
-	EnableActionReflection bool `mapstructure:"enable_action_reflection"`
-	EnableDryRunSimulation bool `mapstructure:"enable_dry_run_simulation"`
-	EnableMCPServerAccess  bool `mapstructure:"enable_mcp_server_access"`
-	EnableAuditDashboard   bool `mapstructure:"enable_audit_dashboard"`
-
-	// Reflector is the ActionReflector used for RAR loops.
-	// Only used when EnableActionReflection is true.
-	Reflector ActionReflector `json:"-"`
-
-	// Hooks are lifecycle callbacks invoked at well-defined points during
-	// tree execution. Multiple hooks can be composed via hooks.NewChainHook.
-	// Hooks replace the previous AuditEmitter field — the AuditHook
-	// implementation provides the same audit-logging behavior.
-	Hooks hooks.ExecutionHook `json:"-"`
 }
 
 // DefaultTreeConfig returns sensible defaults for tree execution.
@@ -131,10 +110,9 @@ type TreeExecutor interface {
 
 // TreeRequest contains all inputs for a single tree execution.
 type TreeRequest struct {
-	Goal      string
-	EventChan chan<- interface{}
-	Tools     []tool.Tool
-	TaskType  modelprovider.TaskType
+	Goal     string
+	Tools    []tool.Tool
+	TaskType modelprovider.TaskType
 	// Attachments are file/media attachments from the incoming message.
 	// Image attachments are passed as multimodal content to the LLM.
 	Attachments []messenger.Attachment
@@ -176,11 +154,11 @@ func NewTreeExecutor(
 	}
 	// Resolve enterprise dependencies.
 	var reflector ActionReflector = &NoOpReflector{}
-	if config.EnterpriseFeatures.EnableActionReflection && config.EnterpriseFeatures.Reflector != nil {
-		reflector = config.EnterpriseFeatures.Reflector
+	if config.Toggles.EnableActionReflection && config.Toggles.Reflector != nil {
+		reflector = config.Toggles.Reflector
 	}
 
-	execHooks := config.EnterpriseFeatures.Hooks
+	execHooks := config.Toggles.Hooks
 	if execHooks == nil {
 		execHooks = hooks.NoOpHook{}
 	}
@@ -191,11 +169,11 @@ func NewTreeExecutor(
 		"max_total_nodes", config.MaxTotalNodes,
 		"max_iterations", config.MaxIterations,
 		"stages", len(config.Stages),
-		"enterprise.critic", config.EnterpriseFeatures.EnableCriticMiddleware,
-		"enterprise.reflection", config.EnterpriseFeatures.EnableActionReflection,
-		"enterprise.dry_run", config.EnterpriseFeatures.EnableDryRunSimulation,
-		"enterprise.mcp", config.EnterpriseFeatures.EnableMCPServerAccess,
-		"enterprise.audit", config.EnterpriseFeatures.EnableAuditDashboard,
+		"enterprise.critic", config.Toggles.EnableCriticMiddleware,
+		"enterprise.reflection", config.Toggles.EnableActionReflection,
+		"enterprise.dry_run", config.Toggles.EnableDryRunSimulation,
+		"enterprise.mcp", config.Toggles.EnableMCPServerAccess,
+		"enterprise.audit", config.Toggles.EnableAuditDashboard,
 		"enterprise.hooks", execHooks != nil,
 	)
 	return &tree{
@@ -258,7 +236,7 @@ func (t *tree) runSingleNode(ctx context.Context, req TreeRequest) (TreeResult, 
 	toolsToUse := req.Tools
 
 	// Enterprise: wrap tools with critic middleware if enabled.
-	if t.config.EnterpriseFeatures.EnableCriticMiddleware {
+	if t.config.Toggles.EnableCriticMiddleware {
 		validator := NewDeterministicValidator(nil)
 		wrapped := make([]tool.Tool, len(toolsToUse))
 		for i, tl := range toolsToUse {
@@ -268,7 +246,7 @@ func (t *tree) runSingleNode(ctx context.Context, req TreeRequest) (TreeResult, 
 	}
 
 	// Enterprise: wrap tools for dry run simulation if enabled.
-	if t.config.EnterpriseFeatures.EnableDryRunSimulation {
+	if t.config.Toggles.EnableDryRunSimulation {
 		wrapped, _ := WrapToolsForDryRun(toolsToUse)
 		toolsToUse = wrapped
 	}
@@ -279,7 +257,6 @@ func (t *tree) runSingleNode(ctx context.Context, req TreeRequest) (TreeResult, 
 		WorkingMemory: t.resolveWorkingMemory(req),
 		Episodic:      t.resolveEpisodic(req),
 		MaxDecisions:  t.config.MaxDecisionsPerNode,
-		EventChan:     req.EventChan,
 		Tools:         toolsToUse,
 		Attachments:   req.Attachments,
 	})
@@ -378,7 +355,7 @@ func (t *tree) runMultiStage(ctx context.Context, req TreeRequest) (TreeResult, 
 		toolsToUse := req.Tools
 
 		// Enterprise: wrap tools with critic middleware if enabled.
-		if t.config.EnterpriseFeatures.EnableCriticMiddleware {
+		if t.config.Toggles.EnableCriticMiddleware {
 			validator := NewDeterministicValidator(nil)
 			wrapped := make([]tool.Tool, len(toolsToUse))
 			for j, tl := range toolsToUse {
@@ -388,7 +365,7 @@ func (t *tree) runMultiStage(ctx context.Context, req TreeRequest) (TreeResult, 
 		}
 
 		// Enterprise: wrap tools for dry run simulation if enabled.
-		if t.config.EnterpriseFeatures.EnableDryRunSimulation {
+		if t.config.Toggles.EnableDryRunSimulation {
 			wrapped, _ := WrapToolsForDryRun(toolsToUse)
 			toolsToUse = wrapped
 		}
@@ -399,7 +376,6 @@ func (t *tree) runMultiStage(ctx context.Context, req TreeRequest) (TreeResult, 
 			WorkingMemory: t.resolveWorkingMemory(req),
 			Episodic:      t.resolveEpisodic(req),
 			MaxDecisions:  t.config.MaxDecisionsPerNode,
-			EventChan:     req.EventChan,
 			Tools:         toolsToUse,
 			TaskType:      stage.TaskType,
 			Attachments:   req.Attachments,
@@ -407,10 +383,10 @@ func (t *tree) runMultiStage(ctx context.Context, req TreeRequest) (TreeResult, 
 
 		// Wrap the node func to emit stage events and capture the last output
 		wrappedFunc := func(ctx context.Context, state graph.State) (any, error) {
-			// Emit stage progress to TUI (guard against nil channel)
-			if req.EventChan != nil {
-				agui.EmitStageProgress(ctx, req.EventChan, stageName, stageIdx, totalStages)
-				agui.EmitThinking(ctx, req.EventChan, "code-owner", stageName+"...")
+			// Emit stage progress to TUI (guard against no registered channel)
+			if agui.ChannelFor(ctx) != nil {
+				agui.EmitStageProgress(ctx, stageName, stageIdx, totalStages)
+				agui.EmitThinking(ctx, "code-owner", stageName+"...")
 			}
 			logr.Info("stage started", "stage", stageName, "index", stageIdx)
 

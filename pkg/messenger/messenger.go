@@ -80,17 +80,17 @@ type Sender struct {
 // Attachment represents a file or media attachment on a message.
 type Attachment struct {
 	// Name is the filename or label.
-	Name string
+	Name string `json:"name"`
 	// URL is the download/access URL for the attachment.
-	URL string
+	URL string `json:"url"`
 	// ContentType is the MIME type (e.g., "image/png", "application/pdf").
-	ContentType string
+	ContentType string `json:"content_type"`
 	// Size is the file size in bytes (0 if unknown).
-	Size int64
+	Size int64 `json:"size"`
 	// LocalPath is the path to the downloaded file on disk. Populated when
 	// the adapter downloads the attachment (e.g., WhatsApp encrypted media).
 	// Empty if only metadata is available (e.g., Slack URLs that require auth).
-	LocalPath string
+	LocalPath string `json:"local_path"`
 }
 
 // MessageContent holds the body of a message.
@@ -112,6 +112,13 @@ const (
 	// are populated. This allows the system to use reactions as human
 	// feedback signals for episodic memory (e.g. 👍 = positive, 👎 = negative).
 	MessageTypeReaction MessageType = "reaction"
+	// MessageTypeInteraction is a structured action from an interactive UI
+	// element (e.g. Slack Block Kit button click, Teams Adaptive Card
+	// Action.Submit, Google Chat card action). When Type ==
+	// MessageTypeInteraction, the Interaction field is populated with
+	// action metadata. This allows the system to resolve approvals and
+	// clarifications via button clicks rather than requiring text replies.
+	MessageTypeInteraction MessageType = "interaction"
 )
 
 // SendType distinguishes message actions routed through Messenger.Send.
@@ -123,6 +130,11 @@ const (
 	// SendTypeReaction adds an emoji reaction to an existing message.
 	// Requires ReplyToMessageID (the message to react to) and Emoji.
 	SendTypeReaction SendType = "reaction"
+	// SendTypeUpdate replaces an existing message with new content.
+	// Requires ReplyToMessageID (the message ID to update). Used to
+	// disarm interactive buttons after resolution (e.g. replacing
+	// approval buttons with "✅ Approved by @user").
+	SendTypeUpdate SendType = "update"
 )
 
 // SendRequest contains all parameters needed to send a message.
@@ -162,7 +174,7 @@ type IncomingMessage struct {
 	ID string
 	// Platform identifies which platform the message came from.
 	Platform Platform
-	// Type distinguishes regular messages from reactions.
+	// Type distinguishes regular messages from reactions and interactions.
 	// Empty string means a normal text/media message.
 	Type MessageType
 	// Channel is the conversation where the message was posted.
@@ -184,6 +196,11 @@ type IncomingMessage struct {
 	// ReactedMessageID is the platform-assigned ID of the message being
 	// reacted to. Only populated when Type == MessageTypeReaction.
 	ReactedMessageID string
+
+	// Interaction carries structured data when Type == MessageTypeInteraction.
+	// Populated by adapters that support interactive UI elements (buttons,
+	// menus, card actions). Nil for all other message types.
+	Interaction *InteractionData
 }
 
 func (msg IncomingMessage) String() string {
@@ -242,6 +259,14 @@ type Messenger interface {
 	// formatting for a clarifying question posed by the agent.
 	// Adapters that do not support rich formatting should return the request unchanged.
 	FormatClarification(req SendRequest, info ClarificationInfo) SendRequest
+
+	// UpdateMessage replaces the content of a previously sent message.
+	// Used to disarm interactive buttons after resolution (e.g. replacing
+	// approval buttons with "✅ Approved by @user") and to update
+	// progress messages. Adapters that do not support message editing
+	// should return nil (a no-op).
+	// Returns ErrNotConnected if Connect has not been called.
+	UpdateMessage(ctx context.Context, req UpdateRequest) error
 }
 
 // ApprovalInfo carries the data needed by adapters to render a rich approval
@@ -267,4 +292,51 @@ type ClarificationInfo struct {
 	Question string
 	// Context is optional context explaining why the agent needs this info.
 	Context string
+}
+
+// InteractionData carries structured data from an interactive UI element.
+// This is a platform-agnostic representation of a button click, menu
+// selection, or card action. Each adapter converts its native interaction
+// payload (Slack block_actions, Teams Action.Submit, Google Chat card
+// action) into this common type.
+//
+// Without this type, button clicks from rich approval/clarification
+// notifications would be silently discarded because the Receive channel
+// only delivers text messages.
+type InteractionData struct {
+	// ActionID is the platform-specific action identifier.
+	// Convention: "{verb}_{resourceID}" (e.g. "approve_abc123",
+	// "reject_abc123", "clarify_respond_xyz").
+	ActionID string
+	// ActionValue is the value associated with the action. For approval
+	// buttons, this is the approval ID.
+	ActionValue string
+	// BlockID is the container block/card identifier
+	// (e.g. "approval_abc123" in Slack Block Kit).
+	BlockID string
+	// ActionType describes the UI element type (e.g. "button", "select").
+	ActionType string
+	// ResponseURL is an optional, time-limited URL provided by the
+	// platform for updating or replacing the message that contained the
+	// interactive element. Slack provides this for 30 minutes after a
+	// block_actions event. Adapters that don't support it leave this empty.
+	ResponseURL string
+}
+
+// UpdateRequest contains all parameters needed to update an existing message.
+// Used after resolving an approval or clarification to replace interactive
+// buttons with a resolved status (e.g. "✅ Approved by @user").
+//
+// Without this type, interactive buttons would remain active after
+// resolution, allowing other users to click them and causing confusion.
+type UpdateRequest struct {
+	// MessageID is the platform-assigned identifier of the message to update.
+	MessageID string
+	// Channel is the channel/conversation containing the message.
+	Channel Channel
+	// Content is the replacement message body.
+	Content MessageContent
+	// Metadata holds platform-specific key-value pairs for the update
+	// (e.g. replacement Slack blocks, updated Adaptive Card).
+	Metadata map[string]any
 }

@@ -138,6 +138,6 @@ var _ = Describe("ToolProvider", func() {
 		for i, tl := range tools {
 			names[i] = tl.Declaration().Name
 		}
-		Expect(names).To(ConsistOf("util_math", "util_calculator"))
+		Expect(names).To(ConsistOf("math", "calculator"))
 	})
 })

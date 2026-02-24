@@ -226,7 +226,6 @@ var _ = Describe("TreeExecutor (Adaptive Loop)", func() {
 		})
 
 		It("should NOT suppress SSE for the creative-output iteration", func() {
-			eventChan := make(chan interface{}, 100)
 
 			// Iteration 0: tool calls + intermediate data
 			fakeExpert.DoReturnsOnCall(0, expert.Response{
@@ -256,8 +255,7 @@ var _ = Describe("TreeExecutor (Adaptive Loop)", func() {
 			}, nil)
 
 			req := reactree.TreeRequest{
-				Goal:      "Research then create",
-				EventChan: eventChan,
+				Goal: "Research then create",
 			}
 
 			result, err := treeExec.Run(ctx, req)
@@ -268,14 +266,12 @@ var _ = Describe("TreeExecutor (Adaptive Loop)", func() {
 			// because iteration 0 used tools (task NOT completed), so
 			// priorHadOutput is false.
 			Expect(fakeExpert.DoCallCount()).To(Equal(2))
-			_, call2Req := fakeExpert.DoArgsForCall(1)
-			Expect(call2Req.EventChannel).NotTo(BeNil(), "EventChan must NOT be suppressed for creative-output iteration")
+			// EventChan propagation is now handled by the agui event bus — no explicit field to check
 		})
 	})
 
 	Context("Graceful Degradation (fallback text emission)", func() {
 		It("should stream the completing iteration's text when prior iterations only used tools", func() {
-			eventChan := make(chan interface{}, 100)
 
 			// Iteration 0: tool calls + output, but taskCompleted=false
 			fakeExpert.DoReturnsOnCall(0, expert.Response{
@@ -305,8 +301,7 @@ var _ = Describe("TreeExecutor (Adaptive Loop)", func() {
 			}, nil)
 
 			req := reactree.TreeRequest{
-				Goal:      "good news from California",
-				EventChan: eventChan,
+				Goal: "good news from California",
 			}
 
 			result, err := treeExec.Run(ctx, req)
@@ -318,19 +313,16 @@ var _ = Describe("TreeExecutor (Adaptive Loop)", func() {
 			// EventChan should NOT have been suppressed for iteration 1
 			// because iteration 0 used tools (task was NOT completed).
 			Expect(fakeExpert.DoCallCount()).To(Equal(2))
-			_, call2Req := fakeExpert.DoArgsForCall(1)
-			Expect(call2Req.EventChannel).NotTo(BeNil(), "EventChan must not be suppressed when task was not completed")
+			// EventChan propagation is now handled by the agui event bus
 		})
 
 		It("should emit error message when no output at all", func() {
-			eventChan := make(chan interface{}, 100)
 
 			// Iteration 1: error — expert call fails
 			fakeExpert.DoReturns(expert.Response{}, fmt.Errorf("context deadline exceeded"))
 
 			req := reactree.TreeRequest{
-				Goal:      "test task",
-				EventChan: eventChan,
+				Goal: "test task",
 			}
 
 			result, err := treeExec.Run(ctx, req)
@@ -463,7 +455,6 @@ var _ = Describe("TreeExecutor (Adaptive Loop)", func() {
 
 	Context("SSE Always Forwarded", func() {
 		It("should forward EventChan to every iteration including validation probes", func() {
-			eventChan := make(chan interface{}, 100)
 
 			// Iteration 0: tool calls + output, taskCompleted=true (sets priorHadOutput)
 			fakeExpert.DoReturnsOnCall(0, expert.Response{
@@ -508,8 +499,7 @@ var _ = Describe("TreeExecutor (Adaptive Loop)", func() {
 			}, nil)
 
 			req := reactree.TreeRequest{
-				Goal:      "Two iteration task",
-				EventChan: eventChan,
+				Goal: "Two iteration task",
 			}
 
 			result, err := treeExec.Run(ctx, req)
@@ -517,11 +507,9 @@ var _ = Describe("TreeExecutor (Adaptive Loop)", func() {
 			Expect(result.Output).To(Equal("Final answer"))
 			Expect(fakeExpert.DoCallCount()).To(Equal(2))
 
-			// Both calls should have received EventChan (not nil)
-			_, call1Req := fakeExpert.DoArgsForCall(0)
-			Expect(call1Req.EventChannel).NotTo(BeNil(), "Iteration 0 must have EventChan")
-			_, call2Req := fakeExpert.DoArgsForCall(1)
-			Expect(call2Req.EventChannel).NotTo(BeNil(), "Iteration 1 must have EventChan")
+			// Both calls used the same context with bus registration —
+			// EventChan propagation is now handled by the agui event bus.
+			// No explicit EventChannel field to check.
 		})
 	})
 

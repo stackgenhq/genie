@@ -240,6 +240,6 @@ var _ = Describe("Code Skim ToolProvider", func() {
 		p := NewToolProvider()
 		tools := p.GetTools()
 		Expect(tools).To(HaveLen(1))
-		Expect(tools[0].Declaration().Name).To(Equal("util_code_skim"))
+		Expect(tools[0].Declaration().Name).To(Equal("code_skim"))
 	})
 })

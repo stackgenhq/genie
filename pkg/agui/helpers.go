@@ -2,90 +2,53 @@ package agui
 
 import (
 	"context"
-
-	"github.com/appcd-dev/genie/pkg/logger"
 )
 
-// EmitAgentMessage sends a chat message to the UI.
-func EmitAgentMessage(ctx context.Context, eventChan chan<- interface{}, sender, message string) {
-	if eventChan == nil {
-		return
-	}
-	select {
-	case eventChan <- AgentChatMessage{
+// EmitAgentMessage sends a chat message to the UI via the event bus.
+func EmitAgentMessage(ctx context.Context, sender, message string) {
+	Emit(ctx, AgentChatMessage{
 		Type:    EventTextMessageContent,
 		Sender:  sender,
 		Message: message,
-	}:
-	default:
-		logger.GetLogger(ctx).Warn("agui event dropped (channel full), type=AgentChatMessage", "sender", sender, "message", message)
-	}
+	})
 }
 
 // EmitStageProgress is a helper to emit stage progress events.
-func EmitStageProgress(ctx context.Context, eventChan chan<- interface{}, stage string, stageIndex, totalStages int) {
-	if eventChan == nil {
-		return
-	}
+func EmitStageProgress(ctx context.Context, stage string, stageIndex, totalStages int) {
 	progress := float64(stageIndex) / float64(totalStages)
-	select {
-	case eventChan <- StageProgressMsg{
+	Emit(ctx, StageProgressMsg{
 		Type:        EventStepStarted,
 		Stage:       stage,
 		Progress:    progress,
 		StageIndex:  stageIndex,
 		TotalStages: totalStages,
-	}:
-	default:
-		logger.GetLogger(ctx).Warn("agui event dropped (channel full), type=StageProgressMsg", "stage", stage, "stageIndex", stageIndex, "totalStages", totalStages)
-	}
+	})
 }
 
 // EmitThinking is a helper to emit thinking/processing events.
-func EmitThinking(ctx context.Context, eventChan chan<- interface{}, agentName, message string) {
-	if eventChan == nil {
-		return
-	}
-	select {
-	case eventChan <- AgentThinkingMsg{
+func EmitThinking(ctx context.Context, agentName, message string) {
+	Emit(ctx, AgentThinkingMsg{
 		Type:      EventRunStarted,
 		AgentName: agentName,
 		Message:   message,
-	}:
-	default:
-		logger.GetLogger(ctx).Warn("agui event dropped (channel full), type=AgentThinkingMsg", "agentName", agentName, "message", message)
-	}
+	})
 }
 
 // EmitCompletion is a helper to emit completion events.
-func EmitCompletion(ctx context.Context, eventChan chan<- interface{}, success bool, message string, outputDir string) {
-	if eventChan == nil {
-		return
-	}
-	select {
-	case eventChan <- AgentCompleteMsg{
+func EmitCompletion(ctx context.Context, success bool, message string, outputDir string) {
+	Emit(ctx, AgentCompleteMsg{
 		Type:      EventRunFinished,
 		Success:   success,
 		Message:   message,
 		OutputDir: outputDir,
-	}:
-	default:
-		logger.GetLogger(ctx).Warn("agui event dropped (channel full), type=AgentCompleteMsg", "success", success, "message", message, "outputDir", outputDir)
-	}
+	})
 }
 
 // EmitError is a helper to emit error events.
-func EmitError(ctx context.Context, eventChan chan<- interface{}, err error, context string) {
-	if eventChan == nil {
-		return
-	}
-	select {
-	case eventChan <- AgentErrorMsg{
+func EmitError(ctx context.Context, err error, context_ string) {
+	Emit(ctx, AgentErrorMsg{
 		Type:    EventRunError,
 		Error:   err,
-		Context: context,
-	}:
-	default:
-		logger.GetLogger(ctx).Warn("agui event dropped (channel full), type=AgentErrorMsg", "context", context, "error", err)
-	}
+		Context: context_,
+	})
 }

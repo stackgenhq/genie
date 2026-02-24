@@ -105,6 +105,18 @@ type FakeMessenger struct {
 		result1 messenger.SendResponse
 		result2 error
 	}
+	UpdateMessageStub        func(context.Context, messenger.UpdateRequest) error
+	updateMessageMutex       sync.RWMutex
+	updateMessageArgsForCall []struct {
+		arg1 context.Context
+		arg2 messenger.UpdateRequest
+	}
+	updateMessageReturns struct {
+		result1 error
+	}
+	updateMessageReturnsOnCall map[int]struct {
+		result1 error
+	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
 }
@@ -591,6 +603,68 @@ func (fake *FakeMessenger) SendReturnsOnCall(i int, result1 messenger.SendRespon
 		result1 messenger.SendResponse
 		result2 error
 	}{result1, result2}
+}
+
+func (fake *FakeMessenger) UpdateMessage(arg1 context.Context, arg2 messenger.UpdateRequest) error {
+	fake.updateMessageMutex.Lock()
+	ret, specificReturn := fake.updateMessageReturnsOnCall[len(fake.updateMessageArgsForCall)]
+	fake.updateMessageArgsForCall = append(fake.updateMessageArgsForCall, struct {
+		arg1 context.Context
+		arg2 messenger.UpdateRequest
+	}{arg1, arg2})
+	stub := fake.UpdateMessageStub
+	fakeReturns := fake.updateMessageReturns
+	fake.recordInvocation("UpdateMessage", []interface{}{arg1, arg2})
+	fake.updateMessageMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeMessenger) UpdateMessageCallCount() int {
+	fake.updateMessageMutex.RLock()
+	defer fake.updateMessageMutex.RUnlock()
+	return len(fake.updateMessageArgsForCall)
+}
+
+func (fake *FakeMessenger) UpdateMessageCalls(stub func(context.Context, messenger.UpdateRequest) error) {
+	fake.updateMessageMutex.Lock()
+	defer fake.updateMessageMutex.Unlock()
+	fake.UpdateMessageStub = stub
+}
+
+func (fake *FakeMessenger) UpdateMessageArgsForCall(i int) (context.Context, messenger.UpdateRequest) {
+	fake.updateMessageMutex.RLock()
+	defer fake.updateMessageMutex.RUnlock()
+	argsForCall := fake.updateMessageArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeMessenger) UpdateMessageReturns(result1 error) {
+	fake.updateMessageMutex.Lock()
+	defer fake.updateMessageMutex.Unlock()
+	fake.UpdateMessageStub = nil
+	fake.updateMessageReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeMessenger) UpdateMessageReturnsOnCall(i int, result1 error) {
+	fake.updateMessageMutex.Lock()
+	defer fake.updateMessageMutex.Unlock()
+	fake.UpdateMessageStub = nil
+	if fake.updateMessageReturnsOnCall == nil {
+		fake.updateMessageReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.updateMessageReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
 }
 
 func (fake *FakeMessenger) Invocations() map[string][][]interface{} {

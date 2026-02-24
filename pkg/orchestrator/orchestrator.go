@@ -1,11 +1,10 @@
-package codeowner
+package orchestrator
 
 import (
 	"context"
 	_ "embed"
 	"errors"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -17,11 +16,9 @@ import (
 	"github.com/appcd-dev/genie/pkg/expert"
 	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
 	"github.com/appcd-dev/genie/pkg/hitl"
-	"github.com/appcd-dev/genie/pkg/langfuse"
 	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/appcd-dev/genie/pkg/memory/vector"
 	"github.com/appcd-dev/genie/pkg/messenger"
-	"github.com/appcd-dev/genie/pkg/osutils"
 	"github.com/appcd-dev/genie/pkg/pii"
 	"github.com/appcd-dev/genie/pkg/reactree"
 	rtmemory "github.com/appcd-dev/genie/pkg/reactree/memory"
@@ -43,25 +40,24 @@ var persona string
 var classifyPrompt string
 
 type CodeQuestion struct {
-	Question  string
-	EventChan chan<- interface{}
+	Question string `json:"question"`
 
 	// Attachments holds file/media attachments from the incoming message.
 	// Image attachments are passed as multimodal content to the LLM so it
 	// can "see" them; other types are described textually.
-	Attachments []messenger.Attachment
+	Attachments []messenger.Attachment `json:"-"`
 
 	// BrowserTab is an optional context for a specific browser tab.
 	// If provided, browser tools will use this context.
-	BrowserTab context.Context
+	BrowserTab context.Context `json:"-"`
 }
 
 //go:generate go tool counterfeiter -generate
 
-// CodeOwner is an expert that can chat about the codebase
+// Orchestrator is an expert that can answer users questions
 //
-//counterfeiter:generate . CodeOwner
-type CodeOwner interface {
+//counterfeiter:generate . Orchestrator
+type Orchestrator interface {
 	Chat(ctx context.Context, req CodeQuestion, outputChan chan<- string) error
 	Close() error
 	Resume(ctx context.Context) string
@@ -84,7 +80,7 @@ type classificationResult struct {
 	Reason   string // non-empty only for OUT_OF_SCOPE
 }
 
-type codeOwner struct {
+type orchestrator struct {
 	expert          expert.Expert
 	frontDeskExpert expert.Expert
 	treeExecutor    reactree.TreeExecutor
@@ -95,7 +91,6 @@ type codeOwner struct {
 	resume          *ttlcache.Item[string]
 	resumeCancel    context.CancelFunc
 	vectorStore     vector.IStore
-	agentName       string // GUILD agent name; empty for standalone Genie.
 
 	// Per-sender memory isolation. These maps use sync.Map for concurrent
 	// access and lazily create instances on first access per sender.
@@ -105,12 +100,12 @@ type codeOwner struct {
 }
 
 // Resume returns a natural language description of the agent's capabilities.
-func (c *codeOwner) Resume(ctx context.Context) string {
+func (c *orchestrator) Resume(ctx context.Context) string {
 	result, _ := c.resume.GetValue(ctx)
 	return result
 }
 
-// NewCodeOwner creates a new codeOwner with an integrated ReAcTree executor.
+// NewOrchestrator creates a new orchestrator with an integrated ReAcTree executor.
 // The working memory persists across chat turns, allowing the agent to share
 // observations from previous interactions. The tree executor enables
 // hierarchical task decomposition for complex queries when activated.
@@ -118,11 +113,11 @@ func (c *codeOwner) Resume(ctx context.Context) string {
 // when nil, sub-agents execute tools without requiring human approval.
 // The runbookCfg enables loading customer-provided instructional runbooks
 // that get injected into the agent's system prompt.
-func NewCodeOwner(
+func NewOrchestrator(
 	ctx context.Context,
 	modelProvider modelprovider.ModelProvider,
-	workingDirectory string,
 	availableTools *tools.Registry,
+	runbook runbook.Runbook,
 	vectorStore vector.IStore,
 	auditor audit.Auditor,
 	approvalStore hitl.ApprovalStore,
@@ -130,52 +125,29 @@ func NewCodeOwner(
 	runbookCfg runbook.Config,
 	sessionSvc session.Service,
 	agentPersona string,
-) (CodeOwner, error) {
+) (Orchestrator, error) {
 	// Build the persona prompt. When agentPersona is provided (GUILD agents),
 	// use it instead of the default Genie persona. This enables per-agent
 	// identity customisation.
-	basePersona := persona
+	fullPersona := persona
 	if agentPersona != "" {
-		basePersona = agentPersona
+		fullPersona += "\n\n" + agentPersona
 	}
-	fullPersona := langfuse.GetPrompt(ctx, "genie_codeowner_persona", basePersona)
-	if agentsGuide := loadAgentsGuide(workingDirectory); agentsGuide != "" {
-		fullPersona += "\n\n## Project Standards (from Agents.md)\n\n" + agentsGuide
-		logger.GetLogger(ctx).Info("Agents.md loaded and appended to persona")
-	} else {
-		logger.GetLogger(ctx).Debug("Agents.md not found or empty")
-	}
-
 	// Load customer runbooks into the vector store for semantic search.
 	// Instead of bloating the persona prompt, runbook content is indexed
 	// individually and made available via the search_runbook tool.
-	runbookLoader := runbook.NewLoader(workingDirectory, runbookCfg, vectorStore)
-	if count, err := runbookLoader.Load(ctx); err != nil {
+	if count, err := runbook.Load(ctx); err != nil {
 		logger.GetLogger(ctx).Warn("failed to load runbooks", "error", err)
 	} else if count > 0 {
 		fullPersona += "\n\n## Runbooks\n\nCustomer-provided runbooks are available. " +
 			"Use the `search_runbook` tool to find relevant deployment procedures, " +
 			"troubleshooting playbooks, coding standards, and other operational instructions " +
 			"before taking action."
-
-		// Start a file watcher to keep runbooks in sync with the vector store.
-		if watcher, err := runbook.NewWatcher(runbookLoader, vectorStore, runbookLoader.WatchDirs()); err != nil {
-			logger.GetLogger(ctx).Warn("failed to start runbook watcher", "error", err)
-		} else {
-			go watcher.Start(ctx)
-		}
-	}
-
-	// Derive agent name from context or default to "genie".
-	agentName := audit.AgentNameFromContext(ctx)
-	expertName := "genie"
-	if agentName != "" {
-		expertName = agentName
 	}
 
 	expertBio := expert.ExpertBio{
 		Personality: fullPersona,
-		Name:        expertName,
+		Name:        "genie",
 		Description: "Genie — strategic AI planner that decomposes requests into structured plans and orchestrates sub-agents",
 	}
 
@@ -244,11 +216,11 @@ func NewCodeOwner(
 	// Use provided memory.Service for conversation history persistence.
 	logger.GetLogger(ctx).Info("Using persistent memory service")
 	memoryUserKey := memory.UserKey{
-		AppName: "genie-codeowner",
+		AppName: "genie-orchestrator",
 		UserID:  "default",
 	}
 
-	logger.GetLogger(ctx).Info("codeowner: toolwrap.Service created for sub-agents",
+	logger.GetLogger(ctx).Info("orchestrator: toolwrap.Service created for sub-agents",
 		"hasAuditor", auditor != nil,
 		"hasApprovalStore", approvalStore != nil,
 		"hasSummarizer", true,
@@ -265,59 +237,58 @@ func NewCodeOwner(
 	//
 	// Sub-agent tool scoping (excluding create_agent + send_message) is
 	// handled inside create_agent.go via subAgentRegistry, NOT here.
-	codeOwnerToolSlice := tools.Tools{
+	orchestratorToolSlice := tools.Tools{
 		createAgentTool.GetTool(),
 	}
 	// Lift ask_clarifying_question from the full registry so the main
 	// agent (planner) can ask users directly without delegating to a sub-agent.
 	if t, err := availableTools.GetTool("ask_clarifying_question"); err == nil {
-		codeOwnerToolSlice = append(codeOwnerToolSlice, t)
+		orchestratorToolSlice = append(orchestratorToolSlice, t)
 	}
-	codeOwnerTools := tools.NewRegistry(ctx, codeOwnerToolSlice)
+	orchestratorTools := tools.NewRegistry(ctx, orchestratorToolSlice)
 	logger := logger.GetLogger(ctx).With("fn", "createOrchestrator")
-	logger.Info("CodeOwner tool registry initialized", "count", len(codeOwnerTools.ToolNames()))
+	logger.Info("Orchestrator tool registry initialized", "count", len(orchestratorTools.ToolNames()))
 
-	codeOwner := &codeOwner{
+	orchestrator := &orchestrator{
 		expert:            exp,
 		frontDeskExpert:   frontDeskExp,
 		treeExecutor:      treeExec,
 		memorySvc:         memorySvc,
 		memoryUserKey:     memoryUserKey,
-		toolRegistry:      codeOwnerTools,
+		toolRegistry:      orchestratorTools,
 		auditor:           auditor,
 		vectorStore:       vectorStore,
-		agentName:         agentName,
 		episodicMemoryCfg: episodicMemoryCfg,
 	}
 	// keep updating the resume less than 24 hours
 	// Create a dedicated context for the background refresher that we can cancel on Close()
 	resumeCtx, resumeCancel := context.WithCancel(context.Background())
-	codeOwner.resumeCancel = resumeCancel
+	orchestrator.resumeCancel = resumeCancel
 
-	codeOwner.resume = ttlcache.NewItem(func(ctx context.Context) (string, error) {
-		return codeOwner.createResume(ctx, summarizer, fullPersona)
+	orchestrator.resume = ttlcache.NewItem(func(ctx context.Context) (string, error) {
+		return orchestrator.createResume(ctx, summarizer, fullPersona)
 	}, 24*time.Hour)
 
 	// Use WithoutCancel to detach from startup context, but we use our own resumeCtx
 	// which we control via Close().
 	go func() {
-		_, _ = codeOwner.resume.GetValue(resumeCtx)
-		if err := codeOwner.resume.KeepItFresh(resumeCtx); err != nil && !errors.Is(err, context.Canceled) {
+		_, _ = orchestrator.resume.GetValue(resumeCtx)
+		if err := orchestrator.resume.KeepItFresh(resumeCtx); err != nil && !errors.Is(err, context.Canceled) {
 			// context.Canceled is expected on Close()
 			logger.Error("failed to keep resume fresh", "err", err)
 		}
 	}()
-	return codeOwner, nil
+	return orchestrator, nil
 }
 
-// createResume generates a natural-language resume for the codeOwner agent
+// createResume generates a natural-language resume for the orchestrator agent
 // based on the tools available to both the main agent and its subagents,
 // enriched with recent accomplishments from the vector memory store.
 // Accomplishments act as confidence-building evidence that demonstrate
 // the agent's track record to users. Without this, the resume would be
 // purely theoretical ("I can do X") rather than evidence-based
 // ("I have done X, Y, Z").
-func (c *codeOwner) createResume(
+func (c *orchestrator) createResume(
 	ctx context.Context,
 	summarizer agentutils.Summarizer,
 	fullPersona string,
@@ -363,9 +334,9 @@ Persona:
 	return result, nil
 }
 
-// Close releases resources held by the codeOwner, including the conversation
-// history memory service. Callers should defer Close() after NewcodeOwner.
-func (c *codeOwner) Close() error {
+// Close releases resources held by the orchestrator, including the conversation
+// history memory service. Callers should defer Close() after NewOrchestrator.
+func (c *orchestrator) Close() error {
 	if c.resumeCancel != nil {
 		c.resumeCancel()
 	}
@@ -375,7 +346,7 @@ func (c *codeOwner) Close() error {
 	return nil
 }
 
-func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<- string) error {
+func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan chan<- string) error {
 	// Create a parent span so all sub-operations (recall, tree execution,
 	// store, audit) are children of a single Langfuse trace.
 	ctx, chatSpan := trace.Tracer.Start(ctx, "codeowner.chat")
@@ -437,7 +408,6 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 				MaxLLMCalls:       1,
 				MaxToolIterations: 0,
 			},
-			EventChannel: req.EventChan,
 		})
 		if err != nil {
 			return fmt.Errorf("front desk salutation response failed: %w", err)
@@ -510,7 +480,6 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 	// Execute using ReAcTree for structured reasoning and task decomposition
 	res, err := c.treeExecutor.Run(runCtx, reactree.TreeRequest{
 		Goal:           message,
-		EventChan:      req.EventChan,
 		Tools:          c.toolRegistry.GetTools(),
 		TaskType:       taskType,
 		Attachments:    req.Attachments,
@@ -549,7 +518,7 @@ func (c *codeOwner) Chat(ctx context.Context, req CodeQuestion, outputChan chan<
 // recallConversation searches memory.Service for past turns relevant
 // to the current question and formats them as context.
 // Uses senderID-based key so each sender/thread has isolated history.
-func (c *codeOwner) recallConversation(ctx context.Context, question string) string {
+func (c *orchestrator) recallConversation(ctx context.Context, question string) string {
 	convKey := c.conversationKeyFromContext(ctx)
 	key := c.memoryKeyForSender(convKey)
 	// Try to search for relevant memories
@@ -610,7 +579,7 @@ func (c *codeOwner) recallConversation(ctx context.Context, question string) str
 // storeConversation persists a Q&A turn into memory.Service.
 // Uses senderID-based key so each sender/thread has isolated history.
 // PII is redacted before storage to prevent sensitive data leakage.
-func (c *codeOwner) storeConversation(ctx context.Context, question, answer string) {
+func (c *orchestrator) storeConversation(ctx context.Context, question, answer string) {
 	// Format the turn as a structured summary for retrieval.
 	// Truncate both question and answer to prevent tool output from
 	// prior turns from entering conversation memory and bloating
@@ -648,7 +617,7 @@ func (c *codeOwner) storeConversation(ctx context.Context, question, answer stri
 // Fallback: if private context yields sparse results (<2), also searches
 // by sender_id across all visibility scopes — so a user's group
 // accomplishments follow them to DMs.
-func (c *codeOwner) recallAccomplishments(ctx context.Context) string {
+func (c *orchestrator) recallAccomplishments(ctx context.Context) string {
 	if c.vectorStore == nil {
 		return ""
 	}
@@ -734,7 +703,7 @@ func (c *codeOwner) recallAccomplishments(ctx context.Context) string {
 // Each entry is tagged with source metadata (platform, sender, channel,
 // visibility) so that privacy-aware filtering can be applied during retrieval.
 // PII is redacted before storage to prevent sensitive data leakage.
-func (c *codeOwner) storeAccomplishment(ctx context.Context, question string, res reactree.TreeResult) {
+func (c *orchestrator) storeAccomplishment(ctx context.Context, question string, res reactree.TreeResult) {
 	if c.vectorStore == nil {
 		return
 	}
@@ -791,7 +760,7 @@ func (c *codeOwner) storeAccomplishment(ctx context.Context, question string, re
 
 // memoryKeyForSender returns a memory.UserKey scoped to the given sender.
 // When senderID is empty (e.g. TUI with no context), falls back to "default".
-func (c *codeOwner) memoryKeyForSender(senderID string) memory.UserKey {
+func (c *orchestrator) memoryKeyForSender(senderID string) memory.UserKey {
 	if senderID == "" {
 		return c.memoryUserKey // fallback to default
 	}
@@ -804,7 +773,7 @@ func (c *codeOwner) memoryKeyForSender(senderID string) memory.UserKey {
 // workingMemoryForSender returns (or creates) an isolated WorkingMemory
 // instance for the given sender. This prevents User A's observations from
 // leaking into User B's context.
-func (c *codeOwner) workingMemoryForSender(ctx context.Context) *rtmemory.WorkingMemory {
+func (c *orchestrator) workingMemoryForSender(ctx context.Context) *rtmemory.WorkingMemory {
 	origin := messenger.MessageOriginFrom(ctx)
 	sender := origin.DeriveVisibility()
 	if sender == "" {
@@ -820,7 +789,7 @@ func (c *codeOwner) workingMemoryForSender(ctx context.Context) *rtmemory.Workin
 
 // episodicMemoryForSender returns (or creates) an isolated EpisodicMemory
 // instance for the given sender. Each sender has its own episode pool.
-func (c *codeOwner) episodicMemoryForSender(ctx context.Context) rtmemory.EpisodicMemory {
+func (c *orchestrator) episodicMemoryForSender(ctx context.Context) rtmemory.EpisodicMemory {
 	origin := messenger.MessageOriginFrom(ctx)
 	sender := origin.DeriveVisibility()
 	if sender == "" {
@@ -840,18 +809,18 @@ func (c *codeOwner) episodicMemoryForSender(ctx context.Context) rtmemory.Episod
 //
 // When running under GUILD with multiple agents, the key is prefixed
 // with the agent name so agents sharing a channel have isolated memory.
-func (c *codeOwner) conversationKeyFromContext(ctx context.Context) string {
+func (c *orchestrator) conversationKeyFromContext(ctx context.Context) string {
 	origin := messenger.MessageOriginFrom(ctx)
 	key := origin.DeriveVisibility()
-	if c.agentName != "" {
-		key = c.agentName + ":" + key
+	if agentName := audit.AgentNameFromContext(ctx); agentName != "" {
+		key = agentName + ":" + key
 	}
 	return key
 }
 
 // ForgetUser clears all memory stores associated with a given sender.
 // This implements the "right to be forgotten" for privacy compliance.
-func (c *codeOwner) ForgetUser(ctx context.Context, senderID string) error {
+func (c *orchestrator) ForgetUser(ctx context.Context, senderID string) error {
 	// 1. Clear conversation history.
 	key := c.memoryKeyForSender(senderID)
 	if err := c.memorySvc.ClearMemories(ctx, key); err != nil {
@@ -904,27 +873,6 @@ func (c *codeOwner) ForgetUser(ctx context.Context, senderID string) error {
 	return nil
 }
 
-// loadAgentsGuide reads the Agents.md file from the given directory.
-// If the file exists, its contents are returned so they can be appended
-// to the agent's persona prompt, ensuring the agent honors project-level
-// coding standards. Returns an empty string if the file does not exist
-// or cannot be read (best-effort, non-fatal).
-func loadAgentsGuide(dir string) string {
-	if dir == "" {
-		return ""
-	}
-	// case insensitive search for agents.mds
-	agentsFile, err := osutils.FindFileCaseInsensitive(dir, "agents.md")
-	if err != nil {
-		return ""
-	}
-	data, err := os.ReadFile(agentsFile)
-	if err != nil {
-		return ""
-	}
-	return string(data)
-}
-
 // classifyRequest uses the front desk expert (a fast, lightweight model) to classify
 // the incoming request into one of four categories: REFUSE, SALUTATION, OUT_OF_SCOPE,
 // or COMPLEX. The agent's resume is injected so the classifier can determine whether
@@ -933,7 +881,7 @@ func loadAgentsGuide(dir string) string {
 //
 // For OUT_OF_SCOPE, the classifier also returns a human-friendly reason extracted
 // from the "OUT_OF_SCOPE | <reason>" response format.
-func (c *codeOwner) classifyRequest(ctx context.Context, question string) (classificationResult, error) {
+func (c *orchestrator) classifyRequest(ctx context.Context, question string) (classificationResult, error) {
 	resume := c.Resume(ctx)
 	message := question
 	if resume != "" {

@@ -10,6 +10,10 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/tool/file"
 )
 
+//go:generate go tool counterfeiter -generate
+
+//counterfeiter:generate trpc.group/trpc-go/trpc-agent-go/tool.CallableTool
+
 // Slice is a convenience adapter that wraps a plain []tool.Tool into a
 // ToolProviders conformer. Useful for ad-hoc tool collections that don't
 // belong to a dedicated package (e.g. the codeowner's orchestration-only

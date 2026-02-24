@@ -83,12 +83,7 @@ func (g *grantCmd) run(cmd *cobra.Command, args []string) error {
 	log := logger.GetLogger(ctx).With("fn", "grantCmd.run")
 	log.Info("Starting grant command", "version", Version)
 
-	application, err := app.NewApplication(app.Params{
-		Config:     genieCfg,
-		WorkingDir: g.rootOpts.workingDir,
-		AuditPath:  g.opts.AuditLogPath,
-		Version:    Version,
-	})
+	application, err := app.NewApplication(genieCfg, g.rootOpts.workingDir, g.opts.AuditLogPath, Version)
 	if err != nil {
 		return fmt.Errorf("app init: %w", err)
 	}

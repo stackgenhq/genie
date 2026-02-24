@@ -77,7 +77,7 @@ func newMathTools() *mathTools {
 func (m *mathTools) mathTool() tool.CallableTool {
 	return function.NewFunctionTool(
 		m.doMath,
-		function.WithName("util_math"),
+		function.WithName("math"),
 		function.WithDescription(
 			"Perform a basic arithmetic operation on two numbers. "+
 				"Supported operations: add (a + b), subtract (a - b), multiply (a * b), divide (a / b). "+
@@ -91,7 +91,7 @@ func (m *mathTools) mathTool() tool.CallableTool {
 func (m *mathTools) calculatorTool() tool.CallableTool {
 	return function.NewFunctionTool(
 		m.calculate,
-		function.WithName("util_calculator"),
+		function.WithName("calculator"),
 		function.WithDescription(
 			"Evaluate a mathematical expression. Supports basic operations (+, -, *, /, %), "+
 				"power (**), parentheses for grouping, comparison operators, "+

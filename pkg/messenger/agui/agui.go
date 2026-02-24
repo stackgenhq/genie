@@ -470,5 +470,12 @@ func (m *Messenger) SessionService() session.Service {
 	return m.sessionSvc
 }
 
+// UpdateMessage is a no-op for AG-UI — the AG-UI SSE adapter handles
+// approval/clarification lifecycle client-side and does not need server-side
+// message editing. Returns nil to satisfy the Messenger interface.
+func (m *Messenger) UpdateMessage(_ context.Context, _ messenger.UpdateRequest) error {
+	return nil
+}
+
 // Compile-time interface compliance check.
 var _ messenger.Messenger = (*Messenger)(nil)

@@ -31,7 +31,6 @@ type AgentNodeConfig struct {
 	WorkingMemory *memory.WorkingMemory
 	Episodic      memory.EpisodicMemory
 	MaxDecisions  int
-	EventChan     chan<- interface{}
 	Tools         []tool.Tool
 	// TaskType selects the model for this node via ModelProvider.GetModel().
 	// If empty, defaults to TaskPlanning.
@@ -117,7 +116,6 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 			// Full expert mode: uses the codeowner persona.
 			resp, err = cfg.Expert.Do(ctx, expert.Request{
 				Message:         prompt,
-				EventChannel:    cfg.EventChan,
 				AdditionalTools: cfg.Tools,
 				WorkingMemory:   wm,
 				TaskType:        cfg.TaskType,
@@ -220,7 +218,16 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 // buildAgentPrompt constructs the prompt for the expert, incorporating
 // working memory context, episodic memories, previous stage output, and
 // adaptive-loop iteration context.
-func buildAgentPrompt(ctx context.Context, goal string, wm *memory.WorkingMemory, ep memory.EpisodicMemory, previousStageOutput string, iterationContext string, iterationCount int, budgetExhaustedTools []string) string {
+func buildAgentPrompt(
+	ctx context.Context,
+	goal string,
+	wm *memory.WorkingMemory,
+	ep memory.EpisodicMemory,
+	previousStageOutput string,
+	iterationContext string,
+	iterationCount int,
+	budgetExhaustedTools []string,
+) string {
 	var sb strings.Builder
 
 	// Include adaptive-loop iteration context (accumulated output from prior iterations).
@@ -336,7 +343,7 @@ func runLightweightAgent(ctx context.Context, prompt string, cfg AgentNodeConfig
 
 	subAgent := llmagent.New(
 		"plan-step",
-		llmagent.WithModel(modelToUse),
+		llmagent.WithModels(modelToUse),
 		llmagent.WithTools(cfg.Tools),
 		llmagent.WithInstruction(cfg.SystemInstruction),
 		llmagent.WithDescription("Focused plan-step sub-agent"),
@@ -347,10 +354,11 @@ func runLightweightAgent(ctx context.Context, prompt string, cfg AgentNodeConfig
 		llmagent.WithMaxToolIterations(maxLLMCalls), // same budget
 		llmagent.WithMessageFilterMode(llmagent.RequestContext),
 	)
+	summarizationModel, _ := cfg.ModelProvider.GetModel(ctx, modelprovider.TaskEfficiency)
 
 	sessionSvc := inmemory.NewSessionService(
 		inmemory.WithSummarizer(summary.NewSummarizer(
-			modelToUse,
+			summarizationModel.GetAny(),
 			summary.WithTokenThreshold(2000),
 			summary.WithName("plan-step-summarizer"),
 		)),

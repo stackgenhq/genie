@@ -2,49 +2,12 @@ package agui
 
 import (
 	"context"
-	"fmt"
-	"strings"
-	"unicode"
 
 	aguitypes "github.com/appcd-dev/genie/pkg/agui"
 	"github.com/appcd-dev/genie/pkg/logger"
 )
 
-// significantWords extracts lowercased words of length ≥ 4 from text,
-// returning them as a set. Short words (articles, prepositions) are
-// excluded to focus on meaningful content that distinguishes messages.
-func significantWords(text string) map[string]struct{} {
-	words := make(map[string]struct{})
-	for _, w := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
-	}) {
-		if len(w) >= 4 {
-			words[w] = struct{}{}
-		}
-	}
-	return words
-}
-
-// jaccardSimilarity computes |A ∩ B| / |A ∪ B| for two word sets.
-// Returns 0 if both sets are empty.
-func jaccardSimilarity(a, b map[string]struct{}) float64 {
-	if len(a) == 0 && len(b) == 0 {
-		return 0
-	}
-	intersection := 0
-	for w := range a {
-		if _, ok := b[w]; ok {
-			intersection++
-		}
-	}
-	union := len(a) + len(b) - intersection
-	if union == 0 {
-		return 0
-	}
-	return float64(intersection) / float64(union)
-}
-
-// NewChatHandlerFromCodeOwner creates a ChatHandler that bridges the AG-UI
+// NewChatHandler creates a ChatHandler that bridges the AG-UI
 // server to the existing codeOwner.Chat() pipeline.
 //
 // The expert.Do() method converts raw *event.Event objects to TUI messages
@@ -55,7 +18,7 @@ func jaccardSimilarity(a, b map[string]struct{}) float64 {
 // This function inserts a dedup filter between the agent and the SSE stream:
 // after the first TEXT_MESSAGE_END, all subsequent text message events are
 // suppressed while tool calls and stage progress events pass through.
-func NewChatHandlerFromCodeOwner(
+func NewChatHandler(
 	resumeFunc func(ctx context.Context) string,
 	chatFunc func(ctx context.Context, message string, agentsMessage chan<- interface{}) error,
 ) Expert {
@@ -85,181 +48,21 @@ func (e serverExpert) Handle(ctx context.Context, req ChatRequest) {
 		Message:   "Processing your request...",
 	}
 
-	// Create a raw event channel for the agent.
-	// expert.Do() writes TUI messages here (not raw *event.Event).
-	rawEventChan := make(chan interface{}, 100)
-
-	// Dedup filter: reads TUI messages from rawEventChan, suppresses
-	// multi-stage text replays, and forwards everything else.
-	//
-	// Duplicate text arises from two sources:
-	//  1. Within a single messageID: the trpc-agent library replays the
-	//     accumulated text as a single chunk after streaming deltas.
-	//  2. Across messageIDs: each expert.Do() call creates a new EventAdapter
-	//     (and thus new messageIDs), but the parent agent, sub-agent, and
-	//     adaptive-loop iterations all echo similar task-result summaries.
-	//
-	// We handle (1) via per-messageID prefix checking, and (2) via
-	// word-overlap similarity: when a text message completes, we record its
-	// significant words. If a subsequent message's word set overlaps ≥40%
-	// with any previously-completed message (Jaccard similarity), the
-	// entire lifecycle (START → chunks → END) is suppressed. This catches
-	// LLM rephrasings of the same tool result across pipeline stages.
-	converterDone := make(chan struct{})
-	go func() {
-		defer close(converterDone)
-
-		sentStart := make(map[string]bool)     // messageId → true after first START
-		sentContent := make(map[string]string) // messageId → all content sent so far
-		suppressed := make(map[string]bool)    // messageId → true if this msg is being suppressed
-
-		// Global: word sets from completed messages, used for cross-message dedup.
-		type completedMsg struct {
-			words map[string]struct{}
-		}
-		var completedMsgs []completedMsg
-
-		for raw := range rawEventChan {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			switch evt := raw.(type) {
-			// ── Text message lifecycle: cumulative dedup ──
-			case aguitypes.TextMessageStartMsg:
-				if sentStart[evt.MessageID] {
-					continue // suppress duplicate START for same messageId
-				}
-				sentStart[evt.MessageID] = true
-				// Don't emit yet — buffer until we see some content and can
-				// decide if this message is a cross-message duplicate.
-				// We'll emit it on the first non-suppressed chunk.
-
-			case aguitypes.AgentStreamChunkMsg:
-				// Per-messageID replay suppression (source 1).
-				prior := sentContent[evt.MessageID]
-				if len(evt.Content) > 0 && strings.HasPrefix(prior, evt.Content) {
-					continue // already sent within this message — suppress replay
-				}
-				sentContent[evt.MessageID] = prior + evt.Content
-
-				// Cross-message dedup (source 2): once we've accumulated
-				// enough content (>120 chars to avoid false positives on
-				// short common prefixes), check if this message's word
-				// set overlaps significantly with a previously-completed
-				// message.
-				accumulated := sentContent[evt.MessageID]
-				if !suppressed[evt.MessageID] && len(accumulated) > 80 {
-					newWords := significantWords(accumulated)
-					for _, prev := range completedMsgs {
-						if jaccardSimilarity(newWords, prev.words) >= 0.40 {
-							suppressed[evt.MessageID] = true
-							logger.GetLogger(ctx).Debug("agui: suppressing similar cross-message duplicate",
-								"messageID", evt.MessageID,
-								"matchLen", len(accumulated))
-							break
-						}
-					}
-				}
-				if suppressed[evt.MessageID] {
-					continue
-				}
-
-				// Lazily emit the START event on first non-suppressed chunk.
-				if prior == "" {
-					req.EventChan <- aguitypes.TextMessageStartMsg{
-						Type:      aguitypes.EventTextMessageStart,
-						MessageID: evt.MessageID,
-					}
-				}
-				req.EventChan <- evt
-
-			case aguitypes.TextMessageEndMsg:
-				content := sentContent[evt.MessageID]
-				if !suppressed[evt.MessageID] && content != "" {
-					// Only emit END if we actually sent content chunks.
-					// If START was buffered but no chunks arrived, suppress
-					// the entire lifecycle to avoid blank UI bubbles.
-					req.EventChan <- evt
-				}
-				// Record completed content for cross-message dedup,
-				// but only if it has meaningful length.
-				if len(content) > 80 {
-					completedMsgs = append(completedMsgs, completedMsg{
-						words: significantWords(content),
-					})
-				}
-				// Clean up per-message tracking.
-				delete(sentContent, evt.MessageID)
-				delete(suppressed, evt.MessageID)
-				delete(sentStart, evt.MessageID)
-
-			case aguitypes.AgentReasoningMsg:
-				req.EventChan <- evt
-
-			// ── Tool events: always pass through ──
-			case aguitypes.AgentToolCallMsg:
-				req.EventChan <- evt
-			case aguitypes.ToolCallArgsMsg:
-				req.EventChan <- evt
-			case aguitypes.ToolCallEndMsg:
-				req.EventChan <- evt
-			case aguitypes.AgentToolResponseMsg:
-				req.EventChan <- evt
-
-			// ── Lifecycle/progress events: always pass through ──
-			case aguitypes.StageProgressMsg:
-				req.EventChan <- evt
-			case aguitypes.AgentThinkingMsg:
-				req.EventChan <- evt
-			case aguitypes.AgentErrorMsg:
-				req.EventChan <- evt
-			case aguitypes.AgentCompleteMsg:
-				req.EventChan <- evt
-			case aguitypes.AgentChatMessage:
-				req.EventChan <- evt
-			case aguitypes.LogMsg:
-				req.EventChan <- evt
-
-			// ── HITL approval events: always pass through ──
-			case aguitypes.ToolApprovalRequestMsg:
-				req.EventChan <- evt
-
-			// ── Clarification events: always pass through ──
-			case aguitypes.ClarificationRequestMsg:
-				req.EventChan <- evt
-
-			default:
-				logger.GetLogger(ctx).Warn("agui: skipping unknown raw event", "type", fmt.Sprintf("%T", raw))
-			}
-		}
-	}()
-
 	// Run the agent — it writes TUI messages to rawEventChan.
 	// Inject ThreadID/RunID into context so the toolwrap.Wrapper can access them
 	// for HITL approval requests without threading through every intermediate struct.
-	agentCtx := aguitypes.WithThreadID(ctx, req.ThreadID)
-	agentCtx = aguitypes.WithRunID(agentCtx, req.RunID)
-	// Store rawEventChan in context so sub-agent tool wrappers can emit
-	// HITL approval events back to the UI even when they don't have a
-	// direct reference to the event channel.
-	agentCtx = aguitypes.WithEventChan(agentCtx, rawEventChan)
+	ctx = aguitypes.WithThreadID(ctx, req.ThreadID)
 	logger.GetLogger(ctx).Info("agui: invoking chatFunc",
 		"threadID", req.ThreadID, "runID", req.RunID,
 		"messageLen", len(req.Message))
-	if err := e.chatFunc(agentCtx, req.Message, rawEventChan); err != nil {
+	err := e.chatFunc(aguitypes.WithRunID(ctx, req.RunID), req.Message, req.EventChan)
+	if err != nil {
 		req.EventChan <- aguitypes.AgentErrorMsg{
 			Type:    aguitypes.EventRunError,
 			Error:   err,
 			Context: "while processing chat message",
 		}
 	}
-
-	// Close raw channel to signal converter to finish, wait for it to drain.
-	close(rawEventChan)
-	<-converterDone
 
 	// Emit RUN_FINISHED
 	req.EventChan <- aguitypes.AgentCompleteMsg{

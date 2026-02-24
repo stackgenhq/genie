@@ -175,6 +175,6 @@ var _ = Describe("DateTime ToolProvider", func() {
 		p := NewToolProvider()
 		tools := p.GetTools()
 		Expect(tools).To(HaveLen(1))
-		Expect(tools[0].Declaration().Name).To(Equal("util_datetime"))
+		Expect(tools[0].Declaration().Name).To(Equal("datetime"))
 	})
 })

@@ -9,15 +9,15 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/appcd-dev/genie/pkg/codeowner"
-	"github.com/appcd-dev/genie/pkg/codeowner/codeownerfakes"
+	"github.com/appcd-dev/genie/pkg/orchestrator"
+	"github.com/appcd-dev/genie/pkg/orchestrator/orchestratorfakes"
 )
 
 // chatLoopHandler simulates the chat loop logic from grant.go for testing purposes
 // This allows us to test the loop logic in isolation
 func chatLoopHandler(
 	ctx context.Context,
-	codeOwner codeowner.CodeOwner,
+	codeOwner orchestrator.Orchestrator,
 	userMessages <-chan string,
 	eventChan chan<- interface{},
 	outputDir string,
@@ -31,9 +31,8 @@ func chatLoopHandler(
 			// Process input with ChatExpert
 			outputChan := make(chan string)
 			go func() {
-				codeOwner.Chat(ctx, codeowner.CodeQuestion{
-					Question:  input,
-					EventChan: eventChan,
+				codeOwner.Chat(ctx, orchestrator.CodeQuestion{
+					Question: input,
 				}, outputChan)
 			}()
 			for response := range outputChan {
@@ -48,7 +47,7 @@ func chatLoopHandler(
 
 var _ = Describe("ChatLoop", func() {
 	var (
-		mock         *codeownerfakes.FakeCodeOwner
+		mock         *orchestratorfakes.FakeOrchestrator
 		userMessages chan string
 		eventChan    chan interface{}
 		ctx          context.Context
@@ -56,7 +55,7 @@ var _ = Describe("ChatLoop", func() {
 	)
 
 	BeforeEach(func() {
-		mock = &codeownerfakes.FakeCodeOwner{}
+		mock = &orchestratorfakes.FakeOrchestrator{}
 		userMessages = make(chan string, 10)
 		eventChan = make(chan interface{}, 100)
 		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
@@ -69,7 +68,7 @@ var _ = Describe("ChatLoop", func() {
 	Describe("Single Message Handling", func() {
 		Context("when chat returns a response", func() {
 			BeforeEach(func() {
-				mock.ChatStub = func(ctx context.Context, req codeowner.CodeQuestion, outputChan chan<- string) error {
+				mock.ChatStub = func(ctx context.Context, req orchestrator.CodeQuestion, outputChan chan<- string) error {
 					defer close(outputChan)
 					outputChan <- "Hello! I see your question: " + req.Question
 					return nil
@@ -88,7 +87,7 @@ var _ = Describe("ChatLoop", func() {
 
 		Context("when chat returns no response", func() {
 			BeforeEach(func() {
-				mock.ChatStub = func(ctx context.Context, req codeowner.CodeQuestion, outputChan chan<- string) error {
+				mock.ChatStub = func(ctx context.Context, req orchestrator.CodeQuestion, outputChan chan<- string) error {
 					defer close(outputChan)
 					// No response sent - channel just closed
 					return nil
@@ -107,7 +106,7 @@ var _ = Describe("ChatLoop", func() {
 
 		Context("when chat returns an error", func() {
 			BeforeEach(func() {
-				mock.ChatStub = func(ctx context.Context, req codeowner.CodeQuestion, outputChan chan<- string) error {
+				mock.ChatStub = func(ctx context.Context, req orchestrator.CodeQuestion, outputChan chan<- string) error {
 					defer close(outputChan)
 					return errors.New("model error: rate limited")
 				}
@@ -137,7 +136,7 @@ var _ = Describe("ChatLoop", func() {
 			questionsReceived = []string{}
 			responsesCount = 0
 
-			mock.ChatStub = func(ctx context.Context, req codeowner.CodeQuestion, outputChan chan<- string) error {
+			mock.ChatStub = func(ctx context.Context, req orchestrator.CodeQuestion, outputChan chan<- string) error {
 				defer close(outputChan)
 				mu.Lock()
 				questionsReceived = append(questionsReceived, req.Question)
@@ -175,7 +174,7 @@ var _ = Describe("ChatLoop", func() {
 
 	Describe("Context Cancellation", func() {
 		BeforeEach(func() {
-			mock.ChatStub = func(ctx context.Context, req codeowner.CodeQuestion, outputChan chan<- string) error {
+			mock.ChatStub = func(ctx context.Context, req orchestrator.CodeQuestion, outputChan chan<- string) error {
 				defer close(outputChan)
 				select {
 				case <-ctx.Done():
@@ -211,7 +210,7 @@ var _ = Describe("ChatLoop", func() {
 		BeforeEach(func() {
 			callOrder = []string{}
 
-			mock.ChatStub = func(ctx context.Context, req codeowner.CodeQuestion, outputChan chan<- string) error {
+			mock.ChatStub = func(ctx context.Context, req orchestrator.CodeQuestion, outputChan chan<- string) error {
 				defer close(outputChan)
 				mu.Lock()
 				callOrder = append(callOrder, "start:"+req.Question)
@@ -256,7 +255,7 @@ var _ = Describe("ChatLoop", func() {
 			chatCalled = false
 			errorReturned = false
 
-			mock.ChatStub = func(ctx context.Context, req codeowner.CodeQuestion, outputChan chan<- string) error {
+			mock.ChatStub = func(ctx context.Context, req orchestrator.CodeQuestion, outputChan chan<- string) error {
 				defer close(outputChan)
 				chatCalled = true
 				errorReturned = true
@@ -287,7 +286,7 @@ var _ = Describe("ChatLoop", func() {
 		BeforeEach(func() {
 			chunks = []string{}
 
-			mock.ChatStub = func(ctx context.Context, req codeowner.CodeQuestion, outputChan chan<- string) error {
+			mock.ChatStub = func(ctx context.Context, req orchestrator.CodeQuestion, outputChan chan<- string) error {
 				defer close(outputChan)
 				// Stream multiple response chunks
 				outputChan <- "First chunk"
@@ -301,7 +300,7 @@ var _ = Describe("ChatLoop", func() {
 			// Modified handler that captures responses
 			captureHandler := func(
 				ctx context.Context,
-				codeOwner codeowner.CodeOwner,
+				codeOwner orchestrator.Orchestrator,
 				userMessages <-chan string,
 				eventChan chan<- interface{},
 				outputDir string,
@@ -314,9 +313,8 @@ var _ = Describe("ChatLoop", func() {
 						}
 						outputChan := make(chan string)
 						go func() {
-							codeOwner.Chat(ctx, codeowner.CodeQuestion{
-								Question:  input,
-								EventChan: eventChan,
+							codeOwner.Chat(ctx, orchestrator.CodeQuestion{
+								Question: input,
 							}, outputChan)
 						}()
 						for response := range outputChan {

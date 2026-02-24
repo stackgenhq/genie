@@ -20,20 +20,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"trpc.group/trpc-go/trpc-agent-go/model"
-	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
-
-// mockTool implements tool.Tool for testing. Matches the pattern in tool_registry_test.go.
-type mockTool struct {
-	name string
-}
-
-func (m *mockTool) Name() string        { return m.name }
-func (m *mockTool) Description() string { return "stub" }
-func (m *mockTool) Declaration() *tool.Declaration {
-	return &tool.Declaration{Name: m.name, Description: "stub"}
-}
-func (m *mockTool) Run(_ context.Context, _ []byte) ([]byte, error) { return nil, nil }
 
 var _ = Describe("Orchestrator", func() {
 
