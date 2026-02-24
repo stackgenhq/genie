@@ -7,8 +7,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/appcd-dev/genie/pkg/audit"
-	"github.com/appcd-dev/genie/pkg/interrupt"
+	"github.com/stackgenhq/genie/pkg/audit"
+	"github.com/stackgenhq/genie/pkg/interrupt"
 )
 
 type auditMiddleware struct {

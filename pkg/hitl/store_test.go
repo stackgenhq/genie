@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/db"
-	"github.com/appcd-dev/genie/pkg/hitl"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/db"
+	"github.com/stackgenhq/genie/pkg/hitl"
 	"gorm.io/gorm"
 )
 

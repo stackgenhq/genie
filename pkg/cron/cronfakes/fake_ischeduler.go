@@ -5,8 +5,8 @@ import (
 	"context"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/agui"
-	"github.com/appcd-dev/genie/pkg/cron"
+	"github.com/stackgenhq/genie/pkg/agui"
+	"github.com/stackgenhq/genie/pkg/cron"
 )
 
 type FakeIScheduler struct {

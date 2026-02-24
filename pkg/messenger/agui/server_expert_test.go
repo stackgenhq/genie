@@ -5,10 +5,10 @@ import (
 	"errors"
 	"time"
 
-	aguitypes "github.com/appcd-dev/genie/pkg/agui"
-	agui "github.com/appcd-dev/genie/pkg/messenger/agui"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	aguitypes "github.com/stackgenhq/genie/pkg/agui"
+	agui "github.com/stackgenhq/genie/pkg/messenger/agui"
 )
 
 var _ = Describe("serverExpert", func() {

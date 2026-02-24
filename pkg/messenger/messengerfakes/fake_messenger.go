@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/messenger"
 )
 
 type FakeMessenger struct {

@@ -45,7 +45,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/osutils"
+	"github.com/stackgenhq/genie/pkg/osutils"
 
 	pdfread "github.com/dslipak/pdf"
 	"trpc.group/trpc-go/trpc-agent-go/tool"

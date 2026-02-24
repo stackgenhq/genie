@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/agui"
+	"github.com/stackgenhq/genie/pkg/agui"
 )
 
 type FakeBGWorker struct {

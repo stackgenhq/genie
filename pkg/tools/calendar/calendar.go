@@ -38,7 +38,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/security"
+	"github.com/stackgenhq/genie/pkg/security"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	gcal "google.golang.org/api/calendar/v3"

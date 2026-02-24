@@ -5,9 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/clarify"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/clarify"
 )
 
 var _ = Describe("NewTool", func() {

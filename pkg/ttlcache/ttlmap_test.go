@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/ttlcache"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/ttlcache"
 )
 
 var _ = Describe("TTLMap", func() {

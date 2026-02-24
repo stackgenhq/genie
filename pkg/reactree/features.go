@@ -1,6 +1,6 @@
 package reactree
 
-import "github.com/appcd-dev/genie/pkg/hooks"
+import "github.com/stackgenhq/genie/pkg/hooks"
 
 // Toggles configures optional predictability and bounding mechanisms.
 // All fields default to zero values (disabled). Callers opt in by setting booleans

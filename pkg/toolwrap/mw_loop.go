@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/google/uuid"
+	"github.com/stackgenhq/genie/pkg/logger"
 )
 
 // maxConsecutiveRepeatCalls is the number of consecutive identical tool calls

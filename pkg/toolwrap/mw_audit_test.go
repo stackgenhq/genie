@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 
-	"github.com/appcd-dev/genie/pkg/audit/auditfakes"
-	"github.com/appcd-dev/genie/pkg/toolwrap"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/audit/auditfakes"
+	"github.com/stackgenhq/genie/pkg/toolwrap"
 )
 
 var _ = Describe("AuditMiddleware", func() {

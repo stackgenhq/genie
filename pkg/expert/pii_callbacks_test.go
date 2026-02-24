@@ -3,10 +3,10 @@ package expert_test
 import (
 	"context"
 
-	"github.com/appcd-dev/genie/pkg/expert"
-	"github.com/appcd-dev/genie/pkg/pii"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/expert"
+	"github.com/stackgenhq/genie/pkg/pii"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 )
 

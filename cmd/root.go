@@ -13,11 +13,11 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/appcd-dev/genie/pkg/config"
-	"github.com/appcd-dev/genie/pkg/logger"
-	"github.com/appcd-dev/genie/pkg/osutils"
-	"github.com/appcd-dev/genie/pkg/security"
 	"github.com/spf13/cobra"
+	"github.com/stackgenhq/genie/pkg/config"
+	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/osutils"
+	"github.com/stackgenhq/genie/pkg/security"
 )
 
 type rootCmdOption struct {

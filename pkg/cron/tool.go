@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/adhocore/gronx"
-	"github.com/appcd-dev/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/logger"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )

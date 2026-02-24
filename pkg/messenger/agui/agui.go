@@ -28,12 +28,12 @@ import (
 	"sync"
 	"time"
 
-	aguitypes "github.com/appcd-dev/genie/pkg/agui"
-	"github.com/appcd-dev/genie/pkg/clarify"
-	"github.com/appcd-dev/genie/pkg/hitl"
-	"github.com/appcd-dev/genie/pkg/logger"
-	"github.com/appcd-dev/genie/pkg/messenger"
 	"github.com/google/uuid"
+	aguitypes "github.com/stackgenhq/genie/pkg/agui"
+	"github.com/stackgenhq/genie/pkg/clarify"
+	"github.com/stackgenhq/genie/pkg/hitl"
+	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/messenger"
 	"trpc.group/trpc-go/trpc-agent-go/session"
 	"trpc.group/trpc-go/trpc-agent-go/session/inmemory"
 )

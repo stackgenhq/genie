@@ -33,7 +33,7 @@ persistence_dir = "${PWD}/.genie/vector_store"
 
 [messenger.agui]
 port = 8080
-cors_origins = ["https://appcd-dev.github.io"]
+cors_origins = ["https://stackgenhq.github.io"]
 
 
 [hitl]

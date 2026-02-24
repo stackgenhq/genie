@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/appcd-dev/genie/pkg/logger"
 	go_scm "github.com/drone/go-scm/scm"
+	"github.com/stackgenhq/genie/pkg/logger"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )
@@ -243,7 +243,7 @@ func (ts *toolSet) listRepos(ctx context.Context, listReposRequest go_scm.ListOp
 	}
 	names := make([]string, len(repos))
 	for i, r := range repos {
-		// Return full namespace/name (e.g. "appcd-dev/genie") so the
+		// Return full namespace/name (e.g. "stackgenhq/genie") so the
 		// agent can pass it directly to scm_list_prs without guessing
 		// the org/owner prefix.
 		if r.Namespace != "" {

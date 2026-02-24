@@ -94,8 +94,8 @@ All nodes share state via `graph.State` using these keys:
 
 ```go
 import (
-    "github.com/appcd-dev/genie/pkg/reactree"
-    "github.com/appcd-dev/genie/pkg/reactree/memory"
+    "github.com/stackgenhq/genie/pkg/reactree"
+    "github.com/stackgenhq/genie/pkg/reactree/memory"
 )
 
 // Create memory instances
@@ -116,7 +116,7 @@ result, err := executor.Run(ctx, reactree.TreeRequest{
 
 ```go
 import (
-    "github.com/appcd-dev/genie/pkg/reactree/memory"
+    "github.com/stackgenhq/genie/pkg/reactree/memory"
     "trpc.group/trpc-go/trpc-agent-go/memory/inmemory"
 )
 

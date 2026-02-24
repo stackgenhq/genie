@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/appcd-dev/genie/pkg/expert"
-	"github.com/appcd-dev/genie/pkg/expert/expertfakes"
-	"github.com/appcd-dev/genie/pkg/reactree"
-	"github.com/appcd-dev/genie/pkg/reactree/memory"
-	"github.com/appcd-dev/genie/pkg/reactree/memory/memoryfakes"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/expert"
+	"github.com/stackgenhq/genie/pkg/expert/expertfakes"
+	"github.com/stackgenhq/genie/pkg/reactree"
+	"github.com/stackgenhq/genie/pkg/reactree/memory"
+	"github.com/stackgenhq/genie/pkg/reactree/memory/memoryfakes"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 )
 

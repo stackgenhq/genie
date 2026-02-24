@@ -5,8 +5,8 @@ import (
 	"context"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/tools/scm"
 	scma "github.com/drone/go-scm/scm"
+	"github.com/stackgenhq/genie/pkg/tools/scm"
 )
 
 type FakeService struct {

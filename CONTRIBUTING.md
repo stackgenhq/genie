@@ -14,8 +14,8 @@ Thanks for your interest in contributing! Here's how to get started.
 ## Getting Started
 
 ```bash
-git clone https://github.com/appcd-dev/stackgen-genie.git
-cd stackgen-genie
+git clone https://github.com/stackgenhq/genie.git
+cd genie
 
 # Bootstrap: install deps, run go generate (creates *fakes packages), tidy, vendor
 make setup
@@ -88,7 +88,7 @@ PRs that do not include tests for new or changed behavior will be asked to add t
 
 ## Reporting Issues
 
-Open a [GitHub Issue](https://github.com/appcd-dev/stackgen-genie/issues/new) with:
+Open a [GitHub Issue](https://github.com/stackgenhq/genie/issues/new) with:
 
 - What you expected vs. what happened
 - Steps to reproduce

@@ -5,10 +5,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/appcd-dev/genie/pkg/config"
-	"github.com/appcd-dev/genie/pkg/security"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/config"
+	"github.com/stackgenhq/genie/pkg/security"
 )
 
 // fakeSecretProvider returns configured values for secret names.

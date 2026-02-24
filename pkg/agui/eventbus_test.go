@@ -6,10 +6,10 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/appcd-dev/genie/pkg/agui"
-	"github.com/appcd-dev/genie/pkg/messenger"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/agui"
+	"github.com/stackgenhq/genie/pkg/messenger"
 )
 
 // testOriginWith creates a unique MessageOrigin with the given suffix,

@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/skills"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/skills"
 )
 
 var _ = Describe("LocalExecutor", func() {

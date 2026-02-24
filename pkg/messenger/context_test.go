@@ -3,9 +3,9 @@ package messenger_test
 import (
 	"context"
 
-	"github.com/appcd-dev/genie/pkg/messenger"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/messenger"
 )
 
 var _ = Describe("MessageOrigin.String", func() {

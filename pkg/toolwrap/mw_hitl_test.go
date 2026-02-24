@@ -4,14 +4,14 @@ import (
 	"context"
 	"errors"
 
-	"github.com/appcd-dev/genie/pkg/agui"
-	"github.com/appcd-dev/genie/pkg/hitl"
-	"github.com/appcd-dev/genie/pkg/hitl/hitlfakes"
-	"github.com/appcd-dev/genie/pkg/messenger"
-	rtmemory "github.com/appcd-dev/genie/pkg/reactree/memory"
-	"github.com/appcd-dev/genie/pkg/toolwrap"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/agui"
+	"github.com/stackgenhq/genie/pkg/hitl"
+	"github.com/stackgenhq/genie/pkg/hitl/hitlfakes"
+	"github.com/stackgenhq/genie/pkg/messenger"
+	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
+	"github.com/stackgenhq/genie/pkg/toolwrap"
 )
 
 var _ = Describe("HITLApprovalMiddleware", func() {

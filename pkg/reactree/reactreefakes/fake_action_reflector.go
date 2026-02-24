@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/reactree"
+	"github.com/stackgenhq/genie/pkg/reactree"
 )
 
 type FakeActionReflector struct {

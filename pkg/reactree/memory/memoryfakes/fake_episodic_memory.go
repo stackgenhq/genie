@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/reactree/memory"
+	"github.com/stackgenhq/genie/pkg/reactree/memory"
 )
 
 type FakeEpisodicMemory struct {

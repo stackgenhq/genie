@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/logger"
-	"github.com/appcd-dev/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/messenger"
 )
 
 // eventBus is a singleton registry that maps MessageOrigin → event channel.

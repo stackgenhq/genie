@@ -20,48 +20,48 @@ import (
 	"sync"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/agui"
-	"github.com/appcd-dev/genie/pkg/audit"
-	"github.com/appcd-dev/genie/pkg/browser"
-	"github.com/appcd-dev/genie/pkg/clarify"
-	"github.com/appcd-dev/genie/pkg/config"
-	"github.com/appcd-dev/genie/pkg/cron"
-	geniedb "github.com/appcd-dev/genie/pkg/db"
-	"github.com/appcd-dev/genie/pkg/hitl"
-	"github.com/appcd-dev/genie/pkg/logger"
-	"github.com/appcd-dev/genie/pkg/mcp"
-	"github.com/appcd-dev/genie/pkg/memory/vector"
-	"github.com/appcd-dev/genie/pkg/messenger"
-	messengeragui "github.com/appcd-dev/genie/pkg/messenger/agui" // register adapter + server types
-	_ "github.com/appcd-dev/genie/pkg/messenger/discord"          // register adapter
-	_ "github.com/appcd-dev/genie/pkg/messenger/googlechat"       // register adapter
-	messengerhitl "github.com/appcd-dev/genie/pkg/messenger/hitl"
-	"github.com/appcd-dev/genie/pkg/messenger/media"
-	_ "github.com/appcd-dev/genie/pkg/messenger/slack"    // register adapter
-	_ "github.com/appcd-dev/genie/pkg/messenger/teams"    // register adapter
-	_ "github.com/appcd-dev/genie/pkg/messenger/telegram" // register adapter
-	_ "github.com/appcd-dev/genie/pkg/messenger/whatsapp" // register adapter
-	"github.com/appcd-dev/genie/pkg/orchestrator"
-	"github.com/appcd-dev/genie/pkg/osutils"
-	"github.com/appcd-dev/genie/pkg/runbook"
-	"github.com/appcd-dev/genie/pkg/skills"
-	"github.com/appcd-dev/genie/pkg/tools"
-	"github.com/appcd-dev/genie/pkg/tools/calendar"
-	"github.com/appcd-dev/genie/pkg/tools/codeskim"
-	"github.com/appcd-dev/genie/pkg/tools/datetime"
-	"github.com/appcd-dev/genie/pkg/tools/doctool"
-	"github.com/appcd-dev/genie/pkg/tools/encodetool"
-	"github.com/appcd-dev/genie/pkg/tools/jsontool"
-	mathtool "github.com/appcd-dev/genie/pkg/tools/math"
-	"github.com/appcd-dev/genie/pkg/tools/metrics"
-	"github.com/appcd-dev/genie/pkg/tools/networking"
-	"github.com/appcd-dev/genie/pkg/tools/ocrtool"
-	"github.com/appcd-dev/genie/pkg/tools/pkgsearch"
-	"github.com/appcd-dev/genie/pkg/tools/regextool"
-	"github.com/appcd-dev/genie/pkg/tools/sqltool"
-	"github.com/appcd-dev/genie/pkg/tools/webfetch"
+	"github.com/stackgenhq/genie/pkg/agui"
+	"github.com/stackgenhq/genie/pkg/audit"
+	"github.com/stackgenhq/genie/pkg/browser"
+	"github.com/stackgenhq/genie/pkg/clarify"
+	"github.com/stackgenhq/genie/pkg/config"
+	"github.com/stackgenhq/genie/pkg/cron"
+	geniedb "github.com/stackgenhq/genie/pkg/db"
+	"github.com/stackgenhq/genie/pkg/hitl"
+	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/mcp"
+	"github.com/stackgenhq/genie/pkg/memory/vector"
+	"github.com/stackgenhq/genie/pkg/messenger"
+	messengeragui "github.com/stackgenhq/genie/pkg/messenger/agui" // register adapter + server types
+	_ "github.com/stackgenhq/genie/pkg/messenger/discord"          // register adapter
+	_ "github.com/stackgenhq/genie/pkg/messenger/googlechat"       // register adapter
+	messengerhitl "github.com/stackgenhq/genie/pkg/messenger/hitl"
+	"github.com/stackgenhq/genie/pkg/messenger/media"
+	_ "github.com/stackgenhq/genie/pkg/messenger/slack"    // register adapter
+	_ "github.com/stackgenhq/genie/pkg/messenger/teams"    // register adapter
+	_ "github.com/stackgenhq/genie/pkg/messenger/telegram" // register adapter
+	_ "github.com/stackgenhq/genie/pkg/messenger/whatsapp" // register adapter
+	"github.com/stackgenhq/genie/pkg/orchestrator"
+	"github.com/stackgenhq/genie/pkg/osutils"
+	"github.com/stackgenhq/genie/pkg/runbook"
+	"github.com/stackgenhq/genie/pkg/skills"
+	"github.com/stackgenhq/genie/pkg/tools"
+	"github.com/stackgenhq/genie/pkg/tools/calendar"
+	"github.com/stackgenhq/genie/pkg/tools/codeskim"
+	"github.com/stackgenhq/genie/pkg/tools/datetime"
+	"github.com/stackgenhq/genie/pkg/tools/doctool"
+	"github.com/stackgenhq/genie/pkg/tools/encodetool"
+	"github.com/stackgenhq/genie/pkg/tools/jsontool"
+	mathtool "github.com/stackgenhq/genie/pkg/tools/math"
+	"github.com/stackgenhq/genie/pkg/tools/metrics"
+	"github.com/stackgenhq/genie/pkg/tools/networking"
+	"github.com/stackgenhq/genie/pkg/tools/ocrtool"
+	"github.com/stackgenhq/genie/pkg/tools/pkgsearch"
+	"github.com/stackgenhq/genie/pkg/tools/regextool"
+	"github.com/stackgenhq/genie/pkg/tools/sqltool"
+	"github.com/stackgenhq/genie/pkg/tools/webfetch"
 
-	"github.com/appcd-dev/genie/pkg/tools/websearch"
+	"github.com/stackgenhq/genie/pkg/tools/websearch"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"

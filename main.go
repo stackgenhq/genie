@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/appcd-dev/genie/cmd"
+	"github.com/stackgenhq/genie/cmd"
 )
 
 func main() {

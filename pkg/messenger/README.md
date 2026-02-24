@@ -155,8 +155,8 @@ All config values support `${ENV_VAR}` expansion. Common variables:
 
 ```go
 import (
-    "github.com/appcd-dev/genie/pkg/messenger"
-    _ "github.com/appcd-dev/genie/pkg/messenger/slack"  // register adapter
+    "github.com/stackgenhq/genie/pkg/messenger"
+    _ "github.com/stackgenhq/genie/pkg/messenger/slack"  // register adapter
 )
 
 // Create from config

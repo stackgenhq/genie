@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/audit"
-	"github.com/appcd-dev/genie/pkg/hooks"
-	"github.com/appcd-dev/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/audit"
+	"github.com/stackgenhq/genie/pkg/hooks"
+	"github.com/stackgenhq/genie/pkg/logger"
 )
 
 // AuditEventType constants for ReAcTree-specific audit events.

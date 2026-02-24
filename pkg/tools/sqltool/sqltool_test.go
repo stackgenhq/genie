@@ -3,9 +3,9 @@ package sqltool
 import (
 	"context"
 
-	"github.com/appcd-dev/genie/pkg/security/securityfakes"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/security/securityfakes"
 )
 
 var _ = Describe("SQL Tool", func() {

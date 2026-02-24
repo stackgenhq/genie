@@ -26,8 +26,8 @@ import (
 
 	"github.com/slack-go/slack/slackevents"
 
-	"github.com/appcd-dev/genie/pkg/logger"
-	"github.com/appcd-dev/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/messenger"
 )
 
 // eventsHTTPHandler handles incoming Slack Events API HTTP requests.

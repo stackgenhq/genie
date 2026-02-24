@@ -3,14 +3,14 @@ package expert_test
 import (
 	"context"
 
-	"github.com/appcd-dev/genie/pkg/audit/auditfakes"
-	"github.com/appcd-dev/genie/pkg/expert"
-	"github.com/appcd-dev/genie/pkg/expert/modelprovider/modelproviderfakes"
-	"github.com/appcd-dev/genie/pkg/hitl/hitlfakes"
-	"github.com/appcd-dev/genie/pkg/tools/toolsfakes"
-	"github.com/appcd-dev/genie/pkg/toolwrap"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/audit/auditfakes"
+	"github.com/stackgenhq/genie/pkg/expert"
+	"github.com/stackgenhq/genie/pkg/expert/modelprovider/modelproviderfakes"
+	"github.com/stackgenhq/genie/pkg/hitl/hitlfakes"
+	"github.com/stackgenhq/genie/pkg/tools/toolsfakes"
+	"github.com/stackgenhq/genie/pkg/toolwrap"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 

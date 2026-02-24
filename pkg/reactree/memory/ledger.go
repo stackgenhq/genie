@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/db"
+	"github.com/stackgenhq/genie/pkg/db"
 )
 
 // ReactionContext captures the agent's goal and output when a message was

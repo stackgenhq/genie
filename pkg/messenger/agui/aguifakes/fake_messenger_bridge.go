@@ -4,7 +4,7 @@ package aguifakes
 import (
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/messenger/agui"
+	"github.com/stackgenhq/genie/pkg/messenger/agui"
 )
 
 type FakeMessengerBridge struct {

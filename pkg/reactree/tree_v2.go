@@ -6,9 +6,9 @@ import (
 	"hash/fnv"
 	"strings"
 
-	"github.com/appcd-dev/genie/pkg/agui"
-	"github.com/appcd-dev/genie/pkg/hooks"
-	"github.com/appcd-dev/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/agui"
+	"github.com/stackgenhq/genie/pkg/hooks"
+	"github.com/stackgenhq/genie/pkg/logger"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"trpc.group/trpc-go/trpc-agent-go/agent"

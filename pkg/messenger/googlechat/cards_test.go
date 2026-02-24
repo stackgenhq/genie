@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 	"google.golang.org/api/chat/v1"
 
-	"github.com/appcd-dev/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/messenger"
 )
 
 var _ = Describe("extractCardsV2", func() {

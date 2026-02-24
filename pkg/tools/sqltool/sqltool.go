@@ -29,8 +29,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/osutils"
-	"github.com/appcd-dev/genie/pkg/security"
+	"github.com/stackgenhq/genie/pkg/osutils"
+	"github.com/stackgenhq/genie/pkg/security"
 
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"

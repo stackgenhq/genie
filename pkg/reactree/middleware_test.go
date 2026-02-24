@@ -3,10 +3,10 @@ package reactree_test
 import (
 	"context"
 
-	"github.com/appcd-dev/genie/pkg/reactree"
-	"github.com/appcd-dev/genie/pkg/tools/toolsfakes"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/reactree"
+	"github.com/stackgenhq/genie/pkg/tools/toolsfakes"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 

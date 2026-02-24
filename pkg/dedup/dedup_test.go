@@ -10,7 +10,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/appcd-dev/genie/pkg/dedup"
+	"github.com/stackgenhq/genie/pkg/dedup"
 )
 
 func TestDedup(t *testing.T) {

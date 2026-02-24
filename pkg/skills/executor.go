@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/logger"
 )
 
 // Executor executes skill scripts.

@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/db"
-	"github.com/appcd-dev/genie/pkg/retrier"
 	"github.com/google/uuid"
+	"github.com/stackgenhq/genie/pkg/db"
+	"github.com/stackgenhq/genie/pkg/retrier"
 	"gorm.io/gorm"
 )
 

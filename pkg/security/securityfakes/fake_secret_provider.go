@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/security"
+	"github.com/stackgenhq/genie/pkg/security"
 )
 
 type FakeSecretProvider struct {

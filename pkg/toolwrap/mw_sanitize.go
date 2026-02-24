@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/appcd-dev/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/logger"
 )
 
 // SanitizeMiddlewareConfig controls the OutputSanitizationMiddleware.

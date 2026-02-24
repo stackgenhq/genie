@@ -27,8 +27,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/google/uuid"
+	"github.com/stackgenhq/genie/pkg/logger"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 

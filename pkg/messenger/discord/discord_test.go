@@ -6,8 +6,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/appcd-dev/genie/pkg/messenger"
-	"github.com/appcd-dev/genie/pkg/messenger/discord"
+	"github.com/stackgenhq/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/messenger/discord"
 )
 
 var _ = Describe("Discord Messenger", func() {

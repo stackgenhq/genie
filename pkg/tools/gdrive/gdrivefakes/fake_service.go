@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/tools/gdrive"
+	"github.com/stackgenhq/genie/pkg/tools/gdrive"
 )
 
 type FakeService struct {

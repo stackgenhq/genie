@@ -13,9 +13,9 @@ package toolwrap
 import (
 	"context"
 
-	"github.com/appcd-dev/genie/pkg/audit"
-	"github.com/appcd-dev/genie/pkg/hitl"
-	rtmemory "github.com/appcd-dev/genie/pkg/reactree/memory"
+	"github.com/stackgenhq/genie/pkg/audit"
+	"github.com/stackgenhq/genie/pkg/hitl"
+	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 

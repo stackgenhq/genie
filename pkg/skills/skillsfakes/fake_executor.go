@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/skills"
+	"github.com/stackgenhq/genie/pkg/skills"
 )
 
 type FakeExecutor struct {

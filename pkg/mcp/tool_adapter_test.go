@@ -1,10 +1,10 @@
 package mcp_test
 
 import (
-	"github.com/appcd-dev/genie/pkg/mcp"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/mcp"
 )
 
 var _ = Describe("ClientTool Adapter", func() {

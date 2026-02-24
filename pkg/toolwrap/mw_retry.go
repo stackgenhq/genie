@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/cenkalti/backoff/v4"
+	"github.com/stackgenhq/genie/pkg/logger"
 )
 
 // RetryConfig configures the RetryMiddleware behaviour.

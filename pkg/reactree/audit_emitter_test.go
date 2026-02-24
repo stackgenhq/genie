@@ -3,11 +3,11 @@ package reactree_test
 import (
 	"context"
 
-	"github.com/appcd-dev/genie/pkg/audit/auditfakes"
-	"github.com/appcd-dev/genie/pkg/hooks"
-	"github.com/appcd-dev/genie/pkg/reactree"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/audit/auditfakes"
+	"github.com/stackgenhq/genie/pkg/hooks"
+	"github.com/stackgenhq/genie/pkg/reactree"
 )
 
 var _ = Describe("AuditHook", func() {

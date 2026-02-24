@@ -1,7 +1,7 @@
 package runbook
 
 import (
-	"github.com/appcd-dev/genie/pkg/memory/vector"
+	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 

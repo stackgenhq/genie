@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	aguitypes "github.com/appcd-dev/genie/pkg/agui"
+	aguitypes "github.com/stackgenhq/genie/pkg/agui"
 )
 
 // aguiEvent is the AG-UI wire format for SSE events.

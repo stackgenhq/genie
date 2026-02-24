@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/appcd-dev/genie/pkg/logger"
-	"github.com/appcd-dev/genie/pkg/pii"
+	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/pii"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 )
 

@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/audit"
+	"github.com/stackgenhq/genie/pkg/audit"
 )
 
 type FakeAuditor struct {

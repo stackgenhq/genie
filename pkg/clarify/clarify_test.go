@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/clarify"
-	geniedb "github.com/appcd-dev/genie/pkg/db"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/clarify"
+	geniedb "github.com/stackgenhq/genie/pkg/db"
 )
 
 func newTestStore() clarify.Store {

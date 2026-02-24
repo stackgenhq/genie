@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/appcd-dev/genie/pkg/qrutil"
+	"github.com/stackgenhq/genie/pkg/qrutil"
 )
 
 var _ = Describe("qrutil", func() {

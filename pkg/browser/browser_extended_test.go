@@ -6,7 +6,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/appcd-dev/genie/pkg/browser"
+	"github.com/stackgenhq/genie/pkg/browser"
 )
 
 var _ = Describe("Browser Extended Tests", func() {

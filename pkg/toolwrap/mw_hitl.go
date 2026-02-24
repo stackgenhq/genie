@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/agui"
-	"github.com/appcd-dev/genie/pkg/hitl"
-	"github.com/appcd-dev/genie/pkg/interrupt"
-	"github.com/appcd-dev/genie/pkg/logger"
-	"github.com/appcd-dev/genie/pkg/messenger"
-	rtmemory "github.com/appcd-dev/genie/pkg/reactree/memory"
+	"github.com/stackgenhq/genie/pkg/agui"
+	"github.com/stackgenhq/genie/pkg/hitl"
+	"github.com/stackgenhq/genie/pkg/interrupt"
+	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/messenger"
+	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
 )
 
 // maxApprovalCacheSize limits the number of entries in the approval cache.

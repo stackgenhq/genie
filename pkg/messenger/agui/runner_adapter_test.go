@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	agui "github.com/appcd-dev/genie/pkg/messenger/agui"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	agui "github.com/stackgenhq/genie/pkg/messenger/agui"
 	"trpc.group/trpc-go/trpc-agent-go/event"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 )

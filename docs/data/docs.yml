@@ -61,7 +61,7 @@ config_sections:
       - columns: [Key, Type, Default, Description]
         rows:
           - ["port", "int", "`8080`", "Port to listen on"]
-          - ["cors_origins", "string[]", '`["https://appcd-dev.github.io"]`', "Allowed CORS origins for the web UI"]
+          - ["cors_origins", "string[]", '`["https://stackgenhq.github.io"]`', "Allowed CORS origins for the web UI"]
           - ["rate_limit", "float", "`0.5`", "Requests per second limit per IP"]
           - ["rate_burst", "int", "`3`", "Burst request allowance"]
           - ["max_concurrent", "int", "`5`", "Max concurrent requests processing"]
@@ -898,11 +898,11 @@ howto_guides:
       brew install stackgenhq/homebrew-stackgen/genie
 
       # ── Go install ──
-      CGO_ENABLED=1 go install -mod=mod github.com/appcd-dev/genie@latest
+      CGO_ENABLED=1 go install -mod=mod github.com/stackgenhq/genie@latest
 
       # ── Build from source ──
-      git clone https://github.com/appcd-dev/stackgen-genie.git
-      cd stackgen-genie
+      git clone https://github.com/stackgenhq/genie.git
+      cd genie
       make build    # binary at build/genie
 
       # ── Docker ──
@@ -912,7 +912,7 @@ howto_guides:
         ghcr.io/stackgenhq/genie:latest grant
 
       # ── GitHub Releases ──
-      # Download from: https://github.com/appcd-dev/stackgen-genie/releases
+      # Download from: https://github.com/stackgenhq/genie/releases
 
       # ── Windows (Scoop) ──
       # scoop bucket add stackgen https://github.com/stackgenhq/homebrew-stackgen

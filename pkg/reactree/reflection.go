@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/appcd-dev/genie/pkg/expert"
-	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
-	"github.com/appcd-dev/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/expert"
+	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
+	"github.com/stackgenhq/genie/pkg/logger"
 )
 
 // ActionReflector performs a Reasoning-Action-Reflection (RAR) loop before external actions.

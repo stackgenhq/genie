@@ -6,13 +6,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/agui"
-	"github.com/appcd-dev/genie/pkg/cron"
-	"github.com/appcd-dev/genie/pkg/cron/cronfakes"
-	"github.com/appcd-dev/genie/pkg/db"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/agui"
+	"github.com/stackgenhq/genie/pkg/cron"
+	"github.com/stackgenhq/genie/pkg/cron/cronfakes"
+	"github.com/stackgenhq/genie/pkg/db"
 )
 
 // newSchedulerWithDispatcher is a test helper that creates a Scheduler with the given dispatcher.

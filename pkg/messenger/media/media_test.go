@@ -1,10 +1,10 @@
 package media_test
 
 import (
-	"github.com/appcd-dev/genie/pkg/messenger"
-	"github.com/appcd-dev/genie/pkg/messenger/media"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/messenger/media"
 )
 
 var _ = Describe("DescribeAttachments", func() {

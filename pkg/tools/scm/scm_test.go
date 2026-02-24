@@ -8,9 +8,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/appcd-dev/genie/pkg/tools/scm"
-	"github.com/appcd-dev/genie/pkg/tools/scm/scmfakes"
 	go_scm "github.com/drone/go-scm/scm"
+	"github.com/stackgenhq/genie/pkg/tools/scm"
+	"github.com/stackgenhq/genie/pkg/tools/scm/scmfakes"
 )
 
 var _ = Describe("SCM Tools", func() {

@@ -3,13 +3,13 @@ package hitl_test
 import (
 	"context"
 
-	"github.com/appcd-dev/genie/pkg/hitl"
-	"github.com/appcd-dev/genie/pkg/hitl/hitlfakes"
-	"github.com/appcd-dev/genie/pkg/messenger"
-	messengerhitl "github.com/appcd-dev/genie/pkg/messenger/hitl"
-	"github.com/appcd-dev/genie/pkg/messenger/messengerfakes"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/hitl"
+	"github.com/stackgenhq/genie/pkg/hitl/hitlfakes"
+	"github.com/stackgenhq/genie/pkg/messenger"
+	messengerhitl "github.com/stackgenhq/genie/pkg/messenger/hitl"
+	"github.com/stackgenhq/genie/pkg/messenger/messengerfakes"
 )
 
 // testOrigin creates a MessageOrigin from the "platform:senderID:channelID" pattern used in tests.

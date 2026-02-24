@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/appcd-dev/genie/pkg/ttlcache"
+	"github.com/stackgenhq/genie/pkg/ttlcache"
 )
 
 //go:generate go tool counterfeiter -generate

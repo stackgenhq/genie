@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	reactreeMemory "github.com/appcd-dev/genie/pkg/reactree/memory"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	reactreeMemory "github.com/stackgenhq/genie/pkg/reactree/memory"
 	"trpc.group/trpc-go/trpc-agent-go/memory"
 	"trpc.group/trpc-go/trpc-agent-go/memory/inmemory"
 )

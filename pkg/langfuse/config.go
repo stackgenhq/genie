@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/httputil"
-	"github.com/appcd-dev/genie/pkg/security"
-	"github.com/appcd-dev/genie/pkg/ttlcache"
+	"github.com/stackgenhq/genie/pkg/httputil"
+	"github.com/stackgenhq/genie/pkg/security"
+	"github.com/stackgenhq/genie/pkg/ttlcache"
 )
 
 // Config holds the configuration for the Langfuse integration, which

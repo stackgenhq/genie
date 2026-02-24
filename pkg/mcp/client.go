@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/stackgenhq/genie/pkg/logger"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 

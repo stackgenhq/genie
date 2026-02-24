@@ -9,8 +9,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/appcd-dev/genie/pkg/messenger"
-	aguimsg "github.com/appcd-dev/genie/pkg/messenger/agui"
+	"github.com/stackgenhq/genie/pkg/messenger"
+	aguimsg "github.com/stackgenhq/genie/pkg/messenger/agui"
 )
 
 var _ = Describe("AGUI Messenger", func() {

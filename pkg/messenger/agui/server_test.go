@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	aguitypes "github.com/appcd-dev/genie/pkg/agui"
-	"github.com/appcd-dev/genie/pkg/messenger"
-	agui "github.com/appcd-dev/genie/pkg/messenger/agui"
-	"github.com/appcd-dev/genie/pkg/messenger/agui/aguifakes"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	aguitypes "github.com/stackgenhq/genie/pkg/agui"
+	"github.com/stackgenhq/genie/pkg/messenger"
+	agui "github.com/stackgenhq/genie/pkg/messenger/agui"
+	"github.com/stackgenhq/genie/pkg/messenger/agui/aguifakes"
 )
 
 var _ = Describe("AG-UI Server", func() {

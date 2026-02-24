@@ -1,7 +1,7 @@
 package calendar
 
 import (
-	"github.com/appcd-dev/genie/pkg/security"
+	"github.com/stackgenhq/genie/pkg/security"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 

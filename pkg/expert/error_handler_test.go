@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/appcd-dev/genie/pkg/expert"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/expert"
 )
 
 var _ = Describe("HandleExpertError", func() {

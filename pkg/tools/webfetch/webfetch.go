@@ -14,7 +14,7 @@
 //   - Output truncated at 1 MB to limit LLM context consumption
 //
 // Dependencies:
-//   - github.com/appcd-dev/genie/pkg/htmlutils — HTML-to-text extraction
+//   - github.com/stackgenhq/genie/pkg/htmlutils — HTML-to-text extraction
 //   - Go stdlib net/http — no external system dependencies
 package webfetch
 
@@ -27,7 +27,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/htmlutils"
+	"github.com/stackgenhq/genie/pkg/htmlutils"
 
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"

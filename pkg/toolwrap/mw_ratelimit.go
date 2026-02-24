@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/logger"
 	"golang.org/x/time/rate"
 )
 

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/retrier"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/retrier"
 )
 
 var _ = Describe("Retrier", func() {

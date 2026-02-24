@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/hitl"
-	"github.com/appcd-dev/genie/pkg/logger"
-	"github.com/appcd-dev/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/hitl"
+	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/messenger"
 )
 
 // NotifierStore wraps an ApprovalStore to send notifications via Messenger.

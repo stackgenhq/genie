@@ -3,8 +3,8 @@ package memory
 import (
 	"context"
 
-	"github.com/appcd-dev/genie/pkg/logger"
-	"github.com/appcd-dev/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/messenger"
 )
 
 // positiveReactions maps emoji strings to positive feedback intent.

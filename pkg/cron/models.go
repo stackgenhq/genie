@@ -3,7 +3,7 @@
 // (pkg/cron → pkg/agui → pkg/db).
 package cron
 
-import "github.com/appcd-dev/genie/pkg/db"
+import "github.com/stackgenhq/genie/pkg/db"
 
 // CronTask is a type alias for the GORM model defined in pkg/db.
 type CronTask = db.CronTask

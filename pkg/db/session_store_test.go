@@ -3,9 +3,9 @@ package db_test
 import (
 	"context"
 
-	geniedb "github.com/appcd-dev/genie/pkg/db"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	geniedb "github.com/stackgenhq/genie/pkg/db"
 	"gorm.io/gorm"
 	"trpc.group/trpc-go/trpc-agent-go/event"
 	"trpc.group/trpc-go/trpc-agent-go/model"

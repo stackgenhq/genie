@@ -5,13 +5,13 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/appcd-dev/genie/pkg/config"
-	geniedb "github.com/appcd-dev/genie/pkg/db"
-	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
-	"github.com/appcd-dev/genie/pkg/messenger"
-	"github.com/appcd-dev/genie/pkg/security"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/config"
+	geniedb "github.com/stackgenhq/genie/pkg/db"
+	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
+	"github.com/stackgenhq/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/security"
 )
 
 // skipWithoutOpenAIKey skips a test if OPENAI_API_KEY is not set.

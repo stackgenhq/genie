@@ -9,9 +9,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/appcd-dev/genie/pkg/db"
-	"github.com/appcd-dev/genie/pkg/messenger"
-	reactreeMemory "github.com/appcd-dev/genie/pkg/reactree/memory"
+	"github.com/stackgenhq/genie/pkg/db"
+	"github.com/stackgenhq/genie/pkg/messenger"
+	reactreeMemory "github.com/stackgenhq/genie/pkg/reactree/memory"
 )
 
 // newTestStore creates a temp SQLite-backed ShortMemoryStore for testing.

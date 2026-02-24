@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/appcd-dev/genie/pkg/cron"
-	"github.com/appcd-dev/genie/pkg/cron/cronfakes"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/cron"
+	"github.com/stackgenhq/genie/pkg/cron/cronfakes"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 

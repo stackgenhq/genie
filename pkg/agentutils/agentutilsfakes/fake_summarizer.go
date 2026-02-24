@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/agentutils"
+	"github.com/stackgenhq/genie/pkg/agentutils"
 )
 
 type FakeSummarizer struct {

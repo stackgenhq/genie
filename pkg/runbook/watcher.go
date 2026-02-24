@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/logger"
-	"github.com/appcd-dev/genie/pkg/memory/vector"
 	"github.com/fsnotify/fsnotify"
+	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/document/reader"
 )
 

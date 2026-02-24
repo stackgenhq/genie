@@ -9,8 +9,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/appcd-dev/genie/pkg/tools/gdrive"
-	"github.com/appcd-dev/genie/pkg/tools/gdrive/gdrivefakes"
+	"github.com/stackgenhq/genie/pkg/tools/gdrive"
+	"github.com/stackgenhq/genie/pkg/tools/gdrive/gdrivefakes"
 )
 
 var _ = Describe("Google Drive Tools", func() {

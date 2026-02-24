@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/appcd-dev/genie/pkg/security"
+	"github.com/stackgenhq/genie/pkg/security"
 )
 
 // FuzzExpandSecrets tests expandSecrets with arbitrary input strings.

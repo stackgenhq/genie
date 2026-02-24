@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	aguitypes "github.com/appcd-dev/genie/pkg/agui"
-	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/google/uuid"
+	aguitypes "github.com/stackgenhq/genie/pkg/agui"
+	"github.com/stackgenhq/genie/pkg/logger"
 	"trpc.group/trpc-go/trpc-agent-go/event"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 )

@@ -4,7 +4,7 @@ package toolwrapfakes
 import (
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/toolwrap"
+	"github.com/stackgenhq/genie/pkg/toolwrap"
 )
 
 type FakeMiddleware struct {

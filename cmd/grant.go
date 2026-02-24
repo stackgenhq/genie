@@ -10,17 +10,17 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/appcd-dev/genie/pkg/app"
-	"github.com/appcd-dev/genie/pkg/logger"
-	"github.com/appcd-dev/genie/pkg/osutils"
 	"github.com/spf13/cobra"
+	"github.com/stackgenhq/genie/pkg/app"
+	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/osutils"
 
 	// Register messenger adapter factories via init().
-	_ "github.com/appcd-dev/genie/pkg/messenger/googlechat"
-	_ "github.com/appcd-dev/genie/pkg/messenger/slack"
-	_ "github.com/appcd-dev/genie/pkg/messenger/teams"
-	_ "github.com/appcd-dev/genie/pkg/messenger/telegram"
-	_ "github.com/appcd-dev/genie/pkg/messenger/whatsapp"
+	_ "github.com/stackgenhq/genie/pkg/messenger/googlechat"
+	_ "github.com/stackgenhq/genie/pkg/messenger/slack"
+	_ "github.com/stackgenhq/genie/pkg/messenger/teams"
+	_ "github.com/stackgenhq/genie/pkg/messenger/telegram"
+	_ "github.com/stackgenhq/genie/pkg/messenger/whatsapp"
 )
 
 type grantCmdOption struct {

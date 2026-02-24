@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/slack-go/slack"
 
-	"github.com/appcd-dev/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/messenger"
 )
 
 var _ = Describe("extractBlocks", func() {

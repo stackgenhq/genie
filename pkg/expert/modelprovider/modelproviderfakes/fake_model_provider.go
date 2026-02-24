@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/expert/modelprovider"
+	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
 )
 
 type FakeModelProvider struct {

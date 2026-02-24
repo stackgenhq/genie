@@ -3,10 +3,10 @@ package agui_test
 import (
 	"context"
 
-	"github.com/appcd-dev/genie/pkg/agui"
-	"github.com/appcd-dev/genie/pkg/messenger"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/agui"
+	"github.com/stackgenhq/genie/pkg/messenger"
 )
 
 var _ = Describe("Context Helpers", func() {

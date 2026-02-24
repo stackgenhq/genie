@@ -10,9 +10,9 @@ import (
 	"os"
 	"strings"
 
-	messengeragui "github.com/appcd-dev/genie/pkg/messenger/agui"
-	"github.com/appcd-dev/genie/pkg/osutils"
 	"github.com/spf13/cobra"
+	messengeragui "github.com/stackgenhq/genie/pkg/messenger/agui"
+	"github.com/stackgenhq/genie/pkg/osutils"
 )
 
 type connectCmd struct {

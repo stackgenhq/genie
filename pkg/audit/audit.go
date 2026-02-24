@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/messenger"
-	"github.com/appcd-dev/genie/pkg/pii"
+	"github.com/stackgenhq/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/pii"
 )
 
 //go:generate go tool counterfeiter -generate

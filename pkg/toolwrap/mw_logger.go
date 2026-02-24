@@ -3,7 +3,7 @@ package toolwrap
 import (
 	"context"
 
-	"github.com/appcd-dev/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/logger"
 )
 
 // LoggerMiddleware returns a Middleware that logs the outcome of every

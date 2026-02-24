@@ -7,9 +7,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/appcd-dev/genie/pkg/messenger"
-	_ "github.com/appcd-dev/genie/pkg/messenger/agui"
-	"github.com/appcd-dev/genie/pkg/messenger/messengerfakes"
+	"github.com/stackgenhq/genie/pkg/messenger"
+	_ "github.com/stackgenhq/genie/pkg/messenger/agui"
+	"github.com/stackgenhq/genie/pkg/messenger/messengerfakes"
 )
 
 var _ = Describe("Factory", func() {

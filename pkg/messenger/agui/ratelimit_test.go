@@ -9,12 +9,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	aguitypes "github.com/appcd-dev/genie/pkg/agui"
-	"github.com/appcd-dev/genie/pkg/hitl/hitlfakes"
-	"github.com/appcd-dev/genie/pkg/messenger"
-	agui "github.com/appcd-dev/genie/pkg/messenger/agui"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	aguitypes "github.com/stackgenhq/genie/pkg/agui"
+	"github.com/stackgenhq/genie/pkg/hitl/hitlfakes"
+	"github.com/stackgenhq/genie/pkg/messenger"
+	agui "github.com/stackgenhq/genie/pkg/messenger/agui"
 )
 
 var _ = Describe("DDoS Protection Middleware", func() {

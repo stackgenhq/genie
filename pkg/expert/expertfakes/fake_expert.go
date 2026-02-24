@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/expert"
+	"github.com/stackgenhq/genie/pkg/expert"
 )
 
 type FakeExpert struct {

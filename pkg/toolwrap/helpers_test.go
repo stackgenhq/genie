@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync/atomic"
 
-	"github.com/appcd-dev/genie/pkg/toolwrap"
+	"github.com/stackgenhq/genie/pkg/toolwrap"
 )
 
 // passthrough is a Handler that always succeeds with a fixed value.

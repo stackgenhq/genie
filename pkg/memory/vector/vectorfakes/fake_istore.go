@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/memory/vector"
+	"github.com/stackgenhq/genie/pkg/memory/vector"
 )
 
 type FakeIStore struct {

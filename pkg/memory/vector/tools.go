@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/appcd-dev/genie/pkg/pii"
 	"github.com/google/uuid"
+	"github.com/stackgenhq/genie/pkg/pii"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )

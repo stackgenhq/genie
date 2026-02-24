@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/messenger/agui"
+	"github.com/stackgenhq/genie/pkg/messenger/agui"
 )
 
 type FakeExpert struct {

@@ -3,9 +3,9 @@ package agui_test
 import (
 	"encoding/json"
 
-	"github.com/appcd-dev/genie/pkg/agui"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/agui"
 )
 
 var _ = Describe("CloudEvent Envelope", func() {

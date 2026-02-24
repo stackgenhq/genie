@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/cron"
 	"github.com/google/uuid"
+	"github.com/stackgenhq/genie/pkg/cron"
 )
 
 type FakeICronStore struct {

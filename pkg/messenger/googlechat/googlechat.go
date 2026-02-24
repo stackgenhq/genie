@@ -33,8 +33,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/logger"
-	"github.com/appcd-dev/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/messenger"
 	"google.golang.org/api/chat/v1"
 	"google.golang.org/api/option"
 )

@@ -34,10 +34,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/logger"
-	"github.com/appcd-dev/genie/pkg/messenger"
-	"github.com/appcd-dev/genie/pkg/messenger/media"
-	"github.com/appcd-dev/genie/pkg/qrutil"
+	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/messenger/media"
+	"github.com/stackgenhq/genie/pkg/qrutil"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"

@@ -1,4 +1,4 @@
-module github.com/appcd-dev/genie
+module github.com/stackgenhq/genie
 
 go 1.25.6
 

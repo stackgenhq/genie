@@ -9,8 +9,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/appcd-dev/genie/pkg/tools/pm"
-	"github.com/appcd-dev/genie/pkg/tools/pm/pmfakes"
+	"github.com/stackgenhq/genie/pkg/tools/pm"
+	"github.com/stackgenhq/genie/pkg/tools/pm/pmfakes"
 )
 
 // newFake returns a FakeService that advertises all 12 operations (for tool wrapper tests).

@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/appcd-dev/genie/cmd"
+	"github.com/stackgenhq/genie/cmd"
 )
 
 var _ = Describe("Connect Command", func() {

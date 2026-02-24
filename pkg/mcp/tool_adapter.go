@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/appcd-dev/genie/pkg/mcputils"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/stackgenhq/genie/pkg/mcputils"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 

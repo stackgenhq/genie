@@ -21,8 +21,8 @@ import (
 
 	tgmodels "github.com/go-telegram/bot/models"
 
-	"github.com/appcd-dev/genie/pkg/logger"
-	"github.com/appcd-dev/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/messenger"
 )
 
 // webhookHTTPHandler handles incoming Telegram webhook update requests.

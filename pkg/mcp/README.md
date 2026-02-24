@@ -84,7 +84,7 @@ mcp:
 ```go
 import (
     "context"
-    "github.com/appcd-dev/genie/pkg/mcp"
+    "github.com/stackgenhq/genie/pkg/mcp"
     "time"
 )
 

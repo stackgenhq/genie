@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/db"
 	"github.com/google/uuid"
+	"github.com/stackgenhq/genie/pkg/db"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )

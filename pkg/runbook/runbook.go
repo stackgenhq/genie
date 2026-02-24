@@ -15,9 +15,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/appcd-dev/genie/pkg/logger"
-	"github.com/appcd-dev/genie/pkg/memory/vector"
-	"github.com/appcd-dev/genie/pkg/osutils"
+	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/memory/vector"
+	"github.com/stackgenhq/genie/pkg/osutils"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/document/reader"
 
 	// Register document readers for supported file formats via init().

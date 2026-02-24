@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/adhocore/gronx"
-	"github.com/appcd-dev/genie/pkg/agui"
-	"github.com/appcd-dev/genie/pkg/db"
-	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/google/uuid"
+	"github.com/stackgenhq/genie/pkg/agui"
+	"github.com/stackgenhq/genie/pkg/db"
+	"github.com/stackgenhq/genie/pkg/logger"
 )
 
 //go:generate go tool counterfeiter -generate

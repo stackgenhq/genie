@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/hitl"
+	"github.com/stackgenhq/genie/pkg/hitl"
 )
 
 type FakeApprovalStore struct {

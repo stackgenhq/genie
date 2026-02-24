@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/interrupt"
-	"github.com/appcd-dev/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/interrupt"
+	"github.com/stackgenhq/genie/pkg/logger"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"

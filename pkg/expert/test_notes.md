@@ -3,7 +3,7 @@ package expert_test
 import (
 	"errors"
 
-	"github.com/appcd-dev/genie/pkg/expert"
+	"github.com/stackgenhq/genie/pkg/expert"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )

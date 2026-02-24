@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/retrier"
+	"github.com/stackgenhq/genie/pkg/retrier"
 )
 
 const linearEndpoint = "https://api.linear.app/graphql"

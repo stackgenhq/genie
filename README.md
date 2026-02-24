@@ -37,13 +37,13 @@ brew install stackgenhq/homebrew-stackgen/genie
 
 **Go install:**
 ```bash
-CGO_ENABLED=1 go install -mod=mod github.com/appcd-dev/genie@latest
+CGO_ENABLED=1 go install -mod=mod github.com/stackgenhq/genie@latest
 ```
 
 **Build from source:**
 ```bash
-git clone https://github.com/appcd-dev/stackgen-genie.git
-cd stackgen-genie
+git clone https://github.com/stackgenhq/genie.git
+cd genie
 make build        # binary at build/genie
 make install      # install to $GOPATH/bin
 ```
@@ -58,7 +58,7 @@ docker run --rm -it \
 
 **GitHub Releases:**
 Download pre-built binaries for macOS, Linux, and Windows from the
-[Releases](https://github.com/appcd-dev/stackgen-genie/releases) page.
+[Releases](https://github.com/stackgenhq/genie/releases) page.
 
 **Windows (Scoop):**
 ```powershell
@@ -112,7 +112,7 @@ docker run -d \
 
 ```bash
 # 1. Download and install the binary
-curl -L https://github.com/appcd-dev/stackgen-genie/releases/latest/download/genie_Linux_x86_64.tar.gz -o genie.tar.gz
+curl -L https://github.com/stackgenhq/genie/releases/latest/download/genie_Linux_x86_64.tar.gz -o genie.tar.gz
 tar xzf genie.tar.gz
 sudo mv genie /usr/local/bin/
 sudo chmod +x /usr/local/bin/genie

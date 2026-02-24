@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/logger"
-	"github.com/appcd-dev/genie/pkg/ttlcache"
+	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/ttlcache"
 	"github.com/tidwall/gjson"
 )
 

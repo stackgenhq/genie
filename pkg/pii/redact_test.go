@@ -3,9 +3,9 @@ package pii_test
 import (
 	"testing"
 
-	"github.com/appcd-dev/genie/pkg/pii"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/pii"
 )
 
 func TestPII(t *testing.T) {

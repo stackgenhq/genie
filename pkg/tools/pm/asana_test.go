@@ -9,7 +9,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/appcd-dev/genie/pkg/tools/pm"
+	"github.com/stackgenhq/genie/pkg/tools/pm"
 )
 
 var _ = Describe("Asana Provider", func() {

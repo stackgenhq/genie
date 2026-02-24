@@ -3,9 +3,9 @@ package reactree_test
 import (
 	"context"
 
-	"github.com/appcd-dev/genie/pkg/reactree"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/reactree"
 	"trpc.group/trpc-go/trpc-agent-go/agent"
 	"trpc.group/trpc-go/trpc-agent-go/graph"
 )

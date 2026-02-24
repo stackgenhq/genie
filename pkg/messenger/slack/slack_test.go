@@ -6,8 +6,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/appcd-dev/genie/pkg/messenger"
-	slackmsg "github.com/appcd-dev/genie/pkg/messenger/slack"
+	"github.com/stackgenhq/genie/pkg/messenger"
+	slackmsg "github.com/stackgenhq/genie/pkg/messenger/slack"
 )
 
 var _ = Describe("Slack Messenger", func() {

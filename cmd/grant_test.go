@@ -9,8 +9,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/appcd-dev/genie/pkg/orchestrator"
-	"github.com/appcd-dev/genie/pkg/orchestrator/orchestratorfakes"
+	"github.com/stackgenhq/genie/pkg/orchestrator"
+	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorfakes"
 )
 
 // chatLoopHandler simulates the chat loop logic from grant.go for testing purposes

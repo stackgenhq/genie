@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/orchestrator"
+	"github.com/stackgenhq/genie/pkg/orchestrator"
 )
 
 type FakeOrchestrator struct {

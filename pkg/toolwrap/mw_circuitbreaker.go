@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/logger"
 	"github.com/sony/gobreaker/v2"
+	"github.com/stackgenhq/genie/pkg/logger"
 )
 
 // CircuitBreakerConfig configures the CircuitBreakerMiddleware.

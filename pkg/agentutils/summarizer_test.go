@@ -7,11 +7,11 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/appcd-dev/genie/pkg/agentutils"
-	"github.com/appcd-dev/genie/pkg/audit/auditfakes"
-	"github.com/appcd-dev/genie/pkg/expert"
-	"github.com/appcd-dev/genie/pkg/expert/expertfakes"
-	"github.com/appcd-dev/genie/pkg/expert/modelprovider/modelproviderfakes"
+	"github.com/stackgenhq/genie/pkg/agentutils"
+	"github.com/stackgenhq/genie/pkg/audit/auditfakes"
+	"github.com/stackgenhq/genie/pkg/expert"
+	"github.com/stackgenhq/genie/pkg/expert/expertfakes"
+	"github.com/stackgenhq/genie/pkg/expert/modelprovider/modelproviderfakes"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )

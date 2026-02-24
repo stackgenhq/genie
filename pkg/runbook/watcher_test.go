@@ -9,8 +9,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/appcd-dev/genie/pkg/memory/vector/vectorfakes"
-	"github.com/appcd-dev/genie/pkg/runbook"
+	"github.com/stackgenhq/genie/pkg/memory/vector/vectorfakes"
+	"github.com/stackgenhq/genie/pkg/runbook"
 )
 
 var _ = Describe("Watcher", func() {

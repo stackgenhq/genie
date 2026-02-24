@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/appcd-dev/genie/pkg/hooks"
+	"github.com/stackgenhq/genie/pkg/hooks"
 )
 
 // recordingHook records which events were called for test assertions.

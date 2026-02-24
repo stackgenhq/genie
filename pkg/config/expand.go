@@ -11,7 +11,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/appcd-dev/genie/pkg/security"
+	"github.com/stackgenhq/genie/pkg/security"
 )
 
 // sensitiveKeywords lists substrings that typically indicate a secret-ish

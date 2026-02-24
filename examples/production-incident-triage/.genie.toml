@@ -2,7 +2,7 @@
 
 # Using skills roots (supports single or multiple paths)
 skills_roots = [
-  "/Users/sabithks/src/github.com/appcd-dev/genie/examples/skills", # Local skills directory
+  "/Users/sabithks/src/github.com/stackgenhq/genie/examples/skills", # Local skills directory
 ]
 
 [db_config]
@@ -139,7 +139,7 @@ persistence_dir = "${PWD}/.genie/vector_store"
 # The server runs in the foreground when `genie grant` is invoked.
 [messenger.agui]
 port = 8080
-cors_origins = ["https://appcd-dev.github.io"]
+cors_origins = ["https://stackgenhq.github.io"]
 
 
 [hitl]

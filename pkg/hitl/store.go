@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/clarify"
-	"github.com/appcd-dev/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/clarify"
+	"github.com/stackgenhq/genie/pkg/messenger"
 )
 
 //go:generate go tool counterfeiter -generate

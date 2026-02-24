@@ -13,14 +13,14 @@ import (
 	"time"
 
 	aguisdk "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
-	"github.com/appcd-dev/genie/pkg/agui"
-	aguitypes "github.com/appcd-dev/genie/pkg/agui"
-	"github.com/appcd-dev/genie/pkg/clarify"
-	"github.com/appcd-dev/genie/pkg/hitl"
-	"github.com/appcd-dev/genie/pkg/logger"
-	"github.com/appcd-dev/genie/pkg/messenger"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/stackgenhq/genie/pkg/agui"
+	aguitypes "github.com/stackgenhq/genie/pkg/agui"
+	"github.com/stackgenhq/genie/pkg/clarify"
+	"github.com/stackgenhq/genie/pkg/hitl"
+	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/messenger"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/time/rate"
 	trunner "trpc.group/trpc-go/trpc-agent-go/runner"
@@ -375,21 +375,21 @@ func (s *Server) Handler() http.Handler {
 
 // newDocsProxy creates a reverse proxy to the Genie GitHub Pages documentation.
 // It sanitises the proxied path to prevent traversal attacks: all requests are
-// forced under /stackgen-genie/ regardless of what the client sends.
+// forced under /genie/ regardless of what the client sends.
 func newDocsProxy() *httputil.ReverseProxy {
-	docsURL, _ := url.Parse("https://appcd-dev.github.io/stackgen-genie/")
+	docsURL, _ := url.Parse("https://stackgenhq.github.io/genie/")
 	proxy := httputil.NewSingleHostReverseProxy(docsURL)
 
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
 		req.Host = docsURL.Host
-		// Sanitise the path and re-apply the /stackgen-genie/ prefix so
+		// Sanitise the path and re-apply the /genie/ prefix so
 		// cleaned paths like "/" (from "/ui/../") cannot escape.
 		cleaned := path.Clean(req.URL.Path)
-		req.URL.Path = path.Join("/stackgen-genie", cleaned)
-		if !strings.HasPrefix(req.URL.Path, "/stackgen-genie") {
-			req.URL.Path = "/stackgen-genie/"
+		req.URL.Path = path.Join("/genie", cleaned)
+		if !strings.HasPrefix(req.URL.Path, "/genie") {
+			req.URL.Path = "/genie/"
 		}
 	}
 	return proxy

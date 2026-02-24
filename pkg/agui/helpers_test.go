@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/appcd-dev/genie/pkg/agui"
-	"github.com/appcd-dev/genie/pkg/messenger"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/agui"
+	"github.com/stackgenhq/genie/pkg/messenger"
 )
 
 // testOrigin creates a unique MessageOrigin and registers the channel on the bus.

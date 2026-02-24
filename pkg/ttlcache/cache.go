@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/appcd-dev/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/logger"
 )
 
 // ValueRetriever is a function type used to retrieve or refresh cached values.

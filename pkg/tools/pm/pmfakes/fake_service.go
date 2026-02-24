@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/appcd-dev/genie/pkg/tools/pm"
+	"github.com/stackgenhq/genie/pkg/tools/pm"
 )
 
 type FakeService struct {

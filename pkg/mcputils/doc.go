@@ -9,7 +9,7 @@
 // Example usage:
 //
 //	import (
-//	    "github.com/appcd-dev/genie/pkg/mcputils"
+//	    "github.com/stackgenhq/genie/pkg/mcputils"
 //	    "github.com/hashicorp/terraform-mcp-server/pkg/tools/registry"
 //	    "github.com/sirupsen/logrus"
 //	)

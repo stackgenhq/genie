@@ -2,7 +2,7 @@
 
 # Using skills roots (supports single or multiple paths)
 skills_roots = [
-  "/Users/sabithks/src/github.com/appcd-dev/genie/examples/skills", # Local skills directory
+  "/Users/sabithks/src/github.com/stackgenhq/genie/examples/skills", # Local skills directory
 ]
 
 [db_config]

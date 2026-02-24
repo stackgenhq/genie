@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/appcd-dev/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/logger"
 )
 
 type contextKey struct {

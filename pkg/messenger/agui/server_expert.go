@@ -3,8 +3,8 @@ package agui
 import (
 	"context"
 
-	aguitypes "github.com/appcd-dev/genie/pkg/agui"
-	"github.com/appcd-dev/genie/pkg/logger"
+	aguitypes "github.com/stackgenhq/genie/pkg/agui"
+	"github.com/stackgenhq/genie/pkg/logger"
 )
 
 // NewChatHandler creates a ChatHandler that bridges the AG-UI
