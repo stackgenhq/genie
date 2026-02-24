@@ -15,7 +15,7 @@
 Instead, please report vulnerabilities privately:
 
 1. **GitHub Security Advisories (preferred):** Use the [Report a vulnerability](https://github.com/stackgenhq/genie/security/advisories/new) button on the Security tab.
-2. **Email:** Send details to **security@stackgen.com**.
+2. **Email:** Send details to **<opensource@stackgen.com>**.
 
 ### What to include
 
