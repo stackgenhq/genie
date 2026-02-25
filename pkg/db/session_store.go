@@ -21,6 +21,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -38,6 +39,19 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/session"
 	"trpc.group/trpc-go/trpc-agent-go/session/inmemory"
 )
+
+// newCheckpointSaver returns a graph.CheckpointSaver appropriate for the
+// underlying database dialect. PostgreSQL uses dollar-sign placeholders and
+// ON CONFLICT upsert syntax, whereas the upstream trpc-agent-go SQLite saver
+// uses INSERT OR REPLACE and question-mark placeholders. Using the wrong saver
+// causes "syntax error at or near OR" on PostgreSQL.
+func newCheckpointSaver(gormDB *gorm.DB, sqlDB *sql.DB) (graph.CheckpointSaver, error) {
+	dialect := gormDB.Dialector.Name()
+	if dialect == "postgres" {
+		return NewPgCheckpointSaver(sqlDB)
+	}
+	return graphsqlite.NewSaver(sqlDB)
+}
 
 // ---------------------------------------------------------------------------
 // GORM Models
@@ -198,9 +212,9 @@ func NewSessionStore(db *gorm.DB, opts ...SessionStoreOption) *SessionStore {
 		logr.Warn("checkpointer: underlying *sql.DB is nil, durable checkpointing disabled")
 		return s
 	}
-	saver, err := graphsqlite.NewSaver(sqlDB)
-	if err != nil {
-		logr.Warn("checkpointer: failed to initialize SQLite saver, durable checkpointing disabled", "error", err)
+	saver, saverErr := newCheckpointSaver(db, sqlDB)
+	if saverErr != nil {
+		logr.Warn("checkpointer: failed to initialize checkpoint saver, durable checkpointing disabled", "error", saverErr)
 		return s
 	}
 	s.checkpointer = saver

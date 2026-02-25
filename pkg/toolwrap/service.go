@@ -19,10 +19,21 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
+// ServiceOption configures optional behaviour on a toolwrap Service.
+type ServiceOption func(*Service)
+
+// WithMiddlewareConfig overrides the default middleware configuration.
+// Pass a per-agent config to enable rate limiting, tracing, retries, etc.
+// on a per-agent basis. When omitted, DefaultMiddlewareConfig() is used.
+func WithMiddlewareConfig(cfg MiddlewareConfig) ServiceOption {
+	return func(s *Service) { s.config = cfg }
+}
+
 func NewService(
 	auditor audit.Auditor,
 	approvalStore hitl.ApprovalStore,
 	fn SummarizeFunc,
+	opts ...ServiceOption,
 ) *Service {
 	cfg := DefaultMiddlewareConfig()
 	s := &Service{
@@ -30,6 +41,10 @@ func NewService(
 		approvalStore: approvalStore,
 		config:        cfg,
 	}
+	for _, o := range opts {
+		o(s)
+	}
+	cfg = s.config
 	// Create a singleton circuit breaker shared across all Wrap() calls.
 	// When a tool fails in one sub-agent, the circuit opens for ALL agents
 	// — no agent needs to independently discover the outage.

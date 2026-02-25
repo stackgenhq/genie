@@ -113,6 +113,22 @@ func (c *orchestrator) Resume(ctx context.Context) string {
 // when nil, sub-agents execute tools without requiring human approval.
 // The runbookCfg enables loading customer-provided instructional runbooks
 // that get injected into the agent's system prompt.
+// OrchestratorOption configures optional behaviour on the orchestrator.
+type OrchestratorOption func(*orchestratorOpts)
+
+type orchestratorOpts struct {
+	toolwrapOpts []toolwrap.ServiceOption
+}
+
+// WithToolwrapOptions passes per-agent middleware configuration to the
+// underlying toolwrap.Service. Use this to enable rate limiting, tracing,
+// retries, timeouts, etc. on a per-agent basis.
+func WithToolwrapOptions(opts ...toolwrap.ServiceOption) OrchestratorOption {
+	return func(o *orchestratorOpts) {
+		o.toolwrapOpts = append(o.toolwrapOpts, opts...)
+	}
+}
+
 func NewOrchestrator(
 	ctx context.Context,
 	modelProvider modelprovider.ModelProvider,
@@ -125,7 +141,12 @@ func NewOrchestrator(
 	runbookCfg runbook.Config,
 	sessionSvc session.Service,
 	agentPersona string,
+	extraOpts ...OrchestratorOption,
 ) (Orchestrator, error) {
+	var oo orchestratorOpts
+	for _, fn := range extraOpts {
+		fn(&oo)
+	}
 	// Build the persona prompt. When agentPersona is provided (GUILD agents),
 	// use it instead of the default Genie persona. This enables per-agent
 	// identity customisation.
@@ -172,7 +193,7 @@ func NewOrchestrator(
 			RequiredOutputFormat: agentutils.OutputFormatText,
 		})
 	})
-	toolWrapSvc := toolwrap.NewService(auditor, approvalStore, summarizeFunc)
+	toolWrapSvc := toolwrap.NewService(auditor, approvalStore, summarizeFunc, oo.toolwrapOpts...)
 
 	exp, err := expertBio.ToExpert(ctx, modelProvider, auditor, toolWrapSvc, expertOpts...)
 	if err != nil {
