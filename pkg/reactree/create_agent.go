@@ -35,6 +35,12 @@ const (
 	defaultTimeoutSec   = 5 * time.Minute
 	minTimeoutSec       = 30 * time.Second
 	maxTimeoutSec       = 10 * time.Minute
+
+	minToolIterCap = 5
+	maxToolIterCap = 50
+
+	minLLMCallsCap = 8
+	maxLLMCallsCap = 60
 )
 
 // CreateAgentRequest is the input for the create_agent tool.
@@ -67,6 +73,46 @@ func (req CreateAgentRequest) timeoutSeconds() float64 {
 		return defaultTimeoutSec.Seconds()
 	}
 	return min(max(req.TimeoutSeconds, minTimeoutSec.Seconds()), maxTimeoutSec.Seconds())
+}
+
+// clampedMaxToolIterations returns MaxToolIterations clamped to
+// [minToolIterCap, maxToolIterCap]. Ensures sub-agents always get
+// a workable iteration budget without unbounded loops.
+func (req CreateAgentRequest) clampedMaxToolIterations() int {
+	return min(max(req.MaxToolIterations, minToolIterCap), maxToolIterCap)
+}
+
+// clampedMaxLLMCalls returns MaxLLMCalls clamped to
+// [minLLMCallsCap, maxLLMCallsCap]. Prevents sub-agents from
+// making too few calls to be useful or too many to be cost-effective.
+func (req CreateAgentRequest) clampedMaxLLMCalls() int {
+	return min(max(req.MaxLLMCalls, minLLMCallsCap), maxLLMCallsCap)
+}
+
+// resolveStatus determines the final status and output string for a
+// sub-agent run based on whether it timed out, produced errors, or
+// returned results. Without this, every caller of executeInner would
+// duplicate the same branching logic for timeout/error annotation.
+func (req CreateAgentRequest) resolveStatus(timedOut bool, lastErr, result string) (status, output string) {
+	output = result
+	status = "success"
+
+	if timedOut {
+		status = "partial"
+		prefix := fmt.Sprintf("[TIME LIMIT REACHED] The sub-agent %q ran out of time. Here is what was found before the deadline:\n\n", req.AgentName)
+		if output == "" {
+			output = prefix + "No output was captured before the deadline. The sub-agent may have been waiting for external calls (web_search, http_request) to complete."
+		} else {
+			output = prefix + output
+		}
+		return status, output
+	}
+
+	if lastErr != "" && output == "" {
+		status = "error"
+		output = fmt.Sprintf("sub-agent error: %s", lastErr)
+	}
+	return status, output
 }
 
 // CreateAgentResponse is the output for the create_agent tool.
@@ -224,10 +270,8 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 			Output: fmt.Sprintf("failed to get model: %v", err),
 		}, nil
 	}
-	// Clamp iteration budgets: floor ensures simple tasks finish,
-	// ceiling prevents runaway loops.
-	req.MaxToolIterations = min(max(req.MaxToolIterations, 5), 50)
-	req.MaxLLMCalls = min(max(req.MaxLLMCalls, 8), 60)
+	req.MaxToolIterations = req.clampedMaxToolIterations()
+	req.MaxLLMCalls = req.clampedMaxLLMCalls()
 
 	// Build a list of tool names for the sub-agent instruction and logging.
 	var toolNameList []string
@@ -355,20 +399,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	logr.Info("sub-agent execution completed",
 		"output_length", len(result), "timed_out", timedOut, "had_error", lastErr != "")
 
-	// Determine final status and annotate output.
-	status := "success"
-	if timedOut {
-		status = "partial"
-		prefix := fmt.Sprintf("[TIME LIMIT REACHED] The sub-agent %q ran out of time. Here is what was found before the deadline:\n\n", req.AgentName)
-		if result == "" {
-			result = prefix + "No output was captured before the deadline. The sub-agent may have been waiting for external calls (web_search, http_request) to complete."
-		} else {
-			result = prefix + result
-		}
-	} else if lastErr != "" && result == "" {
-		status = "error"
-		result = fmt.Sprintf("sub-agent error: %s", lastErr)
-	}
+	status, result := req.resolveStatus(timedOut, lastErr, result)
 
 	// Store sub-agent result in working memory so the parent can retrieve
 	// it via memory_search and compose a single user-facing message.
@@ -454,7 +485,7 @@ func (t *createAgentTool) executePlan(ctx context.Context, req CreateAgentReques
 
 	logr.Info("executing multi-step plan", "flow", string(flow))
 
-	req.MaxLLMCalls = min(max(req.MaxLLMCalls, 8), 60)
+	req.MaxLLMCalls = req.clampedMaxLLMCalls()
 
 	result, err := ExecutePlan(ctx, plan, OrchestratorConfig{
 		Expert:        t.expert,
