@@ -5,10 +5,24 @@
 
 ## Updated Agent Behavior Rules
 
+### Sub-Agent Budget Rules (MANDATORY)
+
+Infrastructure triage commands (kubectl, aws CLI) frequently return empty results, require retries with alternative flags, or need sequential discovery (list → describe → logs). Low iteration budgets cause sub-agents to fail before completing their task.
+
+When using `create_agent` for infrastructure tasks, **always** use these minimums:
+
+| Parameter | Minimum Value |
+| --- | --- |
+| `max_tool_iterations` | **40** |
+| `max_llm_calls` | **50** |
+
+**Never** use `max_tool_iterations` below 20 for any `run_shell`-based sub-agent. The default guidance of "simple lookups: 3-5" does not apply to infrastructure diagnostics where a single logical task (e.g., "find when this pod was deployed") often requires 8-15 tool calls due to empty grep results, namespace discovery, and fallback commands.
+
 ### Tool Selection & Command Batching
 
-* **Batch AWS and K8s checks:** When checking a service, combine `kubectl` and `aws` CLI calls into one `run_shell` to see the full stack at once.
+* **Batch AWS and K8s checks:** When checking a service, combine `kubectl` and `aws` CLI calls into one `run_shell` to see the full stack at once. Chain related commands with `&&` or `;` to reduce round-trips.
 * **Region Awareness:** Always specify `--region` in AWS commands if not set in the environment to avoid silent failures.
+* **Prefer wide commands first:** Use `kubectl get pods -n $NS -o wide` or `-o json` upfront instead of running narrow greps that may return nothing. Cast a wide net, then filter.
 
 ---
 

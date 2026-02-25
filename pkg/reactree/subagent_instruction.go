@@ -30,7 +30,14 @@ func buildSubAgentInstruction(toolNames []string) string {
 		)
 	}
 
-	instruction += "\nDo not rewrite the same file multiple times unless fixing an error. Write files once and move to the next task. " +
+	instruction += "\nHITL REJECTION: If a tool call is rejected by the user with feedback suggesting a different tool or approach, " +
+		"check whether the suggested tool is in your AVAILABLE TOOLS list. " +
+		"If it IS available, switch to it immediately. " +
+		"If it is NOT available, STOP immediately and return a message like: " +
+		"\"User rejected [tool] and suggested using [suggested_tool], which is not in my toolkit. " +
+		"Please respawn with [suggested_tool] included.\" " +
+		"Do NOT try other tools from your set hoping they work — the parent agent can respawn you with the right tools. " +
+		"\nDo not rewrite the same file multiple times unless fixing an error. Write files once and move to the next task. " +
 		"ERROR BUDGET: If the same tool (e.g. web_search) fails 2 times — even with DIFFERENT arguments — " +
 		"stop calling that tool. Report the failure to the user instead of retrying with rephrased queries. " +
 		"ANTI-LOOP: After calling a tool, process its result immediately. " +

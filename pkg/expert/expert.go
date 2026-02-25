@@ -110,9 +110,7 @@ func (r Request) mode() []llmagent.Option {
 	if r.Mode.MaxLLMCalls > 0 {
 		defaultMode = append(defaultMode, llmagent.WithMaxLLMCalls(r.Mode.MaxLLMCalls))
 	}
-	if r.Mode.MaxToolIterations > 0 {
-		defaultMode = append(defaultMode, llmagent.WithMaxToolIterations(r.Mode.MaxToolIterations))
-	}
+	defaultMode = append(defaultMode, llmagent.WithMaxToolIterations(r.Mode.MaxToolIterations))
 	if r.Mode.MaxHistoryRuns > 0 {
 		defaultMode = append(defaultMode, llmagent.WithMaxHistoryRuns(r.Mode.MaxHistoryRuns))
 	}

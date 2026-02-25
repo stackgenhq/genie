@@ -39,7 +39,7 @@ func (t *tree) runAdaptiveLoop_v2(ctx context.Context, req TreeRequest) (TreeRes
 
 	for i := 0; i < ls.maxIterations; i++ {
 		ls.iteration = i + 1
-		t.emitIterationProgress(ctx, req, ls)
+		t.emitIterationProgress(ctx, ls)
 
 		// Hook: iteration start.
 		t.hooks.OnIterationStart(ctx, hooks.IterationStartEvent{
@@ -381,7 +381,7 @@ func (ls *loopState) toResult() TreeResult {
 	}
 }
 
-func (t *tree) emitIterationProgress(ctx context.Context, req TreeRequest, ls *loopState) {
+func (t *tree) emitIterationProgress(ctx context.Context, ls *loopState) {
 	if agui.ChannelFor(ctx) == nil {
 		return
 	}

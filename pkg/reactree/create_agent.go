@@ -32,6 +32,9 @@ import (
 const (
 	summarizeThreshold  = 2000
 	CreateAgentToolName = "create_agent"
+	defaultTimeoutSec   = 5 * time.Minute
+	minTimeoutSec       = 30 * time.Second
+	maxTimeoutSec       = 10 * time.Minute
 )
 
 // CreateAgentRequest is the input for the create_agent tool.
@@ -40,8 +43,9 @@ type CreateAgentRequest struct {
 	Goal              string                 `json:"goal" jsonschema:"description=The goal or task for the sub-agent to accomplish,required"`
 	ToolNames         []string               `json:"tool_names,omitempty" jsonschema:"description=Names of tools to give the sub-agent. If empty all tools are provided."`
 	TaskType          modelprovider.TaskType `json:"task_type,omitempty" jsonschema:"description=Type of task for the sub-agent to accomplish, Should be one of efficiency/long_horizon_autonomy/mathematical/general_task/novel_reasoning/scientific_reasoning/terminal_calling/planning,required"`
-	MaxToolIterations int                    `json:"max_tool_iterations,omitempty" jsonschema:"description=Maximum tool iterations. Scale to complexity: simple lookups 3-5 and file edits 10-15 and multi-step 15-25,required"`
-	MaxLLMCalls       int                    `json:"max_llm_calls,omitempty" jsonschema:"description=Maximum LLM calls. Scale to complexity: simple lookups 3-5 and file edits 10-15 and multi-step 15-25,required"`
+	MaxToolIterations int                    `json:"max_tool_iterations,omitempty" jsonschema:"description=Maximum tool iterations. Scale to complexity: simple lookups 5-10 and file edits 15-25 and multi-step/infrastructure 30-50,required"`
+	MaxLLMCalls       int                    `json:"max_llm_calls,omitempty" jsonschema:"description=Maximum LLM calls. Scale to complexity: simple lookups 5-10 and file edits 15-25 and multi-step/infrastructure 30-60,required"`
+	TimeoutSeconds    float64                `json:"timeout_seconds,omitempty" jsonschema:"description=Hard timeout in seconds for the sub-agent. Scale to complexity: simple lookups 60-120 and multi-step 180-300. Default 300 (5 min). Prevents hung agents."`
 
 	// Steps enables multi-step plan execution. When provided, the tool builds
 	// a graph from these steps using the specified Flow type, instead of
@@ -54,6 +58,15 @@ type CreateAgentRequest struct {
 	//   fallback  — steps tried in order (first success wins)
 	// Defaults to sequence if not specified.
 	Flow string `json:"flow_type,omitempty" jsonschema:"description=How steps are coordinated: sequence (default) or parallel or fallback. Only used when steps is provided."`
+}
+
+func (req CreateAgentRequest) timeoutSeconds() float64 {
+	// Clamp timeout: floor prevents overly tight deadlines, ceiling
+	// prevents runaway agents. Default 5 min if not specified.
+	if req.TimeoutSeconds <= 0 {
+		return defaultTimeoutSec.Seconds()
+	}
+	return min(max(req.TimeoutSeconds, minTimeoutSec.Seconds()), maxTimeoutSec.Seconds())
 }
 
 // CreateAgentResponse is the output for the create_agent tool.
@@ -136,8 +149,9 @@ func NewCreateAgentTool(
 			"independent agent node coordinated by the chosen flow. Use parallel "+
 			"for independent tasks, sequence for dependent steps.\n\n"+
 			"Set max_tool_iterations and max_llm_calls based on task complexity: "+
-			"simple lookups: 3-5, file edits: 10-15, multi-step: 15-25. "+
-			"Avoid excessive values — they waste time and money.\n\n"+
+			"simple lookups: 5-10, file edits: 15-25, multi-step/infrastructure: 30-50. "+
+			"Use higher values for infrastructure tasks that involve discovery and retries. "+
+			"Set timeout_seconds to limit wall-clock time: simple 60-120, multi-step 180-300.\n\n"+
 			"Available tools: %s",
 		strings.Join(toolList, ", "),
 	)
@@ -210,24 +224,10 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 			Output: fmt.Sprintf("failed to get model: %v", err),
 		}, nil
 	}
-	// Apply reasonable defaults and hard caps.
-	// Minimums ensure simple tasks finish; maximums prevent runaway loops.
-	if req.MaxToolIterations < 5 {
-		req.MaxToolIterations = 5
-	}
-	const maxToolIterCap = 10
-	if req.MaxToolIterations > maxToolIterCap {
-		logr.Warn("capping max_tool_iterations", "requested", req.MaxToolIterations, "cap", maxToolIterCap)
-		req.MaxToolIterations = maxToolIterCap
-	}
-	if req.MaxLLMCalls < 8 {
-		req.MaxLLMCalls = 8
-	}
-	const maxLLMCallsCap = 15
-	if req.MaxLLMCalls > maxLLMCallsCap {
-		logr.Warn("capping max_llm_calls", "requested", req.MaxLLMCalls, "cap", maxLLMCallsCap)
-		req.MaxLLMCalls = maxLLMCallsCap
-	}
+	// Clamp iteration budgets: floor ensures simple tasks finish,
+	// ceiling prevents runaway loops.
+	req.MaxToolIterations = min(max(req.MaxToolIterations, 5), 50)
+	req.MaxLLMCalls = min(max(req.MaxLLMCalls, 8), 60)
 
 	// Build a list of tool names for the sub-agent instruction and logging.
 	var toolNameList []string
@@ -278,11 +278,12 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 		logr.Info("sub-agent execution completed", "duration", time.Since(startTime).String())
 	}(time.Now())
 
-	// Explicitly start a span for the sub-agent execution to ensure proper
-	// nesting in traces. The tool invoker might not have propagated the
-	// tool span context correctly to the runner otherwise.
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Duration(req.timeoutSeconds())*time.Second)
+	defer cancelTimeout()
+	logr.Info("sub-agent timeout set", "timeout_seconds", req.timeoutSeconds())
+
 	tracer := otel.Tracer("genie")
-	runCtx, span := tracer.Start(ctx, req.AgentName+" execution")
+	runCtx, span := tracer.Start(timeoutCtx, req.AgentName+" execution")
 	defer span.End()
 
 	// Retry transient upstream LLM errors (503 / rate-limit / overloaded)
@@ -453,20 +454,13 @@ func (t *createAgentTool) executePlan(ctx context.Context, req CreateAgentReques
 
 	logr.Info("executing multi-step plan", "flow", string(flow))
 
-	maxDecisions := req.MaxLLMCalls
-	if maxDecisions < 8 {
-		maxDecisions = 8
-	}
-	const maxLLMCallsCap = 15
-	if maxDecisions > maxLLMCallsCap {
-		maxDecisions = maxLLMCallsCap
-	}
+	req.MaxLLMCalls = min(max(req.MaxLLMCalls, 8), 60)
 
 	result, err := ExecutePlan(ctx, plan, OrchestratorConfig{
 		Expert:        t.expert,
 		WorkingMemory: t.workingMemory,
 		Episodic:      t.episodic,
-		MaxDecisions:  maxDecisions,
+		MaxDecisions:  req.MaxLLMCalls,
 		ToolRegistry:  t.subAgentRegistry, // use filtered registry — no create_agent/send_message
 		ToolWrapSvc:   t.toolWrapSvc,
 		WrapRequest:   toolwrap.WrapRequest{},
