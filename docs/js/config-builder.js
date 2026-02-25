@@ -42,7 +42,7 @@
         pm: { provider: '', api_token: 'PM_API_TOKEN', base_url: '', email: '' },
         browser: { blocked_domains: [] },
         email: { provider: '', host: '', port: 587, username: '', password: '', imap_host: '', imap_port: 993 },
-        hitl: { always_allowed: [], denied_tools: [] },
+        hitl: { always_allowed: [], denied_tools: [], cache_ttl: '' },
         toolwrap: {
             timeout: { enabled: false, default_timeout: '30s', per_tool: '' },
             rate_limit: { enabled: false, global_rate_per_minute: 60, per_tool_rate_per_minute: '' },
@@ -494,7 +494,8 @@
         var h = state.hitl;
         c.appendChild(el('div', { className: 'space-y-4' }, [
             fieldText('Read-Only Tools (comma-separated)', (h.always_allowed || []).join(', '), function (v) { h.always_allowed = splitCSV(v); renderOutput(); }, 'read_file, list_file', 'Tools that skip human approval — safe read-only operations'),
-            fieldText('Denied Tools (comma-separated)', (h.denied_tools || []).join(', '), function (v) { h.denied_tools = splitCSV(v); renderOutput(); }, 'execute_code, run_shell', 'Tools that are completely blocked — the agent cannot use these at all. Supports wildcards (e.g. browser_*)')
+            fieldText('Denied Tools (comma-separated)', (h.denied_tools || []).join(', '), function (v) { h.denied_tools = splitCSV(v); renderOutput(); }, 'execute_code, run_shell', 'Tools that are completely blocked — the agent cannot use these at all. Supports wildcards (e.g. browser_*)'),
+            fieldText('Approval Cache TTL', h.cache_ttl || '', function (v) { h.cache_ttl = v; renderOutput(); }, '10m', 'How long an approved tool+args combination stays auto-approved before requiring fresh human approval (e.g. 5m, 15m, 1h). Default: 10m')
         ]));
     }
 
@@ -943,10 +944,11 @@
 
     function hitlToToml(lines) {
         var h = state.hitl;
-        if (!hasItems(h.always_allowed) && !hasItems(h.denied_tools)) return;
+        if (!hasItems(h.always_allowed) && !hasItems(h.denied_tools) && !h.cache_ttl) return;
         lines.push('[hitl]');
         if (hasItems(h.always_allowed)) lines.push('always_allowed = [' + h.always_allowed.filter(Boolean).map(q).join(', ') + ']');
         if (hasItems(h.denied_tools)) lines.push('denied_tools = [' + h.denied_tools.filter(Boolean).map(q).join(', ') + ']');
+        if (h.cache_ttl) lines.push('cache_ttl = ' + q(h.cache_ttl));
         lines.push('');
     }
 
@@ -1355,7 +1357,7 @@
 
     function hitlToYaml(lines) {
         var h = state.hitl;
-        if (!hasItems(h.always_allowed) && !hasItems(h.denied_tools)) return;
+        if (!hasItems(h.always_allowed) && !hasItems(h.denied_tools) && !h.cache_ttl) return;
         lines.push('hitl:');
         if (hasItems(h.always_allowed)) {
             lines.push('  always_allowed:');
@@ -1365,6 +1367,7 @@
             lines.push('  denied_tools:');
             h.denied_tools.filter(Boolean).forEach(function (t) { lines.push('    - ' + t); });
         }
+        if (h.cache_ttl) lines.push('  cache_ttl: ' + h.cache_ttl);
         lines.push('');
     }
 

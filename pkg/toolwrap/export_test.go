@@ -1,5 +1,7 @@
 package toolwrap
 
+import "time"
+
 // RedactSensitiveArgsForTest exports redactSensitiveArgs for external tests.
 var RedactSensitiveArgsForTest = redactSensitiveArgs
 
@@ -15,8 +17,9 @@ func SemanticKeyForTest(toolName string, args []byte) (string, bool) {
 }
 
 // NewSharedHITLCacheForTest creates a WithSharedApprovalCache option backed
-// by a fresh approval cache. Pass the same option to multiple
-// HITLApprovalMiddleware calls to verify cross-middleware approval sharing.
+// by a fresh approval cache with a long TTL (suitable for tests).
+// Pass the same option to multiple HITLApprovalMiddleware calls to verify
+// cross-middleware approval sharing.
 func NewSharedHITLCacheForTest() HITLOption {
-	return WithSharedApprovalCache(newApprovalCache())
+	return WithSharedApprovalCache(newApprovalCache(time.Hour))
 }

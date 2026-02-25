@@ -5,7 +5,7 @@
 
 header:
   title: Documentation
-  subtitle: Your complete guide to configuring, extending, and troubleshooting Genie.
+  subtitle: Your complete guide to configuring, extending, and troubleshooting Genie. Get started in minutes with the guided Config Builder — no TOML editing required.
   tabs:
     - id: configuration
       icon: "⚙️"
@@ -1281,6 +1281,11 @@ architecture:
 # TAB 4: FAQ
 # ═══════════════════════════════════════════════════════════
 faq:
+  - q: How can I create genie.toml without editing TOML?
+    a: >
+      Use the <strong>Config Builder</strong> — the guided way to create your first <code>.genie.toml</code> upfront.
+      No TOML knowledge needed: fill in the form with sensible defaults and tooltips, then copy or download your config.
+      It's the easiest way to onboard Genie. Open it from the docs nav or go to <a href="config-builder.html" class="text-purple-500 hover:text-purple-600">config-builder.html</a>.
   - q: How is Genie different from other AI assistants?
     a: >
       Most assistants are "Personal AI" designed for open-ended chats. 
@@ -1352,9 +1357,9 @@ faq:
 # CTA Section at bottom of docs page
 # ─────────────────────────────────────────────────────────────
 cta:
-  title: Build Your Config Interactively
+  title: Easy Onboarding — Guided Config Builder
   desc: >
-    Use the Config Builder to create your <code class="bg-gray-100 px-2 py-0.5 rounded text-sm font-mono text-purple-600">.genie.toml</code>
-    with a visual UI — no TOML knowledge needed.
-  button_text: Config Builder
+    Create your first <code class="bg-gray-100 px-2 py-0.5 rounded text-sm font-mono text-purple-600">.genie.toml</code>
+    upfront with our guided Config Builder. No TOML knowledge needed — fill in the form, then copy or download. Easiest way to onboard Genie.
+  button_text: Open Config Builder
   button_href: config-builder.html

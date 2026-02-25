@@ -19,16 +19,20 @@ type Config struct {
 	AlwaysAllowed []string      `yaml:"always_allowed" toml:"always_allowed" json:"always_allowed"`
 	DeniedTools   []string      `yaml:"denied_tools" toml:"denied_tools" json:"denied_tools"`
 	ApprovalTTL   time.Duration `yaml:"approval_ttl" toml:"approval_ttl" json:"approval_ttl"`
+	CacheTTL      time.Duration `yaml:"cache_ttl" toml:"cache_ttl" json:"cache_ttl"`
 }
 
 // DefaultConfig returns sensible defaults.
 // ApprovalTTL defaults to 30 minutes — pending approvals older than this
 // are automatically expired by the background reaper.
+// CacheTTL defaults to 10 minutes — approved tool+args combinations are
+// auto-approved for this duration before requiring fresh human approval.
 func DefaultConfig() Config {
 	return Config{
 		AlwaysAllowed: []string{},
 		DeniedTools:   []string{},
 		ApprovalTTL:   30 * time.Minute,
+		CacheTTL:      10 * time.Minute,
 	}
 }
 

@@ -12,6 +12,7 @@ package toolwrap
 
 import (
 	"context"
+	"time"
 
 	"github.com/stackgenhq/genie/pkg/audit"
 	"github.com/stackgenhq/genie/pkg/hitl"
@@ -29,6 +30,13 @@ func WithMiddlewareConfig(cfg MiddlewareConfig) ServiceOption {
 	return func(s *Service) { s.config = cfg }
 }
 
+// WithApprovalCacheTTL sets the time-to-live for the shared HITL approval
+// cache. After this duration a previously approved tool+args combination
+// requires fresh human approval. Default is 10 minutes.
+func WithApprovalCacheTTL(ttl time.Duration) ServiceOption {
+	return func(s *Service) { s.cacheTTL = ttl }
+}
+
 func NewService(
 	auditor audit.Auditor,
 	approvalStore hitl.ApprovalStore,
@@ -40,11 +48,11 @@ func NewService(
 		auditor:       auditor,
 		approvalStore: approvalStore,
 		config:        cfg,
-		hitlCache:     newApprovalCache(),
 	}
 	for _, o := range opts {
 		o(s)
 	}
+	s.hitlCache = newApprovalCache(s.cacheTTL)
 	cfg = s.config
 	// Create a singleton circuit breaker shared across all Wrap() calls.
 	// When a tool fails in one sub-agent, the circuit opens for ALL agents
@@ -70,6 +78,7 @@ type Service struct {
 	config         MiddlewareConfig
 	circuitBreaker *CircuitBreakerMW // singleton, shared across all agents
 	hitlCache      *approvalCache    // shared across all sub-agents so same tool+args isn't re-prompted
+	cacheTTL       time.Duration     // TTL for hitlCache entries; 0 uses defaultCacheTTL
 }
 
 // CircuitBreaker returns the shared circuit breaker instance, or nil if

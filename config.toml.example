@@ -108,6 +108,9 @@ max_concurrent = 5
 always_allowed = ["read_file", "list_file"]
 # Tools listed here are completely blocked.
 # denied_tools = ["delete_file"]
+# How long an approved tool+args combination stays auto-approved.
+# After this duration the same call requires fresh human approval.
+# cache_ttl = "10m"
 
 # ── Database ───────────────────────────────────────────────
 # [db_config]

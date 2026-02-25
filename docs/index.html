@@ -68,7 +68,7 @@
       </p>
       <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
         <a href="config-builder.html" class="btn-primary text-base no-underline">
-          Build Config
+          Guided Config Builder
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
           </svg>
@@ -129,6 +129,40 @@
           <br>&nbsp;&nbsp;-v ~/.genie.toml:/root/.genie.toml \
           <br>&nbsp;&nbsp;-v $(pwd):/workspace \
           <br>&nbsp;&nbsp;ghcr.io/stackgenhq/genie:latest grant
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Easy Onboarding -->
+  <section class="py-16 px-6 bg-purple-50/40">
+    <div class="max-w-4xl mx-auto fade-in">
+      <div class="text-center mb-10">
+        <h2 class="text-3xl md:text-4xl font-bold tracking-tight mb-4">Easy Onboarding 🧭</h2>
+        <p class="text-gray-500 max-w-2xl mx-auto">Creating your <code class="bg-white px-2 py-0.5 rounded text-sm font-mono text-purple-600 border border-purple-100">.genie.toml</code> doesn’t have to mean hand-editing TOML. Use our <strong>guided Config Builder</strong> to set up your first config in minutes.</p>
+      </div>
+      <div class="feature-card p-8" style="border: 2px solid rgba(130,71,231,0.2); background: white;">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+          <div>
+            <h3 class="text-xl font-semibold mb-3 text-purple-600">Guided way to create <code class="text-sm font-mono bg-purple-50 px-1.5 py-0.5 rounded">.genie.toml</code> upfront</h3>
+            <ul class="space-y-2 text-sm text-gray-500">
+              <li class="flex items-start gap-2"><span class="text-purple-500 font-bold">→</span> No TOML knowledge needed — fill in the form, then copy or download</li>
+              <li class="flex items-start gap-2"><span class="text-purple-500 font-bold">→</span> Start with model providers, then add skills, MCP, and integrations as you need them</li>
+              <li class="flex items-start gap-2"><span class="text-purple-500 font-bold">→</span> Sensible defaults and tooltips so you know what each option does</li>
+            </ul>
+            <a href="config-builder.html" class="inline-flex items-center gap-2 mt-6 text-purple-600 font-semibold hover:text-purple-700 no-underline">
+              Open Config Builder
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+            </a>
+          </div>
+          <div class="text-center">
+            <p class="text-xs text-gray-400 uppercase tracking-wider mb-3 font-semibold">Onboarding flow</p>
+            <div class="space-y-2 text-left max-w-xs mx-auto">
+              <div class="flex items-center gap-2 bg-white border border-purple-100 rounded-lg px-3 py-2 text-sm">1. Install genie</div>
+              <div class="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2 text-sm font-medium text-purple-700">2. Use Config Builder → get <code class="text-xs">.genie.toml</code></div>
+              <div class="flex items-center gap-2 bg-white border border-purple-100 rounded-lg px-3 py-2 text-sm">3. Run <code class="text-xs">genie grant</code></div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -293,9 +327,9 @@
         <div class="workflow-step">
           <div class="workflow-number">1</div>
           <div>
-            <h3 class="text-lg font-semibold mb-1">Configure Once</h3>
-            <p class="text-sm text-gray-500">Set up your models, tools, skills, and integrations with a <a
-                href="config-builder.html" class="text-purple-500 hover:text-purple-600">single config file</a>.</p>
+            <h3 class="text-lg font-semibold mb-1">Configure Once — the Guided Way</h3>
+            <p class="text-sm text-gray-500">Create your <code class="text-xs">.genie.toml</code> upfront with our <a
+                href="config-builder.html" class="text-purple-500 hover:text-purple-600">Config Builder</a>: no TOML editing required. Add models, tools, skills, and integrations in one place.</p>
           </div>
         </div>
         <div class="workflow-step">
@@ -371,11 +405,10 @@
   <section class="py-20 px-6">
     <div class="max-w-3xl mx-auto text-center fade-in">
       <h2 class="text-3xl md:text-4xl font-bold tracking-tight mb-4">Ready to Get Started?</h2>
-      <p class="text-gray-500 mb-8 max-w-lg mx-auto">Create your configuration file with our interactive builder, or
-        dive straight into the code.</p>
+      <p class="text-gray-500 mb-8 max-w-lg mx-auto"><strong>Easy onboarding:</strong> use our guided Config Builder to create your first <code class="bg-gray-100 px-1.5 py-0.5 rounded text-sm font-mono text-purple-600">.genie.toml</code> in minutes — no TOML knowledge needed. Then run <code class="bg-gray-100 px-1.5 py-0.5 rounded text-sm font-mono">genie grant</code> and you’re live.</p>
       <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
         <a href="config-builder.html" class="btn-primary text-base no-underline">
-          Config Builder
+          Guided Config Builder
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
           </svg>

@@ -3,6 +3,7 @@ package toolwrap
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -11,18 +12,18 @@ import (
 var _ = Describe("approvalCache", func() {
 	Describe("has", func() {
 		It("should return false for an empty cache", func() {
-			c := newApprovalCache()
+			c := newApprovalCache(time.Hour)
 			Expect(c.has("key1")).To(BeFalse())
 		})
 
 		It("should return true after adding a key", func() {
-			c := newApprovalCache()
+			c := newApprovalCache(time.Hour)
 			c.add("key1")
 			Expect(c.has("key1")).To(BeTrue())
 		})
 
 		It("should return false for a key that was never added", func() {
-			c := newApprovalCache()
+			c := newApprovalCache(time.Hour)
 			c.add("key1")
 			Expect(c.has("key2")).To(BeFalse())
 		})
@@ -30,7 +31,7 @@ var _ = Describe("approvalCache", func() {
 
 	Describe("add", func() {
 		It("should be idempotent for duplicate keys", func() {
-			c := newApprovalCache()
+			c := newApprovalCache(time.Hour)
 			c.add("key1")
 			c.add("key1")
 			c.add("key1")
@@ -45,7 +46,7 @@ var _ = Describe("approvalCache", func() {
 		})
 
 		It("should evict the oldest entry when cache is full", func() {
-			c := newApprovalCache()
+			c := newApprovalCache(time.Hour)
 			for i := 0; i < maxApprovalCacheSize; i++ {
 				c.add(fmt.Sprintf("key-%d", i))
 			}
@@ -59,7 +60,7 @@ var _ = Describe("approvalCache", func() {
 		})
 
 		It("should evict entries in FIFO order", func() {
-			c := newApprovalCache()
+			c := newApprovalCache(time.Hour)
 			for i := 0; i < maxApprovalCacheSize; i++ {
 				c.add(fmt.Sprintf("key-%d", i))
 			}
@@ -76,10 +77,39 @@ var _ = Describe("approvalCache", func() {
 			Expect(c.has("overflow-2")).To(BeTrue())
 			Expect(c.has("overflow-3")).To(BeTrue())
 		})
+
+		It("should refresh timestamp on duplicate add", func() {
+			c := newApprovalCache(50 * time.Millisecond)
+			c.add("key1")
+			time.Sleep(30 * time.Millisecond)
+			c.add("key1")
+			time.Sleep(30 * time.Millisecond)
+			Expect(c.has("key1")).To(BeTrue())
+		})
+	})
+
+	Describe("TTL expiry", func() {
+		It("should return false for an expired entry", func() {
+			c := newApprovalCache(20 * time.Millisecond)
+			c.add("key1")
+			Expect(c.has("key1")).To(BeTrue())
+			time.Sleep(25 * time.Millisecond)
+			Expect(c.has("key1")).To(BeFalse())
+		})
+
+		It("should use default TTL when zero is provided", func() {
+			c := newApprovalCache(0)
+			Expect(c.ttl).To(Equal(defaultCacheTTL))
+		})
+
+		It("should use default TTL when negative is provided", func() {
+			c := newApprovalCache(-5 * time.Minute)
+			Expect(c.ttl).To(Equal(defaultCacheTTL))
+		})
 	})
 
 	It("should be safe for concurrent access", func() {
-		c := newApprovalCache()
+		c := newApprovalCache(time.Hour)
 		var wg sync.WaitGroup
 		const goroutines = 100
 

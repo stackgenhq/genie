@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/stackgenhq/genie/pkg/agui"
 	"github.com/stackgenhq/genie/pkg/hitl"
@@ -17,31 +18,45 @@ import (
 // maxApprovalCacheSize limits the number of entries in the approval cache.
 const maxApprovalCacheSize = 256
 
+// defaultCacheTTL is the time-to-live for approval cache entries when no
+// explicit TTL is configured. After this duration a previously approved
+// tool+args combination requires fresh human approval.
+const defaultCacheTTL = 10 * time.Minute
+
 // approvalCache is a session-scoped, thread-safe cache of previously approved
 // tool calls. It is owned by the Service and shared across all sub-agents so
 // that a tool+args combination approved in one sub-agent is auto-approved in
-// subsequent sub-agents within the same session.
+// subsequent sub-agents within the same session. Entries expire after a
+// configurable TTL to prevent stale approvals in long-running sessions.
 type approvalCache struct {
 	mu    sync.Mutex
-	items map[string]struct{}
+	items map[string]time.Time
 	order []string
+	ttl   time.Duration
 }
 
-func newApprovalCache() *approvalCache {
-	return &approvalCache{items: make(map[string]struct{})}
+func newApprovalCache(ttl time.Duration) *approvalCache {
+	if ttl <= 0 {
+		ttl = defaultCacheTTL
+	}
+	return &approvalCache{items: make(map[string]time.Time), ttl: ttl}
 }
 
 func (c *approvalCache) has(key string) bool {
 	c.mu.Lock()
-	_, ok := c.items[key]
+	addedAt, ok := c.items[key]
 	c.mu.Unlock()
-	return ok
+	if !ok {
+		return false
+	}
+	return time.Since(addedAt) < c.ttl
 }
 
 func (c *approvalCache) add(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, exists := c.items[key]; exists {
+		c.items[key] = time.Now()
 		return
 	}
 	if len(c.order) >= maxApprovalCacheSize {
@@ -49,7 +64,7 @@ func (c *approvalCache) add(key string) {
 		c.order = c.order[1:]
 		delete(c.items, evict)
 	}
-	c.items[key] = struct{}{}
+	c.items[key] = time.Now()
 	c.order = append(c.order, key)
 }
 
@@ -100,7 +115,7 @@ func HITLApprovalMiddleware(
 		o(m)
 	}
 	if m.cache == nil {
-		m.cache = newApprovalCache()
+		m.cache = newApprovalCache(defaultCacheTTL)
 	}
 	return m
 }

@@ -43,6 +43,7 @@ import (
 	_ "github.com/stackgenhq/genie/pkg/messenger/whatsapp" // register adapter
 	"github.com/stackgenhq/genie/pkg/orchestrator"
 	"github.com/stackgenhq/genie/pkg/osutils"
+	"github.com/stackgenhq/genie/pkg/toolwrap"
 	"github.com/stackgenhq/genie/pkg/runbook"
 	"github.com/stackgenhq/genie/pkg/skills"
 	"github.com/stackgenhq/genie/pkg/tools"
@@ -241,6 +242,9 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 		a.cfg.Runbook,
 		sessionStore,
 		personaFromAgentsMD,
+		orchestrator.WithToolwrapOptions(
+			toolwrap.WithApprovalCacheTTL(a.cfg.HITL.CacheTTL),
+		),
 	)
 	if err != nil {
 		return fmt.Errorf("codeowner init: %w", err)
