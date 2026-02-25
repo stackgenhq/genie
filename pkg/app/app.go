@@ -217,7 +217,7 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 	registry := a.initToolRegistry(ctx, vectorStore)
 
 	// --- Session store (persistent conversation history) ---
-	sessionStore := geniedb.NewSessionStore(a.db)
+	sessionStore := geniedb.NewSessionStore(ctx, a.db)
 	log.Info("GORM-backed session store initialized for persistent chat history")
 
 	// --- Runbook loader ---
@@ -533,7 +533,7 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 	}
 
 	// --- Browser tools ---
-	bw, err := browser.New(
+	bw, err := browser.New(ctx,
 		browser.WithHeadless(true),
 		browser.WithBlockedDomains(a.cfg.Browser.BlockedDomains),
 	)
@@ -559,6 +559,14 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 	// Stays here because it references Application fields.
 	emitter := func(ctx context.Context, evt clarify.ClarificationEvent) error {
 		origin := messenger.MessageOriginFrom(ctx)
+
+		agui.Emit(ctx, agui.ClarificationRequestMsg{
+			Type:      agui.EventClarificationRequest,
+			RequestID: evt.RequestID,
+			Question:  evt.Question,
+			Context:   evt.Context,
+		})
+
 		sendReq := messenger.SendRequest{
 			Channel: origin.Channel,
 			Content: messenger.MessageContent{

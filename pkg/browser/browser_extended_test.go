@@ -12,6 +12,7 @@ import (
 var _ = Describe("Browser Extended Tests", func() {
 	It("should fail safe and block invalid URLs", func(ctx context.Context) {
 		b, err := browser.New(
+			ctx,
 			browser.WithHeadless(true),
 			browser.WithBlockedDomains([]string{"example.com"}),
 		)
@@ -30,7 +31,7 @@ var _ = Describe("Browser Extended Tests", func() {
 	})
 
 	It("should close the tab when the parent context is cancelled", func(ctx context.Context) {
-		b, err := browser.New(browser.WithHeadless(true))
+		b, err := browser.New(ctx, browser.WithHeadless(true))
 		Expect(err).NotTo(HaveOccurred())
 		defer b.Close()
 

@@ -39,14 +39,14 @@ var _ = Describe("Browser tools", Ordered, func() {
 		srv *httptest.Server
 	)
 
-	BeforeAll(func() {
+	BeforeAll(func(ctx context.Context) {
 		if os.Getenv("CI") == "true" {
 			Skip("Skipping browser tests in CI")
 		}
 		srv = testPage()
 
 		var err error
-		b, err = browser.New(browser.WithHeadless(true))
+		b, err = browser.New(ctx, browser.WithHeadless(true))
 		Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -194,6 +194,7 @@ var _ = Describe("Browser tools", Ordered, func() {
 var _ = Describe("Domain blocklist", func() {
 	It("should block an exact-match domain", func(ctx context.Context) {
 		b, err := browser.New(
+			ctx,
 			browser.WithHeadless(true),
 			browser.WithBlockedDomains([]string{"evil.com"}),
 		)
@@ -212,6 +213,7 @@ var _ = Describe("Domain blocklist", func() {
 
 	It("should block a subdomain of a blocked domain", func(ctx context.Context) {
 		b, err := browser.New(
+			ctx,
 			browser.WithHeadless(true),
 			browser.WithBlockedDomains([]string{"evil.com"}),
 		)
@@ -228,13 +230,14 @@ var _ = Describe("Domain blocklist", func() {
 		Expect(err.Error()).To(ContainSubstring("blocked"))
 	})
 
-	It("should allow domains not in the blocklist", func() {
+	It("should allow domains not in the blocklist", func(ctx context.Context) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			fmt.Fprint(w, "<html><body>OK</body></html>")
 		}))
 		defer srv.Close()
 
 		b, err := browser.New(
+			ctx,
 			browser.WithHeadless(true),
 			browser.WithBlockedDomains([]string{"evil.com"}),
 		)
@@ -250,8 +253,9 @@ var _ = Describe("Domain blocklist", func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 
-	It("should match blocked domains case-insensitively", func() {
+	It("should match blocked domains case-insensitively", func(ctx context.Context) {
 		b, err := browser.New(
+			ctx,
 			browser.WithHeadless(true),
 			browser.WithBlockedDomains([]string{"Evil.COM"}),
 		)
@@ -268,13 +272,14 @@ var _ = Describe("Domain blocklist", func() {
 		Expect(err.Error()).To(ContainSubstring("blocked"))
 	})
 
-	It("should not block when blocklist is empty", func() {
+	It("should not block when blocklist is empty", func(ctx context.Context) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			fmt.Fprint(w, "<html><body>OK</body></html>")
 		}))
 		defer srv.Close()
 
 		b, err := browser.New(
+			ctx,
 			browser.WithHeadless(true),
 			browser.WithBlockedDomains(nil),
 		)

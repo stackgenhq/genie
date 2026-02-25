@@ -79,7 +79,7 @@ type Browser struct {
 // New allocates a new Chrome browser process (headless by default) and returns
 // a Browser that tools can share. Callers MUST call Close when finished to
 // avoid leaking Chrome processes.
-func New(opts ...Option) (*Browser, error) {
+func New(ctx context.Context, opts ...Option) (*Browser, error) {
 	cfg := browserOpts{
 		headless: true,
 		timeout:  defaultTimeout,
@@ -99,7 +99,7 @@ func New(opts ...Option) (*Browser, error) {
 		chromedp.WindowSize(cfg.width, cfg.height),
 	)
 
-	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), allocOpts...)
+	allocCtx, allocCancel := chromedp.NewExecAllocator(ctx, allocOpts...)
 	ctx, ctxCancel := chromedp.NewContext(allocCtx)
 
 	// Run an empty action to ensure the browser actually starts.

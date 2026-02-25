@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/stackgenhq/genie/pkg/logger"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )
@@ -64,17 +63,6 @@ type FileDetail struct {
 	Owners       []string `json:"owners,omitempty"`
 	WebViewLink  string   `json:"web_view_link,omitempty"`
 	IsFolder     bool     `json:"is_folder"`
-}
-
-// ── Factory ─────────────────────────────────────────────────────────────
-
-// New creates a new Google Drive Service from the given configuration.
-// If CredentialsFile is empty, it falls back to Application Default
-// Credentials (GOOGLE_APPLICATION_CREDENTIALS env var).
-func New(cfg Config) (Service, error) {
-	log := logger.GetLogger(context.Background())
-	log.Info("Initializing Google Drive service", "has_credentials", cfg.CredentialsFile != "")
-	return newWrapper(cfg)
 }
 
 // ── Request Types ───────────────────────────────────────────────────────

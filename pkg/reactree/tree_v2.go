@@ -120,7 +120,7 @@ func (t *tree) runAdaptiveLoop_v2(ctx context.Context, req TreeRequest) (TreeRes
 		}
 	}
 
-	t.ensureUserFeedback(ctx, req, ls)
+	t.ensureUserFeedback(ctx, ls)
 	return ls.toResult(), nil
 }
 
@@ -358,7 +358,7 @@ func (ls *loopState) checkRepetition() bool {
 }
 
 // ensureUserFeedback provides fallback UI messages if the loop was silent.
-func (t *tree) ensureUserFeedback(ctx context.Context, req TreeRequest, ls *loopState) {
+func (t *tree) ensureUserFeedback(ctx context.Context, ls *loopState) {
 	if ls.textWasStreamed || agui.ChannelFor(ctx) == nil {
 		return
 	}
@@ -386,5 +386,5 @@ func (t *tree) emitIterationProgress(ctx context.Context, req TreeRequest, ls *l
 		return
 	}
 	agui.EmitStageProgress(ctx, fmt.Sprintf("Iteration %d", ls.iteration), ls.iteration-1, ls.maxIterations)
-	agui.EmitThinking(ctx, "code-owner", fmt.Sprintf("Thinking (%d/%d)...", ls.iteration, ls.maxIterations))
+	agui.EmitThinking(ctx, "orchestrator", fmt.Sprintf("Thinking (%d/%d)...", ls.iteration, ls.maxIterations))
 }

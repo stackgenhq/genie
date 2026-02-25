@@ -271,7 +271,7 @@ func (e *expert) Do(ctx context.Context, req Request) (Response, error) {
 		evCh, runErr = e.runner.Run(ctx,
 			osutils.Getenv("USER", "anonymous"),
 			sessionID,
-			buildUserMessage(req),
+			buildUserMessage(ctx, req),
 		)
 		return runErr
 	},
@@ -339,7 +339,7 @@ func (e *expert) emitEventToTUI(ctx context.Context, event *event.Event) {
 //   - Other files (PDFs, documents) are embedded via AddFilePath (document input).
 //
 // Attachments without a LocalPath are already described textually in req.Message.
-func buildUserMessage(req Request) model.Message {
+func buildUserMessage(ctx context.Context, req Request) model.Message {
 	msg := model.NewUserMessage(req.Message)
 
 	for _, att := range req.Attachments {
@@ -349,7 +349,7 @@ func buildUserMessage(req Request) model.Message {
 		if isImageMIME(att.ContentType) {
 			// Embed image as visual content so the LLM can "see" it.
 			if err := msg.AddImageFilePath(att.LocalPath, "auto"); err != nil {
-				logger.GetLogger(context.Background()).Warn(
+				logger.GetLogger(ctx).Warn(
 					"failed to add image attachment to user message",
 					"path", att.LocalPath,
 					"error", err,
@@ -358,7 +358,7 @@ func buildUserMessage(req Request) model.Message {
 		} else {
 			// Embed PDF / document / other file as file content.
 			if err := msg.AddFilePath(att.LocalPath); err != nil {
-				logger.GetLogger(context.Background()).Warn(
+				logger.GetLogger(ctx).Warn(
 					"failed to add file attachment to user message",
 					"path", att.LocalPath,
 					"error", err,

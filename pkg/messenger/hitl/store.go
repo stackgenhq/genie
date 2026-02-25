@@ -255,3 +255,19 @@ func (s *NotifierStore) IsAllowed(toolName string) bool {
 func (s *NotifierStore) RecoverPending(ctx context.Context, maxAge time.Duration) (hitl.RecoverResult, error) {
 	return s.realStore.RecoverPending(ctx, maxAge)
 }
+
+// ExpireStale delegates to the real store to mark pending approvals past their
+// deadline as expired. Without this delegation the background reaper goroutine
+// would bypass the NotifierStore wrapper and stale approvals would never be
+// cleaned up.
+func (s *NotifierStore) ExpireStale(ctx context.Context) (int64, error) {
+	return s.realStore.ExpireStale(ctx)
+}
+
+// ListPending delegates to the real store to return all currently pending
+// approval requests. Without this delegation the GUILD API would be unable to
+// discover which tool calls are awaiting human approval when the NotifierStore
+// wrapper is in use.
+func (s *NotifierStore) ListPending(ctx context.Context) ([]hitl.ApprovalRequest, error) {
+	return s.realStore.ListPending(ctx)
+}

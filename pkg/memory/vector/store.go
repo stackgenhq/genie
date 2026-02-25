@@ -169,7 +169,7 @@ func (cfg Config) NewStore(ctx context.Context) (*Store, error) {
 
 	// Restore from disk if a snapshot exists (only for in-memory store).
 	if !useMilvus && cfg.PersistenceDir != "" {
-		if err := s.loadSnapshot(); err != nil {
+		if err := s.loadSnapshot(ctx); err != nil {
 			return nil, fmt.Errorf("failed to load snapshot: %w", err)
 		}
 	}
@@ -348,7 +348,7 @@ func (s *Store) saveSnapshot(ctx context.Context) error {
 
 // loadSnapshot restores documents and embeddings from a previously
 // saved JSON snapshot file. If no snapshot exists, this is a no-op.
-func (s *Store) loadSnapshot() error {
+func (s *Store) loadSnapshot(ctx context.Context) error {
 	data, err := os.ReadFile(s.snapshotPath())
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -362,7 +362,6 @@ func (s *Store) loadSnapshot() error {
 		return fmt.Errorf("failed to unmarshal snapshot: %w", err)
 	}
 
-	ctx := context.Background()
 	for _, e := range entries {
 		if err := s.vs.Add(ctx, e.Doc, e.Embedding); err != nil {
 			return fmt.Errorf("failed to restore document %s: %w", e.Doc.ID, err)

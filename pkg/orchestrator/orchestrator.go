@@ -525,7 +525,7 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	// Audit: log complete conversation turn
 	c.auditor.Log(ctx, audit.LogRequest{
 		EventType: audit.EventConversation,
-		Actor:     "code-owner",
+		Actor:     "orchestrator",
 		Action:    "chat_turn_completed",
 		Metadata: map[string]interface{}{
 			"question": req.Question,
@@ -587,7 +587,7 @@ func (c *orchestrator) recallConversation(ctx context.Context, question string) 
 	// Audit: log memory recall.
 	c.auditor.Log(ctx, audit.LogRequest{
 		EventType: audit.EventMemoryAccess,
-		Actor:     "code-owner",
+		Actor:     "orchestrator",
 		Action:    "recall_conversation",
 		Metadata: map[string]interface{}{
 			"results": limit,
@@ -621,7 +621,7 @@ func (c *orchestrator) storeConversation(ctx context.Context, question, answer s
 	// Audit: log memory write.
 	c.auditor.Log(ctx, audit.LogRequest{
 		EventType: audit.EventMemoryAccess,
-		Actor:     "code-owner",
+		Actor:     "orchestrator",
 		Action:    "store_conversation",
 		Metadata:  map[string]interface{}{},
 	})
@@ -705,7 +705,7 @@ func (c *orchestrator) recallAccomplishments(ctx context.Context) string {
 	// Audit: log memory recall.
 	c.auditor.Log(ctx, audit.LogRequest{
 		EventType: audit.EventMemoryAccess,
-		Actor:     "code-owner",
+		Actor:     "orchestrator",
 		Action:    "recall_accomplishments",
 		Metadata: map[string]interface{}{
 			"results": limit,
@@ -771,7 +771,7 @@ func (c *orchestrator) storeAccomplishment(ctx context.Context, question string,
 	// Audit: log memory write.
 	c.auditor.Log(ctx, audit.LogRequest{
 		EventType: audit.EventMemoryAccess,
-		Actor:     "code-owner",
+		Actor:     "orchestrator",
 		Action:    "store_accomplishment",
 		Metadata: map[string]interface{}{
 			"summary_length": len(summary),

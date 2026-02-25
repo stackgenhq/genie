@@ -29,8 +29,7 @@ type driveWrapper struct {
 // newWrapper creates a Google Drive service client. If CredentialsFile is
 // set, it's used for authentication; otherwise Application Default
 // Credentials are used.
-func newWrapper(cfg Config) (*driveWrapper, error) {
-	ctx := context.Background()
+func newWrapper(ctx context.Context, cfg Config) (*driveWrapper, error) {
 	var opts []option.ClientOption
 
 	if cfg.CredentialsFile != "" {

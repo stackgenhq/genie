@@ -391,6 +391,20 @@
             word-break: break-word;
         }
 
+        .agent-details { font-size: 0.75rem; color: #334155; }
+        .agent-detail-row { display: flex; gap: 0.5rem; padding: 0.15rem 0; }
+        .agent-detail-label { font-weight: 600; color: #64748b; min-width: 3.25rem; flex-shrink: 0; }
+        .agent-detail-value { color: #1e293b; }
+        .agent-tools { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+        .agent-tool-tag {
+            background: #e0f2fe; color: #0369a1; font-size: 0.6875rem;
+            padding: 0.1rem 0.4rem; border-radius: 0.25rem; font-family: 'JetBrains Mono', monospace;
+        }
+        .agent-goal-text {
+            white-space: pre-wrap; line-height: 1.4; max-height: 4rem;
+            overflow-y: auto; font-size: 0.6875rem; color: #475569;
+        }
+
 
 
         /* Approval card (HITL) */
@@ -1523,6 +1537,7 @@
 
                 case 'TOOL_CALL_END':
                     updateToolCard(event.toolCallId, 'completed');
+                    populateAgentDetails(event.toolCallId);
                     break;
 
                 case 'TOOL_CALL_RESULT': {
@@ -1865,6 +1880,52 @@
             } catch (_) {
                 return raw;
             }
+        }
+
+        function populateAgentDetails(toolCallId) {
+            const meta = toolCallMeta[toolCallId];
+            if (!meta || meta.name !== 'create_agent') return;
+            let args;
+            try { args = JSON.parse(meta.args); } catch (_) { return; }
+
+            const bodyEl = document.getElementById('tool-body-' + toolCallId);
+            if (!bodyEl) return;
+
+            const labelEl = document.getElementById('tool-' + toolCallId)
+                ?.querySelector('.tool-label');
+            if (labelEl && args.agent_name) {
+                labelEl.textContent = '🤖 Delegating to ' + args.agent_name;
+            }
+
+            const toolTags = (args.tool_names || [])
+                .map(t => `<span class="agent-tool-tag">${escapeHtml(t)}</span>`)
+                .join('');
+
+            const goalText = args.goal
+                ? (args.goal.length > 300 ? args.goal.slice(0, 300) + '…' : args.goal)
+                : '';
+
+            let html = '<div class="agent-details">';
+            if (args.task_type) {
+                html += `<div class="agent-detail-row"><span class="agent-detail-label">Type</span><span class="agent-detail-value">${escapeHtml(args.task_type)}</span></div>`;
+            }
+            if (toolTags) {
+                html += `<div class="agent-detail-row"><span class="agent-detail-label">Tools</span><div class="agent-tools">${toolTags}</div></div>`;
+            }
+            if (Array.isArray(args.steps) && args.steps.length) {
+                const stepItems = args.steps.map((s, i) =>
+                    `<span class="agent-tool-tag">${i + 1}. ${escapeHtml(s.name || s.goal || 'step')}</span>`
+                ).join('');
+                html += `<div class="agent-detail-row"><span class="agent-detail-label">Steps</span><div class="agent-tools">${stepItems}</div></div>`;
+                if (args.flow_type) {
+                    html += `<div class="agent-detail-row"><span class="agent-detail-label">Flow</span><span class="agent-detail-value">${escapeHtml(args.flow_type)}</span></div>`;
+                }
+            }
+            if (goalText) {
+                html += `<div class="agent-detail-row" style="flex-direction:column;gap:0.15rem"><span class="agent-detail-label">Goal</span><div class="agent-goal-text">${escapeHtml(goalText)}</div></div>`;
+            }
+            html += '</div>';
+            bodyEl.innerHTML = html;
         }
 
         function addApprovalCard(approvalId, toolName, args, justification) {

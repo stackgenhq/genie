@@ -139,7 +139,7 @@ persistence_dir = "${PWD}/.genie/vector_store"
 # The server runs in the foreground when `genie grant` is invoked.
 [messenger.agui]
 port = 8080
-cors_origins = ["https://stackgenhq.github.io"]
+cors_origins = ["https://stackgenhq.github.io", "http://localhost:8123"]
 
 
 [hitl]
@@ -147,3 +147,7 @@ always_allowed = ["run_shell"]
 
 [runbook]
 runbook_paths = ["${PWD}/runbooks/"]
+
+[pii]
+entropy_threshold = 4.2
+min_secret_length = 32

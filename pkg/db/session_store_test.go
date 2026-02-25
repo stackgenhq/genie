@@ -25,18 +25,14 @@ var _ = Describe("SessionStore", func() {
 	var (
 		db    *gorm.DB
 		store *geniedb.SessionStore
-		ctx   context.Context
 	)
 
-	BeforeEach(func() {
-		var path string
-		db, path = openTestDB()
-		_ = path
-		store = geniedb.NewSessionStore(db)
-		ctx = context.Background()
+	BeforeEach(func(ctx context.Context) {
+		db, _ = openTestDB()
+		store = geniedb.NewSessionStore(ctx, db)
 	})
 
-	AfterEach(func() {
+	AfterEach(func(ctx context.Context) {
 		geniedb.Close(db)
 	})
 
@@ -45,7 +41,7 @@ var _ = Describe("SessionStore", func() {
 	// -----------------------------------------------------------------------
 
 	Describe("CreateSession", func() {
-		It("creates a session with initial state", func() {
+		It("creates a session with initial state", func(ctx context.Context) {
 			key := session.Key{AppName: "app", UserID: "u1", SessionID: "s1"}
 			state := session.StateMap{"greeting": []byte("hello")}
 
@@ -55,7 +51,7 @@ var _ = Describe("SessionStore", func() {
 			Expect(sess.ID).To(Equal("s1"))
 		})
 
-		It("auto-generates a session ID when empty", func() {
+		It("auto-generates a session ID when empty", func(ctx context.Context) {
 			key := session.Key{AppName: "app", UserID: "u1"}
 			sess, err := store.CreateSession(ctx, key, nil)
 			Expect(err).NotTo(HaveOccurred())
@@ -64,14 +60,14 @@ var _ = Describe("SessionStore", func() {
 	})
 
 	Describe("GetSession", func() {
-		It("returns nil for a non-existent session", func() {
+		It("returns nil for a non-existent session", func(ctx context.Context) {
 			key := session.Key{AppName: "app", UserID: "u1", SessionID: "nope"}
 			sess, err := store.GetSession(ctx, key)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(sess).To(BeNil())
 		})
 
-		It("retrieves a previously created session", func() {
+		It("retrieves a previously created session", func(ctx context.Context) {
 			key := session.Key{AppName: "app", UserID: "u1", SessionID: "s1"}
 			_, err := store.CreateSession(ctx, key, nil)
 			Expect(err).NotTo(HaveOccurred())
@@ -84,7 +80,7 @@ var _ = Describe("SessionStore", func() {
 	})
 
 	Describe("ListSessions", func() {
-		It("lists all sessions for a user", func() {
+		It("lists all sessions for a user", func(ctx context.Context) {
 			userKey := session.UserKey{AppName: "app", UserID: "u1"}
 			for _, id := range []string{"a", "b", "c"} {
 				key := session.Key{AppName: "app", UserID: "u1", SessionID: id}
@@ -99,7 +95,7 @@ var _ = Describe("SessionStore", func() {
 	})
 
 	Describe("DeleteSession", func() {
-		It("removes a session and all associated data", func() {
+		It("removes a session and all associated data", func(ctx context.Context) {
 			key := session.Key{AppName: "app", UserID: "u1", SessionID: "s1"}
 			_, err := store.CreateSession(ctx, key, nil)
 			Expect(err).NotTo(HaveOccurred())
@@ -117,7 +113,7 @@ var _ = Describe("SessionStore", func() {
 	// -----------------------------------------------------------------------
 
 	Describe("AppendEvent", func() {
-		It("persists events to the database", func() {
+		It("persists events to the database", func(ctx context.Context) {
 			key := session.Key{AppName: "app", UserID: "u1", SessionID: "s1"}
 			sess, err := store.CreateSession(ctx, key, nil)
 			Expect(err).NotTo(HaveOccurred())
@@ -131,7 +127,7 @@ var _ = Describe("SessionStore", func() {
 		})
 
 		Context("restart simulation (new SessionStore, same DB)", func() {
-			It("restores events from the database on restart", func() {
+			It("restores events from the database on restart", func(ctx context.Context) {
 				key := session.Key{AppName: "app", UserID: "u1", SessionID: "s1"}
 
 				// First lifecycle: create + append.
@@ -140,7 +136,7 @@ var _ = Describe("SessionStore", func() {
 				Expect(store.AppendEvent(ctx, sess, makeTestEvent("turn-1"))).To(Succeed())
 
 				// Simulate restart: new store backed by same DB.
-				store2 := geniedb.NewSessionStore(db)
+				store2 := geniedb.NewSessionStore(ctx, db)
 				got, err := store2.GetSession(ctx, key)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(got).NotTo(BeNil(), "session should survive restart")
@@ -155,8 +151,8 @@ var _ = Describe("SessionStore", func() {
 	// -----------------------------------------------------------------------
 
 	Describe("Event pruning", func() {
-		It("keeps only the latest N events in the DB", func() {
-			limitedStore := geniedb.NewSessionStore(db, geniedb.WithSessionStoreEventLimit(3))
+		It("keeps only the latest N events in the DB", func(ctx context.Context) {
+			limitedStore := geniedb.NewSessionStore(ctx, db, geniedb.WithSessionStoreEventLimit(3))
 			key := session.Key{AppName: "app", UserID: "u1", SessionID: "prune"}
 
 			sess, err := limitedStore.CreateSession(ctx, key, nil)
@@ -168,7 +164,7 @@ var _ = Describe("SessionStore", func() {
 			}
 
 			// Verify via a fresh store (simulates restart).
-			freshStore := geniedb.NewSessionStore(db, geniedb.WithSessionStoreEventLimit(3))
+			freshStore := geniedb.NewSessionStore(ctx, db, geniedb.WithSessionStoreEventLimit(3))
 			got, err := freshStore.GetSession(ctx, key)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(got).NotTo(BeNil())
@@ -181,7 +177,7 @@ var _ = Describe("SessionStore", func() {
 	// -----------------------------------------------------------------------
 
 	Describe("App state", func() {
-		It("persists and retrieves app-level state", func() {
+		It("persists and retrieves app-level state", func(ctx context.Context) {
 			Expect(store.UpdateAppState(ctx, "myapp", session.StateMap{
 				"theme": []byte("dark"),
 			})).To(Succeed())
@@ -191,7 +187,7 @@ var _ = Describe("SessionStore", func() {
 			Expect(string(state["theme"])).To(Equal("dark"))
 		})
 
-		It("deletes app state", func() {
+		It("deletes app state", func(ctx context.Context) {
 			Expect(store.UpdateAppState(ctx, "myapp", session.StateMap{
 				"foo": []byte("bar"),
 			})).To(Succeed())
@@ -205,7 +201,7 @@ var _ = Describe("SessionStore", func() {
 	})
 
 	Describe("User state", func() {
-		It("persists and retrieves user-level state", func() {
+		It("persists and retrieves user-level state", func(ctx context.Context) {
 			userKey := session.UserKey{AppName: "myapp", UserID: "u1"}
 			Expect(store.UpdateUserState(ctx, userKey, session.StateMap{
 				"lang": []byte("en"),
@@ -216,7 +212,7 @@ var _ = Describe("SessionStore", func() {
 			Expect(string(state["lang"])).To(Equal("en"))
 		})
 
-		It("deletes user state", func() {
+		It("deletes user state", func(ctx context.Context) {
 			userKey := session.UserKey{AppName: "myapp", UserID: "u1"}
 			Expect(store.UpdateUserState(ctx, userKey, session.StateMap{
 				"lang": []byte("en"),
@@ -231,7 +227,7 @@ var _ = Describe("SessionStore", func() {
 	})
 
 	Describe("Session state", func() {
-		It("persists session-level state", func() {
+		It("persists session-level state", func(ctx context.Context) {
 			key := session.Key{AppName: "app", UserID: "u1", SessionID: "s1"}
 			_, err := store.CreateSession(ctx, key, nil)
 			Expect(err).NotTo(HaveOccurred())
@@ -241,7 +237,7 @@ var _ = Describe("SessionStore", func() {
 			})).To(Succeed())
 
 			// Verify via fresh store.
-			store2 := geniedb.NewSessionStore(db)
+			store2 := geniedb.NewSessionStore(ctx, db)
 			got, err := store2.GetSession(ctx, key)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(got).NotTo(BeNil())
@@ -256,8 +252,8 @@ var _ = Describe("SessionStore", func() {
 	// -----------------------------------------------------------------------
 
 	Describe("Builder", func() {
-		It("DefaultSessionStoreBuilder creates a working store", func() {
-			s := geniedb.DefaultSessionStoreBuilder(db)
+		It("DefaultSessionStoreBuilder creates a working store", func(ctx context.Context) {
+			s := geniedb.DefaultSessionStoreBuilder(ctx, db)
 			key := session.Key{AppName: "app", UserID: "u1", SessionID: "bld"}
 			_, err := s.CreateSession(ctx, key, nil)
 			Expect(err).NotTo(HaveOccurred())

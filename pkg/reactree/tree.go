@@ -386,7 +386,7 @@ func (t *tree) runMultiStage(ctx context.Context, req TreeRequest) (TreeResult, 
 			// Emit stage progress to TUI (guard against no registered channel)
 			if agui.ChannelFor(ctx) != nil {
 				agui.EmitStageProgress(ctx, stageName, stageIdx, totalStages)
-				agui.EmitThinking(ctx, "code-owner", stageName+"...")
+				agui.EmitThinking(ctx, "orchestrator", stageName+"...")
 			}
 			logr.Info("stage started", "stage", stageName, "index", stageIdx)
 

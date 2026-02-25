@@ -21,7 +21,6 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -35,7 +34,6 @@ import (
 
 	"trpc.group/trpc-go/trpc-agent-go/event"
 	"trpc.group/trpc-go/trpc-agent-go/graph"
-	graphsqlite "trpc.group/trpc-go/trpc-agent-go/graph/checkpoint/sqlite"
 	"trpc.group/trpc-go/trpc-agent-go/session"
 	"trpc.group/trpc-go/trpc-agent-go/session/inmemory"
 )
@@ -45,12 +43,8 @@ import (
 // ON CONFLICT upsert syntax, whereas the upstream trpc-agent-go SQLite saver
 // uses INSERT OR REPLACE and question-mark placeholders. Using the wrong saver
 // causes "syntax error at or near OR" on PostgreSQL.
-func newCheckpointSaver(gormDB *gorm.DB, sqlDB *sql.DB) (graph.CheckpointSaver, error) {
-	dialect := gormDB.Dialector.Name()
-	if dialect == "postgres" {
-		return NewPgCheckpointSaver(sqlDB)
-	}
-	return graphsqlite.NewSaver(sqlDB)
+func newCheckpointSaver(gormDB *gorm.DB) (graph.CheckpointSaver, error) {
+	return NewGormCheckpointSaver(gormDB)
 }
 
 // ---------------------------------------------------------------------------
@@ -153,7 +147,7 @@ func WithSessionStoreEventLimit(limit int) SessionStoreOption {
 
 // SessionStoreBuilder is a function type that creates a SessionStore,
 // analogous to mysql.clientBuilder in trpc-agent-go/storage/mysql.
-type SessionStoreBuilder func(db *gorm.DB, opts ...SessionStoreOption) *SessionStore
+type SessionStoreBuilder func(ctx context.Context, db *gorm.DB, opts ...SessionStoreOption) *SessionStore
 
 // DefaultSessionStoreBuilder is the default builder.
 var DefaultSessionStoreBuilder SessionStoreBuilder = NewSessionStore
@@ -189,7 +183,7 @@ type SessionStore struct {
 
 // NewSessionStore creates a new GORM-backed session store. This is the
 // default SessionStoreBuilder.
-func NewSessionStore(db *gorm.DB, opts ...SessionStoreOption) *SessionStore {
+func NewSessionStore(ctx context.Context, db *gorm.DB, opts ...SessionStoreOption) *SessionStore {
 	s := &SessionStore{
 		db:          db,
 		loaded:      make(map[string]bool),
@@ -202,17 +196,8 @@ func NewSessionStore(db *gorm.DB, opts ...SessionStoreOption) *SessionStore {
 	s.mem = inmemory.NewSessionService(s.opts.inMemoryOpts...)
 
 	// Initialize the Checkpointer for Long-Horizon Task Resiliency
-	sqlDB, err := db.DB()
-	logr := logger.GetLogger(db.Statement.Context)
-	if err != nil {
-		logr.Warn("checkpointer: failed to get underlying *sql.DB, durable checkpointing disabled", "error", err)
-		return s
-	}
-	if sqlDB == nil {
-		logr.Warn("checkpointer: underlying *sql.DB is nil, durable checkpointing disabled")
-		return s
-	}
-	saver, saverErr := newCheckpointSaver(db, sqlDB)
+	logr := logger.GetLogger(ctx)
+	saver, saverErr := newCheckpointSaver(db)
 	if saverErr != nil {
 		logr.Warn("checkpointer: failed to initialize checkpoint saver, durable checkpointing disabled", "error", saverErr)
 		return s
