@@ -128,7 +128,7 @@ func (s *skimTools) skimDir(dir string, resp skimResponse) (skimResponse, error)
 		}
 
 		if fileResp.Outline != "" {
-			sb.WriteString(fmt.Sprintf("// ═══ %s ═══\n\n", entry.Name()))
+			fmt.Fprintf(&sb, "// ═══ %s ═══\n\n", entry.Name())
 			sb.WriteString(fileResp.Outline)
 			sb.WriteString("\n\n")
 			itemCount += fileResp.ItemCount
@@ -169,7 +169,7 @@ func (s *skimTools) skimGo(path string, resp skimResponse) (skimResponse, error)
 	itemCount := 0
 
 	// Package declaration.
-	sb.WriteString(fmt.Sprintf("package %s\n\n", f.Name.Name))
+	fmt.Fprintf(&sb, "package %s\n\n", f.Name.Name)
 
 	// Package-level doc comment.
 	if f.Doc != nil {
@@ -182,9 +182,9 @@ func (s *skimTools) skimGo(path string, resp skimResponse) (skimResponse, error)
 		sb.WriteString("import (\n")
 		for _, imp := range f.Imports {
 			if imp.Name != nil {
-				sb.WriteString(fmt.Sprintf("\t%s %s\n", imp.Name.Name, imp.Path.Value))
+				fmt.Fprintf(&sb, "\t%s %s\n", imp.Name.Name, imp.Path.Value)
 			} else {
-				sb.WriteString(fmt.Sprintf("\t%s\n", imp.Path.Value))
+				fmt.Fprintf(&sb, "\t%s\n", imp.Path.Value)
 			}
 		}
 		sb.WriteString(")\n\n")
@@ -226,7 +226,7 @@ func (s *skimTools) writeGenDecl(sb *strings.Builder, d *ast.GenDecl, fset *toke
 			if sp.Doc != nil {
 				sb.WriteString(sp.Doc.Text())
 			}
-			sb.WriteString(fmt.Sprintf("type %s", sp.Name.Name))
+			fmt.Fprintf(sb, "type %s", sp.Name.Name)
 			switch t := sp.Type.(type) {
 			case *ast.StructType:
 				sb.WriteString(" struct {\n")
@@ -245,7 +245,7 @@ func (s *skimTools) writeGenDecl(sb *strings.Builder, d *ast.GenDecl, fset *toke
 				}
 				sb.WriteString("}\n\n")
 			default:
-				sb.WriteString(fmt.Sprintf(" = ... // %T\n\n", sp.Type))
+				fmt.Fprintf(sb, " = ... // %T\n\n", sp.Type)
 			}
 			count++
 
@@ -258,9 +258,9 @@ func (s *skimTools) writeGenDecl(sb *strings.Builder, d *ast.GenDecl, fset *toke
 				if d.Tok == token.CONST {
 					keyword = "const"
 				}
-				sb.WriteString(fmt.Sprintf("%s %s", keyword, name.Name))
+				fmt.Fprintf(sb, "%s %s", keyword, name.Name)
 				if sp.Type != nil {
-					sb.WriteString(fmt.Sprintf(" %s", s.exprString(sp.Type)))
+					fmt.Fprintf(sb, " %s", s.exprString(sp.Type))
 				}
 				sb.WriteString("\n")
 			}
@@ -281,10 +281,9 @@ func (s *skimTools) writeField(sb *strings.Builder, field *ast.Field, fset *toke
 	typeStr := s.exprString(field.Type)
 
 	if len(names) > 0 {
-		sb.WriteString(fmt.Sprintf("\t%s %s\n", strings.Join(names, ", "), typeStr))
+		fmt.Fprintf(sb, "\t%s %s\n", strings.Join(names, ", "), typeStr)
 	} else {
-		// Embedded type.
-		sb.WriteString(fmt.Sprintf("\t%s\n", typeStr))
+		fmt.Fprintf(sb, "\t%s\n", typeStr)
 	}
 }
 
@@ -301,9 +300,9 @@ func (s *skimTools) writeFuncDecl(sb *strings.Builder, d *ast.FuncDecl) {
 		recv := d.Recv.List[0]
 		recvStr := s.exprString(recv.Type)
 		if len(recv.Names) > 0 {
-			sb.WriteString(fmt.Sprintf("(%s %s) ", recv.Names[0].Name, recvStr))
+			fmt.Fprintf(sb, "(%s %s) ", recv.Names[0].Name, recvStr)
 		} else {
-			sb.WriteString(fmt.Sprintf("(%s) ", recvStr))
+			fmt.Fprintf(sb, "(%s) ", recvStr)
 		}
 	}
 

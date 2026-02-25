@@ -6,7 +6,6 @@ package config
 
 import (
 	"context"
-	"log/slog"
 	"strings"
 	"testing"
 
@@ -39,24 +38,6 @@ func FuzzExpandSecrets(f *testing.F) {
 		// possible env vars (since unresolved vars become "").
 		// At minimum, it must not panic.
 		_ = result
-	})
-}
-
-// FuzzWarnUnresolvedSecrets tests warnUnresolvedSecrets with arbitrary config text.
-// Run with: go test -fuzz=FuzzWarnUnresolvedSecrets ./pkg/config/
-func FuzzWarnUnresolvedSecrets(f *testing.F) {
-	f.Add(`token = ""`)
-	f.Add(`api_key = "some-value"`)
-	f.Add(`password: ''`)
-	f.Add(`name = "foo"`)
-	f.Add("")
-	f.Add(strings.Repeat("token = \"\"\n", 100))
-	f.Add("no_separator_here")
-	f.Add(`authorization = "Bearer ${MISSING}"`)
-
-	f.Fuzz(func(t *testing.T, input string) {
-		// Must never panic regardless of input content.
-		warnUnresolvedSecrets(slog.Default(), "fuzz.yaml", input)
 	})
 }
 

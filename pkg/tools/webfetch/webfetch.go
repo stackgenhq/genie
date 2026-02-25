@@ -117,7 +117,7 @@ func (f *fetchTools) fetch(ctx context.Context, req fetchRequest) (fetchResponse
 	if err != nil {
 		return resp, fmt.Errorf("request failed: %w", err)
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 
 	resp.StatusCode = httpResp.StatusCode
 	resp.ContentType = httpResp.Header.Get("Content-Type")

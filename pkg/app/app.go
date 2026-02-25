@@ -50,17 +50,20 @@ import (
 	"github.com/stackgenhq/genie/pkg/tools/codeskim"
 	"github.com/stackgenhq/genie/pkg/tools/datetime"
 	"github.com/stackgenhq/genie/pkg/tools/doctool"
+	"github.com/stackgenhq/genie/pkg/tools/email"
 	"github.com/stackgenhq/genie/pkg/tools/encodetool"
+	"github.com/stackgenhq/genie/pkg/tools/gdrive"
 	"github.com/stackgenhq/genie/pkg/tools/jsontool"
 	mathtool "github.com/stackgenhq/genie/pkg/tools/math"
 	"github.com/stackgenhq/genie/pkg/tools/metrics"
 	"github.com/stackgenhq/genie/pkg/tools/networking"
 	"github.com/stackgenhq/genie/pkg/tools/ocrtool"
 	"github.com/stackgenhq/genie/pkg/tools/pkgsearch"
+	"github.com/stackgenhq/genie/pkg/tools/pm"
 	"github.com/stackgenhq/genie/pkg/tools/regextool"
+	"github.com/stackgenhq/genie/pkg/tools/scm"
 	"github.com/stackgenhq/genie/pkg/tools/sqltool"
 	"github.com/stackgenhq/genie/pkg/tools/webfetch"
-
 	"github.com/stackgenhq/genie/pkg/tools/websearch"
 
 	"go.opentelemetry.io/otel"
@@ -486,7 +489,7 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 	log := logger.GetLogger(ctx).With("fn", "app.initToolRegistry")
 
 	// --- Secret provider (used by all auth-requiring tools) ---
-	sp := a.cfg.Security.Provider()
+	sp := a.cfg.Security.Provider(ctx)
 
 	providers := []tools.ToolProviders{
 		websearch.NewToolProvider(a.cfg.WebSearch),
@@ -546,13 +549,49 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 		log.Info("Browser initialized", "headless", true)
 	}
 
-	// NOTE: SCM, PM, Email, Slack, Salesforce, Atlassian, Snowflake,
-	// BigQuery, Google Drive, and HubSpot tools are now registered above
-	// in the providers slice. Each provider internally resolves secrets
-	// from the SecretProvider and constructs the service in GetTools().
-	// If required credentials are missing, the provider returns nil
-	// (tools silently excluded from registry) instead of failing loudly.
-	log.Debug("Auth-requiring tool providers registered (secret resolution deferred to GetTools)")
+	// --- SCM tools ---
+	if scmSvc, err := scm.New(a.cfg.SCM); err == nil {
+		if vErr := scmSvc.Validate(ctx); vErr != nil {
+			log.Warn("SCM health check failed, tools still registered", "error", vErr)
+		}
+		providers = append(providers, scm.NewToolProvider(scmSvc))
+		log.Info("SCM tool provider added", "provider", a.cfg.SCM.Provider)
+	} else if a.cfg.SCM.Provider != "" {
+		log.Warn("failed to initialize SCM service, skipping SCM tools", "provider", a.cfg.SCM.Provider, "error", err)
+	}
+
+	// --- PM tools ---
+	if pmSvc, err := pm.New(a.cfg.ProjectManagement); err == nil {
+		if vErr := pmSvc.Validate(ctx); vErr != nil {
+			log.Warn("PM health check failed, tools still registered", "error", vErr)
+		}
+		providers = append(providers, pm.NewToolProvider(pmSvc))
+		log.Info("PM tool provider added", "provider", a.cfg.ProjectManagement.Provider)
+	} else if a.cfg.ProjectManagement.Provider != "" {
+		log.Warn("failed to initialize PM service, skipping PM tools", "provider", a.cfg.ProjectManagement.Provider, "error", err)
+	}
+
+	// --- Email tools ---
+	if emailSvc, err := a.cfg.Email.New(); err == nil {
+		if vErr := emailSvc.Validate(ctx); vErr != nil {
+			log.Warn("Email health check failed, tools still registered", "error", vErr)
+		}
+		providers = append(providers, email.NewToolProvider(emailSvc))
+		log.Info("Email tool provider added", "provider", a.cfg.Email.Provider)
+	} else if a.cfg.Email.Provider != "" {
+		log.Warn("failed to initialize email service, skipping email tools", "provider", a.cfg.Email.Provider, "error", err)
+	}
+
+	// --- Google Drive tools ---
+	if gdSvc, err := gdrive.New(ctx, a.cfg.GDrive); err == nil {
+		if vErr := gdSvc.Validate(ctx); vErr != nil {
+			log.Warn("Google Drive health check failed, tools still registered", "error", vErr)
+		}
+		providers = append(providers, gdrive.NewToolProvider(gdSvc))
+		log.Info("Google Drive tool provider added")
+	} else if a.cfg.GDrive.CredentialsFile != "" {
+		log.Warn("failed to initialize Google Drive service, skipping gdrive tools", "error", err)
+	}
 
 	// --- Clarify tool ---
 	// Clarify emitter bridges clarify → AG-UI + messenger.
@@ -619,7 +658,7 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 	}
 
 	// --- Context management tools (Pensieve paradigm) ---
-	if a.cfg.EnablePensieve {
+	if !a.cfg.DisablePensieve {
 		providers = append(providers, tools.NewPensieveToolProvider())
 		log.Debug("Context management tool provider added (Pensieve paradigm)")
 	}

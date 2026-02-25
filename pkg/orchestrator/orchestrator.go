@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/stackgenhq/genie/pkg/agentutils"
+	"github.com/stackgenhq/genie/pkg/agui"
 	"github.com/stackgenhq/genie/pkg/audit"
 	"github.com/stackgenhq/genie/pkg/expert"
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
@@ -91,6 +92,12 @@ type orchestrator struct {
 	resume          *ttlcache.Item[string]
 	resumeCancel    context.CancelFunc
 	vectorStore     vector.IStore
+
+	// availableToolNames holds the names of all tools registered in the full
+	// tool registry (not just the orchestrator's own tools). This list is
+	// injected into the resume so the front-desk classifier knows about
+	// every capability (email, SCM, browser, etc.) when determining scope.
+	availableToolNames []string
 
 	// Per-sender memory isolation. These maps use sync.Map for concurrent
 	// access and lazily create instances on first access per sender.
@@ -271,15 +278,16 @@ func NewOrchestrator(
 	logger.Info("Orchestrator tool registry initialized", "count", len(orchestratorTools.ToolNames()))
 
 	orchestrator := &orchestrator{
-		expert:            exp,
-		frontDeskExpert:   frontDeskExp,
-		treeExecutor:      treeExec,
-		memorySvc:         memorySvc,
-		memoryUserKey:     memoryUserKey,
-		toolRegistry:      orchestratorTools,
-		auditor:           auditor,
-		vectorStore:       vectorStore,
-		episodicMemoryCfg: episodicMemoryCfg,
+		expert:             exp,
+		frontDeskExpert:    frontDeskExp,
+		treeExecutor:       treeExec,
+		memorySvc:          memorySvc,
+		memoryUserKey:      memoryUserKey,
+		toolRegistry:       orchestratorTools,
+		auditor:            auditor,
+		vectorStore:        vectorStore,
+		episodicMemoryCfg:  episodicMemoryCfg,
+		availableToolNames: availableTools.ToolNames(),
 	}
 	// keep updating the resume less than 24 hours
 	// Create a dedicated context for the background refresher that we can cancel on Close()
@@ -332,7 +340,19 @@ Recent Accomplishments (things I have successfully done):
 %s`, accomplishments)
 	}
 
-	// use the front desk expert to check on available tools and then create a resume
+	toolsSection := ""
+	toolsInstruction := ""
+	if len(c.availableToolNames) > 0 {
+		sorted := make([]string, len(c.availableToolNames))
+		copy(sorted, c.availableToolNames)
+		sort.Strings(sorted)
+		toolsSection = fmt.Sprintf(`
+
+Available Tools (capabilities I can use via sub-agents):
+%s`, strings.Join(sorted, ", "))
+		toolsInstruction = "\n- The Available Tools section lists every tool the agent can delegate to sub-agents. Mention the key capability areas they enable (e.g. email, source control, browsing, file management)."
+	}
+
 	result, err := summarizer.Summarize(ctx, agentutils.SummarizeRequest{
 		RequiredOutputFormat: agentutils.OutputFormatMarkdown,
 		Content: fmt.Sprintf(`Create a linkedIn worthy resume based and things that I can accomplish based on tools available to the given AI Agent:
@@ -341,12 +361,12 @@ Recent Accomplishments (things I have successfully done):
 - You are trying to sell yourself to the user.
 - Give some examples of what you can do.
 - Keep it short and concise.
-- If accomplishments are available, highlight them as proof of your capabilities.
+- If accomplishments are available, highlight them as proof of your capabilities.%s
 
 Persona:
 %s
-
-%s`, fullPersona, accomplishmentsSection),
+%s
+%s`, toolsInstruction, fullPersona, accomplishmentsSection, toolsSection),
 	})
 	if err != nil {
 		logger.Error("error creating resume", "error", err)
@@ -365,6 +385,53 @@ func (c *orchestrator) Close() error {
 		return c.memorySvc.Close()
 	}
 	return nil
+}
+
+// bridgeBrowserTab creates a context that carries both the chromedp tab's
+// executor and the per-request values from the caller's context (parent).
+//
+// chromedp contexts form their own hierarchy rooted at the allocator created
+// at init time, so they never carry per-request values such as ThreadID,
+// RunID, or MessageOrigin. This function bridges the two hierarchies by:
+//  1. Deriving a cancellable context from the tab (for chromedp operations).
+//  2. Inheriting the parent's deadline.
+//  3. Re-injecting per-request values from the parent.
+//  4. Propagating parent cancellation to the tab.
+//
+// Without this, any tool call running inside a browser-tab context would
+// silently lose AG-UI identifiers, breaking HITL approval and sub-agent
+// correlation.
+//
+// The returned CancelFunc must be deferred by the caller.
+func bridgeBrowserTab(parent, tab context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(tab)
+
+	if deadline, ok := parent.Deadline(); ok {
+		var dlCancel context.CancelFunc
+		ctx, dlCancel = context.WithDeadline(ctx, deadline)
+		baseCancel := cancel
+		cancel = func() { dlCancel(); baseCancel() }
+	}
+
+	if origin := messenger.MessageOriginFrom(parent); !origin.IsZero() {
+		ctx = messenger.WithMessageOrigin(ctx, origin)
+	}
+	if tid := agui.ThreadIDFromContext(parent); tid != "" {
+		ctx = agui.WithThreadID(ctx, tid)
+	}
+	if rid := agui.RunIDFromContext(parent); rid != "" {
+		ctx = agui.WithRunID(ctx, rid)
+	}
+
+	go func() {
+		select {
+		case <-parent.Done():
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
+	return ctx, cancel
 }
 
 func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan chan<- string) error {
@@ -460,38 +527,10 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	}
 
 	runCtx := ctx
-	if origin := messenger.MessageOriginFrom(ctx); !origin.IsZero() {
-		runCtx = messenger.WithMessageOrigin(runCtx, origin)
-	}
 	if req.BrowserTab != nil {
-		// Use the browser tab context for chromedp operations, but respect
-		// the parent context's cancellation and deadline. chromedp contexts
-		// form their own hierarchy (rooted at the allocator), so we can't
-		// make tabCtx a child of ctx directly. Instead we:
-		// 1. Wrap the tab context in a cancellable context.
-		// 2. Propagate parent's deadline to the tab context.
-		// 3. Cancel the tab if the parent is cancelled.
-		var tabCancel context.CancelFunc
-		runCtx, tabCancel = context.WithCancel(req.BrowserTab)
-		defer tabCancel()
-		if deadline, ok := ctx.Deadline(); ok {
-			var deadlineCancel context.CancelFunc
-			runCtx, deadlineCancel = context.WithDeadline(runCtx, deadline)
-			defer deadlineCancel()
-		}
-		// Re-inject MessageOrigin — the browser tab context is a separate
-		// hierarchy and doesn't carry values from the parent ctx.
-		if origin := messenger.MessageOriginFrom(ctx); !origin.IsZero() {
-			runCtx = messenger.WithMessageOrigin(runCtx, origin)
-		}
-		// Ensure parent cancellation tears down the tab context too.
-		go func() {
-			select {
-			case <-ctx.Done():
-				tabCancel() // Parent cancelled — tear down the tab.
-			case <-runCtx.Done():
-			}
-		}()
+		var cleanup context.CancelFunc
+		runCtx, cleanup = bridgeBrowserTab(ctx, req.BrowserTab)
+		defer cleanup()
 	}
 
 	// Stash the original question in context so toolwrap can persist it in

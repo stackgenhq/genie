@@ -86,6 +86,29 @@ var _ = Describe("NewPIIModelCallbacks", func() {
 			Expect(req.Messages[0].Content).To(Equal(assistantContent))
 		})
 
+		It("should redact PII in tool-result messages (e.g. email_read output)", func() {
+			// Tool results are appended with role "tool"; they were previously
+			// not redacted, so mail/API content containing secrets reached the LLM.
+			toolContent := "From: user@example.com\nSubject: Login\nBody: api_key=sk-abc123def456"
+			req := &model.Request{
+				Messages: []model.Message{
+					{
+						Role:    model.Role("tool"),
+						Content: toolContent,
+					},
+				},
+			}
+
+			result, err := callbacks.RunBeforeModel(ctx, &model.BeforeModelArgs{
+				Request: req,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).NotTo(BeNil())
+
+			Expect(req.Messages[0].Content).To(ContainSubstring("[HIDDEN:"))
+			Expect(req.Messages[0].Content).NotTo(ContainSubstring("sk-abc123def456"))
+		})
+
 		It("should skip empty user messages", func() {
 			req := &model.Request{
 				Messages: []model.Message{

@@ -388,9 +388,9 @@ func (c *calendarTools) getCalendarService(ctx context.Context) (*gcal.Service, 
 	credsEntry, _ := c.secretProvider.GetSecret(ctx, "CredentialsFile")
 	if credsEntry == "" {
 		return nil, fmt.Errorf(
-			"Google Calendar not configured. The 'calendar' integration must have a " +
-				"CredentialsFile secret binding pointing to your credentials.json or service account key file. " +
-				"See https://developers.google.com/calendar/api/quickstart/go",
+			"Google Calendar not configured: the 'calendar' integration must have a " +
+				"CredentialsFile secret binding pointing to your credentials.json or service account key file, " +
+				"see https://developers.google.com/calendar/api/quickstart/go",
 		)
 	}
 
@@ -415,7 +415,7 @@ func (c *calendarTools) getCalendarService(ctx context.Context) (*gcal.Service, 
 
 // serviceAccountClient creates a Calendar service using service account credentials.
 func (c *calendarTools) serviceAccountClient(ctx context.Context, credsJSON []byte) (*gcal.Service, error) {
-	creds, err := google.CredentialsFromJSON(ctx, credsJSON, calendarScopes...)
+	creds, err := google.CredentialsFromJSON(ctx, credsJSON, calendarScopes...) //nolint:staticcheck // no drop-in replacement; input is trusted config
 	if err != nil {
 		return nil, fmt.Errorf("invalid service account credentials: %w", err)
 	}
@@ -492,7 +492,7 @@ func (c *calendarTools) handleListEvents(ctx context.Context, req listEventsRequ
 		Context(ctx).
 		Do()
 	if err != nil {
-		return resp, fmt.Errorf("Google Calendar API error (list_events): %w", err)
+		return resp, fmt.Errorf("google calendar API error (list_events): %w", err)
 	}
 
 	for _, item := range events.Items {
@@ -543,7 +543,7 @@ func (c *calendarTools) handleNextEvents(ctx context.Context, req nextEventsRequ
 		Context(ctx).
 		Do()
 	if err != nil {
-		return resp, fmt.Errorf("Google Calendar API error (next_events): %w", err)
+		return resp, fmt.Errorf("google calendar API error (next_events): %w", err)
 	}
 
 	for _, item := range events.Items {
@@ -632,7 +632,7 @@ func (c *calendarTools) handleCreateEvent(ctx context.Context, req createEventRe
 		Context(ctx).
 		Do()
 	if err != nil {
-		return resp, fmt.Errorf("Google Calendar API error (create_event): %w", err)
+		return resp, fmt.Errorf("google calendar API error (create_event): %w", err)
 	}
 
 	ev := gcalEventToCalendarEvent(created)
@@ -676,7 +676,7 @@ func (c *calendarTools) handleUpdateEvent(ctx context.Context, req updateEventRe
 		Context(ctx).
 		Do()
 	if err != nil {
-		return resp, fmt.Errorf("Google Calendar API error (get event %q): %w", req.EventID, err)
+		return resp, fmt.Errorf("google calendar API error (get event %q): %w", req.EventID, err)
 	}
 
 	// Apply requested changes.
@@ -715,7 +715,7 @@ func (c *calendarTools) handleUpdateEvent(ctx context.Context, req updateEventRe
 		Context(ctx).
 		Do()
 	if err != nil {
-		return resp, fmt.Errorf("Google Calendar API error (update_event): %w", err)
+		return resp, fmt.Errorf("google calendar API error (update_event): %w", err)
 	}
 
 	ev := gcalEventToCalendarEvent(updated)
@@ -746,7 +746,7 @@ func (c *calendarTools) handleDeleteEvent(ctx context.Context, req deleteEventRe
 		Context(ctx).
 		Do()
 	if err != nil {
-		return resp, fmt.Errorf("Google Calendar API error (delete_event): %w", err)
+		return resp, fmt.Errorf("google calendar API error (delete_event): %w", err)
 	}
 
 	resp.Message = fmt.Sprintf("Event %q deleted successfully.", req.EventID)
@@ -782,7 +782,7 @@ func (c *calendarTools) handleFreeBusy(ctx context.Context, req freeBusyRequest)
 
 	fbResp, err := svc.Freebusy.Query(fbReq).Context(ctx).Do()
 	if err != nil {
-		return resp, fmt.Errorf("Google Calendar API error (free_busy): %w", err)
+		return resp, fmt.Errorf("google calendar API error (free_busy): %w", err)
 	}
 
 	// Format the response as a human-readable summary.
@@ -829,7 +829,7 @@ func (c *calendarTools) handleQuickAdd(ctx context.Context, req quickAddRequest)
 		Context(ctx).
 		Do()
 	if err != nil {
-		return resp, fmt.Errorf("Google Calendar API error (quick_add): %w", err)
+		return resp, fmt.Errorf("google calendar API error (quick_add): %w", err)
 	}
 
 	ev := gcalEventToCalendarEvent(created)
@@ -895,7 +895,7 @@ func (c *calendarTools) handleFindTime(ctx context.Context, req findTimeRequest)
 		Items:   items,
 	}).Context(ctx).Do()
 	if err != nil {
-		return resp, fmt.Errorf("Google Calendar API error (find_time/freebusy): %w", err)
+		return resp, fmt.Errorf("google calendar API error (find_time/freebusy): %w", err)
 	}
 
 	// Merge all busy periods across attendees into a single sorted list.

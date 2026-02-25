@@ -261,7 +261,7 @@ func (m *metricsTools) doGet(ctx context.Context, rawURL string, params url.Valu
 	if err != nil {
 		return resp, fmt.Errorf("request failed: %w", err)
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(httpResp.Body, int64(maxOutputBytes*2)))
 	if err != nil {
@@ -306,16 +306,14 @@ func resolveTimeOrRelative(raw string, now time.Time) string {
 	// Try relative durations. Support "d" (days) and "w" (weeks) manually.
 	s := strings.ToLower(raw)
 	if strings.HasSuffix(s, "d") {
-		if n, err := fmt.Sscanf(s, "%d", new(int)); err == nil && n == 1 {
-			var days int
-			fmt.Sscanf(s, "%d", &days)
+		var days int
+		if n, err := fmt.Sscanf(s, "%d", &days); err == nil && n == 1 && days >= 0 {
 			return now.Add(-time.Duration(days) * 24 * time.Hour).Format(time.RFC3339)
 		}
 	}
 	if strings.HasSuffix(s, "w") {
-		if n, err := fmt.Sscanf(s, "%d", new(int)); err == nil && n == 1 {
-			var weeks int
-			fmt.Sscanf(s, "%d", &weeks)
+		var weeks int
+		if n, err := fmt.Sscanf(s, "%d", &weeks); err == nil && n == 1 && weeks >= 0 {
 			return now.Add(-time.Duration(weeks) * 7 * 24 * time.Hour).Format(time.RFC3339)
 		}
 	}

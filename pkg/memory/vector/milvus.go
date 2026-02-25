@@ -98,8 +98,10 @@ func (cfg Config) buildMilvusStore(ctx context.Context, emb embedder.Embedder) (
 	}
 	opts = append(opts, milvusvs.WithDimension(dimension))
 
-	// Set connection timeout
-	opts = append(opts, milvusvs.WithDialOptions(grpc.WithTimeout(5*time.Second)))
+	// Set connection timeout via connect params (grpc.WithTimeout is deprecated).
+	opts = append(opts, milvusvs.WithDialOptions(grpc.WithConnectParams(grpc.ConnectParams{
+		MinConnectTimeout: 5 * time.Second,
+	})))
 
 	// Set metric type (default to IP for inner product similarity)
 	opts = append(opts, milvusvs.WithMetricType(entity.IP))

@@ -61,7 +61,7 @@
         cron: { enabled: false, tasks: [] },
         security: { secrets: [] },
         pii: { salt: '', entropy_threshold: 4.2, min_secret_length: 12, sensitive_keys: [] },
-        enable_pensieve: false
+        disable_pensieve: false
     };
 
     var PROVIDERS = ['openai', 'gemini', 'anthropic'];
@@ -627,8 +627,8 @@
 
         // Pensieve toggle lives in PII section for proximity to security settings.
         c.appendChild(el('div', { className: 'mt-6 pt-4', style: 'border-top: 1px solid rgba(0,0,0,0.06)' }, [
-            fieldToggle('Enable Pensieve Tools', state.enable_pensieve, function (v) { state.enable_pensieve = v; renderOutput(); },
-                'Activate context self-management tools (delete_context, check_budget, note, read_notes). ' +
+            fieldToggle('Disable Pensieve Tools', state.disable_pensieve, function (v) { state.disable_pensieve = v; renderOutput(); },
+                'Disable context self-management tools (delete_context, check_budget, note, read_notes). ' +
                 'delete_context and note require HITL approval. Based on the StateLM paper (arXiv:2602.12108).')
         ]));
     }
@@ -1081,8 +1081,8 @@
     }
 
     function pensieveToToml(lines) {
-        if (!state.enable_pensieve) return;
-        lines.push('enable_pensieve = true');
+        if (!state.disable_pensieve) return;
+        lines.push('disable_pensieve = true');
         lines.push('');
     }
 
@@ -1523,8 +1523,8 @@
     }
 
     function pensieveToYaml(lines) {
-        if (!state.enable_pensieve) return;
-        lines.push('enable_pensieve: true');
+        if (!state.disable_pensieve) return;
+        lines.push('disable_pensieve: true');
         lines.push('');
     }
 

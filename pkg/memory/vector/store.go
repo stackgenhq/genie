@@ -72,6 +72,7 @@ func DefaultConfig(ctx context.Context, sp security.SecretProvider) Config {
 
 	return Config{
 		VectorStoreProvider: "inmemory",
+		EmbeddingProvider:   "dummy",
 		APIKey:              get("OPENAI_API_KEY"),
 		OllamaURL:           get("OLLAMA_URL"),
 		OllamaModel:         get("OLLAMA_MODEL"),

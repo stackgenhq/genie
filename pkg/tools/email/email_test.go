@@ -3,6 +3,7 @@ package email_test
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -11,13 +12,21 @@ import (
 )
 
 type mockService struct {
-	SendFunc func(ctx context.Context, req email.SendRequest) error
-	ReadFunc func(ctx context.Context, filter string) ([]*email.Email, error)
+	SendFunc     func(ctx context.Context, req email.SendRequest) error
+	ReadFunc     func(ctx context.Context, filter string) ([]*email.Email, error)
+	ValidateFunc func(ctx context.Context) error
 }
 
 func (m *mockService) Send(ctx context.Context, req email.SendRequest) error {
 	if m.SendFunc != nil {
 		return m.SendFunc(ctx, req)
+	}
+	return nil
+}
+
+func (m *mockService) Validate(ctx context.Context) error {
+	if m.ValidateFunc != nil {
+		return m.ValidateFunc(ctx)
 	}
 	return nil
 }
@@ -51,7 +60,9 @@ var _ = Describe("Email Tools", func() {
 
 			resp, err := tool.Call(context.Background(), reqJSON)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(resp).To(Equal("email sent successfully"))
+			Expect(resp).To(ContainSubstring("DONE. Email successfully sent to test@example.com"))
+			Expect(resp).To(ContainSubstring(`subject "Test Subject"`))
+			Expect(resp).To(ContainSubstring("Do NOT call email_send again"))
 		})
 	})
 
@@ -106,6 +117,73 @@ var _ = Describe("Config.New", func() {
 		_, err := cfg.New()
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("unsupported"))
+	})
+})
+
+var _ = Describe("smtpIMAPService.Read", func() {
+	It("should return error when IMAP host is not configured", func(ctx context.Context) {
+		cfg := email.Config{Provider: "smtp"}
+		svc, err := cfg.New()
+		Expect(err).NotTo(HaveOccurred())
+
+		_, err = svc.Read(ctx, "")
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("IMAP host not configured"))
+	})
+
+	It("should return immediately when context is already cancelled", func() {
+		cfg := email.Config{
+			Provider: "smtp",
+			IMAPHost: "imap.gmail.com",
+			IMAPPort: 993,
+		}
+		svc, err := cfg.New()
+		Expect(err).NotTo(HaveOccurred())
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err = svc.Read(ctx, "")
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("context already cancelled"))
+	})
+
+	It("should fail fast when context deadline is in the past", func() {
+		cfg := email.Config{
+			Provider: "smtp",
+			IMAPHost: "imap.gmail.com",
+			IMAPPort: 993,
+		}
+		svc, err := cfg.New()
+		Expect(err).NotTo(HaveOccurred())
+
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-1*time.Second))
+		defer cancel()
+
+		_, err = svc.Read(ctx, "")
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("context already cancelled"))
+	})
+
+	It("should fail with dial error when connecting to unreachable host within deadline", func() {
+		cfg := email.Config{
+			Provider: "smtp",
+			IMAPHost: "127.0.0.1",
+			IMAPPort: 19999,
+		}
+		svc, err := cfg.New()
+		Expect(err).NotTo(HaveOccurred())
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		start := time.Now()
+		_, err = svc.Read(ctx, "")
+		elapsed := time.Since(start)
+
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("failed to dial IMAP"))
+		Expect(elapsed).To(BeNumerically("<", 5*time.Second))
 	})
 })
 

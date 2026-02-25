@@ -15,7 +15,6 @@ import (
 	aguisdk "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/stackgenhq/genie/pkg/agui"
 	aguitypes "github.com/stackgenhq/genie/pkg/agui"
 	"github.com/stackgenhq/genie/pkg/clarify"
 	"github.com/stackgenhq/genie/pkg/hitl"
@@ -177,7 +176,7 @@ func (w *BackgroundWorker) runAgent(ctx context.Context, req aguitypes.EventRequ
 	// Create a dummy channel that discards events (since there's no UI connected)
 	eventChan := make(chan interface{}, 100)
 	origin := messenger.MessageOriginFrom(ctx)
-	agui.Register(origin, eventChan)
+	aguitypes.Register(origin, eventChan)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -202,7 +201,7 @@ func (w *BackgroundWorker) runAgent(ctx context.Context, req aguitypes.EventRequ
 	w.chatHandler.Handle(ctx, chatReq)
 
 	// Deregister before close to prevent sends to closed channel.
-	agui.Deregister(origin)
+	aguitypes.Deregister(origin)
 	close(eventChan)
 	wg.Wait()
 
@@ -567,7 +566,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	// Register the event channel on the global bus so any code with
 	// a context containing this MessageOrigin can emit events.
 	origin := messenger.MessageOriginFrom(ctx)
-	agui.Register(origin, eventChan)
+	aguitypes.Register(origin, eventChan)
 
 	// If a messenger bridge is configured, register this thread so that
 	// subsystems (HITL notifications, send_message tool) can route
@@ -584,7 +583,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			// Deregister BEFORE closing the channel to prevent
 			// sends to a closed channel from concurrent emitters.
-			agui.Deregister(origin)
+			aguitypes.Deregister(origin)
 			close(eventChan)
 		}()
 		s.chatHandler.Handle(ctx, ChatRequest{

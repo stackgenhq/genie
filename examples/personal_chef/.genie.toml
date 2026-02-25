@@ -1,4 +1,4 @@
-enable_pensieve = true
+disable_pensieve = true
 
 [db_config]
 db_file = "${PWD}/.genie/personal_chef.db"

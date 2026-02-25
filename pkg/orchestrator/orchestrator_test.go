@@ -568,5 +568,57 @@ var _ = Describe("CodeOwner", func() {
 			Expect(req.Content).To(ContainSubstring("Built a go app"))
 			Expect(req.Content).To(ContainSubstring("SysPrompt"))
 		})
+
+		It("should include available tool names in the summarizer prompt", func() {
+			co.vectorStore = nil
+			co.availableToolNames = []string{"email_read", "email_send", "scm_list_prs", "browser_navigate"}
+
+			fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
+			fakeSummarizer.SummarizeReturns("Resume with tools", nil)
+
+			resume, err := co.createResume(ctx, fakeSummarizer, "TestPersona")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resume).To(Equal("Resume with tools"))
+
+			Expect(fakeSummarizer.SummarizeCallCount()).To(Equal(1))
+			_, req := fakeSummarizer.SummarizeArgsForCall(0)
+			Expect(req.Content).To(ContainSubstring("Available Tools"))
+			Expect(req.Content).To(ContainSubstring("email_read"))
+			Expect(req.Content).To(ContainSubstring("email_send"))
+			Expect(req.Content).To(ContainSubstring("scm_list_prs"))
+			Expect(req.Content).To(ContainSubstring("browser_navigate"))
+		})
+
+		It("should sort tool names alphabetically in the prompt", func() {
+			co.vectorStore = nil
+			co.availableToolNames = []string{"z_tool", "a_tool", "m_tool"}
+
+			fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
+			fakeSummarizer.SummarizeReturns("sorted resume", nil)
+
+			_, err := co.createResume(ctx, fakeSummarizer, "TestPersona")
+			Expect(err).NotTo(HaveOccurred())
+
+			_, req := fakeSummarizer.SummarizeArgsForCall(0)
+			aIdx := strings.Index(req.Content, "a_tool")
+			mIdx := strings.Index(req.Content, "m_tool")
+			zIdx := strings.Index(req.Content, "z_tool")
+			Expect(aIdx).To(BeNumerically("<", mIdx))
+			Expect(mIdx).To(BeNumerically("<", zIdx))
+		})
+
+		It("should omit the tools section when no tools are available", func() {
+			co.vectorStore = nil
+			co.availableToolNames = nil
+
+			fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
+			fakeSummarizer.SummarizeReturns("resume without tools", nil)
+
+			_, err := co.createResume(ctx, fakeSummarizer, "TestPersona")
+			Expect(err).NotTo(HaveOccurred())
+
+			_, req := fakeSummarizer.SummarizeArgsForCall(0)
+			Expect(req.Content).NotTo(ContainSubstring("Available Tools"))
+		})
 	})
 })

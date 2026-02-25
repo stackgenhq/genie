@@ -46,7 +46,7 @@ var _ = Describe("Browser tools", Ordered, func() {
 		srv = testPage()
 
 		var err error
-		b, err = browser.New(ctx, browser.WithHeadless(true))
+		b, err = browser.New(context.WithoutCancel(ctx), browser.WithHeadless(true))
 		Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -220,7 +220,7 @@ var _ = Describe("Domain blocklist", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer b.Close()
 
-		ctx, cancel, err := b.NewTab(context.Background())
+		ctx, cancel, err := b.NewTab(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		defer cancel()
 
@@ -244,7 +244,7 @@ var _ = Describe("Domain blocklist", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer b.Close()
 
-		ctx, cancel, err := b.NewTab(context.Background())
+		ctx, cancel, err := b.NewTab(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		defer cancel()
 
@@ -262,7 +262,7 @@ var _ = Describe("Domain blocklist", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer b.Close()
 
-		ctx, cancel, err := b.NewTab(context.Background())
+		ctx, cancel, err := b.NewTab(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		defer cancel()
 
@@ -286,7 +286,7 @@ var _ = Describe("Domain blocklist", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer b.Close()
 
-		ctx, cancel, err := b.NewTab(context.Background())
+		ctx, cancel, err := b.NewTab(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		defer cancel()
 

@@ -79,7 +79,7 @@ func (h *eventsHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 
 	// Verify signing secret if configured.
 	if h.signingSecret != "" {
@@ -105,7 +105,7 @@ func (h *eventsHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Info("Responding to Slack URL verification challenge")
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, challenge.Challenge)
+		_, _ = fmt.Fprint(w, challenge.Challenge)
 		return
 	}
 

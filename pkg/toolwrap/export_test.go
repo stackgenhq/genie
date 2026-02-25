@@ -13,3 +13,10 @@ func SemanticKeyForTest(toolName string, args []byte) (string, bool) {
 	}
 	return m.semanticKey(toolName, args)
 }
+
+// NewSharedHITLCacheForTest creates a WithSharedApprovalCache option backed
+// by a fresh approval cache. Pass the same option to multiple
+// HITLApprovalMiddleware calls to verify cross-middleware approval sharing.
+func NewSharedHITLCacheForTest() HITLOption {
+	return WithSharedApprovalCache(newApprovalCache())
+}

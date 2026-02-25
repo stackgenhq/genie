@@ -142,9 +142,9 @@ func (w *Wrapper) execute(ctx context.Context, tc *ToolCallContext) (any, error)
 // The chain is ordered from outermost (runs first) to innermost (runs
 // just before the terminal handler):
 //
-//	PanicRecovery → [Tracing] → [Metrics] → Emitter → Logger → Audit →
+//	PanicRecovery → PIIRehydrate → [Tracing] → [Metrics] → Emitter → Logger → Audit →
 //	[Timeout] → [RateLimit] → [CircuitBreaker] → [Concurrency] → [Retry] →
-//	LoopDetection → FailureLimit → SemanticCache → [Validation] →
+//	SemanticCache → LoopDetection → FailureLimit → [Validation] →
 //	[Sanitize] → HITLApproval → ContextEnrich
 //
 // Bracketed items are opt-in and only included when their Enabled flag is
@@ -155,6 +155,7 @@ func (deps MiddlewareDeps) DefaultMiddlewares(
 	cfg := deps.Config
 	mws := []Middleware{
 		PanicRecoveryMiddleware(),
+		PIIRehydrateMiddleware(), // Rehydrate [HIDDEN:hash] in args so tools receive real values.
 	}
 
 	// --- Observability (outermost so they capture everything) ---
@@ -192,10 +193,13 @@ func (deps MiddlewareDeps) DefaultMiddlewares(
 	}
 
 	// --- Core logic ---
+	// SemanticCache sits before LoopDetection so that a cache hit (which
+	// does NOT re-execute the tool) is never counted toward the consecutive
+	// repeat threshold.
 	mws = append(mws,
+		SemanticCacheMiddleware(deps.SemanticKeyFields),
 		LoopDetectionMiddleware(),
 		FailureLimitMiddleware(),
-		SemanticCacheMiddleware(deps.SemanticKeyFields),
 	)
 
 	if cfg.Sanitize.Enabled {

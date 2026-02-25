@@ -4,6 +4,8 @@ Copyright © 2026 StackGen, Inc.
 
 package security
 
+import "context"
+
 // Config holds the configuration for the secret provider.
 // When present in the Genie config, it controls how secrets are resolved
 // at runtime. Without this configuration, the application falls back to
@@ -19,9 +21,9 @@ type Config struct {
 	Secrets map[string]string `yaml:"secrets" toml:"secrets"`
 }
 
-func (c Config) Provider() SecretProvider {
+func (c Config) Provider(ctx context.Context) SecretProvider {
 	if len(c.Secrets) > 0 {
-		return NewManager(c)
+		return NewManager(ctx, c)
 	}
 	return NewEnvProvider()
 }

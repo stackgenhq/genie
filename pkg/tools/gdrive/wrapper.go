@@ -26,6 +26,14 @@ type driveWrapper struct {
 	svc *drive.Service
 }
 
+// New creates a new Google Drive Service based on the configuration.
+// It delegates to the internal wrapper which uses the official Drive API v3
+// client library. Without this factory, callers would need to know about
+// the wrapper's internal constructor, coupling them to implementation details.
+func New(ctx context.Context, cfg Config) (Service, error) {
+	return newWrapper(ctx, cfg)
+}
+
 // newWrapper creates a Google Drive service client. If CredentialsFile is
 // set, it's used for authentication; otherwise Application Default
 // Credentials are used.

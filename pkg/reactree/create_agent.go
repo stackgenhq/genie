@@ -32,9 +32,9 @@ import (
 const (
 	summarizeThreshold  = 2000
 	CreateAgentToolName = "create_agent"
-	defaultTimeoutSec   = 5 * time.Minute
-	minTimeoutSec       = 30 * time.Second
-	maxTimeoutSec       = 10 * time.Minute
+	defaultTimeout      = 5 * time.Minute
+	minTimeout          = 30 * time.Second
+	maxTimeout          = 10 * time.Minute
 
 	minToolIterCap = 5
 	maxToolIterCap = 50
@@ -48,10 +48,16 @@ type CreateAgentRequest struct {
 	AgentName         string                 `json:"agent_name" jsonschema:"description=Name of the sub-agent,required"`
 	Goal              string                 `json:"goal" jsonschema:"description=The goal or task for the sub-agent to accomplish,required"`
 	ToolNames         []string               `json:"tool_names,omitempty" jsonschema:"description=Names of tools to give the sub-agent. If empty all tools are provided."`
-	TaskType          modelprovider.TaskType `json:"task_type,omitempty" jsonschema:"description=Type of task for the sub-agent to accomplish, Should be one of efficiency/long_horizon_autonomy/mathematical/general_task/novel_reasoning/scientific_reasoning/terminal_calling/planning,required"`
+	TaskType          modelprovider.TaskType `json:"task_type,omitempty" jsonschema:"description=Selects the model best suited for the sub-agent. planning: complex reasoning and multi-step analysis and code changes (default — use for most tasks). tool_calling: straightforward function calls and data extraction. terminal_calling: shell commands and CLI workflows. efficiency: quick read-only lookups and simple searches."`
 	MaxToolIterations int                    `json:"max_tool_iterations,omitempty" jsonschema:"description=Maximum tool iterations. Scale to complexity: simple lookups 5-10 and file edits 15-25 and multi-step/infrastructure 30-50,required"`
 	MaxLLMCalls       int                    `json:"max_llm_calls,omitempty" jsonschema:"description=Maximum LLM calls. Scale to complexity: simple lookups 5-10 and file edits 15-25 and multi-step/infrastructure 30-60,required"`
 	TimeoutSeconds    float64                `json:"timeout_seconds,omitempty" jsonschema:"description=Hard timeout in seconds for the sub-agent. Scale to complexity: simple lookups 60-120 and multi-step 180-300. Default 300 (5 min). Prevents hung agents."`
+
+	// SummarizeOutput controls whether large sub-agent output is summarized
+	// before returning to the parent agent. When false (default), the raw
+	// output is returned as-is, preserving all detail. Set to true only when
+	// the output is expected to be very large and a condensed version suffices.
+	SummarizeOutput bool `json:"summarize_output,omitempty" jsonschema:"description=When true the sub-agent output is summarized if it exceeds 2000 chars. Default false — raw output is returned preserving all detail. Only enable when a condensed summary is acceptable."`
 
 	// Steps enables multi-step plan execution. When provided, the tool builds
 	// a graph from these steps using the specified Flow type, instead of
@@ -70,9 +76,9 @@ func (req CreateAgentRequest) timeoutSeconds() float64 {
 	// Clamp timeout: floor prevents overly tight deadlines, ceiling
 	// prevents runaway agents. Default 5 min if not specified.
 	if req.TimeoutSeconds <= 0 {
-		return defaultTimeoutSec.Seconds()
+		return defaultTimeout.Seconds()
 	}
-	return min(max(req.TimeoutSeconds, minTimeoutSec.Seconds()), maxTimeoutSec.Seconds())
+	return min(max(req.TimeoutSeconds, minTimeout.Seconds()), maxTimeout.Seconds())
 }
 
 // clampedMaxToolIterations returns MaxToolIterations clamped to
@@ -186,8 +192,10 @@ func NewCreateAgentTool(
 
 	t.description = fmt.Sprintf(
 		"Spawn a sub-agent with selected tools for multi-step tasks. "+
-			"task_type: tool_calling (file/shell, fastest), planning (reasoning), "+
-			"terminal_calling (CLI), novel_reasoning (creative). "+
+			"task_type selects the model: planning (complex reasoning, code changes — default, best for most tasks), "+
+			"tool_calling (simple API calls, data extraction), "+
+			"terminal_calling (shell/CLI work), efficiency (quick read-only lookups). "+
+			"When in doubt, use planning. "+
 			"Give only needed tools. Batch related work into one agent; "+
 			"spawn parallel agents for independent tasks.\n\n"+
 			"MULTI-STEP PLANS: For complex tasks, provide 'steps' with subgoals "+
@@ -431,9 +439,10 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 		logr.Info("sub-agent result stored in episodic memory", "goal", toolwrap.TruncateForAudit(req.Goal, 60))
 	}
 
-	// Summarize large sub-agent output to keep context concise for the parent agent.
+	// Summarize large sub-agent output only when the caller explicitly opted in.
+	// By default raw output is returned so the parent agent sees full detail.
 	// Skip summarization if we already timed out — the summarizer would also fail.
-	if !timedOut && t.summarizer != nil && len(result) > summarizeThreshold {
+	if req.SummarizeOutput && !timedOut && t.summarizer != nil && len(result) > summarizeThreshold {
 		logr.Info("summarizing large sub-agent output", "original_length", len(result), "threshold", summarizeThreshold)
 		summarized, err := t.summarizer.Summarize(ctx, agentutils.SummarizeRequest{
 			Content:              result,

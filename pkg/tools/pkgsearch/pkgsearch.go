@@ -131,7 +131,7 @@ func (p *pkgTools) searchGo(ctx context.Context, query string, resp searchRespon
 
 	body, err := p.doGet(ctx, apiURL)
 	if err != nil {
-		return resp, fmt.Errorf("Go package search failed: %w", err)
+		return resp, fmt.Errorf("go package search failed: %w", err)
 	}
 
 	// pkg.go.dev doesn't have a JSON API, so we try the proxy API for exact matches first.
@@ -309,7 +309,7 @@ func (p *pkgTools) doGet(ctx context.Context, apiURL string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, apiURL)

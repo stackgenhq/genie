@@ -156,20 +156,31 @@ var placeholderRe = regexp.MustCompile(`\[HIDDEN:[0-9a-f]{6}\]`)
 // split on whitespace/punctuation boundaries and matched token-by-token.
 // Where a token changed to a [HIDDEN:*] placeholder, that mapping is recorded.
 func RedactWithReplacer(text string) (redacted string, replacer *strings.Replacer) {
+	redacted, pairs := RedactWithPairs(text)
+	if len(pairs) == 0 {
+		return redacted, strings.NewReplacer()
+	}
+	return redacted, strings.NewReplacer(pairs...)
+}
+
+// RedactWithPairs redacts PII and returns the redacted string plus
+// (placeholder, original) pairs so callers can merge multiple messages' pairs
+// into one Replacer for rehydration. Pairs are old1, new1, old2, new2, ...
+func RedactWithPairs(text string) (redacted string, pairs []string) {
 	if text == "" {
-		return "", strings.NewReplacer()
+		return "", nil
 	}
 	redacted = scanner.ScanAndRedact(text)
 	if redacted == text {
-		return text, strings.NewReplacer()
+		return text, nil
 	}
 
 	matches := placeholderRe.FindAllStringIndex(redacted, -1)
 	if len(matches) == 0 {
-		return redacted, strings.NewReplacer(redacted, text)
+		return redacted, []string{redacted, text}
 	}
 
-	var pairs []string
+	var out []string
 	seen := make(map[string]bool)
 
 	origIdx := 0
@@ -231,7 +242,7 @@ func RedactWithReplacer(text string) (redacted string, replacer *strings.Replace
 		origToken := text[origIdx:tokenEnd]
 
 		if origToken != "" && !seen[placeholder] {
-			pairs = append(pairs, placeholder, origToken)
+			out = append(out, placeholder, origToken)
 			seen[placeholder] = true
 		}
 
@@ -239,10 +250,10 @@ func RedactWithReplacer(text string) (redacted string, replacer *strings.Replace
 		redIdx = phEnd
 	}
 
-	if len(pairs) == 0 {
-		return redacted, strings.NewReplacer(redacted, text)
+	if len(out) == 0 {
+		return redacted, []string{redacted, text}
 	}
-	return redacted, strings.NewReplacer(pairs...)
+	return redacted, out
 }
 
 // ContainsPII returns true if redaction would modify the text.

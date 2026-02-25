@@ -184,4 +184,30 @@ var _ = Describe("HITLApprovalMiddleware", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("timeout"))
 	})
+
+	It("should auto-approve across middleware instances sharing a cache", func() {
+		store.IsAllowedReturns(false)
+		store.CreateReturns(hitl.ApprovalRequest{ID: "shared-1"}, nil)
+		store.WaitForResolutionReturns(hitl.ApprovalRequest{
+			Status: hitl.StatusApproved,
+		}, nil)
+
+		sharedOpt := toolwrap.NewSharedHITLCacheForTest()
+		mw1 := toolwrap.HITLApprovalMiddleware(store, nil, sharedOpt)
+		mw2 := toolwrap.HITLApprovalMiddleware(store, nil, sharedOpt)
+
+		sharedTC := &toolwrap.ToolCallContext{ToolName: "write_file", Args: []byte(`{"path":"shared.txt"}`)}
+
+		handler1 := mw1.Wrap(passthrough("ok-1"))
+		result1, err := handler1(context.Background(), sharedTC)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result1).To(Equal("ok-1"))
+		Expect(store.CreateCallCount()).To(Equal(1))
+
+		handler2 := mw2.Wrap(passthrough("ok-2"))
+		result2, err := handler2(context.Background(), sharedTC)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result2).To(Equal("ok-2"))
+		Expect(store.CreateCallCount()).To(Equal(1)) // still 1 — cache hit across middlewares
+	})
 })

@@ -726,9 +726,9 @@ config_sections:
 
   - id: pensieve
     icon: "🧠"
-    name: enable_pensieve
+    name: disable_pensieve
     sidebar_desc: Context Self-Management
-    detail_title: "🧠 enable_pensieve"
+    detail_title: "🧠 disable_pensieve"
     detail_desc: >
       <strong>The Agent Controls Its Own Memory.</strong><br>
       Inspired by the <a href="https://arxiv.org/abs/2602.12108" target="_blank" class="text-purple-500 hover:text-purple-600">Pensieve Paradigm (StateLM)</a>,
@@ -737,13 +737,13 @@ config_sections:
       When enabled, the agent uses a <strong>sawtooth pattern</strong>: ingest information, distill key
       insights into notes, then prune the raw context to free up space. This lets the agent reason
       over inputs far larger than the context window.<br><br>
-      <strong>Opt-in only</strong> — set <code>enable_pensieve = true</code> in your config.
+      <strong>Enabled by default</strong> — to disable, set <code>disable_pensieve = true</code> in your config.
       Destructive tools (<code>delete_context</code>, <code>note</code>) require
       <strong>Human-in-the-Loop approval</strong> by default.
     tables:
       - columns: [Key, Type, Default, Description]
         rows:
-          - ["enable_pensieve", "bool", "`false`", "Master switch — set to `true` to activate the four Pensieve context tools"]
+          - ["disable_pensieve", "bool", "`false`", "If `true`, this disables the Pensieve context tools. Defaults to `false` (enabled)."]
     subsections:
       - label: Available Tools
         columns: [Tool, HITL Required, Description]
@@ -762,8 +762,8 @@ config_sections:
     code_example:
       label: Example TOML
       code: |
-        # Enable Pensieve context self-management
-        enable_pensieve = true
+        # Disable Pensieve context self-management
+        disable_pensieve = true
 
         # HITL config: delete_context and note require approval by default.
         # check_budget and read_notes are auto-approved (read-only).

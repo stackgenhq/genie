@@ -17,17 +17,50 @@ import (
 // maxApprovalCacheSize limits the number of entries in the approval cache.
 const maxApprovalCacheSize = 256
 
+// approvalCache is a session-scoped, thread-safe cache of previously approved
+// tool calls. It is owned by the Service and shared across all sub-agents so
+// that a tool+args combination approved in one sub-agent is auto-approved in
+// subsequent sub-agents within the same session.
+type approvalCache struct {
+	mu    sync.Mutex
+	items map[string]struct{}
+	order []string
+}
+
+func newApprovalCache() *approvalCache {
+	return &approvalCache{items: make(map[string]struct{})}
+}
+
+func (c *approvalCache) has(key string) bool {
+	c.mu.Lock()
+	_, ok := c.items[key]
+	c.mu.Unlock()
+	return ok
+}
+
+func (c *approvalCache) add(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, exists := c.items[key]; exists {
+		return
+	}
+	if len(c.order) >= maxApprovalCacheSize {
+		evict := c.order[0]
+		c.order = c.order[1:]
+		delete(c.items, evict)
+	}
+	c.items[key] = struct{}{}
+	c.order = append(c.order, key)
+}
+
 // hitlApprovalMiddleware gates non-readonly tool calls on human approval.
-// It owns the session-scoped approval cache and handles justification
-// extraction, approval creation, and feedback storage.
+// It shares a session-scoped approval cache (owned by the Service) and
+// handles justification extraction, approval creation, and feedback storage.
 type hitlApprovalMiddleware struct {
 	store    hitl.ApprovalStore
 	wm       *rtmemory.WorkingMemory
 	blocking bool // true = block in WaitForResolution; false = return interrupt.Error
-
-	approvalMu    sync.Mutex
-	approvalCache map[string]struct{}
-	approvalOrder []string
+	cache    *approvalCache
 }
 
 // HITLOption configures the behaviour of the HITL approval middleware.
@@ -49,21 +82,35 @@ func WithNonBlockingHITL() HITLOption {
 // HITLApprovalMiddleware creates a new HITL approval middleware.
 // Approval request events are emitted via the agui event bus (keyed by
 // MessageOrigin in context), so no explicit event channel is needed.
+//
+// When called without WithSharedApprovalCache, a per-middleware cache is
+// used (suitable for tests). The Service always passes a shared cache so
+// that approvals carry across sub-agents within the same session.
 func HITLApprovalMiddleware(
 	store hitl.ApprovalStore,
 	wm *rtmemory.WorkingMemory,
 	opts ...HITLOption,
 ) Middleware {
 	m := &hitlApprovalMiddleware{
-		store:         store,
-		wm:            wm,
-		blocking:      true,
-		approvalCache: make(map[string]struct{}),
+		store:    store,
+		wm:       wm,
+		blocking: true,
 	}
 	for _, o := range opts {
 		o(m)
 	}
+	if m.cache == nil {
+		m.cache = newApprovalCache()
+	}
 	return m
+}
+
+// WithSharedApprovalCache injects a session-scoped approval cache shared
+// across all sub-agents. When a tool+args combination is approved in one
+// sub-agent, it is auto-approved in subsequent sub-agents within the
+// same session, avoiding redundant HITL prompts.
+func WithSharedApprovalCache(cache *approvalCache) HITLOption {
+	return func(m *hitlApprovalMiddleware) { m.cache = cache }
 }
 
 func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
@@ -90,12 +137,9 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 		tid := m.effectiveThreadID(ctx)
 		rid := m.effectiveRunID(ctx)
 
-		// Session-scoped approval cache check.
+		// Session-scoped approval cache check — shared across all sub-agents.
 		approvalKey := approvalFingerprint(tid, tc.ToolName, string(tc.Args))
-		m.approvalMu.Lock()
-		_, cached := m.approvalCache[approvalKey]
-		m.approvalMu.Unlock()
-		if cached {
+		if m.cache.has(approvalKey) {
 			logr.Debug("HITL cache hit — auto-approved (same session + tool + args)")
 			return next(ctx, tc)
 		}
@@ -153,7 +197,7 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 		}
 
 		logr.Info("tool call approved by user")
-		m.storeApproval(approvalKey)
+		m.cache.add(approvalKey)
 		return next(ctx, tc)
 	}
 }
@@ -174,21 +218,6 @@ func (m *hitlApprovalMiddleware) emitApprovalRequest(ctx context.Context, approv
 		Arguments:     args,
 		Justification: justification,
 	})
-}
-
-func (m *hitlApprovalMiddleware) storeApproval(key string) {
-	m.approvalMu.Lock()
-	defer m.approvalMu.Unlock()
-	if _, exists := m.approvalCache[key]; exists {
-		return
-	}
-	if len(m.approvalOrder) >= maxApprovalCacheSize {
-		evict := m.approvalOrder[0]
-		m.approvalOrder = m.approvalOrder[1:]
-		delete(m.approvalCache, evict)
-	}
-	m.approvalCache[key] = struct{}{}
-	m.approvalOrder = append(m.approvalOrder, key)
 }
 
 func (m *hitlApprovalMiddleware) storeFeedback(toolName, feedback string) {

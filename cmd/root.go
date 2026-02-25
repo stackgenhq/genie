@@ -96,8 +96,10 @@ Complex tasks are hard. Being a Genie is easy.`,
 }
 
 func (opts rootCmdOption) genieCfg(ctx context.Context) (config.GenieConfig, error) {
+	cfgPath := opts.cfgFilePath()
+
 	// Pass 1: load with env-only provider to extract security config.
-	envCfg, err := config.LoadGenieConfig(ctx, security.NewEnvProvider(), opts.cfgFilePath())
+	envCfg, err := config.LoadGenieConfig(ctx, security.NewEnvProvider(), cfgPath)
 	if err != nil {
 		return config.GenieConfig{}, err
 	}
@@ -106,20 +108,21 @@ func (opts rootCmdOption) genieCfg(ctx context.Context) (config.GenieConfig, err
 	// config is final — backward-compatible with existing setups.
 	if len(envCfg.Security.Secrets) == 0 {
 		envCfg.PII.Apply()
+		config.WarnMissingTokens(ctx, envCfg, cfgPath)
 		return envCfg, nil
 	}
 
 	// Pass 2: create a Manager backed by the [security.secrets] URLs
 	// and reload so that ${VAR} placeholders resolve through the
 	// runtimevar backends (GCP SM, AWS SM, files, etc.).
-	mgr := security.NewManager(envCfg.Security)
+	mgr := security.NewManager(ctx, envCfg.Security)
 	defer func() {
 		if cerr := mgr.Close(); cerr != nil {
 			logger.GetLogger(ctx).Warn("failed to close secret manager", "error", cerr)
 		}
 	}()
 
-	genieCfg, err := config.LoadGenieConfig(ctx, mgr, opts.cfgFilePath())
+	genieCfg, err := config.LoadGenieConfig(ctx, mgr, cfgPath)
 	if err != nil {
 		return config.GenieConfig{}, err
 	}
@@ -127,6 +130,8 @@ func (opts rootCmdOption) genieCfg(ctx context.Context) (config.GenieConfig, err
 	// Apply PII redaction config to pii-shield's scanner before any
 	// memory storage operations use it.
 	genieCfg.PII.Apply()
+
+	config.WarnMissingTokens(ctx, genieCfg, cfgPath)
 
 	return genieCfg, nil
 }

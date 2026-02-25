@@ -148,7 +148,7 @@ always_allowed = ["read_file", "list_file"]
 # min_secret_length = 12     # Tokens shorter than this are never redacted. Default: 12
 
 # ── Pensieve (Context Self-Management) ─────────────────────
-# enable_pensieve = true
+# disable_pensieve = true
 
 # ── Tool Middleware ────────────────────────────────────────
 # [toolwrap.timeout]

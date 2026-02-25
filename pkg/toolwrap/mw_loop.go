@@ -10,8 +10,10 @@ import (
 )
 
 // maxConsecutiveRepeatCalls is the number of consecutive identical tool calls
-// that triggers loop detection.
-const maxConsecutiveRepeatCalls = 3
+// that triggers loop detection. Set to 2 so that the second identical call is
+// blocked — a single successful execution should be enough; a duplicate
+// indicates the model failed to recognise the tool's success response.
+const maxConsecutiveRepeatCalls = 2
 
 // maxConsecutiveToolFailures is the number of consecutive failures for the same
 // tool that triggers a hard block.

@@ -7,25 +7,12 @@ package config
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 
+	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/security"
 )
-
-// sensitiveKeywords lists substrings that typically indicate a secret-ish
-// config field. When a placeholder resolves to an empty string for a key
-// whose name (lowered) contains one of these keywords, we emit a warning
-// so the user gets early feedback instead of a confusing downstream error.
-var sensitiveKeywords = []string{
-	"token",
-	"api_key",
-	"apikey",
-	"password",
-	"authorization",
-	"secret",
-}
 
 // providersRequiringToken lists provider names that typically require an
 // API key to function. If the user configures one of these providers with
@@ -76,66 +63,13 @@ func (p providerTokenInfo) validate() error {
 // semantics for missing env vars) so that callers can surface the
 // problem via warnUnresolvedSecrets instead of failing outright.
 func expandSecrets(ctx context.Context, sp security.SecretProvider, input string) string {
+	logger := logger.GetLogger(ctx).With("fn", "expandSecrets")
 	return os.Expand(input, func(name string) string {
 		val, err := sp.GetSecret(ctx, name)
 		if err != nil {
+			logger.Warn("Failed to get secret", "name", name, "error", err)
 			return ""
 		}
 		return val
 	})
-}
-
-// warnUnresolvedSecrets scans the raw (post-expansion) config text for
-// values that look like they should contain a secret but resolved to
-// empty. It inspects lines matching patterns like:
-//
-//	token = ""          (TOML)
-//	token: ""           (YAML)
-//	token = ''          (TOML)
-//	token: ''           (YAML)
-//
-// For each match whose key contains a sensitive keyword, it emits a
-// slog.Warn so the user knows that a placeholder was not resolved.
-//
-// Without this function, a typo like ${OPENAI_APY_KEY} would silently
-// expand to an empty string, leading to confusing "auth failed" or
-// "no providers configured" errors much later in the pipeline.
-func warnUnresolvedSecrets(logger *slog.Logger, configPath, rawExpanded string) {
-	lines := strings.Split(rawExpanded, "\n")
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-
-		// Try to extract key = value or key: value.
-		var key, value string
-		if idx := strings.Index(trimmed, "="); idx > 0 {
-			key = strings.TrimSpace(trimmed[:idx])
-			value = strings.TrimSpace(trimmed[idx+1:])
-		} else if idx := strings.Index(trimmed, ":"); idx > 0 {
-			key = strings.TrimSpace(trimmed[:idx])
-			value = strings.TrimSpace(trimmed[idx+1:])
-		} else {
-			continue
-		}
-
-		// Check if value is empty (literally "" or '' or empty).
-		isEmpty := value == "" || value == `""` || value == "''"
-		if !isEmpty {
-			continue
-		}
-
-		lowerKey := strings.ToLower(key)
-		for _, kw := range sensitiveKeywords {
-			if strings.Contains(lowerKey, kw) {
-				logger.Warn("config placeholder resolved to empty for secret-like key",
-					"key", key,
-					"config_path", configPath,
-					"hint", "check the placeholder name and ensure the secret is configured in [security.secrets] or as an environment variable",
-				)
-				break
-			}
-		}
-	}
 }

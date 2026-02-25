@@ -6,7 +6,6 @@ package config
 
 import (
 	"context"
-	"log/slog"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -69,41 +68,5 @@ var _ = Describe("expandSecrets", func() {
 	It("should handle provider returning empty string", func() {
 		result := expandSecrets(ctx, sp, "val=${EMPTY}")
 		Expect(result).To(Equal("val="))
-	})
-})
-
-var _ = Describe("warnUnresolvedSecrets", func() {
-	It("should not panic on empty input", func() {
-		logger := slog.Default()
-		Expect(func() {
-			warnUnresolvedSecrets(logger, "test.yaml", "")
-		}).ToNot(Panic())
-	})
-
-	It("should not panic on input without secret-ish keys", func() {
-		logger := slog.Default()
-		input := `name = "foo"
-description = "bar"`
-		Expect(func() {
-			warnUnresolvedSecrets(logger, "test.yaml", input)
-		}).ToNot(Panic())
-	})
-
-	It("should not panic when secret-ish keys have values", func() {
-		logger := slog.Default()
-		input := `token = "some-value"
-api_key = "another-value"`
-		Expect(func() {
-			warnUnresolvedSecrets(logger, "test.yaml", input)
-		}).ToNot(Panic())
-	})
-
-	It("should handle YAML-style empty values", func() {
-		logger := slog.Default()
-		input := `token: ""
-api_key: ""`
-		Expect(func() {
-			warnUnresolvedSecrets(logger, "test.yaml", input)
-		}).ToNot(Panic())
 	})
 })

@@ -187,7 +187,7 @@ func (d *docTools) parseCSV(path string, resp docResponse) (docResponse, error) 
 	if err != nil {
 		return resp, fmt.Errorf("failed to open CSV: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	reader := csv.NewReader(f)
 	reader.LazyQuotes = true
@@ -235,7 +235,7 @@ func (d *docTools) parseDOCX(path string, resp docResponse) (docResponse, error)
 	if err != nil {
 		return resp, fmt.Errorf("failed to open DOCX: %w", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	var sb strings.Builder
 
@@ -250,7 +250,7 @@ func (d *docTools) parseDOCX(path string, resp docResponse) (docResponse, error)
 		}
 
 		content, err := io.ReadAll(rc)
-		rc.Close()
+		_ = rc.Close()
 		if err != nil {
 			return resp, fmt.Errorf("failed to read document content: %w", err)
 		}
@@ -394,7 +394,7 @@ func (d *docTools) pdfOCR(ctx context.Context, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Convert PDF pages to PNG images using pdftoppm.
 	prefix := filepath.Join(tmpDir, "page")
@@ -432,7 +432,7 @@ func (d *docTools) pdfOCR(ctx context.Context, path string) (string, error) {
 		text := strings.TrimSpace(string(out))
 		if text != "" {
 			if pageNum > 1 {
-				sb.WriteString(fmt.Sprintf("\n\n--- Page %d ---\n\n", pageNum))
+				fmt.Fprintf(&sb, "\n\n--- Page %d ---\n\n", pageNum)
 			}
 			sb.WriteString(text)
 		}
@@ -453,7 +453,7 @@ func (d *docTools) parsePDFDirect(path string) (string, int, error) {
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to open PDF: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	info, _ := f.Stat()
 	reader, err := pdfread.NewReader(f, info.Size())

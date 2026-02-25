@@ -40,6 +40,7 @@ func NewService(
 		auditor:       auditor,
 		approvalStore: approvalStore,
 		config:        cfg,
+		hitlCache:     newApprovalCache(),
 	}
 	for _, o := range opts {
 		o(s)
@@ -68,6 +69,7 @@ type Service struct {
 	summarize      SummarizeFunc
 	config         MiddlewareConfig
 	circuitBreaker *CircuitBreakerMW // singleton, shared across all agents
+	hitlCache      *approvalCache    // shared across all sub-agents so same tool+args isn't re-prompted
 }
 
 // CircuitBreaker returns the shared circuit breaker instance, or nil if
@@ -92,6 +94,7 @@ func (s *Service) Wrap(tools []tool.Tool, req WrapRequest) []tool.Tool {
 		otherMws = append(otherMws, HITLApprovalMiddleware(
 			s.approvalStore,
 			req.WorkingMemory,
+			WithSharedApprovalCache(s.hitlCache),
 		))
 	}
 

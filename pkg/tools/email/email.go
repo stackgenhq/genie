@@ -2,7 +2,9 @@ package email
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"net"
 	"net/smtp"
 	"strings"
 	"time"
@@ -14,10 +16,27 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )
 
+const (
+	// defaultIMAPTimeout is the fallback deadline for IMAP operations when the
+	// caller's context carries no explicit deadline.
+	defaultIMAPTimeout = 30 * time.Second
+
+	// maxBodyLen caps the plain-text or HTML body stored per email to prevent
+	// oversized payloads from overwhelming the LLM context window.
+	maxBodyLen = 2000
+
+	// maxFetchMessages limits the number of messages fetched in a single Read
+	// call. Without a cap, an "unread" filter could match thousands of messages
+	// and blow past the downstream LLM token limit.
+	maxFetchMessages = 10
+)
+
 // Service provides capabilities to send and read emails.
 type Service interface {
 	Send(ctx context.Context, req SendRequest) error
 	Read(ctx context.Context, filter string) ([]*Email, error)
+	// Validate performs a lightweight health check to detect misconfigurations at startup.
+	Validate(ctx context.Context) error
 }
 
 type SendRequest struct {
@@ -60,6 +79,15 @@ type smtpIMAPService struct {
 	cfg Config
 }
 
+// Validate checks that required SMTP/IMAP config is present so misconfigurations
+// are detected at startup. It does not open connections.
+func (s *smtpIMAPService) Validate(ctx context.Context) error {
+	if s.cfg.Host == "" || s.cfg.Port == 0 {
+		return fmt.Errorf("email not configured: Host and Port are required for SMTP")
+	}
+	return nil
+}
+
 func (s *smtpIMAPService) Send(ctx context.Context, req SendRequest) error {
 	addr := fmt.Sprintf("%s:%d", s.cfg.Host, s.cfg.Port)
 	auth := smtp.PlainAuth("", s.cfg.Username, s.cfg.Password, s.cfg.Host)
@@ -74,20 +102,32 @@ func (s *smtpIMAPService) Send(ctx context.Context, req SendRequest) error {
 	return smtp.SendMail(addr, auth, s.cfg.Username, req.To, msg)
 }
 
+// Read connects to the configured IMAP server, fetches messages matching the
+// filter, and returns them as structured Email values. The context deadline is
+// propagated to the underlying TCP connection so all IMAP operations (dial,
+// login, fetch) are bounded. Without this, a slow or unresponsive IMAP server
+// would block the calling sub-agent indefinitely.
 func (s *smtpIMAPService) Read(ctx context.Context, filter string) ([]*Email, error) {
-	addr := fmt.Sprintf("%s:%d", s.cfg.IMAPHost, s.cfg.IMAPPort)
 	if s.cfg.IMAPHost == "" {
-		// Default fallback if not set: try to guess or error?
-		// For now, let's assume if reading is requested, IMAPHost must be set.
 		return nil, fmt.Errorf("IMAP host not configured")
 	}
 
-	c, err := client.DialTLS(addr, nil)
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("context already cancelled: %w", err)
+	}
+
+	deadline, hasDeadline := ctx.Deadline()
+	if !hasDeadline {
+		deadline = time.Now().Add(defaultIMAPTimeout)
+	}
+
+	c, conn, err := s.dialIMAP(ctx, deadline)
 	if err != nil {
-		return nil, fmt.Errorf("failed to dial IMAP: %w", err)
+		return nil, err
 	}
 	defer func() {
 		_ = c.Logout()
+		_ = conn.Close()
 	}()
 
 	if err := c.Login(s.cfg.Username, s.cfg.Password); err != nil {
@@ -99,39 +139,84 @@ func (s *smtpIMAPService) Read(ctx context.Context, filter string) ([]*Email, er
 		return nil, fmt.Errorf("failed to select INBOX: %w", err)
 	}
 
-	// Search criteria
-	criteria := imap.NewSearchCriteria()
+	seqset, empty, err := s.buildSeqSet(c, mbox, filter)
+	if err != nil {
+		return nil, err
+	}
+	if empty {
+		return []*Email{}, nil
+	}
+
+	return s.fetchMessages(ctx, c, seqset)
+}
+
+// dialIMAP establishes a TLS connection to the IMAP server with a deadline
+// derived from the caller's context. The returned net.Conn is exposed so the
+// caller can close the underlying socket in the defer, even if the IMAP client
+// logout hangs.
+func (s *smtpIMAPService) dialIMAP(_ context.Context, deadline time.Time) (*client.Client, net.Conn, error) {
+	addr := fmt.Sprintf("%s:%d", s.cfg.IMAPHost, s.cfg.IMAPPort)
+	dialer := &net.Dialer{Deadline: deadline}
+	tlsConn, err := tls.DialWithDialer(dialer, "tcp", addr, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to dial IMAP: %w", err)
+	}
+
+	if err := tlsConn.SetDeadline(deadline); err != nil {
+		_ = tlsConn.Close()
+		return nil, nil, fmt.Errorf("failed to set IMAP deadline: %w", err)
+	}
+
+	c, err := client.New(tlsConn)
+	if err != nil {
+		_ = tlsConn.Close()
+		return nil, nil, fmt.Errorf("failed to create IMAP client: %w", err)
+	}
+	return c, tlsConn, nil
+}
+
+// buildSeqSet constructs the IMAP sequence set for the fetch operation.
+// When a filter is supplied it maps to IMAP search criteria; otherwise
+// it returns the last 5 messages. Results are capped at maxFetchMessages
+// to keep the downstream LLM payload within token limits. The boolean
+// return indicates an empty mailbox or zero search results so the caller
+// can short-circuit.
+func (s *smtpIMAPService) buildSeqSet(c *client.Client, mbox *imap.MailboxStatus, filter string) (*imap.SeqSet, bool, error) {
+	seqset := new(imap.SeqSet)
+
 	if filter != "" {
-		// Very basic filtering mapping
+		criteria := imap.NewSearchCriteria()
 		if strings.Contains(strings.ToLower(filter), "unread") {
 			criteria.WithoutFlags = []string{imap.SeenFlag}
 		}
-		// Add more advanced text search if needed:
-		// criteria.Text = []string{filter}
-	}
-
-	seqset := new(imap.SeqSet)
-	if filter != "" {
 		uids, err := c.Search(criteria)
 		if err != nil {
-			return nil, fmt.Errorf("failed to search IMAP: %w", err)
+			return nil, false, fmt.Errorf("failed to search IMAP: %w", err)
 		}
 		if len(uids) == 0 {
-			return []*Email{}, nil
+			return nil, true, nil
+		}
+		if len(uids) > maxFetchMessages {
+			uids = uids[len(uids)-maxFetchMessages:]
 		}
 		seqset.AddNum(uids...)
-	} else {
-		// If no filter, get last 5 messages
-		if mbox.Messages == 0 {
-			return []*Email{}, nil
-		}
-		from := uint32(1)
-		if mbox.Messages > 5 {
-			from = mbox.Messages - 4
-		}
-		seqset.AddRange(from, mbox.Messages)
+		return seqset, false, nil
 	}
 
+	if mbox.Messages == 0 {
+		return nil, true, nil
+	}
+	from := uint32(1)
+	if mbox.Messages > 5 {
+		from = mbox.Messages - 4
+	}
+	seqset.AddRange(from, mbox.Messages)
+	return seqset, false, nil
+}
+
+// fetchMessages runs the IMAP FETCH in a goroutine and collects results in
+// a context-aware loop so cancellation terminates the read promptly.
+func (s *smtpIMAPService) fetchMessages(ctx context.Context, c *client.Client, seqset *imap.SeqSet) ([]*Email, error) {
 	messages := make(chan *imap.Message, 10)
 	done := make(chan error, 1)
 	go func() {
@@ -139,44 +224,67 @@ func (s *smtpIMAPService) Read(ctx context.Context, filter string) ([]*Email, er
 	}()
 
 	var emails []*Email
-	for msg := range messages {
-		// Parse with enmime
-		var section imap.BodySectionName
-		r := msg.GetBody(&section)
-		if r == nil {
-			continue
+	for {
+		select {
+		case <-ctx.Done():
+			return emails, fmt.Errorf("email fetch interrupted: %w", ctx.Err())
+		case msg, ok := <-messages:
+			if !ok {
+				if err := <-done; err != nil {
+					return nil, fmt.Errorf("failed to fetch messages: %w", err)
+				}
+				return emails, nil
+			}
+			if parsed := s.parseMessage(msg); parsed != nil {
+				emails = append(emails, parsed)
+			}
 		}
+	}
+}
 
-		env, err := enmime.ReadEnvelope(r)
-		if err != nil {
-			// Log error but continue?
-			continue
-		}
-
-		body := env.Text
-		if body == "" {
-			body = env.HTML
-		}
-
-		var attachments []string
-		for _, att := range env.Attachments {
-			attachments = append(attachments, fmt.Sprintf("%s (%s)", att.FileName, att.ContentType))
-		}
-
-		emails = append(emails, &Email{
-			From:        msg.Envelope.From[0].Address(),
-			Subject:     msg.Envelope.Subject,
-			Body:        body,
-			Date:        msg.Envelope.Date.Format(time.RFC3339),
-			Attachments: attachments,
-		})
+// parseMessage converts a raw IMAP message into an Email struct, guarding
+// against nil envelopes and truncating oversized bodies.
+func (s *smtpIMAPService) parseMessage(msg *imap.Message) *Email {
+	if msg == nil || msg.Envelope == nil {
+		return nil
 	}
 
-	if err := <-done; err != nil {
-		return nil, fmt.Errorf("failed to fetch messages: %w", err)
+	var section imap.BodySectionName
+	r := msg.GetBody(&section)
+	if r == nil {
+		return nil
 	}
 
-	return emails, nil
+	env, err := enmime.ReadEnvelope(r)
+	if err != nil {
+		return nil
+	}
+
+	body := env.Text
+	if body == "" {
+		body = env.HTML
+	}
+	if len(body) > maxBodyLen {
+		body = body[:maxBodyLen] + "\n...(truncated)"
+	}
+
+	from := "unknown"
+	if len(msg.Envelope.From) > 0 {
+		from = msg.Envelope.From[0].Address()
+	}
+
+	var attachments []string
+	for _, att := range env.Attachments {
+		attachments = append(attachments, fmt.Sprintf("%s (%s)", att.FileName, att.ContentType))
+	}
+
+	return &Email{
+		From:        from,
+		Subject:     msg.Envelope.Subject,
+		Body:        body,
+		Date:        msg.Envelope.Date.Format(time.RFC3339),
+		Attachments: attachments,
+	}
 }
 
 // ── Tool Definitions ────────────────────────────────────────────────────
@@ -234,7 +342,10 @@ func (ts *toolSet) sendEmail(ctx context.Context, req SendEmailRequest) (string,
 	if err != nil {
 		return "", err
 	}
-	return "email sent successfully", nil
+	return fmt.Sprintf(
+		"DONE. Email successfully sent to %s with subject %q. Do NOT call email_send again for this message.",
+		strings.Join(req.To, ", "), req.Subject,
+	), nil
 }
 
 func (ts *toolSet) readEmail(ctx context.Context, req ReadEmailRequest) ([]*Email, error) {

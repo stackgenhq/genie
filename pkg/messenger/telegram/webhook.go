@@ -32,6 +32,8 @@ import (
 // This handler is used when the Telegram adapter runs in webhook mode
 // (WebhookURL is set + SharedMux). The handler can be mounted on any
 // http.ServeMux or router.
+//
+//nolint:unused // Prepared for webhook mode; will be wired when WebhookURL is set.
 type webhookHTTPHandler struct {
 	// botToken is used to verify the webhook secret (optional).
 	botToken string
@@ -40,6 +42,8 @@ type webhookHTTPHandler struct {
 }
 
 // ServeHTTP processes incoming Telegram webhook update requests.
+//
+//nolint:unused // Prepared for webhook mode; will be wired when WebhookURL is set.
 func (h *webhookHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -55,7 +59,7 @@ func (h *webhookHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 
 	var update tgmodels.Update
 	if err := json.Unmarshal(body, &update); err != nil {
@@ -74,6 +78,8 @@ func (h *webhookHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleMessage converts a Telegram message to an IncomingMessage.
+//
+//nolint:unused // Prepared for webhook mode; will be wired when WebhookURL is set.
 func (h *webhookHTTPHandler) handleMessage(ctx context.Context, msg *tgmodels.Message) {
 	log := logger.GetLogger(ctx).With("platform", "telegram", "fn", "webhookHTTPHandler.handleMessage")
 

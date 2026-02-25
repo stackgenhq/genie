@@ -22,6 +22,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/runbook"
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/tools/email"
+	"github.com/stackgenhq/genie/pkg/tools/gdrive"
 	"github.com/stackgenhq/genie/pkg/tools/pm"
 	"github.com/stackgenhq/genie/pkg/tools/scm"
 	"github.com/stackgenhq/genie/pkg/tools/websearch"
@@ -42,6 +43,7 @@ type GenieConfig struct {
 	ProjectManagement pm.Config `yaml:"project_management" toml:"project_management"`
 
 	Email    email.Config              `yaml:"email" toml:"email"`
+	GDrive   gdrive.Config             `yaml:"google_drive" toml:"google_drive"`
 	HITL     hitl.Config               `yaml:"hitl" toml:"hitl"`
 	DBConfig db.Config                 `yaml:"db_config" toml:"db_config"`
 	Langfuse langfuse.Config           `yaml:"langfuse" toml:"langfuse"`
@@ -51,12 +53,12 @@ type GenieConfig struct {
 	PII      pii.Config                `yaml:"pii" toml:"pii"`
 	Toolwrap toolwrap.MiddlewareConfig `yaml:"toolwrap" toml:"toolwrap"`
 
-	// EnablePensieve activates the Pensieve context management tools
+	// DisablePensieve disables the Pensieve context management tools
 	// (delete_context, check_budget, note, read_notes) from arXiv:2602.12108.
 	// When true, the agent can actively manage its own context window.
 	// delete_context and note require HITL approval; check_budget and
 	// read_notes are read-only and auto-approved.
-	EnablePensieve bool `yaml:"enable_pensieve" toml:"enable_pensieve"`
+	DisablePensieve bool `yaml:"disable_pensieve" toml:"disable_pensieve"`
 }
 
 // LoadGenieConfig loads the Genie configuration from a file, resolving
@@ -70,9 +72,9 @@ type GenieConfig struct {
 // behavior. Passing a security.Manager created from the config's
 // [security.secrets] section enables runtimevar-backed resolution.
 //
-// After interpolation, any secret-ish key (token, api_key, password,
-// etc.) that resolves to an empty string triggers a warning log so
-// that typos and missing secrets are surfaced early.
+// After interpolation, secret values are resolved via sp.GetSecret;
+// empty or missing values are not logged here (use WarnMissingTokens or
+// provider-specific validation if early surfacing of typos is needed).
 func LoadGenieConfig(ctx context.Context, sp security.SecretProvider, path string) (GenieConfig, error) {
 	// Helper to resolve a secret, ignoring errors (treat as empty).
 	get := func(name string) string {
@@ -131,7 +133,6 @@ func LoadGenieConfig(ctx context.Context, sp security.SecretProvider, path strin
 	}
 
 	expanded := expandSecrets(ctx, sp, string(data))
-	warnUnresolvedSecrets(logger.GetLogger(ctx), path, expanded)
 	data = []byte(expanded)
 
 	ext := strings.ToLower(filepath.Ext(path))
@@ -155,8 +156,15 @@ func LoadGenieConfig(ctx context.Context, sp security.SecretProvider, path strin
 		}
 	}
 
-	// Validate provider tokens — warn if a provider that typically
-	// requires an API key is configured without one.
+	return cfg, nil
+}
+
+// WarnMissingTokens logs a warning for each model provider that typically
+// requires an API key but has an empty token. Call this after the final
+// config pass so that runtimevar-backed secrets have been resolved.
+// Without this separation, the two-pass loading in cmd/root.go would
+// emit spurious warnings during the preliminary env-only pass.
+func WarnMissingTokens(ctx context.Context, cfg GenieConfig, configPath string) {
 	logr := logger.GetLogger(ctx)
 	for _, p := range cfg.ModelConfig.Providers {
 		ptInfo := providerTokenInfo{
@@ -165,16 +173,13 @@ func LoadGenieConfig(ctx context.Context, sp security.SecretProvider, path strin
 			Token:     p.Token,
 			Host:      p.Host,
 		}
-		err := ptInfo.validate()
-		if err != nil {
+		if err := ptInfo.validate(); err != nil {
 			logr.Warn("model provider configured without API token",
 				"provider", p.Provider,
 				"model", p.ModelName,
-				"config_path", path,
+				"config_path", configPath,
 				"hint", "set the token field or configure the secret in [security.secrets]",
 			)
 		}
 	}
-
-	return cfg, nil
 }
