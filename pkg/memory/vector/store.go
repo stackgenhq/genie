@@ -44,6 +44,8 @@ type BatchItem struct {
 type Config struct {
 	// PersistenceDir is the directory where the vector store snapshot is
 	// saved as a JSON file. If empty, the store is ephemeral (in-memory only).
+	// Note: PersistenceDir is ignored when using Milvus as the vector store,
+	// as Milvus handles persistence internally.
 	PersistenceDir    string `yaml:"persistence_dir" toml:"persistence_dir"`
 	EmbeddingProvider string `yaml:"embedding_provider" toml:"embedding_provider"` // "openai", "ollama", "huggingface", "gemini", "dummy"
 	APIKey            string `yaml:"api_key" toml:"api_key"`
@@ -52,6 +54,11 @@ type Config struct {
 	HuggingFaceURL    string `yaml:"huggingface_url" toml:"huggingface_url"`
 	GeminiAPIKey      string `yaml:"gemini_api_key" toml:"gemini_api_key"`
 	GeminiModel       string `yaml:"gemini_model" toml:"gemini_model"`
+	// VectorStoreProvider specifies the vector store backend to use.
+	// Options: "inmemory" (default), "milvus"
+	VectorStoreProvider string `yaml:"vector_store_provider" toml:"vector_store_provider"`
+	// Milvus configuration (only used when VectorStoreProvider is "milvus")
+	Milvus MilvusConfig `yaml:"milvus" toml:"milvus"`
 }
 
 // DefaultConfig builds the default vector store configuration by resolving
@@ -66,13 +73,21 @@ func DefaultConfig(ctx context.Context, sp security.SecretProvider) Config {
 	}
 
 	return Config{
-		EmbeddingProvider: "dummy",
-		APIKey:            get("OPENAI_API_KEY"),
-		OllamaURL:         get("OLLAMA_URL"),
-		OllamaModel:       get("OLLAMA_MODEL"),
-		HuggingFaceURL:    get("HUGGINGFACE_URL"),
-		GeminiAPIKey:      get("GOOGLE_API_KEY"),
-		GeminiModel:       get("GEMINI_EMBED_MODEL"),
+		VectorStoreProvider: "inmemory",
+		APIKey:              get("OPENAI_API_KEY"),
+		OllamaURL:           get("OLLAMA_URL"),
+		OllamaModel:         get("OLLAMA_MODEL"),
+		HuggingFaceURL:      get("HUGGINGFACE_URL"),
+		GeminiAPIKey:        get("GOOGLE_API_KEY"),
+		GeminiModel:         get("GEMINI_EMBED_MODEL"),
+		Milvus: MilvusConfig{
+			Address:        get("MILVUS_ADDRESS"),
+			Username:       get("MILVUS_USERNAME"),
+			Password:       get("MILVUS_PASSWORD"),
+			DBName:         get("MILVUS_DB_NAME"),
+			APIKey:         get("MILVUS_API_KEY"),
+			CollectionName: get("MILVUS_COLLECTION_NAME"),
+		},
 	}
 }
 
@@ -103,35 +118,51 @@ type persistedEntry struct {
 	Embedding []float64          `json:"embedding"`
 }
 
-// Store wraps a trpc-agent-go in-memory vector store and embedder to
+// Store wraps a trpc-agent-go vector store and embedder to
 // provide simple add/search operations for agent memory.
-// When PersistenceDir is set, the store snapshots its state to disk
-// after every Add and restores it on startup.
+// When PersistenceDir is set and using in-memory store, the store snapshots
+// its state to disk after every Add and restores it on startup.
+// When using Milvus, persistence is handled by Milvus itself.
 type Store struct {
 	vs         vectorstore.VectorStore
 	embedder   embedder.Embedder
 	mu         sync.Mutex
 	persistDir string
+	useMilvus  bool // true if using Milvus (skip snapshots)
 }
 
 // NewStore creates a new vector store backed by trpc-agent-go/knowledge.
-// If cfg.PersistenceDir is set, existing data is loaded from disk.
+// If cfg.PersistenceDir is set and using in-memory store, existing data is loaded from disk.
+// If using Milvus, persistence is handled by Milvus itself.
 func (cfg Config) NewStore(ctx context.Context) (*Store, error) {
 	emb, err := buildEmbedder(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create embedder: %w", err)
 	}
 
-	vs := inmemory.New()
+	var vs vectorstore.VectorStore
+	useMilvus := false
+
+	// Determine which vector store to use
+	if cfg.VectorStoreProvider == "milvus" {
+		vs, err = cfg.buildMilvusStore(ctx, emb)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Milvus store: %w", err)
+		}
+		useMilvus = true
+	} else {
+		vs = inmemory.New()
+	}
 
 	s := &Store{
 		vs:         vs,
 		embedder:   emb,
 		persistDir: cfg.PersistenceDir,
+		useMilvus:  useMilvus,
 	}
 
-	// Restore from disk if a snapshot exists.
-	if cfg.PersistenceDir != "" {
+	// Restore from disk if a snapshot exists (only for in-memory store).
+	if !useMilvus && cfg.PersistenceDir != "" {
 		if err := s.loadSnapshot(); err != nil {
 			return nil, fmt.Errorf("failed to load snapshot: %w", err)
 		}
@@ -167,9 +198,11 @@ func (s *Store) Add(ctx context.Context, items ...BatchItem) error {
 		}
 	}
 
-	// Single snapshot after all documents are added.
-	if err := s.saveSnapshot(ctx); err != nil {
-		return fmt.Errorf("failed to save snapshot: %w", err)
+	// Single snapshot after all documents are added (only for in-memory store).
+	if !s.useMilvus {
+		if err := s.saveSnapshot(ctx); err != nil {
+			return fmt.Errorf("failed to save snapshot: %w", err)
+		}
 	}
 	return nil
 }
@@ -240,9 +273,11 @@ func (s *Store) Delete(ctx context.Context, ids ...string) error {
 		}
 	}
 
-	// Single snapshot after all deletes.
-	if err := s.saveSnapshot(ctx); err != nil {
-		errs = append(errs, fmt.Errorf("failed to save snapshot after delete: %w", err))
+	// Single snapshot after all deletes (only for in-memory store).
+	if !s.useMilvus {
+		if err := s.saveSnapshot(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("failed to save snapshot after delete: %w", err))
+		}
 	}
 
 	if len(errs) > 0 {
@@ -252,8 +287,16 @@ func (s *Store) Delete(ctx context.Context, ids ...string) error {
 }
 
 // Close flushes any pending state to disk (if persistence is configured).
+// For Milvus stores, it closes the Milvus client connection.
 // It is safe to call multiple times.
 func (s *Store) Close(ctx context.Context) error {
+	if s.useMilvus {
+		// Milvus stores handle their own persistence, just close the connection
+		if closer, ok := s.vs.(interface{ Close() error }); ok {
+			return closer.Close()
+		}
+		return nil
+	}
 	return s.saveSnapshot(ctx)
 }
 

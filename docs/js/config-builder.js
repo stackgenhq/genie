@@ -27,7 +27,7 @@
         skills_roots: ['./skills'],
         mcp_servers: [],
         web_search: { provider: 'duckduckgo', google_api_key: 'GOOGLE_API_KEY', google_cx: 'GOOGLE_CSE_ID', bing_api_key: 'BING_API_KEY' },
-        vector_memory: { persistence_dir: '', embedding_provider: 'dummy', api_key: 'OPENAI_API_KEY', ollama_url: '', ollama_model: '', huggingface_url: '', gemini_api_key: 'GOOGLE_API_KEY', gemini_model: '' },
+        vector_memory: { persistence_dir: '', embedding_provider: 'dummy', api_key: 'OPENAI_API_KEY', ollama_url: '', ollama_model: '', huggingface_url: '', gemini_api_key: 'GOOGLE_API_KEY', gemini_model: '', vector_store_provider: 'inmemory', milvus: { address: '', username: '', password: '', db_name: '', api_key: 'MILVUS_API_KEY', collection_name: '', dimension: 0 } },
         messenger: {
             platform: '', buffer_size: 100, allowed_senders: [],
             slack: { app_token: 'SLACK_APP_TOKEN', bot_token: 'SLACK_BOT_TOKEN' },
@@ -74,6 +74,7 @@
         'novel_reasoning', 'general_task', 'mathematical', 'long_horizon_autonomy', 'efficiency'];
     var MCP_TRANSPORTS = ['stdio', 'streamable_http', 'sse'];
     var EMBED_PROVIDERS = ['dummy', 'openai', 'ollama', 'huggingface', 'gemini'];
+    var VECTOR_STORE_PROVIDERS = ['inmemory', 'milvus'];
     var PLATFORMS = ['', 'slack', 'discord', 'telegram', 'teams', 'googlechat', 'whatsapp'];
 
     var SEARCH_PROVIDERS = ['duckduckgo', 'google', 'bing'];
@@ -355,9 +356,12 @@
         c.innerHTML = '';
         var vm = state.vector_memory;
         var fields = [
-            fieldSelect('Embedding Provider', vm.embedding_provider, EMBED_PROVIDERS, function (v) { vm.embedding_provider = v; renderAll(); }, 'How Genie creates memory embeddings — OpenAI is best quality, Gemini is great, HuggingFace TEI is self-hosted, Ollama is free/local'),
-            fieldText('Persistence Dir', vm.persistence_dir, function (v) { vm.persistence_dir = v; renderOutput(); }, './data/vectors', 'Where to save memory on disk — leave empty for in-memory only (lost on restart)')
+            fieldSelect('Vector Store Provider', vm.vector_store_provider, VECTOR_STORE_PROVIDERS, function (v) { vm.vector_store_provider = v; renderAll(); }, 'Backend for storing vectors — inmemory is simple/local, Milvus is production-grade and scalable'),
+            fieldSelect('Embedding Provider', vm.embedding_provider, EMBED_PROVIDERS, function (v) { vm.embedding_provider = v; renderAll(); }, 'How Genie creates memory embeddings — OpenAI is best quality, Gemini is great, HuggingFace TEI is self-hosted, Ollama is free/local')
         ];
+        if (vm.vector_store_provider === 'inmemory') {
+            fields.push(fieldText('Persistence Dir', vm.persistence_dir, function (v) { vm.persistence_dir = v; renderOutput(); }, './data/vectors', 'Where to save memory on disk — leave empty for in-memory only (lost on restart)'));
+        }
         if (vm.embedding_provider === 'openai') {
             fields.push(fieldEnvVar('API Key', vm.api_key, function (v) { vm.api_key = v; renderOutput(); }, 'OPENAI_API_KEY', 'OpenAI API key used to generate text embeddings'));
         } else if (vm.embedding_provider === 'ollama') {
@@ -368,6 +372,15 @@
         } else if (vm.embedding_provider === 'gemini') {
             fields.push(fieldEnvVar('Google API Key', vm.gemini_api_key, function (v) { vm.gemini_api_key = v; renderOutput(); }, 'GOOGLE_API_KEY', 'Google API key for Gemini embedding models'));
             fields.push(fieldText('Gemini Model', vm.gemini_model, function (v) { vm.gemini_model = v; renderOutput(); }, 'gemini-embedding-exp-03-07', 'Which Gemini model to use for embeddings (leave empty for default)'));
+        }
+        if (vm.vector_store_provider === 'milvus') {
+            fields.push(fieldText('Milvus Address', vm.milvus.address, function (v) { vm.milvus.address = v; renderOutput(); }, 'localhost:19530', 'Milvus server address and port — required for Milvus backend'));
+            fields.push(fieldText('Milvus Username', vm.milvus.username, function (v) { vm.milvus.username = v; renderOutput(); }, '', 'Username for Milvus authentication — leave empty if not required'));
+            fields.push(fieldEnvVar('Milvus Password', vm.milvus.password, function (v) { vm.milvus.password = v; renderOutput(); }, 'MILVUS_PASSWORD', 'Password for Milvus authentication — leave empty if not required'));
+            fields.push(fieldText('Milvus DB Name', vm.milvus.db_name, function (v) { vm.milvus.db_name = v; renderOutput(); }, '', 'Database name in Milvus — leave empty for default'));
+            fields.push(fieldEnvVar('Milvus API Key', vm.milvus.api_key, function (v) { vm.milvus.api_key = v; renderOutput(); }, 'MILVUS_API_KEY', 'API key for Milvus authentication — leave empty if not required'));
+            fields.push(fieldText('Milvus Collection Name', vm.milvus.collection_name, function (v) { vm.milvus.collection_name = v; renderOutput(); }, 'trpc_agent_documents', 'Collection name in Milvus — defaults to trpc_agent_documents if empty'));
+            fields.push(fieldNumber('Milvus Dimension', vm.milvus.dimension, function (v) { vm.milvus.dimension = v; renderOutput(); }, 0, 10000, 'Vector dimension — must match embedder dimension, defaults to embedder dimension if 0'));
         }
         c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
     }
@@ -774,8 +787,11 @@
 
     function vectorToToml(lines) {
         var vm = state.vector_memory;
-        if (vm.embedding_provider === 'dummy' && !vm.persistence_dir && !vm.api_key) return;
+        if (vm.embedding_provider === 'dummy' && !vm.persistence_dir && !vm.api_key && vm.vector_store_provider === 'inmemory') return;
         lines.push('[vector_memory]');
+        if (vm.vector_store_provider && vm.vector_store_provider !== 'inmemory') {
+            lines.push('vector_store_provider = ' + q(vm.vector_store_provider));
+        }
         if (vm.persistence_dir) lines.push('persistence_dir = ' + q(vm.persistence_dir));
         lines.push('embedding_provider = ' + q(vm.embedding_provider));
         if (vm.api_key) lines.push('api_key = ' + q('${' + vm.api_key + '}'));
@@ -784,6 +800,17 @@
         if (vm.huggingface_url) lines.push('huggingface_url = ' + q(vm.huggingface_url));
         if (vm.gemini_api_key) lines.push('gemini_api_key = ' + q('${' + vm.gemini_api_key + '}'));
         if (vm.gemini_model) lines.push('gemini_model = ' + q(vm.gemini_model));
+        if (vm.vector_store_provider === 'milvus') {
+            lines.push('');
+            lines.push('[vector_memory.milvus]');
+            if (vm.milvus.address) lines.push('milvus_address = ' + q(vm.milvus.address));
+            if (vm.milvus.username) lines.push('milvus_username = ' + q(vm.milvus.username));
+            if (vm.milvus.password) lines.push('milvus_password = ' + q('${' + vm.milvus.password + '}'));
+            if (vm.milvus.db_name) lines.push('milvus_db_name = ' + q(vm.milvus.db_name));
+            if (vm.milvus.api_key) lines.push('milvus_api_key = ' + q('${' + vm.milvus.api_key + '}'));
+            if (vm.milvus.collection_name) lines.push('milvus_collection_name = ' + q(vm.milvus.collection_name));
+            if (vm.milvus.dimension > 0) lines.push('milvus_dimension = ' + vm.milvus.dimension);
+        }
         lines.push('');
     }
 
@@ -1178,8 +1205,11 @@
 
     function vectorToYaml(lines) {
         var vm = state.vector_memory;
-        if (vm.embedding_provider === 'dummy' && !vm.persistence_dir && !vm.api_key) return;
+        if (vm.embedding_provider === 'dummy' && !vm.persistence_dir && !vm.api_key && vm.vector_store_provider === 'inmemory') return;
         lines.push('vector_memory:');
+        if (vm.vector_store_provider && vm.vector_store_provider !== 'inmemory') {
+            lines.push('  vector_store_provider: ' + vm.vector_store_provider);
+        }
         if (vm.persistence_dir) lines.push('  persistence_dir: ' + yq(vm.persistence_dir));
         lines.push('  embedding_provider: ' + vm.embedding_provider);
         if (vm.api_key) lines.push('  api_key: ' + yq('${' + vm.api_key + '}'));
@@ -1188,6 +1218,16 @@
         if (vm.huggingface_url) lines.push('  huggingface_url: ' + yq(vm.huggingface_url));
         if (vm.gemini_api_key) lines.push('  gemini_api_key: ' + yq('${' + vm.gemini_api_key + '}'));
         if (vm.gemini_model) lines.push('  gemini_model: ' + vm.gemini_model);
+        if (vm.vector_store_provider === 'milvus') {
+            lines.push('  milvus:');
+            if (vm.milvus.address) lines.push('    milvus_address: ' + yq(vm.milvus.address));
+            if (vm.milvus.username) lines.push('    milvus_username: ' + yq(vm.milvus.username));
+            if (vm.milvus.password) lines.push('    milvus_password: ' + yq('${' + vm.milvus.password + '}'));
+            if (vm.milvus.db_name) lines.push('    milvus_db_name: ' + yq(vm.milvus.db_name));
+            if (vm.milvus.api_key) lines.push('    milvus_api_key: ' + yq('${' + vm.milvus.api_key + '}'));
+            if (vm.milvus.collection_name) lines.push('    milvus_collection_name: ' + yq(vm.milvus.collection_name));
+            if (vm.milvus.dimension > 0) lines.push('    milvus_dimension: ' + vm.milvus.dimension);
+        }
         lines.push('');
     }
 
