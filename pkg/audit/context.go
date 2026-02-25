@@ -14,17 +14,10 @@ var agentNameKey = agentNameKeyType{}
 //
 // # Problem it solves
 //
-// Existing audit call-sites (codeowner, reactree, toolwrap) were built
-// before multi-agent GUILD support. None of them populate a metadata
-// "agent" key. Rather than updating every call-site, the GUILD worker
-// sets the agent name on the context once at the workflow level and
-// the DBAuditor reads it automatically.
-//
 // # What happens without it
 //
-// Without context-based propagation the agent_name column in
-// audit_events would always be empty, making the "filter by agent"
-// API useless.
+// without this, its hard to filter by agent in the audit log based on context
+
 func WithAgentName(ctx context.Context, name string) context.Context {
 	if existingAgent := AgentNameFromContext(ctx); existingAgent != "" {
 		return ctx

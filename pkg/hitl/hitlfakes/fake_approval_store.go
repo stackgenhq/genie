@@ -45,6 +45,19 @@ type FakeApprovalStore struct {
 	isAllowedReturnsOnCall map[int]struct {
 		result1 bool
 	}
+	ListPendingStub        func(context.Context) ([]hitl.ApprovalRequest, error)
+	listPendingMutex       sync.RWMutex
+	listPendingArgsForCall []struct {
+		arg1 context.Context
+	}
+	listPendingReturns struct {
+		result1 []hitl.ApprovalRequest
+		result2 error
+	}
+	listPendingReturnsOnCall map[int]struct {
+		result1 []hitl.ApprovalRequest
+		result2 error
+	}
 	RecoverPendingStub        func(context.Context, time.Duration) (hitl.RecoverResult, error)
 	recoverPendingMutex       sync.RWMutex
 	recoverPendingArgsForCall []struct {
@@ -266,6 +279,70 @@ func (fake *FakeApprovalStore) IsAllowedReturnsOnCall(i int, result1 bool) {
 	fake.isAllowedReturnsOnCall[i] = struct {
 		result1 bool
 	}{result1}
+}
+
+func (fake *FakeApprovalStore) ListPending(arg1 context.Context) ([]hitl.ApprovalRequest, error) {
+	fake.listPendingMutex.Lock()
+	ret, specificReturn := fake.listPendingReturnsOnCall[len(fake.listPendingArgsForCall)]
+	fake.listPendingArgsForCall = append(fake.listPendingArgsForCall, struct {
+		arg1 context.Context
+	}{arg1})
+	stub := fake.ListPendingStub
+	fakeReturns := fake.listPendingReturns
+	fake.recordInvocation("ListPending", []interface{}{arg1})
+	fake.listPendingMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeApprovalStore) ListPendingCallCount() int {
+	fake.listPendingMutex.RLock()
+	defer fake.listPendingMutex.RUnlock()
+	return len(fake.listPendingArgsForCall)
+}
+
+func (fake *FakeApprovalStore) ListPendingCalls(stub func(context.Context) ([]hitl.ApprovalRequest, error)) {
+	fake.listPendingMutex.Lock()
+	defer fake.listPendingMutex.Unlock()
+	fake.ListPendingStub = stub
+}
+
+func (fake *FakeApprovalStore) ListPendingArgsForCall(i int) context.Context {
+	fake.listPendingMutex.RLock()
+	defer fake.listPendingMutex.RUnlock()
+	argsForCall := fake.listPendingArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeApprovalStore) ListPendingReturns(result1 []hitl.ApprovalRequest, result2 error) {
+	fake.listPendingMutex.Lock()
+	defer fake.listPendingMutex.Unlock()
+	fake.ListPendingStub = nil
+	fake.listPendingReturns = struct {
+		result1 []hitl.ApprovalRequest
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeApprovalStore) ListPendingReturnsOnCall(i int, result1 []hitl.ApprovalRequest, result2 error) {
+	fake.listPendingMutex.Lock()
+	defer fake.listPendingMutex.Unlock()
+	fake.ListPendingStub = nil
+	if fake.listPendingReturnsOnCall == nil {
+		fake.listPendingReturnsOnCall = make(map[int]struct {
+			result1 []hitl.ApprovalRequest
+			result2 error
+		})
+	}
+	fake.listPendingReturnsOnCall[i] = struct {
+		result1 []hitl.ApprovalRequest
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeApprovalStore) RecoverPending(arg1 context.Context, arg2 time.Duration) (hitl.RecoverResult, error) {

@@ -263,6 +263,25 @@ func (s *gormStore) ReadOnlyTools() []string {
 	return s.cfg.readOnlyTools()
 }
 
+// ListPending returns all approval requests currently in "pending" state.
+// This is used by external HTTP APIs to surface which tool calls are
+// awaiting human approval. Without this, operators would need direct
+// database access to discover pending approvals.
+func (s *gormStore) ListPending(ctx context.Context) ([]ApprovalRequest, error) {
+	var rows []db.Approval
+	if err := s.db.WithContext(ctx).
+		Where("status = ?", string(StatusPending)).
+		Order("created_at DESC").
+		Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to query pending approvals: %w", err)
+	}
+	result := make([]ApprovalRequest, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, toApprovalRequest(row))
+	}
+	return result, nil
+}
+
 // RecoverPending handles approvals left in "pending" state from a previous
 // server instance. Approvals older than maxAge are marked as "expired";
 // more recent ones get fresh waiter channels registered so they can still

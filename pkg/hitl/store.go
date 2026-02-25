@@ -138,6 +138,11 @@ type ApprovalStore interface {
 	// waiter channels re-registered so they can still be resolved via the API.
 	RecoverPending(ctx context.Context, maxAge time.Duration) (RecoverResult, error)
 
+	// ListPending returns all approval requests currently in "pending" state.
+	// Without this, external systems (e.g. the GUILD API) would have no way
+	// to discover which tool calls are waiting for human approval.
+	ListPending(ctx context.Context) ([]ApprovalRequest, error)
+
 	// Close releases any resources held by the store.
 	Close() error
 
