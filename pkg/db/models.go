@@ -23,15 +23,17 @@ type Approval struct {
 	ID            string     `gorm:"primaryKey;type:text" json:"id"`
 	ThreadID      string     `gorm:"type:text;not null;index:idx_approvals_thread" json:"thread_id"`
 	RunID         string     `gorm:"type:text;not null" json:"run_id"`
+	TenantID      string     `gorm:"type:text;default:'';index:idx_approvals_tenant" json:"tenant_id,omitempty"`
 	ToolName      string     `gorm:"type:text;not null" json:"tool_name"`
 	Args          string     `gorm:"type:text;not null;default:''" json:"args"`
 	Status        string     `gorm:"type:text;not null;default:'pending';index:idx_approvals_status" json:"status"`
 	CreatedAt     time.Time  `gorm:"not null" json:"created_at"`
+	ExpiresAt     *time.Time `gorm:"index:idx_approvals_expires" json:"expires_at,omitempty"`
 	ResolvedAt    *time.Time `json:"resolved_at,omitempty"`
 	ResolvedBy    string     `gorm:"type:text;default:''" json:"resolved_by,omitempty"`
 	Feedback      string     `gorm:"type:text;default:''" json:"feedback,omitempty"`
-	SenderContext string     `gorm:"type:text;default:''" json:"sender_context,omitempty"` // who sent the original request (e.g. "slack:U12345:C67890")
-	Question      string     `gorm:"type:text;default:''" json:"question,omitempty"`       // original user question for replay-on-resume
+	SenderContext string     `gorm:"type:text;default:''" json:"sender_context,omitempty"`
+	Question      string     `gorm:"type:text;default:''" json:"question,omitempty"`
 }
 
 // TableName overrides the default GORM table name.

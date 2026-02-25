@@ -34,6 +34,19 @@ type FakeApprovalStore struct {
 		result1 hitl.ApprovalRequest
 		result2 error
 	}
+	ExpireStaleStub        func(context.Context) (int64, error)
+	expireStaleMutex       sync.RWMutex
+	expireStaleArgsForCall []struct {
+		arg1 context.Context
+	}
+	expireStaleReturns struct {
+		result1 int64
+		result2 error
+	}
+	expireStaleReturnsOnCall map[int]struct {
+		result1 int64
+		result2 error
+	}
 	IsAllowedStub        func(string) bool
 	isAllowedMutex       sync.RWMutex
 	isAllowedArgsForCall []struct {
@@ -216,6 +229,70 @@ func (fake *FakeApprovalStore) CreateReturnsOnCall(i int, result1 hitl.ApprovalR
 	}
 	fake.createReturnsOnCall[i] = struct {
 		result1 hitl.ApprovalRequest
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeApprovalStore) ExpireStale(arg1 context.Context) (int64, error) {
+	fake.expireStaleMutex.Lock()
+	ret, specificReturn := fake.expireStaleReturnsOnCall[len(fake.expireStaleArgsForCall)]
+	fake.expireStaleArgsForCall = append(fake.expireStaleArgsForCall, struct {
+		arg1 context.Context
+	}{arg1})
+	stub := fake.ExpireStaleStub
+	fakeReturns := fake.expireStaleReturns
+	fake.recordInvocation("ExpireStale", []interface{}{arg1})
+	fake.expireStaleMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeApprovalStore) ExpireStaleCallCount() int {
+	fake.expireStaleMutex.RLock()
+	defer fake.expireStaleMutex.RUnlock()
+	return len(fake.expireStaleArgsForCall)
+}
+
+func (fake *FakeApprovalStore) ExpireStaleCalls(stub func(context.Context) (int64, error)) {
+	fake.expireStaleMutex.Lock()
+	defer fake.expireStaleMutex.Unlock()
+	fake.ExpireStaleStub = stub
+}
+
+func (fake *FakeApprovalStore) ExpireStaleArgsForCall(i int) context.Context {
+	fake.expireStaleMutex.RLock()
+	defer fake.expireStaleMutex.RUnlock()
+	argsForCall := fake.expireStaleArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeApprovalStore) ExpireStaleReturns(result1 int64, result2 error) {
+	fake.expireStaleMutex.Lock()
+	defer fake.expireStaleMutex.Unlock()
+	fake.ExpireStaleStub = nil
+	fake.expireStaleReturns = struct {
+		result1 int64
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeApprovalStore) ExpireStaleReturnsOnCall(i int, result1 int64, result2 error) {
+	fake.expireStaleMutex.Lock()
+	defer fake.expireStaleMutex.Unlock()
+	fake.ExpireStaleStub = nil
+	if fake.expireStaleReturnsOnCall == nil {
+		fake.expireStaleReturnsOnCall = make(map[int]struct {
+			result1 int64
+			result2 error
+		})
+	}
+	fake.expireStaleReturnsOnCall[i] = struct {
+		result1 int64
 		result2 error
 	}{result1, result2}
 }

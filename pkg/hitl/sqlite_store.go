@@ -16,14 +16,19 @@ import (
 const allTools = "*"
 
 type Config struct {
-	AlwaysAllowed []string `yaml:"always_allowed" toml:"always_allowed" json:"always_allowed"`
-	DeniedTools   []string `yaml:"denied_tools" toml:"denied_tools" json:"denied_tools"`
+	AlwaysAllowed []string      `yaml:"always_allowed" toml:"always_allowed" json:"always_allowed"`
+	DeniedTools   []string      `yaml:"denied_tools" toml:"denied_tools" json:"denied_tools"`
+	ApprovalTTL   time.Duration `yaml:"approval_ttl" toml:"approval_ttl" json:"approval_ttl"`
 }
 
+// DefaultConfig returns sensible defaults.
+// ApprovalTTL defaults to 30 minutes — pending approvals older than this
+// are automatically expired by the background reaper.
 func DefaultConfig() Config {
 	return Config{
 		AlwaysAllowed: []string{},
 		DeniedTools:   []string{},
+		ApprovalTTL:   30 * time.Minute,
 	}
 }
 
@@ -111,19 +116,26 @@ func (s *gormStore) IsAllowed(toolName string) bool {
 }
 
 // Create persists a new pending approval request and returns it.
-// A UUID is generated as the approval ID.
+// A UUID is generated as the approval ID. If ApprovalTTL is configured,
+// an ExpiresAt timestamp is set; the background reaper will expire
+// approvals that exceed this deadline.
 func (s *gormStore) Create(ctx context.Context, req CreateRequest) (ApprovalRequest, error) {
 	now := time.Now().UTC()
 	row := db.Approval{
 		ID:            uuid.NewString(),
 		ThreadID:      req.ThreadID,
 		RunID:         req.RunID,
+		TenantID:      req.TenantID,
 		ToolName:      req.ToolName,
 		Args:          req.Args,
 		Status:        string(StatusPending),
 		CreatedAt:     now,
 		SenderContext: req.SenderContext,
 		Question:      req.Question,
+	}
+	if s.cfg.ApprovalTTL > 0 {
+		exp := now.Add(s.cfg.ApprovalTTL)
+		row.ExpiresAt = &exp
 	}
 
 	if err := retrier.Retry(ctx, func() error {
@@ -139,28 +151,33 @@ func (s *gormStore) Create(ctx context.Context, req CreateRequest) (ApprovalRequ
 	return toApprovalRequest(row), nil
 }
 
-// Resolve updates an approval to approved or rejected and unblocks any waiting goroutine.
+// Resolve updates an approval to approved or rejected and unblocks any
+// waiting goroutine. Uses SELECT ... FOR UPDATE to prevent concurrent
+// resolvers from racing on the same row.
 func (s *gormStore) Resolve(ctx context.Context, req ResolveRequest) error {
 	if req.Decision != StatusApproved && req.Decision != StatusRejected {
 		return fmt.Errorf("invalid decision %q: must be %q or %q", req.Decision, StatusApproved, StatusRejected)
 	}
 
 	now := time.Now().UTC()
-	result := s.db.WithContext(ctx).
-		Model(&db.Approval{}).
-		Where("id = ? AND status = ?", req.ApprovalID, string(StatusPending)).
-		Updates(map[string]interface{}{
+
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row db.Approval
+		if lockErr := tx.
+			Where("id = ? AND status = ?", req.ApprovalID, string(StatusPending)).
+			Set("gorm:query_option", "FOR UPDATE").
+			First(&row).Error; lockErr != nil {
+			return fmt.Errorf("approval %q not found or already resolved", req.ApprovalID)
+		}
+		return tx.Model(&row).Updates(map[string]interface{}{
 			"status":      string(req.Decision),
 			"resolved_at": now,
 			"resolved_by": req.ResolvedBy,
 			"feedback":    req.Feedback,
-		})
-
-	if result.Error != nil {
-		return fmt.Errorf("failed to update approval: %w", result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("approval %q not found or already resolved", req.ApprovalID)
+		}).Error
+	})
+	if err != nil {
+		return err
 	}
 
 	// Signal the waiting goroutine.
@@ -247,11 +264,13 @@ func toApprovalRequest(row db.Approval) ApprovalRequest {
 		ID:            row.ID,
 		ThreadID:      row.ThreadID,
 		RunID:         row.RunID,
+		TenantID:      row.TenantID,
 		ToolName:      row.ToolName,
 		Args:          row.Args,
 		Status:        ApprovalStatus(row.Status),
 		Feedback:      row.Feedback,
 		CreatedAt:     row.CreatedAt,
+		ExpiresAt:     row.ExpiresAt,
 		ResolvedAt:    row.ResolvedAt,
 		ResolvedBy:    row.ResolvedBy,
 		SenderContext: row.SenderContext,
@@ -263,14 +282,16 @@ func (s *gormStore) ReadOnlyTools() []string {
 	return s.cfg.readOnlyTools()
 }
 
-// ListPending returns all approval requests currently in "pending" state.
+// ListPending returns all approval requests currently in "pending" state
+// whose deadline (expires_at) has not yet passed.
 // This is used by external HTTP APIs to surface which tool calls are
 // awaiting human approval. Without this, operators would need direct
 // database access to discover pending approvals.
 func (s *gormStore) ListPending(ctx context.Context) ([]ApprovalRequest, error) {
+	now := time.Now().UTC()
 	var rows []db.Approval
 	if err := s.db.WithContext(ctx).
-		Where("status = ?", string(StatusPending)).
+		Where("status = ? AND (expires_at IS NULL OR expires_at > ?)", string(StatusPending), now).
 		Order("created_at DESC").
 		Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("failed to query pending approvals: %w", err)
@@ -280,6 +301,38 @@ func (s *gormStore) ListPending(ctx context.Context) ([]ApprovalRequest, error) 
 		result = append(result, toApprovalRequest(row))
 	}
 	return result, nil
+}
+
+// ExpireStale marks all pending approvals whose expires_at has passed as
+// expired. It returns the number of rows affected. This is meant to be
+// called periodically by a background reaper goroutine.
+func (s *gormStore) ExpireStale(ctx context.Context) (int64, error) {
+	now := time.Now().UTC()
+	result := s.db.WithContext(ctx).
+		Model(&db.Approval{}).
+		Where("status = ? AND expires_at IS NOT NULL AND expires_at <= ?", string(StatusPending), now).
+		Updates(map[string]interface{}{
+			"status":      string(StatusExpired),
+			"resolved_at": now,
+			"resolved_by": "system:ttl-reaper",
+			"feedback":    "Expired: approval TTL exceeded",
+		})
+	if result.Error != nil {
+		return 0, fmt.Errorf("expire stale approvals: %w", result.Error)
+	}
+	// Unblock any waiters for expired approvals.
+	if result.RowsAffected > 0 {
+		var expired []db.Approval
+		s.db.WithContext(ctx).
+			Where("status = ? AND resolved_by = ?", string(StatusExpired), "system:ttl-reaper").
+			Find(&expired)
+		for _, row := range expired {
+			if ch, ok := s.waiters.LoadAndDelete(row.ID); ok {
+				close(ch.(chan struct{}))
+			}
+		}
+	}
+	return result.RowsAffected, nil
 }
 
 // RecoverPending handles approvals left in "pending" state from a previous

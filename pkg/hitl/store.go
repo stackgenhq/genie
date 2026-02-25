@@ -46,15 +46,17 @@ type ApprovalRequest struct {
 	ID            string         `json:"id"`
 	ThreadID      string         `json:"thread_id"`
 	RunID         string         `json:"run_id"`
+	TenantID      string         `json:"tenant_id,omitempty"`
 	ToolName      string         `json:"tool_name"`
 	Args          string         `json:"args"`
 	Status        ApprovalStatus `json:"status"`
 	Feedback      string         `json:"feedback,omitempty"`
 	CreatedAt     time.Time      `json:"created_at"`
+	ExpiresAt     *time.Time     `json:"expires_at,omitempty"`
 	ResolvedAt    *time.Time     `json:"resolved_at,omitempty"`
 	ResolvedBy    string         `json:"resolved_by,omitempty"`
-	SenderContext string         `json:"sender_context,omitempty"` // originating sender for replay
-	Question      string         `json:"question,omitempty"`       // original user question for replay
+	SenderContext string         `json:"sender_context,omitempty"`
+	Question      string         `json:"question,omitempty"`
 }
 
 func (a ApprovalRequest) String() string {
@@ -88,6 +90,7 @@ func (a ApprovalRequest) String() string {
 type CreateRequest struct {
 	ThreadID      string
 	RunID         string
+	TenantID      string
 	ToolName      string
 	Args          string
 	SenderContext string // originating sender (e.g. "slack:U123:C456")
@@ -138,10 +141,16 @@ type ApprovalStore interface {
 	// waiter channels re-registered so they can still be resolved via the API.
 	RecoverPending(ctx context.Context, maxAge time.Duration) (RecoverResult, error)
 
-	// ListPending returns all approval requests currently in "pending" state.
+	// ListPending returns all approval requests currently in "pending" state
+	// whose deadline has not expired.
 	// Without this, external systems (e.g. the GUILD API) would have no way
 	// to discover which tool calls are waiting for human approval.
 	ListPending(ctx context.Context) ([]ApprovalRequest, error)
+
+	// ExpireStale marks all pending approvals past their expires_at as expired.
+	// Returns the number of rows affected. Called periodically by a background
+	// reaper goroutine.
+	ExpireStale(ctx context.Context) (int64, error)
 
 	// Close releases any resources held by the store.
 	Close() error
