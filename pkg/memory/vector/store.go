@@ -7,14 +7,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/stackgenhq/genie/pkg/security"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/document"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/embedder"
-	geminiembed "trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/gemini"
-	hfembed "trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/huggingface"
-	openaiembed "trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/openai"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/inmemory"
 )
@@ -135,7 +133,7 @@ type Store struct {
 // If cfg.PersistenceDir is set and using in-memory store, existing data is loaded from disk.
 // If using Milvus, persistence is handled by Milvus itself.
 func (cfg Config) NewStore(ctx context.Context) (*Store, error) {
-	emb, err := buildEmbedder(ctx, cfg)
+	emb, err := cfg.buildEmbedder(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create embedder: %w", err)
 	}
@@ -143,15 +141,23 @@ func (cfg Config) NewStore(ctx context.Context) (*Store, error) {
 	var vs vectorstore.VectorStore
 	useMilvus := false
 
-	// Determine which vector store to use
-	if cfg.VectorStoreProvider == "milvus" {
+	// Determine which vector store to use (case-insensitive)
+	vectorStoreProvider := strings.ToLower(strings.TrimSpace(cfg.VectorStoreProvider))
+	if vectorStoreProvider == "" {
+		vectorStoreProvider = "inmemory" // default
+	}
+
+	switch vectorStoreProvider {
+	case "milvus":
 		vs, err = cfg.buildMilvusStore(ctx, emb)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Milvus store: %w", err)
 		}
 		useMilvus = true
-	} else {
+	case "inmemory":
 		vs = inmemory.New()
+	default:
+		return nil, fmt.Errorf("invalid vector_store_provider: %q (valid options: inmemory, milvus)", cfg.VectorStoreProvider)
 	}
 
 	s := &Store{
@@ -290,12 +296,8 @@ func (s *Store) Delete(ctx context.Context, ids ...string) error {
 // For Milvus stores, it closes the Milvus client connection.
 // It is safe to call multiple times.
 func (s *Store) Close(ctx context.Context) error {
-	if s.useMilvus {
-		// Milvus stores handle their own persistence, just close the connection
-		if closer, ok := s.vs.(interface{ Close() error }); ok {
-			return closer.Close()
-		}
-		return nil
+	if s.vs != nil {
+		return s.vs.Close()
 	}
 	return s.saveSnapshot(ctx)
 }
@@ -367,88 +369,4 @@ func (s *Store) loadSnapshot() error {
 		}
 	}
 	return nil
-}
-
-// buildEmbedder constructs the appropriate embedder based on configuration.
-// It accepts a context because the Gemini embedder requires one for client
-// initialization.
-func buildEmbedder(ctx context.Context, cfg Config) (embedder.Embedder, error) {
-	switch cfg.EmbeddingProvider {
-	case "openai":
-		if cfg.APIKey == "" {
-			return nil, fmt.Errorf("openai provider requested but no API key found")
-		}
-		return openaiembed.New(
-			openaiembed.WithAPIKey(cfg.APIKey),
-			openaiembed.WithModel(openaiembed.ModelTextEmbedding3Small),
-		), nil
-
-	case "ollama":
-		ollamaURL := cfg.OllamaURL
-		if ollamaURL == "" {
-			ollamaURL = "http://localhost:11434"
-		}
-		model := cfg.OllamaModel
-		if model == "" {
-			model = "nomic-embed-text"
-		}
-		// Ollama exposes an OpenAI-compatible /v1/embeddings endpoint,
-		// so we use the OpenAI embedder with a custom base URL.
-		return openaiembed.New(
-			openaiembed.WithBaseURL(ollamaURL+"/v1"),
-			openaiembed.WithModel(model),
-		), nil
-
-	case "huggingface":
-		hfURL := cfg.HuggingFaceURL
-		if hfURL == "" {
-			hfURL = hfembed.DefaultBaseURL
-		}
-		return hfembed.New(
-			hfembed.WithBaseURL(hfURL),
-		), nil
-
-	case "gemini":
-		apiKey := cfg.GeminiAPIKey
-		if apiKey == "" {
-			return nil, fmt.Errorf("gemini provider requested but no API key found (set GOOGLE_API_KEY)")
-		}
-		opts := []geminiembed.Option{
-			geminiembed.WithAPIKey(apiKey),
-		}
-		if cfg.GeminiModel != "" {
-			opts = append(opts, geminiembed.WithModel(cfg.GeminiModel))
-		}
-		return geminiembed.New(ctx, opts...)
-
-	default:
-		// Deterministic, non-semantic embedder for testing/dev.
-		return &dummyEmbedder{}, nil
-	}
-}
-
-// dummyEmbedder implements embedder.Embedder with a deterministic,
-// non-semantic embedding function. Suitable only for testing.
-type dummyEmbedder struct{}
-
-const dummyDimension = 1536
-
-// GetEmbedding returns a deterministic vector derived from the text bytes.
-func (d *dummyEmbedder) GetEmbedding(_ context.Context, text string) ([]float64, error) {
-	vec := make([]float64, dummyDimension)
-	for i := 0; i < len(text) && i < dummyDimension; i++ {
-		vec[i] = float64(text[i]) / 255.0
-	}
-	return vec, nil
-}
-
-// GetEmbeddingWithUsage returns the same as GetEmbedding with nil usage.
-func (d *dummyEmbedder) GetEmbeddingWithUsage(ctx context.Context, text string) ([]float64, map[string]any, error) {
-	emb, err := d.GetEmbedding(ctx, text)
-	return emb, nil, err
-}
-
-// GetDimensions returns the fixed dimensionality of the dummy embeddings.
-func (d *dummyEmbedder) GetDimensions() int {
-	return dummyDimension
 }

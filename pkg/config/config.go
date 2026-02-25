@@ -109,6 +109,10 @@ func LoadGenieConfig(ctx context.Context, sp security.SecretProvider, path strin
 	if cfg.VectorMemory.HuggingFaceURL != "" && cfg.VectorMemory.EmbeddingProvider == "dummy" {
 		cfg.VectorMemory.EmbeddingProvider = "huggingface"
 	}
+	// Auto-detect Milvus if MILVUS_ADDRESS is set and vector_store_provider is not explicitly set
+	if cfg.VectorMemory.Milvus.Address != "" && cfg.VectorMemory.VectorStoreProvider == "" {
+		cfg.VectorMemory.VectorStoreProvider = "milvus"
+	}
 
 	if path == "" {
 		// If no config file, check for SKILLS_ROOT environment variable

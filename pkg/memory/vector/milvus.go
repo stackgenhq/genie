@@ -27,11 +27,13 @@ import (
 //
 //	[vector_memory]
 //	vector_store_provider = "milvus"
+//	embedding_provider = "openai"
+//	api_key = "${OPENAI_API_KEY}"
+//
+//	[vector_memory.milvus]
 //	milvus_address = "localhost:19530"
 //	milvus_db_name = "genie"
 //	milvus_collection_name = "genie_documents"
-//	embedding_provider = "openai"
-//	api_key = "${OPENAI_API_KEY}"
 //
 // The Milvus implementation is provided by trpc-agent-go/knowledge/vectorstore/milvus
 // and supports all standard vector store operations (Add, Search, Delete, etc.)
