@@ -10,11 +10,11 @@ import (
 // TimeoutConfig controls the TimeoutMiddleware.
 type TimeoutConfig struct {
 	// Enabled activates the timeout middleware. Defaults to false.
-	Enabled bool `yaml:"enabled" toml:"enabled"`
+	Enabled bool `yaml:"enabled,omitempty" toml:"enabled,omitempty"`
 	// Default is the fallback timeout for all tools.
-	Default time.Duration `yaml:"default" toml:"default"`
+	Default time.Duration `yaml:"default,omitempty" toml:"default,omitempty"`
 	// PerTool maps tool names to per-tool timeout overrides.
-	PerTool map[string]time.Duration `yaml:"per_tool" toml:"per_tool"`
+	PerTool map[string]time.Duration `yaml:"per_tool,omitempty" toml:"per_tool,omitempty"`
 }
 
 // TimeoutMiddleware returns a Middleware that enforces a maximum execution

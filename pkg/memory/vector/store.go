@@ -44,19 +44,19 @@ type Config struct {
 	// saved as a JSON file. If empty, the store is ephemeral (in-memory only).
 	// Note: PersistenceDir is ignored when using Milvus as the vector store,
 	// as Milvus handles persistence internally.
-	PersistenceDir    string `yaml:"persistence_dir" toml:"persistence_dir"`
-	EmbeddingProvider string `yaml:"embedding_provider" toml:"embedding_provider"` // "openai", "ollama", "huggingface", "gemini", "dummy"
-	APIKey            string `yaml:"api_key" toml:"api_key"`
-	OllamaURL         string `yaml:"ollama_url" toml:"ollama_url"`
-	OllamaModel       string `yaml:"ollama_model" toml:"ollama_model"`
-	HuggingFaceURL    string `yaml:"huggingface_url" toml:"huggingface_url"`
-	GeminiAPIKey      string `yaml:"gemini_api_key" toml:"gemini_api_key"`
-	GeminiModel       string `yaml:"gemini_model" toml:"gemini_model"`
+	PersistenceDir    string `yaml:"persistence_dir,omitempty" toml:"persistence_dir,omitempty"`
+	EmbeddingProvider string `yaml:"embedding_provider,omitempty" toml:"embedding_provider,omitempty"` // "openai", "ollama", "huggingface", "gemini", "dummy"
+	APIKey            string `yaml:"api_key,omitempty" toml:"api_key,omitempty"`
+	OllamaURL         string `yaml:"ollama_url,omitempty" toml:"ollama_url,omitempty"`
+	OllamaModel       string `yaml:"ollama_model,omitempty" toml:"ollama_model,omitempty"`
+	HuggingFaceURL    string `yaml:"huggingface_url,omitempty" toml:"huggingface_url,omitempty"`
+	GeminiAPIKey      string `yaml:"gemini_api_key,omitempty" toml:"gemini_api_key,omitempty"`
+	GeminiModel       string `yaml:"gemini_model,omitempty" toml:"gemini_model,omitempty"`
 	// VectorStoreProvider specifies the vector store backend to use.
 	// Options: "inmemory" (default), "milvus"
-	VectorStoreProvider string `yaml:"vector_store_provider" toml:"vector_store_provider"`
+	VectorStoreProvider string `yaml:"vector_store_provider,omitempty" toml:"vector_store_provider,omitempty"`
 	// Milvus configuration (only used when VectorStoreProvider is "milvus")
-	Milvus MilvusConfig `yaml:"milvus" toml:"milvus"`
+	Milvus MilvusConfig `yaml:"milvus,omitempty" toml:"milvus,omitempty"`
 }
 
 // DefaultConfig builds the default vector store configuration by resolving

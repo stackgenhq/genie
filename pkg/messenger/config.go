@@ -14,83 +14,83 @@ import (
 type Config struct {
 	// Platform selects which adapter to use (slack, discord, telegram, teams, googlechat).
 	// Empty means messaging is disabled.
-	Platform Platform `yaml:"platform" toml:"platform"`
+	Platform Platform `yaml:"platform,omitempty" toml:"platform,omitempty"`
 
 	// BufferSize controls the incoming message channel buffer.
 	// Defaults to DefaultMessageBufferSize if zero.
-	BufferSize int `yaml:"buffer_size" toml:"buffer_size"`
+	BufferSize int `yaml:"buffer_size,omitempty" toml:"buffer_size,omitempty"`
 
 	// AllowedSenders is an optional allowlist of sender IDs (phone numbers,
 	// usernames, or user IDs depending on platform) that the bot will respond
 	// to. When empty, the bot responds to all incoming messages.
 	// For WhatsApp: use phone numbers without '+' (e.g., "15551234567").
-	AllowedSenders []string `yaml:"allowed_senders" toml:"allowed_senders"`
+	AllowedSenders []string `yaml:"allowed_senders,omitempty" toml:"allowed_senders,omitempty"`
 
 	// Slack holds Slack-specific configuration.
-	Slack SlackConfig `yaml:"slack" toml:"slack"`
+	Slack SlackConfig `yaml:"slack,omitempty" toml:"slack,omitempty"`
 
 	// Discord holds Discord-specific configuration.
-	Discord DiscordConfig `yaml:"discord" toml:"discord"`
+	Discord DiscordConfig `yaml:"discord,omitempty" toml:"discord,omitempty"`
 
 	// Telegram holds Telegram-specific configuration.
-	Telegram TelegramConfig `yaml:"telegram" toml:"telegram"`
+	Telegram TelegramConfig `yaml:"telegram,omitempty" toml:"telegram,omitempty"`
 
 	// Teams holds Microsoft Teams-specific configuration.
-	Teams TeamsConfig `yaml:"teams" toml:"teams"`
+	Teams TeamsConfig `yaml:"teams,omitempty" toml:"teams,omitempty"`
 
 	// GoogleChat holds Google Chat-specific configuration.
-	GoogleChat GoogleChatConfig `yaml:"googlechat" toml:"googlechat"`
+	GoogleChat GoogleChatConfig `yaml:"googlechat,omitempty" toml:"googlechat,omitempty"`
 
 	// WhatsApp holds WhatsApp Business-specific configuration.
-	WhatsApp WhatsAppConfig `yaml:"whatsapp" toml:"whatsapp"`
+	WhatsApp WhatsAppConfig `yaml:"whatsapp,omitempty" toml:"whatsapp,omitempty"`
 
 	// AGUI holds AG-UI SSE adapter configuration.
-	AGUI AGUIConfig `yaml:"agui" toml:"agui"`
+	AGUI AGUIConfig `yaml:"agui,omitempty" toml:"agui,omitempty"`
 }
 
 // SlackConfig holds Slack adapter settings.
 type SlackConfig struct {
 	// AppToken is the Slack app-level token (xapp-...) for Socket Mode.
-	AppToken string `yaml:"app_token" toml:"app_token"`
+	AppToken string `yaml:"app_token,omitempty" toml:"app_token,omitempty"`
 	// BotToken is the Slack bot user OAuth token (xoxb-...).
-	BotToken string `yaml:"bot_token" toml:"bot_token"`
+	BotToken string `yaml:"bot_token,omitempty" toml:"bot_token,omitempty"`
 }
 
 // DiscordConfig holds Discord adapter settings.
 type DiscordConfig struct {
 	// BotToken is the Discord bot token from the Developer Portal.
-	BotToken string `yaml:"bot_token" toml:"bot_token"`
+	BotToken string `yaml:"bot_token,omitempty" toml:"bot_token,omitempty"`
 }
 
 // TelegramConfig holds Telegram adapter settings.
 type TelegramConfig struct {
 	// Token is the Telegram Bot API token from BotFather.
-	Token string `yaml:"token" toml:"token"`
+	Token string `yaml:"token,omitempty" toml:"token,omitempty"`
 }
 
 // TeamsConfig holds Microsoft Teams adapter settings.
 type TeamsConfig struct {
 	// AppID is the Microsoft Bot Framework App ID.
-	AppID string `yaml:"app_id" toml:"app_id"`
+	AppID string `yaml:"app_id,omitempty" toml:"app_id,omitempty"`
 	// AppPassword is the Microsoft Bot Framework App Password.
-	AppPassword string `yaml:"app_password" toml:"app_password"`
+	AppPassword string `yaml:"app_password,omitempty" toml:"app_password,omitempty"`
 	// ListenAddr is the address for incoming Bot Framework activities (e.g., ":3978").
-	ListenAddr string `yaml:"listen_addr" toml:"listen_addr"`
+	ListenAddr string `yaml:"listen_addr,omitempty" toml:"listen_addr,omitempty"`
 }
 
 // GoogleChatConfig holds Google Chat adapter settings.
 type GoogleChatConfig struct {
 	// CredentialsFile is the path to the Google service account JSON key file.
-	CredentialsFile string `yaml:"credentials_file" toml:"credentials_file"`
+	CredentialsFile string `yaml:"credentials_file,omitempty" toml:"credentials_file,omitempty"`
 	// ListenAddr is the address for incoming HTTP push events (e.g., ":8080").
-	ListenAddr string `yaml:"listen_addr" toml:"listen_addr"`
+	ListenAddr string `yaml:"listen_addr,omitempty" toml:"listen_addr,omitempty"`
 }
 
 // WhatsAppConfig holds WhatsApp adapter settings.
 type WhatsAppConfig struct {
 	// StorePath is the directory for whatsmeow session/credential storage.
 	// Defaults to ~/.genie/whatsapp if empty.
-	StorePath string `yaml:"store_path" toml:"store_path"`
+	StorePath string `yaml:"store_path,omitempty" toml:"store_path,omitempty"`
 }
 
 // AGUIConfig holds AG-UI server and messenger adapter configuration.
@@ -99,15 +99,15 @@ type WhatsAppConfig struct {
 type AGUIConfig struct {
 	// AppName is used as the session.Key AppName for thread tracking.
 	// Defaults to "genie" if empty.
-	AppName string `yaml:"app_name" toml:"app_name"`
+	AppName string `yaml:"app_name,omitempty" toml:"app_name,omitempty"`
 
 	// --- Server settings ---
-	CORSOrigins   []string `yaml:"cors_origins" toml:"cors_origins"`
-	Port          uint32   `yaml:"port" toml:"port"`
-	RateLimit     float64  `yaml:"rate_limit" toml:"rate_limit"`         // req/sec per IP (0 = disabled)
-	RateBurst     int      `yaml:"rate_burst" toml:"rate_burst"`         // burst allowance per IP
-	MaxConcurrent int      `yaml:"max_concurrent" toml:"max_concurrent"` // max in-flight requests (0 = unlimited)
-	MaxBodyBytes  int64    `yaml:"max_body_bytes" toml:"max_body_bytes"` // max request body in bytes (0 = unlimited)
+	CORSOrigins   []string `yaml:"cors_origins,omitempty" toml:"cors_origins,omitempty"`
+	Port          uint32   `yaml:"port,omitempty" toml:"port,omitempty"`
+	RateLimit     float64  `yaml:"rate_limit,omitempty" toml:"rate_limit,omitempty"`         // req/sec per IP (0 = disabled)
+	RateBurst     int      `yaml:"rate_burst,omitempty" toml:"rate_burst,omitempty"`         // burst allowance per IP
+	MaxConcurrent int      `yaml:"max_concurrent,omitempty" toml:"max_concurrent,omitempty"` // max in-flight requests (0 = unlimited)
+	MaxBodyBytes  int64    `yaml:"max_body_bytes,omitempty" toml:"max_body_bytes,omitempty"` // max request body in bytes (0 = unlimited)
 }
 
 // DefaultAGUIConfig returns sensible defaults for the AG-UI server.

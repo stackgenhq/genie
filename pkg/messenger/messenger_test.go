@@ -99,7 +99,7 @@ var _ = Describe("Options", func() {
 	Describe("DefaultAdapterConfig", func() {
 		It("should return sensible defaults", func() {
 			cfg := messenger.DefaultAdapterConfig()
-			Expect(cfg.MessageBufferSize).To(Equal(messenger.DefaultMessageBufferSize))
+			Expect(cfg.MessageBufferSize).To(Equal(100))
 		})
 	})
 
@@ -111,10 +111,10 @@ var _ = Describe("Options", func() {
 
 		It("should ignore non-positive buffer size", func() {
 			cfg := messenger.ApplyOptions(messenger.WithMessageBuffer(0))
-			Expect(cfg.MessageBufferSize).To(Equal(messenger.DefaultMessageBufferSize))
+			Expect(cfg.MessageBufferSize).To(Equal(100))
 
 			cfg = messenger.ApplyOptions(messenger.WithMessageBuffer(-1))
-			Expect(cfg.MessageBufferSize).To(Equal(messenger.DefaultMessageBufferSize))
+			Expect(cfg.MessageBufferSize).To(Equal(100))
 		})
 
 		It("should apply multiple options", func() {

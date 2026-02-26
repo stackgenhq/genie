@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	aguitypes "github.com/stackgenhq/genie/pkg/agui"
 )
 
@@ -180,6 +181,15 @@ func MapEvent(event interface{}, threadID, runID string) ([]byte, string, error)
 			ApprovalID: e.RequestID,
 			Content:    e.Question,
 			Message:    e.Context,
+		}
+
+	case string:
+		// Plain string from messenger.Send() (e.g. send_message tool): emit as
+		// TEXT_MESSAGE_CONTENT with a new messageId so the client can show it.
+		out = aguiEvent{
+			Type:      aguitypes.EventTextMessageContent,
+			MessageID: uuid.New().String(),
+			Delta:     e,
 		}
 
 	default:

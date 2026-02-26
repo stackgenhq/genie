@@ -7,15 +7,15 @@
 // calendars. This package bridges that gap, enabling meeting scheduling,
 // availability checks, and event management through conversational AI.
 //
-// Available tools:
-//   - calendar_list_events — list upcoming events in a time range
-//   - calendar_next_events — list upcoming events for a human-friendly duration
-//   - calendar_create_event — schedule a new event with title, time, attendees
-//   - calendar_update_event — modify an existing event
-//   - calendar_delete_event — cancel an event
-//   - calendar_free_busy — check availability for one or more calendars
-//   - calendar_quick_add — create event from natural language text
-//   - calendar_find_time — find a common free slot for attendees
+// Available tools (prefixed with google_calendar_ when registered):
+//   - google_calendar_list_events — list upcoming events in a time range
+//   - google_calendar_next_events — list upcoming events for a human-friendly duration
+//   - google_calendar_create_event — schedule a new event with title, time, attendees
+//   - google_calendar_update_event — modify an existing event
+//   - google_calendar_delete_event — cancel an event
+//   - google_calendar_free_busy — check availability for one or more calendars
+//   - google_calendar_quick_add — create event from natural language text
+//   - google_calendar_find_time — find a common free slot for attendees
 //
 // Safety guards:
 //   - 30-second API timeout
@@ -23,10 +23,17 @@
 //   - Events limited to 100 per list query
 //
 // Authentication:
-//   - OAuth2: Set GOOGLE_CALENDAR_CREDENTIALS_FILE (path to credentials.json)
-//     and GOOGLE_CALENDAR_TOKEN_FILE (path to token.json)
-//   - Service account: Set GOOGLE_CALENDAR_CREDENTIALS_FILE to a service
-//     account key JSON file (auto-detected by the "type" field)
+//   - Embedded client (Option 1): Build with -X to inject
+//     GoogleClientID and GoogleClientSecret; then users can
+//     "just sign in" without providing credentials. See pkg/tools/google/oauth.
+//   - OAuth2: Set CredentialsFile (path or JSON content of credentials.json)
+//     and one of: TokenFile (path to token.json), Token (inline token JSON),
+//     or Password (OAuth refresh token or inline token JSON).
+//   - Service account: Set CredentialsFile to a service account key JSON
+//     (auto-detected by the "type" field).
+//
+// Google Calendar API does not support username/password login; it requires
+// OAuth2 or a service account.
 package calendar
 
 import (
@@ -34,12 +41,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/stackgenhq/genie/pkg/security"
-	"golang.org/x/oauth2"
+	"github.com/stackgenhq/genie/pkg/tools/google/oauth"
 	"golang.org/x/oauth2/google"
 	gcal "google.golang.org/api/calendar/v3"
 	"google.golang.org/api/option"
@@ -60,6 +67,12 @@ var calendarScopes = []string{gcal.CalendarScope}
 type interval struct {
 	start time.Time
 	end   time.Time
+}
+
+type intervals []interval
+
+func (is intervals) sort() {
+	sort.Slice(is, func(i, j int) bool { return is[i].start.Before(is[j].start) })
 }
 
 // ────────────────────── Per-operation request structs ──────────────────────
@@ -291,9 +304,9 @@ func (c *calendarTools) tools() []tool.CallableTool {
 			function.WithName(fmt.Sprintf("%s_list_events", c.name)),
 			function.WithDescription(
 				"List events from the "+c.name+" Google Calendar within a time range. "+
+					"Use for 'how is my schedule', 'any activities tomorrow/on [date]', or what's on. "+
 					"Returns event titles, times, attendees, and IDs. "+
-					"Use time_min/time_max (RFC3339) to scope the query. "+
-					"Defaults to the next 7 days if omitted.",
+					"Use time_min/time_max (RFC3339) to scope; defaults to the next 7 days.",
 			),
 		),
 		function.NewFunctionTool(
@@ -301,9 +314,8 @@ func (c *calendarTools) tools() []tool.CallableTool {
 			function.WithName(fmt.Sprintf("%s_next_events", c.name)),
 			function.WithDescription(
 				"List upcoming events from the "+c.name+" Google Calendar starting from now "+
-					"for a human-friendly duration like '2h', '3d', or '1w'. "+
-					"Convenience alternative to list_events when you just want "+
-					"'what's coming up in the next X'.",
+					"for a duration like '2h', '3d', or '1w'. "+
+					"Use for 'what's my schedule tomorrow', 'any activities coming up', or 'what's next'.",
 			),
 		),
 		function.NewFunctionTool(
@@ -384,33 +396,36 @@ func (c *calendarTools) tools() []tool.CallableTool {
 // Returns a user-friendly error message when credentials are missing so the
 // agent can inform the user how to configure the integration.
 func (c *calendarTools) getCalendarService(ctx context.Context) (*gcal.Service, error) {
-
 	credsEntry, _ := c.secretProvider.GetSecret(ctx, "CredentialsFile")
-	if credsEntry == "" {
-		return nil, fmt.Errorf(
-			"Google Calendar not configured: the 'calendar' integration must have a " +
-				"CredentialsFile secret binding pointing to your credentials.json or service account key file, " +
-				"see https://developers.google.com/calendar/api/quickstart/go",
-		)
+	credsJSON, err := getCredentialsForCalendar(credsEntry)
+	if err != nil {
+		return nil, err
 	}
 
-	// Detect authentication mode from the credentials file content.
+	// Detect authentication mode from the credentials content.
 	var raw map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(credsEntry), &raw); err != nil {
-		return nil, fmt.Errorf("invalid credentials JSON in %q: %w", credsEntry, err)
+	if err := json.Unmarshal(credsJSON, &raw); err != nil {
+		return nil, fmt.Errorf("invalid credentials JSON: %w", err)
 	}
 
 	// Service account: "type":"service_account"
 	if typeField, ok := raw["type"]; ok {
 		var t string
 		if err := json.Unmarshal(typeField, &t); err == nil && t == "service_account" {
-			return c.serviceAccountClient(ctx, []byte(credsEntry))
+			return c.serviceAccountClient(ctx, credsJSON)
 		}
 	}
 
-	// OAuth2 installed/web app: requires a token file.
-	tokenEntry, _ := c.secretProvider.GetSecret(ctx, "TokenFile")
-	return c.oauth2Client(ctx, []byte(credsEntry), tokenEntry)
+	// OAuth2: token from TokenFile, Token/Password, or device keychain.
+	tokenJSON, save, err := oauth.GetToken(ctx, c.secretProvider)
+	if err != nil {
+		return nil, fmt.Errorf("OAuth2 token required: %w", err)
+	}
+	client, err := oauth.HTTPClient(ctx, credsJSON, tokenJSON, save, calendarScopes)
+	if err != nil {
+		return nil, fmt.Errorf("OAuth2 client: %w", err)
+	}
+	return gcal.NewService(ctx, option.WithHTTPClient(client))
 }
 
 // serviceAccountClient creates a Calendar service using service account credentials.
@@ -420,45 +435,6 @@ func (c *calendarTools) serviceAccountClient(ctx context.Context, credsJSON []by
 		return nil, fmt.Errorf("invalid service account credentials: %w", err)
 	}
 	return gcal.NewService(ctx, option.WithCredentials(creds))
-}
-
-// oauth2Client creates a Calendar service using OAuth2 credentials + token file.
-func (c *calendarTools) oauth2Client(ctx context.Context, credsJSON []byte, tokenFile string) (*gcal.Service, error) {
-	config, err := google.ConfigFromJSON(credsJSON, calendarScopes...)
-	if err != nil {
-		return nil, fmt.Errorf("invalid OAuth2 credentials: %w", err)
-	}
-
-	if tokenFile == "" {
-		return nil, fmt.Errorf(
-			"TokenFile is required for OAuth2 authentication. " +
-				"Add a TokenFile secret binding to your calendar integration. " +
-				"Run the Google Calendar quickstart to generate a token.json file: " +
-				"https://developers.google.com/calendar/api/quickstart/go",
-		)
-	}
-
-	tokenJSON, err := os.ReadFile(tokenFile)
-	if err != nil {
-		return nil, fmt.Errorf("cannot read token file %q: %w", tokenFile, err)
-	}
-
-	var tok oauth2.Token
-	if err := json.Unmarshal(tokenJSON, &tok); err != nil {
-		return nil, fmt.Errorf("invalid token JSON in %q: %w", tokenFile, err)
-	}
-
-	client := config.Client(ctx, &tok)
-
-	// If the token was refreshed, persist it back to disk.
-	newTok, refreshErr := config.TokenSource(ctx, &tok).Token()
-	if refreshErr == nil && newTok.AccessToken != tok.AccessToken {
-		if data, err := json.MarshalIndent(newTok, "", "  "); err == nil {
-			_ = os.WriteFile(tokenFile, data, 0600)
-		}
-	}
-
-	return gcal.NewService(ctx, option.WithHTTPClient(client))
 }
 
 // ────────────────────── Tool handlers ──────────────────────
@@ -785,20 +761,19 @@ func (c *calendarTools) handleFreeBusy(ctx context.Context, req freeBusyRequest)
 		return resp, fmt.Errorf("google calendar API error (free_busy): %w", err)
 	}
 
-	// Format the response as a human-readable summary.
-	var sb strings.Builder
+	var parts []string
 	for calID, cal := range fbResp.Calendars {
-		if len(cal.Busy) == 0 {
-			fmt.Fprintf(&sb, "Calendar %q: Free for the entire period.\n", calID)
-			continue
-		}
-		fmt.Fprintf(&sb, "Calendar %q: %d busy periods:\n", calID, len(cal.Busy))
+		var busyIntervals intervals
 		for _, busy := range cal.Busy {
-			fmt.Fprintf(&sb, "  • %s → %s\n", busy.Start, busy.End)
+			s, err1 := time.Parse(time.RFC3339, busy.Start)
+			e, err2 := time.Parse(time.RFC3339, busy.End)
+			if err1 == nil && err2 == nil {
+				busyIntervals = append(busyIntervals, interval{start: s, end: e})
+			}
 		}
+		parts = append(parts, busyIntervals.formatFreeBusyForLLM(calID, timeMin, timeMax))
 	}
-
-	resp.FreeBusy = sb.String()
+	resp.FreeBusy = strings.Join(parts, "\n")
 	resp.Message = fmt.Sprintf("Free/busy check from %s to %s.",
 		timeMin.Format(time.RFC3339), timeMax.Format(time.RFC3339))
 	return resp, nil
@@ -899,7 +874,7 @@ func (c *calendarTools) handleFindTime(ctx context.Context, req findTimeRequest)
 	}
 
 	// Merge all busy periods across attendees into a single sorted list.
-	var allBusy []interval
+	var allBusy intervals
 	for _, email := range req.Attendees {
 		trimmed := strings.TrimSpace(email)
 		cal, ok := fbResp.Calendars[trimmed]
@@ -917,8 +892,8 @@ func (c *calendarTools) handleFindTime(ctx context.Context, req findTimeRequest)
 	}
 
 	// Sort by start time, then merge overlapping intervals.
-	sortIntervals(allBusy)
-	merged := mergeIntervals(allBusy)
+	allBusy.sort()
+	merged := allBusy.mergeIntervals()
 
 	// Walk the timeline and find free gaps ≥ slotLen.
 	type freeSlot struct {
@@ -1026,23 +1001,14 @@ func parseDuration(s string) (time.Duration, error) {
 	}
 }
 
-// sortIntervals sorts intervals by start time (in-place).
-func sortIntervals(intervals []interval) {
-	for i := 1; i < len(intervals); i++ {
-		for j := i; j > 0 && intervals[j].start.Before(intervals[j-1].start); j-- {
-			intervals[j], intervals[j-1] = intervals[j-1], intervals[j]
-		}
-	}
-}
-
 // mergeIntervals merges overlapping or adjacent time intervals.
 // Input must be sorted by start time.
-func mergeIntervals(intervals []interval) []interval {
-	if len(intervals) == 0 {
-		return nil
+func (is intervals) mergeIntervals() intervals {
+	if len(is) == 0 {
+		return is
 	}
-	merged := []interval{intervals[0]}
-	for _, iv := range intervals[1:] {
+	merged := intervals{is[0]}
+	for _, iv := range is[1:] {
 		last := &merged[len(merged)-1]
 		if iv.start.Before(last.end) || iv.start.Equal(last.end) {
 			if iv.end.After(last.end) {
@@ -1053,6 +1019,79 @@ func mergeIntervals(intervals []interval) []interval {
 		}
 	}
 	return merged
+}
+
+// computeFreeBlocks returns free intervals in [rangeStart, rangeEnd] given
+// merged busy intervals. Busy must be sorted and non-overlapping (e.g. from mergeIntervals).
+// Used by free_busy formatting so the LLM gets explicit free blocks; unit-tested.
+func (is intervals) computeFreeBlocks(rangeStart, rangeEnd time.Time) intervals {
+	var free intervals
+	cursor := rangeStart
+	for _, b := range is {
+		if b.start.After(cursor) {
+			free = append(free, interval{start: cursor, end: b.start})
+		}
+		if b.end.After(cursor) {
+			cursor = b.end
+		}
+	}
+	if rangeEnd.After(cursor) {
+		free = append(free, interval{start: cursor, end: rangeEnd})
+	}
+	return free
+}
+
+// formatDuration returns a short human-readable duration (e.g. "1h30m", "9h", "45m") for LLM output.
+func formatDuration(d time.Duration) string {
+	s := d.Round(time.Minute).String()
+	s = strings.TrimSuffix(s, "0s")
+	s = strings.Replace(s, "h0m", "h", 1) // e.g. 9h0m -> 9h
+	return s
+}
+
+// formatFreeBusyForLLM produces an explicit, parseable free/busy summary for the LLM.
+// Uses section headers FREE_BUSY_SUMMARY, BUSY_PERIODS, FREE_BLOCKS so the model
+// can reliably parse busy vs free. Includes durations for each block and a one-line summary.
+// busyIntervals are merged and free blocks are computed; unit-tested.
+func (busyIntervals intervals) formatFreeBusyForLLM(calendarID string, rangeStart, rangeEnd time.Time) string {
+	busyIntervals.sort()
+	merged := busyIntervals.mergeIntervals()
+	free := merged.computeFreeBlocks(rangeStart, rangeEnd)
+
+	rangeStr := rangeStart.Format(time.RFC3339) + " to " + rangeEnd.Format(time.RFC3339)
+	var sb strings.Builder
+
+	// One-line summary for quick parsing.
+	numBusy := len(merged)
+	numFree := len(free)
+	var totalFree time.Duration
+	for _, f := range free {
+		totalFree += f.end.Sub(f.start)
+	}
+	sb.WriteString("FREE_BUSY_SUMMARY: range " + rangeStr + " | ")
+	fmt.Fprintf(&sb, "%d busy periods | %d free blocks (%s total)\n", numBusy, numFree, formatDuration(totalFree))
+
+	sb.WriteString("BUSY_PERIODS:\n")
+	if numBusy == 0 {
+		sb.WriteString("  (none)\n")
+	} else {
+		for _, b := range merged {
+			d := b.end.Sub(b.start)
+			fmt.Fprintf(&sb, "  %s → %s (%s)\n", b.start.Format(time.RFC3339), b.end.Format(time.RFC3339), formatDuration(d))
+		}
+	}
+
+	sb.WriteString("FREE_BLOCKS:\n")
+	if numFree == 0 {
+		sb.WriteString("  (none)\n")
+	} else {
+		for _, f := range free {
+			d := f.end.Sub(f.start)
+			fmt.Fprintf(&sb, "  %s → %s (%s)\n", f.start.Format(time.RFC3339), f.end.Format(time.RFC3339), formatDuration(d))
+		}
+	}
+
+	return fmt.Sprintf("Calendar %q:\n%s", calendarID, sb.String())
 }
 
 // checkAttendeeConflicts uses the FreeBusy API to detect scheduling

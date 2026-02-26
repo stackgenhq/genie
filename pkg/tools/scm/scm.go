@@ -33,9 +33,9 @@ type Service interface {
 
 // Config holds configuration for SCM providers
 type Config struct {
-	Provider string // github, gitlab, etc.
-	Token    string
-	BaseURL  string // for enterprise instances
+	Provider string `yaml:"Provider,omitempty" toml:"Provider,omitempty"` // github, gitlab, etc.
+	Token    string `yaml:"Token,omitempty" toml:"Token,omitempty"`
+	BaseURL  string `yaml:"BaseURL,omitempty" toml:"BaseURL,omitempty"` // for enterprise instances
 }
 
 // New creates a new SCM Service based on the configuration.

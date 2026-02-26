@@ -12,15 +12,15 @@ import (
 // RetryConfig configures the RetryMiddleware behaviour.
 type RetryConfig struct {
 	// Enabled activates the retry middleware. Defaults to false.
-	Enabled bool `yaml:"enabled" toml:"enabled"`
+	Enabled bool `yaml:"enabled,omitempty" toml:"enabled,omitempty"`
 	// MaxAttempts is the total number of attempts (including the first call).
 	// Defaults to 3 if zero.
-	MaxAttempts int `yaml:"max_attempts" toml:"max_attempts"`
+	MaxAttempts int `yaml:"max_attempts,omitempty" toml:"max_attempts,omitempty,omitzero"`
 	// InitialBackoff is the delay before the first retry. Subsequent retries
 	// double this value (exponential backoff). Defaults to 500ms if zero.
-	InitialBackoff time.Duration `yaml:"initial_backoff" toml:"initial_backoff"`
+	InitialBackoff time.Duration `yaml:"initial_backoff,omitempty" toml:"initial_backoff,omitempty"`
 	// MaxBackoff caps the backoff duration. Defaults to 10s if zero.
-	MaxBackoff time.Duration `yaml:"max_backoff" toml:"max_backoff"`
+	MaxBackoff time.Duration `yaml:"max_backoff,omitempty" toml:"max_backoff,omitempty"`
 	// Retryable decides whether an error is transient. When nil, all errors
 	// are considered retryable. Return false to stop retrying immediately.
 	Retryable func(err error) bool `yaml:"-" toml:"-"`

@@ -17,7 +17,7 @@ import (
 )
 
 type ModelConfig struct {
-	Providers ProviderConfigs `json:"providers" yaml:"providers" toml:"providers"`
+	Providers ProviderConfigs `json:"providers" yaml:"providers,omitempty" toml:"providers,omitempty"`
 }
 
 // DefaultModelConfig builds the default model configuration by resolving
@@ -116,13 +116,13 @@ func (providers ProviderConfigs) getForTask(taskType TaskType) (ProviderConfigs,
 }
 
 type ProviderConfig struct {
-	Name        string   `json:"name" yaml:"name" toml:"name"`
-	Provider    string   `json:"provider" yaml:"provider" toml:"provider"`
-	ModelName   string   `json:"model_name" yaml:"model_name" toml:"model_name"`
-	Variant     string   `json:"variant" yaml:"variant" toml:"variant"`
-	Token       string   `json:"token" yaml:"token" toml:"token"`
-	Host        string   `json:"host" yaml:"host" toml:"host"`
-	GoodForTask TaskType `json:"good_for_task" yaml:"good_for_task" toml:"good_for_task"`
+	Name        string   `json:"name" yaml:"name,omitempty" toml:"name,omitempty"`
+	Provider    string   `json:"provider" yaml:"provider,omitempty" toml:"provider,omitempty"`
+	ModelName   string   `json:"model_name" yaml:"model_name,omitempty" toml:"model_name,omitempty"`
+	Variant     string   `json:"variant" yaml:"variant,omitempty" toml:"variant,omitempty"`
+	Token       string   `json:"token" yaml:"token,omitempty" toml:"token,omitempty"`
+	Host        string   `json:"host" yaml:"host,omitempty" toml:"host,omitempty"`
+	GoodForTask TaskType `json:"good_for_task" yaml:"good_for_task,omitempty" toml:"good_for_task,omitempty"`
 }
 
 func (p ProviderConfig) String() string {

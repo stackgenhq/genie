@@ -11,13 +11,13 @@ import (
 // SanitizeMiddlewareConfig controls the OutputSanitizationMiddleware.
 type SanitizeMiddlewareConfig struct {
 	// Enabled activates the output sanitization middleware.
-	Enabled bool `yaml:"enabled" toml:"enabled"`
+	Enabled bool `yaml:"enabled,omitempty" toml:"enabled,omitempty"`
 	// Replacement is the string that replaces each redacted occurrence.
 	// Defaults to "[REDACTED]".
-	Replacement string `yaml:"replacement" toml:"replacement"`
+	Replacement string `yaml:"replacement,omitempty" toml:"replacement,omitempty"`
 	// PerTool maps tool names to per-tool redaction patterns (case-insensitive).
 	// Tools not in the map pass through unmodified.
-	PerTool map[string][]string `yaml:"per_tool" toml:"per_tool"`
+	PerTool map[string][]string `yaml:"per_tool,omitempty" toml:"per_tool,omitempty"`
 }
 
 // OutputSanitizationMiddleware returns a Middleware that scrubs sensitive

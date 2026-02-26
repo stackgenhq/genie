@@ -20,6 +20,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/hitl"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/tools/google/oauth"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/time/rate"
 	trunner "trpc.group/trpc-go/trpc-agent-go/runner"
@@ -360,7 +361,11 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck
+		payload := map[string]string{"status": "ok"}
+		if name, _ := oauth.GetStoredUserInfo(); name != "" {
+			payload["user"] = name
+		}
+		json.NewEncoder(w).Encode(payload) //nolint:errcheck
 	})
 
 	// Serve static documentation from local docs/ directory at /ui

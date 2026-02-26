@@ -24,42 +24,42 @@ type Config struct {
 	// correlation without exposing PII. Must be ≥16 bytes for security.
 	// If empty, a cryptographically random salt is generated at startup
 	// (hashes will differ across restarts).
-	Salt string `yaml:"salt" toml:"salt"`
+	Salt string `yaml:"salt,omitempty" toml:"salt,omitempty"`
 
 	// EntropyThreshold is the Shannon entropy score above which a token is
 	// considered a potential secret. Lower = more aggressive (more redaction,
 	// more false positives). Higher = more permissive. Default: 4.2.
 	// Range: 2.0 (very aggressive) to 5.0 (very permissive).
-	EntropyThreshold float64 `yaml:"entropy_threshold" toml:"entropy_threshold"`
+	EntropyThreshold float64 `yaml:"entropy_threshold,omitempty" toml:"entropy_threshold,omitempty,omitzero"`
 
 	// MinSecretLength is the minimum character length for a token to be
 	// considered as a potential secret. Tokens shorter than this are never
 	// redacted (unless they are values of sensitive keys). Default: 12.
-	MinSecretLength int `yaml:"min_secret_length" toml:"min_secret_length"`
+	MinSecretLength int `yaml:"min_secret_length,omitempty" toml:"min_secret_length,omitempty,omitzero"`
 
 	// SensitiveKeys is a list of key names whose values should always be
 	// redacted regardless of entropy score. Case-insensitive matching.
 	// Default: ["pass", "secret", "token", "key", "cvv", "cvc", "auth",
 	//           "sign", "password", "passwd", "api_key", "apikey",
 	//           "access_token", "client_secret"]
-	SensitiveKeys []string `yaml:"sensitive_keys" toml:"sensitive_keys"`
+	SensitiveKeys []string `yaml:"sensitive_keys,omitempty" toml:"sensitive_keys,omitempty"`
 
 	// CustomRegexes is a list of custom regex patterns for deterministic
 	// PII detection. Each rule has a pattern and a name. Matched tokens
 	// are redacted as [HIDDEN:name].
 	// Example: [{"pattern": "\\bGHSA-[A-Za-z0-9-]+\\b", "name": "github_advisory"}]
-	CustomRegexes []CustomRegexRule `yaml:"custom_regexes" toml:"custom_regexes"`
+	CustomRegexes []CustomRegexRule `yaml:"custom_regexes,omitempty" toml:"custom_regexes,omitempty"`
 
 	// SafeRegexes is a allowlist of regex patterns. Tokens matching any
 	// of these are never redacted, even if they exceed the entropy threshold.
 	// Useful for known-safe patterns like version strings or build hashes.
-	SafeRegexes []CustomRegexRule `yaml:"safe_regexes" toml:"safe_regexes"`
+	SafeRegexes []CustomRegexRule `yaml:"safe_regexes,omitempty" toml:"safe_regexes,omitempty"`
 }
 
 // CustomRegexRule represents a named regex pattern for PII detection.
 type CustomRegexRule struct {
-	Pattern string `yaml:"pattern" toml:"pattern" json:"pattern"`
-	Name    string `yaml:"name" toml:"name" json:"name"`
+	Pattern string `yaml:"pattern,omitempty" toml:"pattern,omitempty" json:"pattern"`
+	Name    string `yaml:"name,omitempty" toml:"name,omitempty" json:"name"`
 }
 
 // DefaultConfig returns a PII config with sensible defaults.

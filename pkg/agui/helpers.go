@@ -2,14 +2,19 @@ package agui
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
 // EmitAgentMessage sends a chat message to the UI via the event bus.
+// It assigns a new MessageID so SSE TEXT_MESSAGE_CONTENT events have a
+// messageId for the client to associate with a message bubble.
 func EmitAgentMessage(ctx context.Context, sender, message string) {
 	Emit(ctx, AgentChatMessage{
-		Type:    EventTextMessageContent,
-		Sender:  sender,
-		Message: message,
+		Type:      EventTextMessageContent,
+		MessageID: uuid.New().String(),
+		Sender:    sender,
+		Message:   message,
 	})
 }
 

@@ -287,7 +287,7 @@ func NewOrchestrator(
 		auditor:            auditor,
 		vectorStore:        vectorStore,
 		episodicMemoryCfg:  episodicMemoryCfg,
-		availableToolNames: availableTools.ToolNames(),
+		availableToolNames: availableTools.GetToolDescriptions(),
 	}
 	// keep updating the resume less than 24 hours
 	// Create a dedicated context for the background refresher that we can cancel on Close()
@@ -343,13 +343,13 @@ Recent Accomplishments (things I have successfully done):
 	toolsSection := ""
 	toolsInstruction := ""
 	if len(c.availableToolNames) > 0 {
-		sorted := make([]string, len(c.availableToolNames))
-		copy(sorted, c.availableToolNames)
-		sort.Strings(sorted)
+		sortedNames := make([]string, len(c.availableToolNames))
+		copy(sortedNames, c.availableToolNames)
+		sort.Strings(sortedNames)
 		toolsSection = fmt.Sprintf(`
 
 Available Tools (capabilities I can use via sub-agents):
-%s`, strings.Join(sorted, ", "))
+%s`, strings.Join(sortedNames, ", "))
 		toolsInstruction = "\n- The Available Tools section lists every tool the agent can delegate to sub-agents. Mention the key capability areas they enable (e.g. email, source control, browsing, file management)."
 	}
 
@@ -517,12 +517,16 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	// Uses sender-based key so each sender/thread has isolated history.
 	pastContext := c.recallConversation(ctx, req.Question)
 
-	// Build the message with past conversation context injected
+	// Build the message with past conversation context injected.
+	// When past context contains [HIDDEN:...], that indicates PII-redacted text the user
+	// already provided (e.g. email, "7 days"). Instruct the model not to re-ask for the
+	// same clarification so we avoid duplicate questions.
 	message := req.Question
 	if pastContext != "" {
+		hiddenHint := ""
 		message = fmt.Sprintf(
-			"## Relevant Past Conversations\n%s\n\n## Current Question\n%s",
-			pastContext, req.Question,
+			"## Relevant Past Conversations\n%s%s\n\n## Current Question\n%s",
+			hiddenHint, pastContext, req.Question,
 		)
 	}
 

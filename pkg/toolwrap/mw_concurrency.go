@@ -12,13 +12,13 @@ import (
 // ConcurrencyConfig configures the ConcurrencyMiddleware.
 type ConcurrencyConfig struct {
 	// Enabled activates the concurrency middleware. Defaults to false.
-	Enabled bool `yaml:"enabled" toml:"enabled"`
+	Enabled bool `yaml:"enabled,omitempty" toml:"enabled,omitempty"`
 	// GlobalLimit is the maximum number of concurrent tool calls across
 	// all tools. Zero means no global limit.
-	GlobalLimit int `yaml:"global_limit" toml:"global_limit"`
+	GlobalLimit int `yaml:"global_limit,omitempty" toml:"global_limit,omitempty,omitzero"`
 	// PerToolLimits maps tool names to per-tool concurrency caps.
 	// Tools not in the map are only subject to the global limit.
-	PerToolLimits map[string]int `yaml:"per_tool_limits" toml:"per_tool_limits"`
+	PerToolLimits map[string]int `yaml:"per_tool_limits,omitempty" toml:"per_tool_limits,omitempty"`
 }
 
 // concurrencyMiddleware limits the number of concurrent tool executions

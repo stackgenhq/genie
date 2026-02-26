@@ -53,6 +53,8 @@ jobs:
           QUILL_SIGN_P12: ${{ secrets.QUILL_SIGN_P12 }}
           QUILL_SIGN_PASSWORD: ${{ secrets.QUILL_SIGN_PASSWORD }}
           BREW_TOKEN: ${{ secrets.BREW_TOKEN }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
         run: goreleaser release --clean
       - name: Run GoReleaser (on rc tag)
         if: startsWith(github.ref, 'refs/tags/') && contains(github.ref, '-rc.')
@@ -61,4 +63,6 @@ jobs:
           QUILL_SIGN_P12: ${{ secrets.QUILL_SIGN_P12 }}
           QUILL_SIGN_PASSWORD: ${{ secrets.QUILL_SIGN_PASSWORD }}
           BREW_TOKEN: ${{ secrets.BREW_TOKEN }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
         run: goreleaser release --clean --config ./goreleaser-beta.yaml

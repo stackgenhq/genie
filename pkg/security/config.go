@@ -18,7 +18,7 @@ type Config struct {
 	//   "OPENAI_API_KEY": "gcpsecretmanager://projects/p/secrets/openai-key?decoder=string"
 	//   "ANTHROPIC_API_KEY": "awssecretsmanager://anthropic-api-key?region=us-east-2&decoder=string"
 	//   "SLACK_BOT_TOKEN": "file:///run/secrets/slack-token?decoder=string"
-	Secrets map[string]string `yaml:"secrets" toml:"secrets"`
+	Secrets map[string]string `yaml:"secrets,omitempty" toml:"secrets,omitempty"`
 }
 
 func (c Config) Provider(ctx context.Context) SecretProvider {

@@ -16,10 +16,10 @@ import (
 const allTools = "*"
 
 type Config struct {
-	AlwaysAllowed []string      `yaml:"always_allowed" toml:"always_allowed" json:"always_allowed"`
-	DeniedTools   []string      `yaml:"denied_tools" toml:"denied_tools" json:"denied_tools"`
-	ApprovalTTL   time.Duration `yaml:"approval_ttl" toml:"approval_ttl" json:"approval_ttl"`
-	CacheTTL      time.Duration `yaml:"cache_ttl" toml:"cache_ttl" json:"cache_ttl"`
+	AlwaysAllowed []string      `yaml:"always_allowed,omitempty" toml:"always_allowed,omitempty" json:"always_allowed"`
+	DeniedTools   []string      `yaml:"denied_tools,omitempty" toml:"denied_tools,omitempty" json:"denied_tools"`
+	ApprovalTTL   time.Duration `yaml:"approval_ttl,omitempty" toml:"approval_ttl,omitempty" json:"approval_ttl"`
+	CacheTTL      time.Duration `yaml:"cache_ttl,omitempty" toml:"cache_ttl,omitempty" json:"cache_ttl"`
 }
 
 // DefaultConfig returns sensible defaults.
@@ -99,10 +99,16 @@ func (c Config) IsDenied(toolName string) bool {
 // wait/notify between the ToolWrapper goroutine and the HTTP handler.
 // The GORM layer provides durable persistence so approval history
 // survives restarts.
+// writeMu serializes all writes (Create, Resolve, ExpireStale, RecoverPending)
+// so that only one writer hits SQLite at a time, avoiding SQLITE_BUSY when
+// many tool calls request approval concurrently. Reads (get, ListPending) do
+// not take the lock so they can run concurrently with writes; SQLite WAL
+// allows multiple readers and one writer.
 type gormStore struct {
 	db      *gorm.DB
 	waiters sync.Map // map[approvalID]chan struct{}
 	cfg     Config
+	writeMu sync.RWMutex
 }
 
 // NewStore creates an ApprovalStore backed by the given GORM database.
@@ -123,6 +129,7 @@ func (s *gormStore) IsAllowed(toolName string) bool {
 // A UUID is generated as the approval ID. If ApprovalTTL is configured,
 // an ExpiresAt timestamp is set; the background reaper will expire
 // approvals that exceed this deadline.
+// Writes are serialized via writeMu to avoid SQLITE_BUSY under concurrent tool calls.
 func (s *gormStore) Create(ctx context.Context, req CreateRequest) (ApprovalRequest, error) {
 	now := time.Now().UTC()
 	row := db.Approval{
@@ -142,6 +149,8 @@ func (s *gormStore) Create(ctx context.Context, req CreateRequest) (ApprovalRequ
 		row.ExpiresAt = &exp
 	}
 
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	if err := retrier.Retry(ctx, func() error {
 		return s.db.WithContext(ctx).Create(&row).Error
 	}); err != nil {
@@ -158,6 +167,8 @@ func (s *gormStore) Create(ctx context.Context, req CreateRequest) (ApprovalRequ
 // Resolve updates an approval to approved or rejected and unblocks any
 // waiting goroutine. Uses SELECT ... FOR UPDATE to prevent concurrent
 // resolvers from racing on the same row.
+// Writes are serialized via writeMu to avoid SQLITE_BUSY when other
+// goroutines are creating approvals or running the reaper.
 func (s *gormStore) Resolve(ctx context.Context, req ResolveRequest) error {
 	if req.Decision != StatusApproved && req.Decision != StatusRejected {
 		return fmt.Errorf("invalid decision %q: must be %q or %q", req.Decision, StatusApproved, StatusRejected)
@@ -165,6 +176,8 @@ func (s *gormStore) Resolve(ctx context.Context, req ResolveRequest) error {
 
 	now := time.Now().UTC()
 
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var row db.Approval
 		if lockErr := tx.
@@ -310,8 +323,11 @@ func (s *gormStore) ListPending(ctx context.Context) ([]ApprovalRequest, error) 
 // ExpireStale marks all pending approvals whose expires_at has passed as
 // expired. It returns the number of rows affected. This is meant to be
 // called periodically by a background reaper goroutine.
+// Writes are serialized via writeMu to avoid SQLITE_BUSY with Create/Resolve.
 func (s *gormStore) ExpireStale(ctx context.Context) (int64, error) {
 	now := time.Now().UTC()
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	result := s.db.WithContext(ctx).
 		Model(&db.Approval{}).
 		Where("status = ? AND expires_at IS NOT NULL AND expires_at <= ?", string(StatusPending), now).
@@ -343,6 +359,7 @@ func (s *gormStore) ExpireStale(ctx context.Context) (int64, error) {
 // server instance. Approvals older than maxAge are marked as "expired";
 // more recent ones get fresh waiter channels registered so they can still
 // be resolved via the HTTP API.
+// Writes are serialized via writeMu to avoid SQLITE_BUSY with Create/Resolve.
 func (s *gormStore) RecoverPending(ctx context.Context, maxAge time.Duration) (RecoverResult, error) {
 	var pending []db.Approval
 	if err := s.db.WithContext(ctx).
@@ -359,6 +376,8 @@ func (s *gormStore) RecoverPending(ctx context.Context, maxAge time.Duration) (R
 	now := time.Now().UTC()
 	var result RecoverResult
 
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	for _, row := range pending {
 		if row.CreatedAt.Before(cutoff) {
 			// Too old — expire it.

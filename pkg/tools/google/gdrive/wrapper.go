@@ -2,14 +2,21 @@ package gdrive
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 
+	"github.com/stackgenhq/genie/pkg/security"
+	"github.com/stackgenhq/genie/pkg/tools/google/oauth"
+	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/option"
 )
+
+const driveScope = "https://www.googleapis.com/auth/drive.readonly"
 
 const folderMimeType = "application/vnd.google-apps.folder"
 
@@ -32,6 +39,53 @@ type driveWrapper struct {
 // the wrapper's internal constructor, coupling them to implementation details.
 func New(ctx context.Context, cfg Config) (Service, error) {
 	return newWrapper(ctx, cfg)
+}
+
+// NewFromSecretProvider creates a Google Drive Service using the shared Google
+// OAuth token (from TokenFile, Token/Password, or device keychain). One sign-in
+// can be reused for Calendar, Contacts, Drive, and Gmail.
+func NewFromSecretProvider(ctx context.Context, sp security.SecretProvider) (Service, error) {
+	credsEntry, _ := sp.GetSecret(ctx, "CredentialsFile")
+	credsJSON, err := oauth.GetCredentials(credsEntry, "Drive")
+	if err != nil {
+		return nil, err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(credsJSON, &raw); err != nil {
+		return nil, fmt.Errorf("gdrive: invalid credentials JSON: %w", err)
+	}
+	if typeField, ok := raw["type"]; ok {
+		var t string
+		if err := json.Unmarshal(typeField, &t); err == nil && t == "service_account" {
+			creds, err := google.CredentialsFromJSON(ctx, credsJSON, driveScope) //nolint:staticcheck
+			if err != nil {
+				return nil, fmt.Errorf("gdrive: invalid service account credentials: %w", err)
+			}
+			svc, err := drive.NewService(ctx, option.WithCredentials(creds))
+			if err != nil {
+				return nil, fmt.Errorf("gdrive: failed to create Drive service: %w", err)
+			}
+			return &driveWrapper{svc: svc}, nil
+		}
+	}
+	tokenJSON, save, err := oauth.GetToken(ctx, sp)
+	if err != nil {
+		return nil, err
+	}
+	client, err := oauth.HTTPClient(ctx, credsJSON, tokenJSON, save, []string{driveScope})
+	if err != nil {
+		return nil, err
+	}
+	return newWrapperWithClient(ctx, client)
+}
+
+// newWrapperWithClient creates a Drive service from an OAuth2-authenticated HTTP client.
+func newWrapperWithClient(ctx context.Context, client *http.Client) (*driveWrapper, error) {
+	svc, err := drive.NewService(ctx, option.WithHTTPClient(client))
+	if err != nil {
+		return nil, fmt.Errorf("gdrive: failed to create Drive service: %w", err)
+	}
+	return &driveWrapper{svc: svc}, nil
 }
 
 // newWrapper creates a Google Drive service client. If CredentialsFile is

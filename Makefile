@@ -5,9 +5,29 @@ BINARY_NAME=genie
 GIT_COMMIT = $(shell git rev-parse --short HEAD)
 GIT_DIRTY  = $(shell test -n "`git status --porcelain`" && echo "-dirty" || echo "")
 GIT_VERSION=${GIT_COMMIT}${GIT_DIRTY}
+
+# Optional: inject Google OAuth client for Calendar + Contacts "just sign in" (Option 1).
+# Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET when building so the binary uses
+# the embedded client; do not commit these to the repo.
+GO_GOOGLE_OAUTH_LDFLAGS :=
+ifdef GOOGLE_CLIENT_ID
+GO_GOOGLE_OAUTH_LDFLAGS += -X 'github.com/stackgenhq/genie/pkg/tools/google/oauth.GoogleClientID=$(GOOGLE_CLIENT_ID)'
+endif
+ifdef GOOGLE_CLIENT_SECRET
+GO_GOOGLE_OAUTH_LDFLAGS += -X 'github.com/stackgenhq/genie/pkg/tools/google/oauth.GoogleClientSecret=$(GOOGLE_CLIENT_SECRET)'
+endif
+# Backward compatibility: GOOGLE_CALENDAR_* also inject into shared package.
+ifdef GOOGLE_CALENDAR_CLIENT_ID
+GO_GOOGLE_OAUTH_LDFLAGS += -X 'github.com/stackgenhq/genie/pkg/tools/google/oauth.GoogleClientID=$(GOOGLE_CALENDAR_CLIENT_ID)'
+endif
+ifdef GOOGLE_CALENDAR_CLIENT_SECRET
+GO_GOOGLE_OAUTH_LDFLAGS += -X 'github.com/stackgenhq/genie/pkg/tools/google/oauth.GoogleClientSecret=$(GOOGLE_CALENDAR_CLIENT_SECRET)'
+endif
+
 GO_BUILD_FLAGS=-ldflags="-s -w \
 	-X 'github.com/stackgenhq/genie/cmd.Version=${GIT_VERSION}' \
-	-X 'github.com/stackgenhq/genie/cmd.BuildDate=$(shell date +%D)'" \
+	-X 'github.com/stackgenhq/genie/cmd.BuildDate=$(shell date +%D)' \
+	$(GO_GOOGLE_OAUTH_LDFLAGS)" \
 	-mod=mod
 DIST_DIR=build
 

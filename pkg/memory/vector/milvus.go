@@ -45,17 +45,17 @@ import (
 // limited to in-memory stores only.
 
 type MilvusConfig struct {
-	Address  string `yaml:"milvus_address" toml:"milvus_address"` // e.g., "localhost:19530"
-	Username string `yaml:"milvus_username" toml:"milvus_username"`
-	Password string `yaml:"milvus_password" toml:"milvus_password"`
-	DBName   string `yaml:"milvus_db_name" toml:"milvus_db_name"`
-	APIKey   string `yaml:"milvus_api_key" toml:"milvus_api_key"`
+	Address  string `yaml:"milvus_address,omitempty" toml:"milvus_address,omitempty"` // e.g., "localhost:19530"
+	Username string `yaml:"milvus_username,omitempty" toml:"milvus_username,omitempty"`
+	Password string `yaml:"milvus_password,omitempty" toml:"milvus_password,omitempty"`
+	DBName   string `yaml:"milvus_db_name,omitempty" toml:"milvus_db_name,omitempty"`
+	APIKey   string `yaml:"milvus_api_key,omitempty" toml:"milvus_api_key,omitempty"`
 	// MilvusCollectionName is the name of the collection to use/create in Milvus.
 	// Defaults to "trpc_agent_documents" if not specified.
-	CollectionName string `yaml:"milvus_collection_name" toml:"milvus_collection_name"`
+	CollectionName string `yaml:"milvus_collection_name,omitempty" toml:"milvus_collection_name,omitempty"`
 	// MilvusDimension is the vector dimension. Must match the embedder's dimension.
 	// Defaults to 1536 if not specified.
-	Dimension int `yaml:"milvus_dimension" toml:"milvus_dimension"`
+	Dimension int `yaml:"milvus_dimension,omitempty" toml:"milvus_dimension,omitempty,omitzero"`
 }
 
 func (cfg Config) buildMilvusStore(ctx context.Context, emb embedder.Embedder) (vectorstore.VectorStore, error) {

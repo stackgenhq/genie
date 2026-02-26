@@ -26,7 +26,7 @@ import (
 )
 
 type Config struct {
-	DBFile string `json:"db_file" toml:"db_file" yaml:"db_file"`
+	DBFile string `json:"db_file" toml:"db_file,omitempty" yaml:"db_file,omitempty"`
 }
 
 func DefaultConfig() Config {
@@ -72,8 +72,9 @@ func Open(dbPath string) (*gorm.DB, error) {
 	}
 
 	// Set busy timeout so concurrent writers retry instead of returning
-	// SQLITE_BUSY immediately. 5 seconds is generous for a local single-user DB.
-	if _, err := sqlDB.Exec("PRAGMA busy_timeout=5000"); err != nil {
+	// SQLITE_BUSY immediately. 15 seconds allows heavy bursts (e.g. many
+	// HITL approval inserts plus session/checkpoint writes) to drain.
+	if _, err := sqlDB.Exec("PRAGMA busy_timeout=15000"); err != nil {
 		sqlDB.Close() //nolint:errcheck
 		return nil, fmt.Errorf("failed to set busy timeout: %w", err)
 	}

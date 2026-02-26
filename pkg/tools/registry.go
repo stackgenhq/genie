@@ -8,6 +8,8 @@ package tools
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sort"
 
 	"github.com/stackgenhq/genie/pkg/hitl"
 	"github.com/stackgenhq/genie/pkg/logger"
@@ -105,6 +107,17 @@ func (r *Registry) ToolNames() []string {
 		names = append(names, name)
 	}
 	return names
+}
+
+func (r *Registry) GetToolDescriptions() []string {
+	descriptions := make([]string, 0, len(r.tools))
+	for _, t := range r.tools {
+		descriptions = append(descriptions, fmt.Sprintf("%s: %s", t.Declaration().Name, t.Declaration().Description))
+	}
+	sorted := make([]string, len(descriptions))
+	copy(sorted, descriptions)
+	sort.Strings(sorted)
+	return sorted
 }
 
 // Exclude returns a new Registry that omits tools with the given names.

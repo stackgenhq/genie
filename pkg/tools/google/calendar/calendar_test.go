@@ -2,6 +2,7 @@ package calendar
 
 import (
 	"context"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -39,7 +40,7 @@ var _ = Describe("Calendar Tools", func() {
 		It("requires credentials", func() {
 			_, err := c.handleListEvents(context.Background(), listEventsRequest{})
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("Google Calendar not configured"))
+			Expect(err.Error()).To(ContainSubstring("google Calendar not configured"))
 		})
 	})
 
@@ -55,7 +56,7 @@ var _ = Describe("Calendar Tools", func() {
 		It("requires credentials", func() {
 			_, err := c.handleNextEvents(context.Background(), nextEventsRequest{})
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("Google Calendar not configured"))
+			Expect(err.Error()).To(ContainSubstring("google Calendar not configured"))
 		})
 	})
 
@@ -108,7 +109,7 @@ var _ = Describe("Calendar Tools", func() {
 				EventID: "abc123",
 			})
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("Google Calendar not configured"))
+			Expect(err.Error()).To(ContainSubstring("google Calendar not configured"))
 		})
 	})
 
@@ -124,7 +125,7 @@ var _ = Describe("Calendar Tools", func() {
 				EventID: "abc123",
 			})
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("Google Calendar not configured"))
+			Expect(err.Error()).To(ContainSubstring("google Calendar not configured"))
 		})
 	})
 
@@ -140,7 +141,112 @@ var _ = Describe("Calendar Tools", func() {
 		It("requires credentials", func() {
 			_, err := c.handleFreeBusy(context.Background(), freeBusyRequest{})
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("Google Calendar not configured"))
+			Expect(err.Error()).To(ContainSubstring("google Calendar not configured"))
+		})
+	})
+
+	Describe("free/busy formatting for LLM", func() {
+		Describe("computeFreeBlocks", func() {
+			It("returns full range when no busy periods", func() {
+				start := mustParseTime("2026-02-26T09:00:00-08:00")
+				end := mustParseTime("2026-02-26T18:00:00-08:00")
+				free := intervals{}.computeFreeBlocks(start, end)
+				Expect(free).To(HaveLen(1))
+				Expect(free[0].start).To(Equal(start))
+				Expect(free[0].end).To(Equal(end))
+			})
+
+			It("returns one free block before and one after a single busy period", func() {
+				start := mustParseTime("2026-02-26T09:00:00-08:00")
+				end := mustParseTime("2026-02-26T18:00:00-08:00")
+				busy := intervals{
+					{start: mustParseTime("2026-02-26T10:30:00-08:00"), end: mustParseTime("2026-02-26T12:00:00-08:00")},
+				}
+				free := busy.computeFreeBlocks(start, end)
+				Expect(free).To(HaveLen(2))
+				Expect(free[0].start).To(Equal(start))
+				Expect(free[0].end).To(Equal(busy[0].start))
+				Expect(free[1].start).To(Equal(busy[0].end))
+				Expect(free[1].end).To(Equal(end))
+			})
+
+			It("returns gaps between merged busy periods", func() {
+				start := mustParseTime("2026-02-26T09:00:00-08:00")
+				end := mustParseTime("2026-02-26T18:00:00-08:00")
+				busy := intervals{
+					{start: mustParseTime("2026-02-26T10:30:00-08:00"), end: mustParseTime("2026-02-26T11:00:00-08:00")},
+					{start: mustParseTime("2026-02-26T11:00:00-08:00"), end: mustParseTime("2026-02-26T12:15:00-08:00")},
+					{start: mustParseTime("2026-02-26T12:00:00-08:00"), end: mustParseTime("2026-02-26T12:45:00-08:00")},
+				}
+				busy.sort()
+				merged := busy.mergeIntervals()
+				Expect(merged).To(HaveLen(1))
+				Expect(merged[0].start).To(Equal(mustParseTime("2026-02-26T10:30:00-08:00")))
+				Expect(merged[0].end).To(Equal(mustParseTime("2026-02-26T12:45:00-08:00")))
+				free := merged.computeFreeBlocks(start, end)
+				Expect(free).To(HaveLen(2))
+				Expect(free[0].start).To(Equal(start))
+				Expect(free[0].end).To(Equal(merged[0].start))
+				Expect(free[1].start).To(Equal(merged[0].end))
+				Expect(free[1].end).To(Equal(end))
+			})
+		})
+
+		Describe("formatFreeBusyForLLM", func() {
+			It("includes FREE_BUSY_SUMMARY, BUSY_PERIODS, FREE_BLOCKS section headers", func() {
+				start := mustParseTime("2026-02-26T09:00:00-08:00")
+				end := mustParseTime("2026-02-26T18:00:00-08:00")
+				out := intervals{}.formatFreeBusyForLLM("primary", start, end)
+				Expect(out).To(ContainSubstring("FREE_BUSY_SUMMARY:"))
+				Expect(out).To(ContainSubstring("BUSY_PERIODS:"))
+				Expect(out).To(ContainSubstring("FREE_BLOCKS:"))
+			})
+
+			It("reports full range as single free block when no busy periods", func() {
+				start := mustParseTime("2026-02-26T09:00:00-08:00")
+				end := mustParseTime("2026-02-26T18:00:00-08:00")
+				out := intervals{}.formatFreeBusyForLLM("primary", start, end)
+				Expect(out).To(ContainSubstring("0 busy periods | 1 free blocks (9h total)"))
+				Expect(out).To(ContainSubstring("(none)"))
+				Expect(out).To(ContainSubstring("2026-02-26T09:00:00-08:00 → 2026-02-26T18:00:00-08:00 (9h)"))
+			})
+
+			It("lists busy periods and free blocks with durations", func() {
+				start := mustParseTime("2026-02-26T09:00:00-08:00")
+				end := mustParseTime("2026-02-26T18:00:00-08:00")
+				busy := intervals{
+					{start: mustParseTime("2026-02-26T10:30:00-08:00"), end: mustParseTime("2026-02-26T12:45:00-08:00")},
+				}
+				out := busy.formatFreeBusyForLLM("primary", start, end)
+				Expect(out).To(ContainSubstring("1 busy periods | 2 free blocks"))
+				Expect(out).To(ContainSubstring("2026-02-26T10:30:00-08:00 → 2026-02-26T12:45:00-08:00 (2h15m)"))
+				Expect(out).To(ContainSubstring("2026-02-26T09:00:00-08:00 → 2026-02-26T10:30:00-08:00 (1h30m)"))
+				Expect(out).To(ContainSubstring("2026-02-26T12:45:00-08:00 → 2026-02-26T18:00:00-08:00 (5h15m)"))
+			})
+
+			It("includes calendar ID in output", func() {
+				start := mustParseTime("2026-02-26T09:00:00-08:00")
+				end := mustParseTime("2026-02-26T18:00:00-08:00")
+				out := intervals{}.formatFreeBusyForLLM("primary", start, end)
+				Expect(out).To(HavePrefix("Calendar \"primary\":\n"))
+			})
+
+			It("is parseable: FREE_BLOCKS section has one line per block", func() {
+				start := mustParseTime("2026-02-26T09:00:00-08:00")
+				end := mustParseTime("2026-02-26T18:00:00-08:00")
+				busy := intervals{
+					{start: mustParseTime("2026-02-26T10:00:00-08:00"), end: mustParseTime("2026-02-26T11:00:00-08:00")},
+					{start: mustParseTime("2026-02-26T14:00:00-08:00"), end: mustParseTime("2026-02-26T15:00:00-08:00")},
+				}
+				out := busy.formatFreeBusyForLLM("primary", start, end)
+				freeBlocksSection := out[strings.Index(out, "FREE_BLOCKS:")+12:]
+				if idx := strings.Index(freeBlocksSection, "\n\n"); idx > 0 {
+					freeBlocksSection = freeBlocksSection[:idx]
+				}
+				lines := strings.Split(strings.TrimSpace(freeBlocksSection), "\n")
+				// 3 free blocks: 09-10, 11-14, 15-18
+				Expect(lines).To(HaveLen(3))
+			})
 		})
 	})
 
@@ -156,7 +262,7 @@ var _ = Describe("Calendar Tools", func() {
 				Text: "Lunch tomorrow at noon",
 			})
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("Google Calendar not configured"))
+			Expect(err.Error()).To(ContainSubstring("google Calendar not configured"))
 		})
 	})
 
@@ -224,19 +330,19 @@ var _ = Describe("Calendar Tools", func() {
 		})
 
 		It("merges overlapping intervals", func() {
-			intervals := mergeIntervals([]interval{
+			intervals := intervals{
 				{start: mustParseTime("2025-01-01T10:00:00Z"), end: mustParseTime("2025-01-01T11:00:00Z")},
 				{start: mustParseTime("2025-01-01T10:30:00Z"), end: mustParseTime("2025-01-01T12:00:00Z")},
-			})
+			}.mergeIntervals()
 			Expect(intervals).To(HaveLen(1))
 			Expect(intervals[0].end).To(Equal(mustParseTime("2025-01-01T12:00:00Z")))
 		})
 
 		It("keeps non-overlapping intervals separate", func() {
-			intervals := mergeIntervals([]interval{
+			intervals := intervals{
 				{start: mustParseTime("2025-01-01T10:00:00Z"), end: mustParseTime("2025-01-01T11:00:00Z")},
 				{start: mustParseTime("2025-01-01T13:00:00Z"), end: mustParseTime("2025-01-01T14:00:00Z")},
-			})
+			}.mergeIntervals()
 			Expect(intervals).To(HaveLen(2))
 		})
 	})

@@ -13,7 +13,8 @@ func NewToolProvider(svc Service) *ToolProvider {
 	return &ToolProvider{svc: svc}
 }
 
-// GetTools returns all Google Drive tools wired to the underlying service.
-func (p *ToolProvider) GetTools() []tool.Tool {
-	return AllTools(p.svc)
+// GetTools returns all Google Drive tools wired to the underlying service,
+// with tool names prefixed by name (e.g. "google_drive" -> google_drive_search).
+func (p *ToolProvider) GetTools(name string) []tool.Tool {
+	return AllTools(name, p.svc)
 }

@@ -23,7 +23,7 @@ const defaultTimeout = 1 * time.Minute
 // (e.g. internal admin panels, payment processors). Matching is suffix-based
 // so "example.com" also blocks "sub.example.com".
 type Config struct {
-	BlockedDomains []string `yaml:"blocked_domains" toml:"blocked_domains"`
+	BlockedDomains []string `yaml:"blocked_domains,omitempty" toml:"blocked_domains,omitempty"`
 }
 
 // Option configures a Browser instance.

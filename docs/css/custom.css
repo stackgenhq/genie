@@ -403,6 +403,154 @@
   color: #c4b5fd;
 }
 
+/* Install modal (Config Builder — after copy) */
+.install-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(9, 21, 43, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 1rem;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.install-modal {
+  background: #fff;
+  border-radius: 1rem;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  max-width: 420px;
+  width: 100%;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.install-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.install-modal-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #0f172a;
+  margin: 0;
+}
+
+.install-modal-close {
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 0.375rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.install-modal-close:hover {
+  color: #0f172a;
+  background: #f1f5f9;
+}
+
+.install-modal-copied {
+  padding: 0.75rem 1.25rem 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #15803d;
+  margin: 0;
+}
+
+.install-modal-congrats {
+  padding: 0.25rem 1.25rem 0.75rem;
+  font-size: 0.8125rem;
+  color: #475569;
+  margin: 0;
+}
+
+.install-modal-hint {
+  padding: 0.75rem 1.25rem;
+  font-size: 0.8125rem;
+  color: #64748b;
+  margin: 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.install-modal-tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.75rem 1.25rem 0.5rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.install-modal-tab {
+  padding: 0.375rem 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #64748b;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.install-modal-tab:hover {
+  border-color: #8247E7;
+  color: #8247E7;
+}
+
+.install-modal-tab.active {
+  background: #8247E7;
+  border-color: #8247E7;
+  color: #fff;
+}
+
+.install-modal-body {
+  padding: 1rem 1.25rem 1.25rem;
+  overflow-y: auto;
+}
+
+.install-modal-steps {
+  margin: 0;
+}
+
+.install-modal-step-title {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #334155;
+  margin: 0 0 0.375rem 0;
+}
+
+.install-modal-code {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: #0f172a;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin: 0 0 1rem 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.install-modal-steps .install-modal-code:last-of-type {
+  margin-bottom: 0;
+}
+
 /* Install method tabs */
 .install-tabs {
   display: flex;

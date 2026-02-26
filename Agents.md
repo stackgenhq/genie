@@ -45,6 +45,19 @@ fatal error: 'tree_sitter/api.h' file not found
 
 If you see these errors, add `-mod=mod` to your build command.
 
+### Optional: Google OAuth Client for Calendar + Contacts (Option 1 / "just sign in")
+
+To embed a single Google OAuth client so users can connect Calendar and Contacts without providing their own credentials, inject client ID and secret at **build time** via `-X` (do not commit them to the repo). Calendar and Contacts share the same client (see `pkg/tools/googleoauth`).
+
+- **GitHub Actions (release)**: Add repository secrets `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. The releaser workflow (`.github/workflows/releaser.yml`) passes them to GoReleaser; `goreleaser.yaml` injects them into the binary with `-X`. Release builds (on version tags) then include the embedded OAuth client for Calendar and Contacts.
+- **Makefile (local)**: Set env vars and build:
+  - `GOOGLE_CLIENT_ID=xxx GOOGLE_CLIENT_SECRET=yyy make build`
+  - Or `GOOGLE_CALENDAR_CLIENT_ID` / `GOOGLE_CALENDAR_CLIENT_SECRET` (same effect).
+- **Direct go build**:
+  - `go build -ldflags "-X github.com/stackgenhq/genie/pkg/tools/google/oauth.GoogleClientID=ID -X github.com/stackgenhq/genie/pkg/tools/google/oauth.GoogleClientSecret=SECRET" ...`
+
+Create the OAuth client in [Google Cloud Console](https://console.cloud.google.com/): APIs & Services → Credentials → Create OAuth client ID → **Desktop app**. Enable **Google Calendar API** and **People API** (Contacts) for the project. See `pkg/tools/google/oauth/embedded.go` for details. Tool names are prefixed with `google_calendar_` and `google_contacts_`.
+
 ## Golang Coding Standards
 
 ### 1. Method Signature Pattern (MANDATORY)

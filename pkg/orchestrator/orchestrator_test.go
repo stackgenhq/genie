@@ -133,6 +133,18 @@ var _ = Describe("CodeOwner", func() {
 			Expect(req.Message).To(ContainSubstring("check pod status"))
 		})
 
+		It("should include user message and resume in classifier message", func() {
+			fakeFrontDeskExpert.DoReturns(fakeExpertResponse("COMPLEX"), nil)
+			_, err := co.classifyRequest(ctx, "yes, duh")
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeFrontDeskExpert.DoCallCount()).To(Equal(1))
+			_, req := fakeFrontDeskExpert.DoArgsForCall(0)
+			Expect(req.Message).To(ContainSubstring("## User Message"))
+			Expect(req.Message).To(ContainSubstring("yes, duh"))
+			Expect(req.Message).To(ContainSubstring("## Agent Resume"))
+		})
+
 		It("should handle case-insensitive classifier output", func() {
 			fakeFrontDeskExpert.DoReturns(fakeExpertResponse("refuse"), nil)
 			cr, err := co.classifyRequest(ctx, "dangerous request")

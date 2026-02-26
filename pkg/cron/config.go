@@ -11,9 +11,9 @@ package cron
 // CronEntry represents a single cron task definition from the configuration file.
 // Users add entries under [cron.tasks] in their .genie.toml or .genie.yaml.
 type CronEntry struct {
-	Name       string `yaml:"name" toml:"name"`
-	Expression string `yaml:"expression" toml:"expression"`
-	Action     string `yaml:"action" toml:"action"` // prompt sent to the agent
+	Name       string `yaml:"name,omitempty" toml:"name,omitempty"`
+	Expression string `yaml:"expression,omitempty" toml:"expression,omitempty"`
+	Action     string `yaml:"action,omitempty" toml:"action,omitempty"` // prompt sent to the agent
 }
 
 // Config holds the cron scheduler configuration. The Enabled flag controls
@@ -21,5 +21,5 @@ type CronEntry struct {
 // cron jobs; additional tasks can be created at runtime via the
 // create_recurring_task tool.
 type Config struct {
-	Tasks []CronEntry `yaml:"tasks" toml:"tasks"`
+	Tasks []CronEntry `yaml:"tasks,omitempty" toml:"tasks,omitempty"`
 }

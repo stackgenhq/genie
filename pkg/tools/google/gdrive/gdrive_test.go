@@ -9,8 +9,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/stackgenhq/genie/pkg/tools/gdrive"
-	"github.com/stackgenhq/genie/pkg/tools/gdrive/gdrivefakes"
+	"github.com/stackgenhq/genie/pkg/tools/google/gdrive"
+	"github.com/stackgenhq/genie/pkg/tools/google/gdrive/gdrivefakes"
 )
 
 var _ = Describe("Google Drive Tools", func() {
@@ -27,7 +27,7 @@ var _ = Describe("Google Drive Tools", func() {
 				{ID: "f2", Name: "Architecture", MimeType: "application/vnd.google-apps.document", IsFolder: false},
 			}, nil)
 
-			tool := gdrive.NewSearchTool(fake)
+			tool := gdrive.NewSearchTool("gdrive", fake)
 			reqJSON, _ := json.Marshal(struct {
 				Query      string `json:"query"`
 				MaxResults int    `json:"max_results"`
@@ -45,7 +45,7 @@ var _ = Describe("Google Drive Tools", func() {
 		It("should default max_results to 20", func(ctx context.Context) {
 			fake.SearchReturns(nil, nil)
 
-			tool := gdrive.NewSearchTool(fake)
+			tool := gdrive.NewSearchTool("gdrive", fake)
 			_, _ = tool.Call(ctx, []byte(`{"query":"test"}`))
 
 			_, _, maxResults := fake.SearchArgsForCall(0)
@@ -60,7 +60,7 @@ var _ = Describe("Google Drive Tools", func() {
 				{ID: "f3", Name: "notes.txt", MimeType: "text/plain"},
 			}, nil)
 
-			tool := gdrive.NewListFolderTool(fake)
+			tool := gdrive.NewListFolderTool("gdrive", fake)
 			reqJSON, _ := json.Marshal(struct {
 				FolderID string `json:"folder_id"`
 			}{FolderID: "root"})
@@ -81,7 +81,7 @@ var _ = Describe("Google Drive Tools", func() {
 				Owners: []string{"Alice Smith"}, WebViewLink: "https://drive.google.com/...",
 			}, nil)
 
-			tool := gdrive.NewGetFileTool(fake)
+			tool := gdrive.NewGetFileTool("gdrive", fake)
 			reqJSON, _ := json.Marshal(struct {
 				FileID string `json:"file_id"`
 			}{FileID: "f1"})
@@ -99,7 +99,7 @@ var _ = Describe("Google Drive Tools", func() {
 		It("should return file content", func(ctx context.Context) {
 			fake.ReadFileReturns("Hello, this is a test document.", nil)
 
-			tool := gdrive.NewReadFileTool(fake)
+			tool := gdrive.NewReadFileTool("gdrive", fake)
 			reqJSON, _ := json.Marshal(struct {
 				FileID string `json:"file_id"`
 			}{FileID: "f1"})
@@ -114,7 +114,7 @@ var _ = Describe("Google Drive Tools", func() {
 			largeContent := strings.Repeat("x", 150000)
 			fake.ReadFileReturns(largeContent, nil)
 
-			tool := gdrive.NewReadFileTool(fake)
+			tool := gdrive.NewReadFileTool("gdrive", fake)
 			resp, err := tool.Call(ctx, []byte(`{"file_id":"big"}`))
 			Expect(err).NotTo(HaveOccurred())
 
@@ -128,7 +128,7 @@ var _ = Describe("Google Drive Tools", func() {
 var _ = Describe("AllTools", func() {
 	It("should return 4 tools", func() {
 		fake := new(gdrivefakes.FakeService)
-		tools := gdrive.AllTools(fake)
+		tools := gdrive.AllTools("gdrive", fake)
 		Expect(tools).To(HaveLen(4))
 	})
 })
@@ -142,21 +142,21 @@ var _ = Describe("Google Drive Error Paths", func() {
 
 	It("should propagate Search error", func(ctx context.Context) {
 		fake.SearchReturns(nil, fmt.Errorf("forbidden"))
-		tool := gdrive.NewSearchTool(fake)
+		tool := gdrive.NewSearchTool("gdrive", fake)
 		_, err := tool.Call(ctx, []byte(`{"query":"x"}`))
 		Expect(err).To(HaveOccurred())
 	})
 
 	It("should propagate ReadFile error", func(ctx context.Context) {
 		fake.ReadFileReturns("", fmt.Errorf("binary file"))
-		tool := gdrive.NewReadFileTool(fake)
+		tool := gdrive.NewReadFileTool("gdrive", fake)
 		_, err := tool.Call(ctx, []byte(`{"file_id":"bin"}`))
 		Expect(err).To(HaveOccurred())
 	})
 
 	It("should propagate ListFolder error", func(ctx context.Context) {
 		fake.ListFolderReturns(nil, fmt.Errorf("not found"))
-		tool := gdrive.NewListFolderTool(fake)
+		tool := gdrive.NewListFolderTool("gdrive", fake)
 		_, err := tool.Call(ctx, []byte(`{"folder_id":"BAD"}`))
 		Expect(err).To(HaveOccurred())
 	})

@@ -56,15 +56,15 @@ type Email struct {
 
 // Config holds configuration for Email providers
 type Config struct {
-	Provider string // smtp, gmail_api, sendgrid
-	Host     string // SMTP Host
-	Port     int    // SMTP Port
-	Username string
-	Password string
+	Provider string `yaml:"Provider,omitempty" toml:"Provider,omitempty"`  // smtp, gmail_api, sendgrid
+	Host     string `yaml:"Host,omitempty" toml:"Host,omitempty"`          // SMTP Host
+	Port     int    `yaml:"Port,omitempty" toml:"Port,omitempty,omitzero"` // SMTP Port
+	Username string `yaml:"Username,omitempty" toml:"Username,omitempty"`
+	Password string `yaml:"Password,omitempty" toml:"Password,omitempty"`
 
 	// IMAP settings for reading emails
-	IMAPHost string
-	IMAPPort int
+	IMAPHost string `yaml:"IMAPHost,omitempty" toml:"IMAPHost,omitempty"`
+	IMAPPort int    `yaml:"IMAPPort,omitempty" toml:"IMAPPort,omitempty,omitzero"`
 }
 
 // New creates a new Email Service based on the configuration

@@ -15,10 +15,10 @@ import (
 // Config holds the configuration for the Langfuse integration, which
 // provides observability and tracing for LLM interactions.
 type Config struct {
-	PublicKey     string `json:"public_key" toml:"public_key" yaml:"public_key"`
-	SecretKey     string `json:"secret_key" toml:"secret_key" yaml:"secret_key"`
-	Host          string `json:"host" toml:"host" yaml:"host"`
-	EnablePrompts bool   `json:"enable_prompts" toml:"enable_prompts" yaml:"enable_prompts"`
+	PublicKey     string `json:"public_key" toml:"public_key,omitempty" yaml:"public_key,omitempty"`
+	SecretKey     string `json:"secret_key" toml:"secret_key,omitempty" yaml:"secret_key,omitempty"`
+	Host          string `json:"host" toml:"host,omitempty" yaml:"host,omitempty"`
+	EnablePrompts bool   `json:"enable_prompts" toml:"enable_prompts,omitempty" yaml:"enable_prompts,omitempty"`
 }
 
 // DefaultConfig builds the default Langfuse configuration by resolving

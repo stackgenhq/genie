@@ -43,17 +43,19 @@ import (
 	_ "github.com/stackgenhq/genie/pkg/messenger/whatsapp" // register adapter
 	"github.com/stackgenhq/genie/pkg/orchestrator"
 	"github.com/stackgenhq/genie/pkg/osutils"
-	"github.com/stackgenhq/genie/pkg/toolwrap"
 	"github.com/stackgenhq/genie/pkg/runbook"
 	"github.com/stackgenhq/genie/pkg/skills"
 	"github.com/stackgenhq/genie/pkg/tools"
-	"github.com/stackgenhq/genie/pkg/tools/calendar"
 	"github.com/stackgenhq/genie/pkg/tools/codeskim"
 	"github.com/stackgenhq/genie/pkg/tools/datetime"
 	"github.com/stackgenhq/genie/pkg/tools/doctool"
 	"github.com/stackgenhq/genie/pkg/tools/email"
 	"github.com/stackgenhq/genie/pkg/tools/encodetool"
-	"github.com/stackgenhq/genie/pkg/tools/gdrive"
+	"github.com/stackgenhq/genie/pkg/tools/google/calendar"
+	"github.com/stackgenhq/genie/pkg/tools/google/contacts"
+	"github.com/stackgenhq/genie/pkg/tools/google/gdrive"
+	"github.com/stackgenhq/genie/pkg/tools/google/gmail"
+	"github.com/stackgenhq/genie/pkg/tools/google/tasks"
 	"github.com/stackgenhq/genie/pkg/tools/jsontool"
 	mathtool "github.com/stackgenhq/genie/pkg/tools/math"
 	"github.com/stackgenhq/genie/pkg/tools/metrics"
@@ -66,6 +68,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/tools/sqltool"
 	"github.com/stackgenhq/genie/pkg/tools/webfetch"
 	"github.com/stackgenhq/genie/pkg/tools/websearch"
+	"github.com/stackgenhq/genie/pkg/toolwrap"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -449,6 +452,7 @@ func (a *Application) Close(ctx context.Context) {
 // underlying codeOwner.Chat() pipeline.
 func (a *Application) buildChatHandler() func(ctx context.Context, message string, agentsMessage chan<- interface{}) error {
 	return func(ctx context.Context, message string, agentsMessage chan<- interface{}) error {
+		logger := logger.GetLogger(ctx).With("fn", "app.buildChatHandler")
 		outputChan := make(chan string)
 		chatDone := make(chan struct{})
 		go func() {
@@ -459,12 +463,21 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 			if a.browser != nil {
 				var cancel context.CancelFunc
 				var err error
+				// Use the request context so tab creation respects client disconnects
+				// and request cancellation (e.g. cross-origin fetch, navigation, or
+				// quick disconnect).
 				tabCtx, cancel, err = a.browser.NewTab(ctx)
 				if err != nil {
-					agui.EmitError(ctx, err, "failed to create browser tab")
-					return
+					logger.Warn("failed to create browser tab", "error", err)
+					tabCtx = nil
+				} else {
+					defer cancel()
+					// Wire request cancellation so the tab is closed when the client disconnects.
+					go func() {
+						<-ctx.Done()
+						cancel()
+					}()
 				}
-				defer cancel()
 			}
 
 			if err := a.codeOwner.Chat(ctx, orchestrator.CodeQuestion{
@@ -496,7 +509,7 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 	sp := a.cfg.Security.Provider(ctx)
 
 	providers := []tools.ToolProviders{
-		websearch.NewToolProvider(a.cfg.WebSearch),
+		websearch.NewToolProvider(a.cfg.WebSearch, websearch.WithSecretProvider(sp)),
 		networking.NewToolProvider(),
 
 		// --- Utility tools (stateless, no external dependencies) ---
@@ -511,7 +524,8 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 		codeskim.NewToolProvider(),
 		ocrtool.NewToolProvider(),
 		tools.Tools(sqltool.NewToolProvider(sp).GetTools("sql")),
-		tools.Tools(calendar.NewToolProvider(sp).GetTools("calendar")),
+		tools.Tools(calendar.NewToolProvider(sp).GetTools("google_calendar")),
+		tools.Tools(contacts.NewToolProvider(sp).GetTools("google_contacts")),
 		metrics.NewToolProvider(),
 	}
 
@@ -586,20 +600,46 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 		log.Warn("failed to initialize email service, skipping email tools", "provider", a.cfg.Email.Provider, "error", err)
 	}
 
-	// --- Google Drive tools ---
-	if gdSvc, err := gdrive.New(ctx, a.cfg.GDrive); err == nil {
+	// --- Google Drive tools (shared OAuth with calendar/contacts, or config-based) ---
+	if gdSvc, err := gdrive.NewFromSecretProvider(ctx, sp); err == nil {
 		if vErr := gdSvc.Validate(ctx); vErr != nil {
 			log.Warn("Google Drive health check failed, tools still registered", "error", vErr)
 		}
-		providers = append(providers, gdrive.NewToolProvider(gdSvc))
+		providers = append(providers, tools.Tools(gdrive.NewToolProvider(gdSvc).GetTools("google_drive")))
+		log.Info("Google Drive tool provider added (OAuth)")
+	} else if gdSvc, err := gdrive.New(ctx, a.cfg.GDrive); err == nil {
+		if vErr := gdSvc.Validate(ctx); vErr != nil {
+			log.Warn("Google Drive health check failed, tools still registered", "error", vErr)
+		}
+		providers = append(providers, tools.Tools(gdrive.NewToolProvider(gdSvc).GetTools("google_drive")))
 		log.Info("Google Drive tool provider added")
 	} else if a.cfg.GDrive.CredentialsFile != "" {
 		log.Warn("failed to initialize Google Drive service, skipping gdrive tools", "error", err)
 	}
 
+	// --- Gmail tools (shared OAuth with calendar/contacts/drive) ---
+	if gmailSvc, err := gmail.NewFromSecretProvider(ctx, sp); err == nil {
+		if vErr := gmailSvc.Validate(ctx); vErr != nil {
+			log.Warn("Gmail health check failed, tools still registered", "error", vErr)
+		}
+		providers = append(providers, tools.Tools(gmail.NewToolProvider(gmailSvc).GetTools("google_gmail")))
+		log.Info("Gmail tool provider added (OAuth)")
+	}
+
+	// --- Google Tasks (shared OAuth with calendar/contacts/drive/gmail) ---
+	if tasksSvc, err := tasks.NewFromSecretProvider(ctx, sp); err == nil {
+		if vErr := tasksSvc.Validate(ctx); vErr != nil {
+			log.Warn("Google Tasks health check failed, tools still registered", "error", vErr)
+		}
+		providers = append(providers, tools.Tools(tasks.NewToolProvider(tasksSvc).GetTools("google_tasks")))
+		log.Info("Google Tasks tool provider added (OAuth)")
+	}
+
 	// --- Clarify tool ---
 	// Clarify emitter bridges clarify → AG-UI + messenger.
 	// Stays here because it references Application fields.
+	// For AG-UI we only emit ClarificationRequestMsg (above); calling Send as well
+	// would duplicate the question in the UI and duplicate "sending outgoing message" logs.
 	emitter := func(ctx context.Context, evt clarify.ClarificationEvent) error {
 		origin := messenger.MessageOriginFrom(ctx)
 
@@ -610,19 +650,21 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 			Context:   evt.Context,
 		})
 
-		sendReq := messenger.SendRequest{
-			Channel: origin.Channel,
-			Content: messenger.MessageContent{
-				Text: fmt.Sprintf("❓ **Question from Genie**:\n%s\n\n_Reply with your answer._", evt.Question),
-			},
-		}
-		sendReq = a.msgr.FormatClarification(sendReq, messenger.ClarificationInfo{
-			RequestID: evt.RequestID,
-			Question:  evt.Question,
-			Context:   evt.Context,
-		})
-		if _, err := a.msgr.Send(ctx, sendReq); err != nil {
-			log.Warn("failed to send clarification via messenger", "error", err)
+		if a.msgr.Platform() != messenger.PlatformAGUI {
+			sendReq := messenger.SendRequest{
+				Channel: origin.Channel,
+				Content: messenger.MessageContent{
+					Text: fmt.Sprintf("❓ **Question from Genie**:\n%s\n\n_Reply with your answer._", evt.Question),
+				},
+			}
+			sendReq = a.msgr.FormatClarification(sendReq, messenger.ClarificationInfo{
+				RequestID: evt.RequestID,
+				Question:  evt.Question,
+				Context:   evt.Context,
+			})
+			if _, err := a.msgr.Send(ctx, sendReq); err != nil {
+				log.Warn("failed to send clarification via messenger", "error", err)
+			}
 		}
 		_ = a.shortMemory.Set(ctx, "pending_clarification", origin.String(), evt.RequestID, 10*time.Minute)
 
@@ -897,12 +939,18 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 		if a.browser != nil {
 			var cancel context.CancelFunc
 			var err error
+			// Use the request context so tab creation respects client disconnects
+			// and request cancellation (e.g. client disconnect).
 			tabCtx, cancel, err = a.browser.NewTab(ctx)
 			if err != nil {
 				agui.EmitError(ctx, err, "failed to create browser tab")
 				return
 			}
 			defer cancel()
+			go func() {
+				<-ctx.Done()
+				cancel()
+			}()
 		}
 
 		if err := a.codeOwner.Chat(traceCtx, orchestrator.CodeQuestion{

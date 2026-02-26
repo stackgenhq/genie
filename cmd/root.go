@@ -83,6 +83,7 @@ Complex tasks are hard. Being a Genie is easy.`,
 		return nil, err
 	}
 	rootCmd.AddCommand(grantCobraCmd)
+	rootCmd.AddCommand(newSetupCommand())
 	rootCmd.AddCommand(newVersionCommand(&r.opts))
 	rootCmd.AddCommand(newConnectCommand(&r.opts))
 	// Global flags

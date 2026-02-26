@@ -113,10 +113,10 @@ type IssueInput struct {
 
 // Config holds configuration for PM providers.
 type Config struct {
-	Provider string `yaml:"provider" toml:"provider"` // jira, linear, asana
-	APIToken string `yaml:"api_token" toml:"api_token"`
-	BaseURL  string `yaml:"base_url" toml:"base_url"` // Jira: required; Linear/Asana: optional override
-	Email    string `yaml:"email" toml:"email"`       // Jira only: email for Basic auth
+	Provider string `yaml:"provider,omitempty" toml:"provider,omitempty"` // jira, linear, asana
+	APIToken string `yaml:"api_token,omitempty" toml:"api_token,omitempty"`
+	BaseURL  string `yaml:"base_url,omitempty" toml:"base_url,omitempty"` // Jira: required; Linear/Asana: optional override
+	Email    string `yaml:"email,omitempty" toml:"email,omitempty"`       // Jira only: email for Basic auth
 }
 
 // New creates a new PM Service based on the configuration.

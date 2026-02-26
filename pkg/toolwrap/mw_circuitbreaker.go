@@ -13,16 +13,16 @@ import (
 // CircuitBreakerConfig configures the CircuitBreakerMiddleware.
 type CircuitBreakerConfig struct {
 	// Enabled activates the circuit breaker middleware. Defaults to false.
-	Enabled bool `yaml:"enabled" toml:"enabled"`
+	Enabled bool `yaml:"enabled,omitempty" toml:"enabled,omitempty"`
 	// FailureThreshold is the number of consecutive failures before the
 	// circuit opens. Defaults to 5 if zero.
-	FailureThreshold int `yaml:"failure_threshold" toml:"failure_threshold"`
+	FailureThreshold int `yaml:"failure_threshold,omitempty" toml:"failure_threshold,omitempty,omitzero"`
 	// OpenDuration is how long the circuit stays open before transitioning
 	// to half-open for a probe. Defaults to 30s if zero.
-	OpenDuration time.Duration `yaml:"open_duration" toml:"open_duration"`
+	OpenDuration time.Duration `yaml:"open_duration,omitempty" toml:"open_duration,omitempty"`
 	// HalfOpenMaxCalls is the number of test calls allowed in half-open
 	// state before deciding to close or re-open. Defaults to 1 if zero.
-	HalfOpenMaxCalls int `yaml:"half_open_max_calls" toml:"half_open_max_calls"`
+	HalfOpenMaxCalls int `yaml:"half_open_max_calls,omitempty" toml:"half_open_max_calls,omitempty,omitzero"`
 }
 
 // withDefaults fills zero-valued fields with sensible defaults.

@@ -18,6 +18,8 @@ import (
 	"gocloud.dev/runtimevar"
 	"golang.org/x/sync/errgroup"
 
+	// Import filevar driver so "file://" URLs work for local JSON/secret files.
+	_ "gocloud.dev/runtimevar/filevar"
 	// Import constantvar driver so "constant://" URLs work in tests and
 	// local dev without any external dependencies.
 	_ "gocloud.dev/runtimevar/constantvar"

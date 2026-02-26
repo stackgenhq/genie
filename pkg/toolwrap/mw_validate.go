@@ -11,7 +11,7 @@ import (
 
 // ValidationConfig controls the InputValidationMiddleware.
 type ValidationConfig struct {
-	Enabled bool `yaml:"enabled" toml:"enabled"`
+	Enabled bool `yaml:"enabled,omitempty" toml:"enabled,omitempty"`
 }
 
 // InputValidationMiddleware returns a Middleware that validates tool call

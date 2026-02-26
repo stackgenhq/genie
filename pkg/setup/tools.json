@@ -1,0 +1,194 @@
+{
+  "tools": [
+    {
+      "id": "email",
+      "name": "Email",
+      "description": "Let Genie send and read your email",
+      "questions": [
+        {
+          "key": "provider",
+          "label": "How do you get your email?",
+          "description": "Pick the one that matches how you check email",
+          "type": "select",
+          "options": [
+            { "value": "smtp", "label": "My own mail (e.g. work or Gmail)" },
+            { "value": "gmail_api", "label": "Gmail (Google account)" },
+            { "value": "sendgrid", "label": "SendGrid" }
+          ],
+          "default": "smtp"
+        },
+        {
+          "key": "host",
+          "label": "Mail server address",
+          "description": "For Gmail use smtp.gmail.com",
+          "type": "input",
+          "placeholder": "smtp.gmail.com",
+          "optional": false
+        },
+        {
+          "key": "port",
+          "label": "Port number",
+          "description": "Usually 587 – press Enter if unsure",
+          "type": "number",
+          "default": "587"
+        },
+        {
+          "key": "username",
+          "label": "Your email address",
+          "description": "The address you use to sign in",
+          "type": "input",
+          "optional": false
+        },
+        {
+          "key": "password",
+          "label": "Password or app password",
+          "description": "Gmail: get an app password at myaccount.google.com/apppasswords (turn on 2-step verification first). Other mail: use your normal password.",
+          "type": "password",
+          "optional": false
+        },
+        {
+          "key": "imap_host",
+          "label": "Server for reading mail (optional)",
+          "description": "For Gmail use imap.gmail.com",
+          "type": "input",
+          "placeholder": "imap.gmail.com",
+          "optional": true
+        },
+        {
+          "key": "imap_port",
+          "label": "Port for reading mail",
+          "description": "Usually 993",
+          "type": "number",
+          "default": "993"
+        }
+      ]
+    },
+    {
+      "id": "web_search",
+      "name": "Web search",
+      "description": "Let Genie search the web for you",
+      "questions": [
+        {
+          "key": "provider",
+          "label": "Which search do you want?",
+          "description": "DuckDuckGo is free and needs no signup",
+          "type": "select",
+          "options": [
+            { "value": "duckduckgo", "label": "DuckDuckGo (free, no signup)" },
+            { "value": "google", "label": "Google" },
+            { "value": "bing", "label": "Bing" }
+          ],
+          "default": "duckduckgo"
+        },
+        {
+          "key": "google_api_key",
+          "label": "Google key (only if you chose Google)",
+          "description": "Get one at aistudio.google.com/apikey or console.cloud.google.com (APIs & Services → Credentials).",
+          "type": "password",
+          "optional": true
+        },
+        {
+          "key": "google_cx",
+          "label": "Google search engine ID (optional)",
+          "description": "Create a custom search at programmers.google.com and paste the search engine ID here.",
+          "type": "input",
+          "optional": true
+        },
+        {
+          "key": "bing_api_key",
+          "label": "Bing key (only if you chose Bing)",
+          "description": "Get one at bing.com/webmasters (Tools → API Access) or portal.azure.com (Cognitive Services).",
+          "type": "password",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "google_drive",
+      "name": "Google Drive",
+      "description": "Let Genie read and search your Google Drive files",
+      "questions": [
+        {
+          "key": "credentials_file",
+          "label": "Path to your Google key file (optional)",
+          "description": "Create a service account at console.cloud.google.com → IAM & Admin → Service accounts → Create → Keys → Add key (JSON). Download the file and enter its path here.",
+          "type": "input",
+          "placeholder": "/path/to/key-file.json",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "project_management",
+      "name": "Jira, Linear, or Asana",
+      "description": "Let Genie create and update tasks in your project app",
+      "questions": [
+        {
+          "key": "provider",
+          "label": "Which app do you use?",
+          "type": "select",
+          "options": [
+            { "value": "jira", "label": "Jira" },
+            { "value": "linear", "label": "Linear" },
+            { "value": "asana", "label": "Asana" }
+          ],
+          "default": "linear"
+        },
+        {
+          "key": "api_token",
+          "label": "Your access token",
+          "description": "Jira: id.atlassian.com → Security → Create and manage API tokens. Linear: linear.app → Settings → API → Personal API keys. Asana: asana.com → My Settings → Apps → Personal access tokens.",
+          "type": "password",
+          "optional": false
+        },
+        {
+          "key": "base_url",
+          "label": "Your Jira/Atlassian address (only for Jira)",
+          "description": "e.g. https://yourcompany.atlassian.net",
+          "type": "input",
+          "placeholder": "https://yourcompany.atlassian.net",
+          "optional": true
+        },
+        {
+          "key": "email",
+          "label": "Your email (only for Jira)",
+          "description": "The email you use to sign in to Jira",
+          "type": "input",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "scm",
+      "name": "GitHub or GitLab",
+      "description": "Let Genie create branches and pull requests for you",
+      "questions": [
+        {
+          "key": "provider",
+          "label": "GitHub or GitLab?",
+          "type": "select",
+          "options": [
+            { "value": "github", "label": "GitHub" },
+            { "value": "gitlab", "label": "GitLab" }
+          ],
+          "default": "github"
+        },
+        {
+          "key": "token",
+          "label": "Your access token",
+          "description": "GitHub: github.com/settings/tokens → Generate new token (classic), tick repo. GitLab: gitlab.com/-/user_settings/personal_access_tokens → Add new token, tick api.",
+          "type": "password",
+          "optional": false
+        },
+        {
+          "key": "base_url",
+          "label": "Your GitLab address (only for your own GitLab)",
+          "description": "Leave blank if you use gitlab.com",
+          "type": "input",
+          "placeholder": "https://gitlab.yourcompany.com",
+          "optional": true
+        }
+      ]
+    }
+  ]
+}

@@ -36,7 +36,7 @@ type Service interface {
 
 // Config holds configuration for the Google Drive connector.
 type Config struct {
-	CredentialsFile string `yaml:"credentials_file" toml:"credentials_file"` // Path to service account JSON
+	CredentialsFile string `yaml:"credentials_file,omitempty" toml:"credentials_file,omitempty"` // Path to service account JSON
 	// Alternatively, set GOOGLE_APPLICATION_CREDENTIALS env var.
 }
 
@@ -87,49 +87,49 @@ type toolSet struct {
 	s Service
 }
 
-func NewSearchTool(s Service) tool.CallableTool {
+func NewSearchTool(name string, s Service) tool.CallableTool {
 	ts := &toolSet{s: s}
 	return function.NewFunctionTool(
 		ts.search,
-		function.WithName("gdrive_search"),
+		function.WithName(name+"_search"),
 		function.WithDescription("Search for files in Google Drive. Supports Google Drive query syntax."),
 	)
 }
 
-func NewListFolderTool(s Service) tool.CallableTool {
+func NewListFolderTool(name string, s Service) tool.CallableTool {
 	ts := &toolSet{s: s}
 	return function.NewFunctionTool(
 		ts.listFolder,
-		function.WithName("gdrive_list_folder"),
+		function.WithName(name+"_list_folder"),
 		function.WithDescription("List files in a Google Drive folder. Use 'root' for the root folder."),
 	)
 }
 
-func NewGetFileTool(s Service) tool.CallableTool {
+func NewGetFileTool(name string, s Service) tool.CallableTool {
 	ts := &toolSet{s: s}
 	return function.NewFunctionTool(
 		ts.getFile,
-		function.WithName("gdrive_get_file"),
+		function.WithName(name+"_get_file"),
 		function.WithDescription("Get metadata about a Google Drive file including owners and links."),
 	)
 }
 
-func NewReadFileTool(s Service) tool.CallableTool {
+func NewReadFileTool(name string, s Service) tool.CallableTool {
 	ts := &toolSet{s: s}
 	return function.NewFunctionTool(
 		ts.readFile,
-		function.WithName("gdrive_read_file"),
+		function.WithName(name+"_read_file"),
 		function.WithDescription("Read the text content of a Google Drive file. Google Docs/Sheets are exported as plain text."),
 	)
 }
 
-// AllTools returns all Google Drive tools wired to the service.
-func AllTools(s Service) []tool.Tool {
+// AllTools returns all Google Drive tools wired to the service, with tool names prefixed by name.
+func AllTools(name string, s Service) []tool.Tool {
 	return []tool.Tool{
-		NewSearchTool(s),
-		NewListFolderTool(s),
-		NewGetFileTool(s),
-		NewReadFileTool(s),
+		NewSearchTool(name, s),
+		NewListFolderTool(name, s),
+		NewGetFileTool(name, s),
+		NewReadFileTool(name, s),
 	}
 }
 

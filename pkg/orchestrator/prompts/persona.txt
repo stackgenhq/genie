@@ -49,14 +49,12 @@ Translate your plan into create_agent calls:
 - For DEPENDENT sub-tasks: use the `steps` parameter with `flow_type: sequence`.
 - For COMPLEX multi-phase work: use nested plans with `steps` and mixed flow types.
 - Always provide clear, unambiguous goals for each sub-agent.
-- Give each sub-agent ONLY the tools it needs — no extras.
-- In sub-agent goals, ALWAYS include: "First call scratchpad_read to check what data
-  already exists. After gathering new data, call scratchpad_write to save it."
-  This ensures sub-agents share data and never duplicate work.
+- Put all context the sub-agent needs in the goal text. The sub-agent returns
+  results in its response; you synthesize from create_agent outputs.
 
 ### Phase 4: SYNTHESIZE
 After all sub-agents complete:
-- Review their outputs and scratchpad data from working memory.
+- Review their outputs (returned from create_agent) and working memory.
 - Compose a unified, coherent response for the user.
 - Highlight what was accomplished and any issues encountered.
 
@@ -76,7 +74,7 @@ All execution is delegated to sub-agents via create_agent.
 - **Plan explicitly.** State your plan (even briefly) before executing it.
 - **Right-size your agents.** Simple lookups: 1 agent, 3-5 iterations. File edits: 1 agent, 10-15 iterations. Multi-step: use plans with multiple steps.
 - **Parallelize only when data-independent.** If sub-tasks share a data source (same URL, API, file), use sequence flow instead. The first step fetches; the rest analyze.
-- **Scratchpad is your coordination bus.** Sub-agents share data via the scratchpad (scratchpad_read/scratchpad_write). Always instruct sub-agents to check the scratchpad first and write back their findings.
+- **Goal text is the sub-agent's context.** Put everything the sub-agent needs in the goal; it returns results in its response.
 - **Batch related work.** Don't create 5 agents for 5 related file reads — create 1 agent that reads all 5.
 - **Keep planning on yourself.** Sub-agents execute; you reason and plan.
 - **Verify within the agent.** Include verification steps in the sub-agent's goal, not as separate agents.

@@ -1535,6 +1535,128 @@
      * 7. OUTPUT & ACTIONS
      * ================================================================ */
 
+    /** Detect OS from browser (best-effort; not 100% reliable). */
+    function detectOS() {
+        var ua = navigator.userAgent;
+        var platform = (navigator.userAgentData && navigator.userAgentData.platform)
+            ? navigator.userAgentData.platform
+            : navigator.platform || '';
+        if (/Win(dows|32|64|CE|NT)|WOW64/i.test(ua) || /Windows/i.test(String(platform))) return 'windows';
+        if (/Mac|iPhone|iPad|iPod/i.test(ua) || /Mac/i.test(String(platform))) return 'mac';
+        if (/Linux|Android/i.test(ua) || /Linux/i.test(String(platform))) return 'linux';
+        return 'other';
+    }
+
+    var INSTALL_STEPS = {
+        mac: {
+            label: 'macOS',
+            steps: [
+                { title: 'Install Genie (Homebrew):', code: 'brew install stackgenhq/homebrew-stackgen/genie' },
+                { title: 'Or install with Go:', code: 'CGO_ENABLED=1 go install -mod=mod github.com/stackgenhq/genie@latest' },
+                { title: 'Save the copied config to your home directory:', code: '# Paste the copied content into ~/.genie.toml (or ~/.genie.yaml)' },
+                { title: 'Run Genie:', code: 'genie' }
+            ]
+        },
+        linux: {
+            label: 'Linux',
+            steps: [
+                { title: 'Install Genie (Homebrew):', code: 'brew install stackgenhq/homebrew-stackgen/genie' },
+                { title: 'Or install with Go:', code: 'CGO_ENABLED=1 go install -mod=mod github.com/stackgenhq/genie@latest' },
+                { title: 'Or run with Docker:', code: 'docker run --rm -it -v ~/.genie.toml:/root/.genie.toml -v $(pwd):/workspace ghcr.io/stackgenhq/genie:latest grant' },
+                { title: 'Save the copied config to your home directory:', code: '# Paste the copied content into ~/.genie.toml (or ~/.genie.yaml)' },
+                { title: 'Run Genie:', code: 'genie' }
+            ]
+        },
+        windows: {
+            label: 'Windows',
+            steps: [
+                { title: 'Install Genie (Scoop):', code: 'scoop bucket add stackgen https://github.com/stackgenhq/homebrew-stackgen\nscoop install genie' },
+                { title: 'Or install with Go:', code: 'go install -mod=mod github.com/stackgenhq/genie@latest' },
+                { title: 'Save the copied content as:', code: '%USERPROFILE%\\.genie\\.genie.toml' },
+                { title: 'Run Genie in Command Prompt or PowerShell:', code: 'genie' }
+            ]
+        },
+        other: {
+            label: 'Other',
+            steps: [
+                { title: 'Install Genie (Go):', code: 'CGO_ENABLED=1 go install -mod=mod github.com/stackgenhq/genie@latest' },
+                { title: 'Or run with Docker:', code: 'docker run --rm -it -v ~/.genie.toml:/root/.genie.toml -v $(pwd):/workspace ghcr.io/stackgenhq/genie:latest grant' },
+                { title: 'Save the copied config as .genie.toml (or .genie.yaml) in your home directory or project root.', code: '' },
+                { title: 'Run Genie:', code: 'genie' }
+            ]
+        }
+    };
+
+    /** Show a small modal with install instructions for the detected OS; allow switching OS. */
+    function showInstallModal() {
+        var overlay = document.getElementById('install-modal-overlay');
+        if (overlay) return;
+
+        var currentOS = detectOS();
+        var ext = state.format === 'toml' ? '.toml' : '.yaml';
+        var configFile = '.genie' + ext;
+
+        function stepsHtml(osKey) {
+            var data = INSTALL_STEPS[osKey] || INSTALL_STEPS.other;
+            var html = '<div class="install-modal-steps">';
+            data.steps.forEach(function (s) {
+                html += '<p class="install-modal-step-title">' + s.title + '</p>';
+                if (s.code) {
+                    html += '<pre class="install-modal-code">' + s.code.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>';
+                }
+            });
+            html += '</div>';
+            return html;
+        }
+
+        function renderBody(selectedOS) {
+            var body = document.getElementById('install-modal-body');
+            if (body) body.innerHTML = stepsHtml(selectedOS);
+        }
+
+        var osOrder = ['mac', 'linux', 'windows', 'other'];
+        var tabButtons = osOrder.map(function (osKey) {
+            var data = INSTALL_STEPS[osKey];
+            var btn = el('button', {
+                className: 'install-modal-tab' + (osKey === currentOS ? ' active' : ''),
+                type: 'button'
+            }, data.label);
+            btn.dataset.os = osKey;
+            btn.addEventListener('click', function () {
+                document.querySelectorAll('.install-modal-tab').forEach(function (b) { b.classList.remove('active'); });
+                btn.classList.add('active');
+                renderBody(osKey);
+            });
+            return btn;
+        });
+
+        var overlayEl = el('div', { id: 'install-modal-overlay', className: 'install-modal-overlay' });
+        var modal = el('div', { className: 'install-modal' }, [
+            el('div', { className: 'install-modal-header' }, [
+                el('h3', { className: 'install-modal-title' }, 'How to install on your machine'),
+                el('button', { type: 'button', className: 'install-modal-close', 'aria-label': 'Close' }, '×')
+            ]),
+            el('p', { className: 'install-modal-copied' }, 'Your config has been copied to the clipboard.'),
+            el('p', { className: 'install-modal-congrats' }, 'Congratulations on taking the first step to having a secure assistant.'),
+            el('p', { className: 'install-modal-hint' }, 'Config file: ' + configFile + ' in your home directory or project root. Prefer terminal? Run genie setup for guided config creation.'),
+            el('div', { className: 'install-modal-tabs' }, tabButtons),
+            el('div', { id: 'install-modal-body', className: 'install-modal-body' }, stepsHtml(currentOS))
+        ]);
+
+        overlayEl.appendChild(modal);
+
+        overlayEl.addEventListener('click', function (e) {
+            if (e.target === overlayEl) closeModal();
+        });
+        modal.querySelector('.install-modal-close').addEventListener('click', closeModal);
+
+        function closeModal() {
+            overlayEl.remove();
+        }
+
+        document.body.appendChild(overlayEl);
+    }
+
     function renderOutput() {
         var code = $('output-code');
         if (!code) return;
@@ -1564,6 +1686,7 @@
             btn.textContent = '✓ Copied!';
             btn.classList.add('copied');
             setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+            showInstallModal();
         });
     };
 

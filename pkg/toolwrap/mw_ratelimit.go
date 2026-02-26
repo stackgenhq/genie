@@ -12,13 +12,13 @@ import (
 // RateLimitConfig specifies rate limits for the RateLimitMiddleware.
 type RateLimitConfig struct {
 	// Enabled activates the rate limit middleware. Defaults to false.
-	Enabled bool `yaml:"enabled" toml:"enabled"`
+	Enabled bool `yaml:"enabled,omitempty" toml:"enabled,omitempty"`
 	// GlobalRatePerMinute is the maximum number of tool calls per minute
 	// across all tools. Zero means no global limit.
-	GlobalRatePerMinute float64 `yaml:"global_rate_per_minute" toml:"global_rate_per_minute"`
+	GlobalRatePerMinute float64 `yaml:"global_rate_per_minute,omitempty" toml:"global_rate_per_minute,omitempty,omitzero"`
 	// PerToolRatePerMinute maps tool names to per-tool rate limits.
 	// Tools not in the map use the global limit. Zero entries are ignored.
-	PerToolRatePerMinute map[string]float64 `yaml:"per_tool_rate_per_minute" toml:"per_tool_rate_per_minute"`
+	PerToolRatePerMinute map[string]float64 `yaml:"per_tool_rate_per_minute,omitempty" toml:"per_tool_rate_per_minute,omitempty"`
 }
 
 // rateLimitMiddleware throttles tool calls using golang.org/x/time/rate

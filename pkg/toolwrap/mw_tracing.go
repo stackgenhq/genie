@@ -12,7 +12,7 @@ import (
 
 // TracingConfig controls the TracingMiddleware.
 type TracingConfig struct {
-	Enabled bool `yaml:"enabled" toml:"enabled"`
+	Enabled bool `yaml:"enabled,omitempty" toml:"enabled,omitempty"`
 }
 
 // tracerName is the OpenTelemetry instrumentation scope for tool calls.

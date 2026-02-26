@@ -1,7 +1,7 @@
 package messenger
 
 // DefaultMessageBufferSize is the default capacity for the incoming message channel.
-const DefaultMessageBufferSize = 100
+const defaultMessageBufferSize = 100
 
 // AdapterConfig holds common configuration used by platform adapters.
 // Adapters should embed or reference this struct to benefit from shared options.
@@ -14,7 +14,7 @@ type AdapterConfig struct {
 // DefaultAdapterConfig returns an AdapterConfig with sensible defaults.
 func DefaultAdapterConfig() AdapterConfig {
 	return AdapterConfig{
-		MessageBufferSize: DefaultMessageBufferSize,
+		MessageBufferSize: defaultMessageBufferSize,
 	}
 }
 

@@ -10,7 +10,7 @@ import (
 // (stdio, HTTP, SSE) and manage tool discovery and execution.
 type MCPConfig struct {
 	// Servers is a list of MCP server configurations
-	Servers []MCPServerConfig `yaml:"servers" toml:"servers"`
+	Servers []MCPServerConfig `yaml:"servers,omitempty" toml:"servers,omitempty"`
 }
 
 // MCPServerConfig represents configuration for a single MCP server connection.
@@ -18,10 +18,10 @@ type MCPConfig struct {
 // connection behavior, tool filtering, and error handling.
 type MCPServerConfig struct {
 	// Name is a unique identifier for this server configuration
-	Name string `yaml:"name" toml:"name"`
+	Name string `yaml:"name,omitempty" toml:"name,omitempty"`
 
 	// Transport specifies the connection type: "stdio", "streamable_http", or "sse"
-	Transport string `yaml:"transport" toml:"transport"`
+	Transport string `yaml:"transport,omitempty" toml:"transport,omitempty"`
 
 	// ServerURL is the HTTP/SSE server URL (required for streamable_http and sse transports)
 	ServerURL string `yaml:"server_url,omitempty" toml:"server_url,omitempty"`
@@ -48,7 +48,7 @@ type MCPServerConfig struct {
 
 	// SessionReconnect enables automatic session reconnection with max retry attempts
 	// Set to 0 to disable session reconnection
-	SessionReconnect int `yaml:"session_reconnect,omitempty" toml:"session_reconnect,omitempty"`
+	SessionReconnect int `yaml:"session_reconnect,omitempty" toml:"session_reconnect,omitempty,omitzero"`
 
 	// Retry configuration for MCP operations
 	Retry *RetryConfig `yaml:"retry,omitempty" toml:"retry,omitempty"`
@@ -58,13 +58,13 @@ type MCPServerConfig struct {
 // This matches the retry configuration pattern from trpc-agent-go.
 type RetryConfig struct {
 	// MaxRetries is the maximum number of retry attempts (range: 0-10, default: 2)
-	MaxRetries int `yaml:"max_retries,omitempty" toml:"max_retries,omitempty"`
+	MaxRetries int `yaml:"max_retries,omitempty" toml:"max_retries,omitempty,omitzero"`
 
 	// InitialBackoff is the initial delay before first retry (range: 1ms-30s, default: 500ms)
 	InitialBackoff time.Duration `yaml:"initial_backoff,omitempty" toml:"initial_backoff,omitempty"`
 
 	// BackoffFactor is the exponential backoff multiplier (range: 1.0-10.0, default: 2.0)
-	BackoffFactor float64 `yaml:"backoff_factor,omitempty" toml:"backoff_factor,omitempty"`
+	BackoffFactor float64 `yaml:"backoff_factor,omitempty" toml:"backoff_factor,omitempty,omitzero"`
 
 	// MaxBackoff is the maximum delay cap (range: up to 5 minutes, default: 8s)
 	MaxBackoff time.Duration `yaml:"max_backoff,omitempty" toml:"max_backoff,omitempty"`

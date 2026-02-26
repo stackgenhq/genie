@@ -147,12 +147,12 @@ var _ = Describe("AGUI Messenger Integration", func() {
 			Expect(sendErr).NotTo(HaveOccurred())
 			Expect(sendResp.MessageID).NotTo(BeEmpty())
 
-			// The SSE body should contain the injected text.
-			// Note: handleRun's MapEvent will skip raw strings (they're not AG-UI event types),
-			// but the text was successfully written to the event channel.
-			// This validates that the Send() → eventChan bridge works.
+			// The SSE body should contain the injected text as TEXT_MESSAGE_CONTENT
+			// (MapEvent maps plain strings from Send() to TEXT_MESSAGE_CONTENT with a messageId).
 			body := recorder.Body.String()
 			Expect(body).To(ContainSubstring("event: RUN_STARTED"))
+			Expect(body).To(ContainSubstring("event: TEXT_MESSAGE_CONTENT"))
+			Expect(body).To(ContainSubstring("Injected via Send()"))
 			Expect(body).To(ContainSubstring("event: RUN_FINISHED"))
 		})
 

@@ -46,7 +46,7 @@ type Config struct {
 	// Paths is a list of file paths or directories containing runbook files.
 	// Both absolute and relative paths are supported. When a directory is
 	// specified, all supported files within it are loaded (non-recursive).
-	Paths []string `yaml:"runbook_paths" toml:"runbook_paths"`
+	Paths []string `yaml:"runbook_paths,omitempty" toml:"runbook_paths,omitempty"`
 }
 
 // Loader reads runbook files from the filesystem using the trpc-agent-go

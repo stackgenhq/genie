@@ -22,7 +22,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/runbook"
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/tools/email"
-	"github.com/stackgenhq/genie/pkg/tools/gdrive"
+	"github.com/stackgenhq/genie/pkg/tools/google/gdrive"
 	"github.com/stackgenhq/genie/pkg/tools/pm"
 	"github.com/stackgenhq/genie/pkg/tools/scm"
 	"github.com/stackgenhq/genie/pkg/tools/websearch"
@@ -31,34 +31,34 @@ import (
 )
 
 type GenieConfig struct {
-	ModelConfig  modelprovider.ModelConfig `yaml:"model_config" toml:"model_config"`
-	SkillsRoots  []string                  `yaml:"skills_roots" toml:"skills_roots"` // Supports multiple roots including HTTPS URLs
-	MCP          mcp.MCPConfig             `yaml:"mcp" toml:"mcp"`
-	WebSearch    websearch.Config          `yaml:"web_search" toml:"web_search"`
-	VectorMemory vector.Config             `yaml:"vector_memory" toml:"vector_memory"`
-	Messenger    messenger.Config          `yaml:"messenger" toml:"messenger"`
-	Browser      browser.Config            `yaml:"browser" toml:"browser"`
-	SCM          scm.Config                `yaml:"scm" toml:"scm"`
+	ModelConfig  modelprovider.ModelConfig `yaml:"model_config,omitempty" toml:"model_config,omitempty"`
+	SkillsRoots  []string                  `yaml:"skills_roots,omitempty" toml:"skills_roots,omitempty"` // Supports multiple roots including HTTPS URLs
+	MCP          mcp.MCPConfig             `yaml:"mcp,omitempty" toml:"mcp,omitempty"`
+	WebSearch    websearch.Config          `yaml:"web_search,omitempty" toml:"web_search,omitempty"`
+	VectorMemory vector.Config             `yaml:"vector_memory,omitempty" toml:"vector_memory,omitempty"`
+	Messenger    messenger.Config          `yaml:"messenger,omitempty" toml:"messenger,omitempty"`
+	Browser      browser.Config            `yaml:"browser,omitempty" toml:"browser,omitempty"`
+	SCM          scm.Config                `yaml:"scm,omitempty" toml:"scm,omitempty"`
 
-	ProjectManagement pm.Config `yaml:"project_management" toml:"project_management"`
+	ProjectManagement pm.Config `yaml:"project_management,omitempty" toml:"project_management,omitempty"`
 
-	Email    email.Config              `yaml:"email" toml:"email"`
-	GDrive   gdrive.Config             `yaml:"google_drive" toml:"google_drive"`
-	HITL     hitl.Config               `yaml:"hitl" toml:"hitl"`
-	DBConfig db.Config                 `yaml:"db_config" toml:"db_config"`
-	Langfuse langfuse.Config           `yaml:"langfuse" toml:"langfuse"`
-	Runbook  runbook.Config            `yaml:"runbook" toml:"runbook"`
-	Cron     cron.Config               `yaml:"cron" toml:"cron"`
-	Security security.Config           `yaml:"security" toml:"security"`
-	PII      pii.Config                `yaml:"pii" toml:"pii"`
-	Toolwrap toolwrap.MiddlewareConfig `yaml:"toolwrap" toml:"toolwrap"`
+	Email    email.Config              `yaml:"email,omitempty" toml:"email,omitempty"`
+	GDrive   gdrive.Config             `yaml:"google_drive,omitempty" toml:"google_drive,omitempty"`
+	HITL     hitl.Config               `yaml:"hitl,omitempty" toml:"hitl,omitempty"`
+	DBConfig db.Config                 `yaml:"db_config,omitempty" toml:"db_config,omitempty"`
+	Langfuse langfuse.Config           `yaml:"langfuse,omitempty" toml:"langfuse,omitempty"`
+	Runbook  runbook.Config            `yaml:"runbook,omitempty" toml:"runbook,omitempty"`
+	Cron     cron.Config               `yaml:"cron,omitempty" toml:"cron,omitempty"`
+	Security security.Config           `yaml:"security,omitempty" toml:"security,omitempty"`
+	PII      pii.Config                `yaml:"pii,omitempty" toml:"pii,omitempty"`
+	Toolwrap toolwrap.MiddlewareConfig `yaml:"toolwrap,omitempty" toml:"toolwrap,omitempty"`
 
 	// DisablePensieve disables the Pensieve context management tools
 	// (delete_context, check_budget, note, read_notes) from arXiv:2602.12108.
 	// When true, the agent can actively manage its own context window.
 	// delete_context and note require HITL approval; check_budget and
 	// read_notes are read-only and auto-approved.
-	DisablePensieve bool `yaml:"disable_pensieve" toml:"disable_pensieve"`
+	DisablePensieve bool `yaml:"disable_pensieve,omitempty" toml:"disable_pensieve,omitempty"`
 }
 
 // LoadGenieConfig loads the Genie configuration from a file, resolving

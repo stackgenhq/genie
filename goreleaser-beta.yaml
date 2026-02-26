@@ -56,6 +56,8 @@ builds:
       -extldflags '-static'
       -X github.com/stackgenhq/genie/cmd.Version={{.Version}}
       -X github.com/stackgenhq/genie/cmd.BuildDate={{.Date}}
+      -X github.com/stackgenhq/genie/pkg/tools/google/oauth.GoogleClientID={{ .Env.GOOGLE_CLIENT_ID }}
+      -X github.com/stackgenhq/genie/pkg/tools/google/oauth.GoogleClientSecret={{ .Env.GOOGLE_CLIENT_SECRET }}
   - id: darwin-build
     binary: *binaryName
     goos:
@@ -87,6 +89,8 @@ builds:
       -s
       -X github.com/stackgenhq/genie/cmd.Version={{.Version}}
       -X github.com/stackgenhq/genie/cmd.BuildDate={{.Date}}
+      -X github.com/stackgenhq/genie/pkg/tools/google/oauth.GoogleClientID={{ .Env.GOOGLE_CLIENT_ID }}
+      -X github.com/stackgenhq/genie/pkg/tools/google/oauth.GoogleClientSecret={{ .Env.GOOGLE_CLIENT_SECRET }}
     hooks:
       post:
         - cmd: quill sign "{{ .Path }}" --ad-hoc={{ .IsSnapshot }} -vv

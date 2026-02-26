@@ -240,8 +240,19 @@ var _ = Describe("AG-UI Server", func() {
 			Expect(parsed["delta"]).To(Equal("hi there"))
 		})
 
+		It("should map plain string to TEXT_MESSAGE_CONTENT with messageId", func() {
+			data, eventType, err := agui.MapEvent("hello from Send()", threadID, runID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(eventType).To(Equal(aguitypes.EventTextMessageContent))
+
+			var parsed map[string]interface{}
+			Expect(json.Unmarshal(data, &parsed)).To(Succeed())
+			Expect(parsed["delta"]).To(Equal("hello from Send()"))
+			Expect(parsed["messageId"]).NotTo(BeEmpty())
+		})
+
 		It("should return error for unsupported event types", func() {
-			_, _, err := agui.MapEvent("not an event", threadID, runID)
+			_, _, err := agui.MapEvent(42, threadID, runID)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("unsupported event type"))
 		})

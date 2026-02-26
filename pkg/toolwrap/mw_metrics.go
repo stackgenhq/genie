@@ -13,9 +13,8 @@ import (
 
 // MetricsConfig controls the MetricsMiddleware.
 type MetricsConfig struct {
-	Enabled bool `yaml:"enabled" toml:"enabled"`
-
-	Prefix string `yaml:"prefix" toml:"prefix"`
+	Enabled bool   `yaml:"enabled,omitempty" toml:"enabled,omitempty"`
+	Prefix  string `yaml:"prefix,omitempty" toml:"prefix,omitempty"`
 }
 
 // metricsState holds the lazily-initialised OTel instruments.

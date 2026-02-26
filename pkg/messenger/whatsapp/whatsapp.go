@@ -66,7 +66,7 @@ const DefaultStorePath = "~/.genie/whatsapp"
 type Config struct {
 	// StorePath is the directory for whatsmeow session/credential storage.
 	// Defaults to DefaultStorePath if empty.
-	StorePath string `json:"store_path" toml:"store_path" yaml:"store_path"`
+	StorePath string `json:"store_path" toml:"store_path,omitempty" yaml:"store_path,omitempty"`
 }
 
 // Messenger implements the [messenger.Messenger] interface for WhatsApp

@@ -16,12 +16,12 @@ import (
 var _ = Describe("WebSearch Tool", func() {
 	Context("NewTool", func() {
 		It("should default to DuckDuckGo when Provider is empty", func() {
-			tool := websearch.NewTool(websearch.Config{})
+			tool := websearch.NewTool(websearch.Config{}, nil)
 			Expect(tool.Declaration().Name).To(Equal("web_search"))
 		})
 
 		It("should initialise with explicit duckduckgo provider", func() {
-			tool := websearch.NewTool(websearch.Config{Provider: "duckduckgo"})
+			tool := websearch.NewTool(websearch.Config{Provider: "duckduckgo"}, nil)
 			Expect(tool.Declaration().Name).To(Equal("web_search"))
 		})
 
@@ -31,7 +31,7 @@ var _ = Describe("WebSearch Tool", func() {
 				GoogleAPIKey: "fake-key",
 				GoogleCX:     "fake-cx",
 			}
-			tool := websearch.NewTool(cfg)
+			tool := websearch.NewTool(cfg, nil)
 			Expect(tool.Declaration().Name).To(Equal("web_search"))
 		})
 
@@ -40,7 +40,7 @@ var _ = Describe("WebSearch Tool", func() {
 				Provider:   "bing",
 				BingAPIKey: "fake-bing-key",
 			}
-			tool := websearch.NewTool(cfg)
+			tool := websearch.NewTool(cfg, nil)
 			Expect(tool.Declaration().Name).To(Equal("web_search"))
 		})
 
@@ -50,7 +50,7 @@ var _ = Describe("WebSearch Tool", func() {
 				GoogleAPIKey: "", // Missing
 				GoogleCX:     "", // Missing
 			}
-			tool := websearch.NewTool(cfg)
+			tool := websearch.NewTool(cfg, nil)
 			Expect(tool.Declaration().Name).To(Equal("web_search"))
 		})
 
@@ -59,22 +59,22 @@ var _ = Describe("WebSearch Tool", func() {
 				Provider:   "bing",
 				BingAPIKey: "", // Missing
 			}
-			tool := websearch.NewTool(cfg)
+			tool := websearch.NewTool(cfg, nil)
 			Expect(tool.Declaration().Name).To(Equal("web_search"))
 		})
 
 		It("should normalise 'ddg' alias to duckduckgo", func() {
-			tool := websearch.NewTool(websearch.Config{Provider: "ddg"})
+			tool := websearch.NewTool(websearch.Config{Provider: "ddg"}, nil)
 			Expect(tool.Declaration().Name).To(Equal("web_search"))
 		})
 
 		It("should fallback to duckduckgo for unknown provider names", func() {
-			tool := websearch.NewTool(websearch.Config{Provider: "yahoo"})
+			tool := websearch.NewTool(websearch.Config{Provider: "yahoo"}, nil)
 			Expect(tool.Declaration().Name).To(Equal("web_search"))
 		})
 
 		It("should normalise provider with leading/trailing whitespace", func() {
-			tool := websearch.NewTool(websearch.Config{Provider: "  DuckDuckGo  "})
+			tool := websearch.NewTool(websearch.Config{Provider: "  DuckDuckGo  "}, nil)
 			Expect(tool.Declaration().Name).To(Equal("web_search"))
 		})
 	})
@@ -158,7 +158,7 @@ var _ = Describe("WebSearch Tool", func() {
 			os.Setenv("GOOGLE_API_KEY", "env-key")
 			os.Setenv("GOOGLE_CSE_ID", "env-cx")
 
-			tool := websearch.NewTool(websearch.Config{})
+			tool := websearch.NewTool(websearch.Config{}, nil)
 			Expect(tool).NotTo(BeNil())
 		})
 
@@ -167,7 +167,7 @@ var _ = Describe("WebSearch Tool", func() {
 				Skip("Skipping network-dependent test in short mode")
 			}
 			cfg := websearch.Config{Provider: "bing", BingAPIKey: ""}
-			tool := websearch.NewTool(cfg)
+			tool := websearch.NewTool(cfg, nil)
 			res, err := tool.Call(ctx, []byte(`{"query":"test"}`))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.(string)).To(ContainSubstring("DuckDuckGo"))
@@ -193,7 +193,7 @@ var _ = Describe("WebSearch Tool", func() {
 			}))
 			defer ts.Close()
 
-			tool := websearch.NewTool(cfg, websearch.WithDDGEndpoint(ts.URL))
+			tool := websearch.NewTool(cfg, nil, websearch.WithDDGEndpoint(ts.URL))
 			res, err := tool.Call(ctx, []byte(`{"query":"test"}`))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.(string)).To(ContainSubstring("DuckDuckGo"))
@@ -222,7 +222,7 @@ var _ = Describe("WebSearch Tool", func() {
 			}))
 			defer ts.Close()
 
-			tool := websearch.NewTool(cfg, websearch.WithDDGEndpoint(ts.URL))
+			tool := websearch.NewTool(cfg, nil, websearch.WithDDGEndpoint(ts.URL))
 			res, err := tool.Call(ctx, []byte(`{"query":"golang"}`))
 
 			// We expect NO error, because it should fallback to DDG
@@ -245,7 +245,7 @@ var _ = Describe("WebSearch Tool", func() {
 			defer ts.Close()
 
 			cfg := websearch.Config{Provider: "duckduckgo"}
-			tool := websearch.NewTool(cfg, websearch.WithDDGEndpoint(ts.URL))
+			tool := websearch.NewTool(cfg, nil, websearch.WithDDGEndpoint(ts.URL))
 			res, err := tool.Call(ctx, []byte(`{"query":"example"}`))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.(string)).To(ContainSubstring("Example"))
@@ -260,7 +260,7 @@ var _ = Describe("WebSearch Tool", func() {
 			}
 
 			cfg := websearch.Config{}
-			tool := websearch.NewTool(cfg)
+			tool := websearch.NewTool(cfg, nil)
 			input := `{"query": "golang interface"}`
 
 			// We expect execution not to panic, even if it fails due to network
