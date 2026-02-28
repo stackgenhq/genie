@@ -99,8 +99,8 @@ func HTTPClient(ctx context.Context, credsJSON, tokenJSON []byte, saveToken func
 
 	baseTS := config.TokenSource(ctx, &tok)
 	savingTS := &savingTokenSource{base: baseTS, save: saveToken}
-	// Use oauth2.NewClient so the client gets refreshed tokens from savingTS;
-	// wrap with httputil's round tripper for consistent TLS (NIST 2030).
+	// Use oauth2.Transport with Source: savingTS so the client gets refreshed tokens
+	// and Base: httputil's round tripper for consistent TLS (NIST 2030).
 	baseTransport := httputil.NewRoundTripper()
 	client := &http.Client{Transport: &oauth2.Transport{Source: savingTS, Base: baseTransport}}
 	return client, nil
