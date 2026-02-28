@@ -28,7 +28,10 @@ func DefaultCryptoConfig() CryptoConfig {
 }
 
 // TLSConfig returns a *tls.Config suitable for TLS clients (HTTP, IMAP, etc.).
-// It enforces minimum TLS 1.2 and strong cipher suites only. Callers must not modify the returned config.
+// It enforces minimum TLS 1.2 and strong cipher suites only. All selected cipher
+// suites use ephemeral key agreement (ECDHE), providing perfect forward secrecy
+// so that compromise of a long-term key does not reveal past session keys.
+// Callers must not modify the returned config.
 func (c CryptoConfig) TLSConfig() *tls.Config {
 	return &tls.Config{
 		MinVersion:   tls.VersionTLS12,

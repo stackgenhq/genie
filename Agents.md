@@ -1015,6 +1015,21 @@ if ok {
 - **TLS wiring**: `httputil.SetDefaultTLSConfig()` at bootstrap; email `IMAPTLSConfig` from `Security.Crypto.TLSConfig()`.
 - **Encode tool**: [`pkg/tools/encodetool`](pkg/tools/encodetool/) — MD5 is always rejected; use SHA-256 for hashing.
 
+### 5. No Weak Crypto in Default Security (MANDATORY) [crypto_weaknesses]
+
+**Default security mechanisms MUST NOT depend on cryptographic algorithms or modes with known serious weaknesses (e.g., SHA-1, CBC mode in SSH).**
+
+#### Rules
+
+- **Security mechanisms**: TLS, password hashing, integrity verification, signature verification, and any code path that protects confidentiality or integrity of sensitive data must not use SHA-1, MD5, CBC in SSH, or other algorithms with known serious weaknesses.
+- **Hashing**: Use SHA-256 (or stronger) for security-sensitive hashing. The encode tool and TLS config already enforce this.
+- **Non-security hashing**: For deterministic identifiers or fingerprints that are not security mechanisms (e.g. internal UUIDs, loop-detection hashes), prefer SHA-256 for new code where feasible; existing uses of SHA-1 for non-security purposes are acceptable but must not be used in default security paths.
+
+#### Reference
+
+- **Crypto policy**: [`pkg/security/crypto.go`](pkg/security/crypto.go) — TLS and cipher policy.
+- **Encode tool**: [`pkg/tools/encodetool`](pkg/tools/encodetool/) — SHA-256 only for hashing.
+
 ## Documentation Standards
 
 ### 1. Code Documentation (MANDATORY)
@@ -1362,6 +1377,7 @@ These standards are **mandatory** and must be followed for all new code. When re
 18. ✅ Verify all `It` blocks that need context receive `ctx context.Context` as a parameter and never use `context.Background()` directly
 19. ✅ Verify `make lint`, `make fmt`, and `make test` are green (run them before marking work complete or merging)
 20. ✅ Verify crypto defaults meet NIST 2030 minimums and that weak algorithms are always disabled ([crypto_keylength])
+21. ✅ Verify default security mechanisms do not use algorithms with known serious weaknesses, e.g. SHA-1 or CBC in SSH ([crypto_weaknesses])
 
 ## Agent Workflow Guidelines
 
