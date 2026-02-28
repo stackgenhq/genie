@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
+	"github.com/stackgenhq/genie/pkg/httputil"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )
@@ -68,7 +68,7 @@ func (bt *bingTool) Search(ctx context.Context, req BingSearchRequest) (string, 
 	}
 	httpReq.Header.Set("Ocp-Apim-Subscription-Key", bt.apiKey)
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := httputil.GetClient()
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return "", fmt.Errorf("bing search request failed: %w", err)

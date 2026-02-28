@@ -1240,12 +1240,13 @@
     function securityToToml(lines) {
         var sec = state.security;
         var mapped = sec.secrets.filter(function (s) { return s.name && s.url; });
-        if (mapped.length === 0) return;
-        lines.push('[security.secrets]');
-        mapped.forEach(function (s) {
-            lines.push(q(s.name) + ' = ' + q(s.url));
-        });
-        lines.push('');
+        if (mapped.length > 0) {
+            lines.push('[security.secrets]');
+            mapped.forEach(function (s) {
+                lines.push(q(s.name) + ' = ' + q(s.url));
+            });
+            lines.push('');
+        }
     }
 
     function piiToToml(lines) {

@@ -2,6 +2,13 @@
 Copyright © 2026 StackGen, Inc.
 */
 
+// Package doctor runs diagnostic checks on Genie configuration and environment
+// (config file, secrets, MCP, SCM, model provider) and returns a list of
+// results (errors, warnings, info) with stable ErrCodes for troubleshooting.
+//
+// It solves the problem of validating setup before or during runs: "genie doctor"
+// and the setup wizard use it to report missing keys, invalid URLs, and
+// connectivity issues so users can fix configuration without guessing.
 package doctor
 
 import (

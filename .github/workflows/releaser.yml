@@ -6,22 +6,27 @@ on:
       - "v[0-9]+.[0-9]+.[0-9]+"
       - "v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"
 
+# Top-level read-only; release job gets write below (Token-Permissions / Scorecard).
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
+    # contents: write required to create releases and push artifacts (Token-Permissions / Scorecard).
+    permissions:
+      contents: write
+      id-token: write
     container:
-      image: goreleaser/goreleaser-cross:latest
+      # Pinned by digest for supply-chain security (Code Scanning / Pinned-Dependencies).
+      image: goreleaser/goreleaser-cross@sha256:1e9415eb6fb00dbbd44467419862787671371847da460bc5c4967b56c489425c
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
       - name: Cache Go modules
-        uses: actions/cache@v5
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         with:
           path: |
             /root/go/pkg/mod
@@ -33,9 +38,15 @@ jobs:
         uses: ./.github/actions/setup
       - name: Install quill
         run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/quill/main/install.sh | sh -s -- -b /usr/local/bin
+          QUILL_VERSION="0.5.1"
+          curl -sSfL "https://github.com/anchore/quill/releases/download/v${QUILL_VERSION}/quill_${QUILL_VERSION}_linux_amd64.tar.gz" -o /tmp/quill.tar.gz
+          tar -xzf /tmp/quill.tar.gz -C /tmp
+          install "$(find /tmp -name quill -type f | head -1)" /usr/local/bin/quill
+          chmod +x /usr/local/bin/quill
+          rm -rf /tmp/quill.tar.gz /tmp/quill*
+          quill --version
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6
         with:
           audience: sts.amazonaws.com
           aws-region: ${{ secrets.AWS_REGION }}
@@ -57,6 +68,8 @@ jobs:
       - name: Run GoReleaser (on rc tag)
         if: startsWith(github.ref, 'refs/tags/') && contains(github.ref, '-rc.')
         env:
+          BUCKET: ${{ secrets.BUCKET }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           QUILL_SIGN_P12: ${{ secrets.QUILL_SIGN_P12 }}
           QUILL_SIGN_PASSWORD: ${{ secrets.QUILL_SIGN_PASSWORD }}

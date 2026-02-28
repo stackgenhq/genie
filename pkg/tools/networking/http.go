@@ -1,4 +1,7 @@
-// Package networking provides tools for making HTTP requests.
+// Package networking provides agent-callable tools for making HTTP requests
+// (GET, POST, etc.) to arbitrary URLs with configurable headers, body, and
+// timeout. It enables the agent to fetch APIs and web content when web_search
+// or webfetch are insufficient or when a specific endpoint is needed.
 package networking
 
 import (

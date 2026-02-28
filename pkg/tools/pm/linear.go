@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stackgenhq/genie/pkg/httputil"
 	"github.com/stackgenhq/genie/pkg/retrier"
 )
 
@@ -41,7 +42,7 @@ func newLinear(cfg Config) (*linearService, error) {
 	return &linearService{
 		endpoint: endpoint,
 		token:    cfg.APIToken,
-		client:   &http.Client{Timeout: 15 * time.Second},
+		client:   httputil.GetClient(),
 	}, nil
 }
 

@@ -5,6 +5,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/security"
 )
 
 var _ = Describe("Encode Tool encode_string", func() {
@@ -75,10 +76,11 @@ var _ = Describe("Encode Tool encode_string", func() {
 	})
 
 	Describe("md5", func() {
-		It("computes correct MD5 hash", func() {
-			resp, err := e.encode(context.Background(), encodeRequest{Operation: "md5", Input: "hello"})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.Result).To(Equal("5d41402abc4b2a76b9719d911017c592"))
+		It("rejects md5 with security policy error", func(ctx context.Context) {
+			_, err := e.encode(ctx, encodeRequest{Operation: "md5", Input: "hello"})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("disabled by security policy"))
+			Expect(err.Error()).To(ContainSubstring("sha256"))
 		})
 	})
 
@@ -97,7 +99,7 @@ var _ = Describe("Encode Tool encode_string", func() {
 
 var _ = Describe("Encode ToolProvider", func() {
 	It("returns the expected tool", func() {
-		p := NewToolProvider()
+		p := NewToolProvider(security.CryptoConfig{})
 		tools := p.GetTools()
 		Expect(tools).To(HaveLen(1))
 		Expect(tools[0].Declaration().Name).To(Equal("encode_string"))

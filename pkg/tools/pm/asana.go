@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/stackgenhq/genie/pkg/httputil"
 )
 
 const asanaBaseURL = "https://app.asana.com/api/1.0"
@@ -31,7 +33,7 @@ func newAsana(cfg Config) (*asanaService, error) {
 	return &asanaService{
 		baseURL: base,
 		token:   cfg.APIToken,
-		client:  &http.Client{Timeout: 15 * time.Second},
+		client:  httputil.GetClient(),
 	}, nil
 }
 

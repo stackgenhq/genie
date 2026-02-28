@@ -68,6 +68,10 @@ type Config struct {
 	// IMAP settings for reading emails
 	IMAPHost string `yaml:"IMAPHost,omitempty" toml:"IMAPHost,omitempty"`
 	IMAPPort int    `yaml:"IMAPPort,omitempty" toml:"IMAPPort,omitempty,omitzero"`
+
+	// IMAPTLSConfig is set by the application from security.CryptoConfig.TLSConfig()
+	// to enforce NIST 2030 minimums (TLS 1.2+). Not loaded from config file.
+	IMAPTLSConfig *tls.Config `yaml:"-" toml:"-"`
 }
 
 // New creates a new Email Service based on the configuration
@@ -156,11 +160,15 @@ func (s *smtpIMAPService) Read(ctx context.Context, filter string) ([]*Email, er
 // dialIMAP establishes a TLS connection to the IMAP server with a deadline
 // derived from the caller's context. The returned net.Conn is exposed so the
 // caller can close the underlying socket in the defer, even if the IMAP client
-// logout hangs.
+// logout hangs. Uses IMAPTLSConfig when set (e.g. NIST 2030–compliant TLS).
 func (s *smtpIMAPService) dialIMAP(_ context.Context, deadline time.Time) (*client.Client, net.Conn, error) {
 	addr := fmt.Sprintf("%s:%d", s.cfg.IMAPHost, s.cfg.IMAPPort)
 	dialer := &net.Dialer{Deadline: deadline}
-	tlsConn, err := tls.DialWithDialer(dialer, "tcp", addr, nil)
+	tlsCfg := s.cfg.IMAPTLSConfig
+	if tlsCfg != nil {
+		tlsCfg = tlsCfg.Clone()
+	}
+	tlsConn, err := tls.DialWithDialer(dialer, "tcp", addr, tlsCfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to dial IMAP: %w", err)
 	}

@@ -8,7 +8,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
+
+	"github.com/stackgenhq/genie/pkg/httputil"
 )
 
 // jiraService implements Service via the Jira REST API v3.
@@ -34,7 +35,7 @@ func newJira(cfg Config) (*jiraService, error) {
 		baseURL: strings.TrimRight(cfg.BaseURL, "/"),
 		email:   cfg.Email,
 		token:   cfg.APIToken,
-		client:  &http.Client{Timeout: 15 * time.Second},
+		client:  httputil.GetClient(),
 	}, nil
 }
 

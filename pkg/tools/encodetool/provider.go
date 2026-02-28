@@ -1,12 +1,20 @@
 package encodetool
 
-import "trpc.group/trpc-go/trpc-agent-go/tool"
+import (
+	"github.com/stackgenhq/genie/pkg/security"
+	"trpc.group/trpc-go/trpc-agent-go/tool"
+)
 
 // ToolProvider wraps the encode tool and satisfies the tools.ToolProviders interface.
-type ToolProvider struct{}
+type ToolProvider struct {
+	crypto security.CryptoConfig
+}
 
-// NewToolProvider creates a ToolProvider for the encode tool.
-func NewToolProvider() *ToolProvider { return &ToolProvider{} }
+// NewToolProvider creates a ToolProvider for the encode tool. CryptoConfig is passed so the provider
+// shares the same security policy as the rest of the app; weak algorithms (e.g. MD5) are always disabled.
+func NewToolProvider(crypto security.CryptoConfig) *ToolProvider {
+	return &ToolProvider{crypto: crypto}
+}
 
 // GetTools returns the encode tool.
 func (p *ToolProvider) GetTools() []tool.Tool {

@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/stackgenhq/genie/pkg/htmlutils"
+	"github.com/stackgenhq/genie/pkg/httputil"
 
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
@@ -65,9 +66,7 @@ type fetchTools struct {
 
 func newFetchTools() *fetchTools {
 	return &fetchTools{
-		client: &http.Client{
-			Timeout: defaultTimeout,
-		},
+		client: httputil.GetClient(),
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/httputil"
 )
 
 var _ = Describe("HTTPTool", func() {
@@ -107,7 +108,7 @@ var _ = Describe("HTTPTool", func() {
 		})
 
 		It("should reject unsupported methods", func() {
-			ht := &httpTool{client: &http.Client{}, maxResponseBytes: defaultMaxResponseBytes, defaultTimeout: 30}
+			ht := &httpTool{client: httputil.GetClient(), maxResponseBytes: defaultMaxResponseBytes, defaultTimeout: 30}
 			_, err := ht.Do(ctx, HTTPRequest{URL: "http://example.com", Method: "INVALID"})
 
 			Expect(err).To(HaveOccurred())
@@ -115,7 +116,7 @@ var _ = Describe("HTTPTool", func() {
 		})
 
 		It("should error when URL is empty", func() {
-			ht := &httpTool{client: &http.Client{}, maxResponseBytes: defaultMaxResponseBytes, defaultTimeout: 30}
+			ht := &httpTool{client: httputil.GetClient(), maxResponseBytes: defaultMaxResponseBytes, defaultTimeout: 30}
 			_, err := ht.Do(ctx, HTTPRequest{Method: "GET"})
 
 			Expect(err).To(HaveOccurred())
@@ -169,7 +170,7 @@ var _ = Describe("HTTPTool", func() {
 		})
 
 		It("should cap timeout at maxTimeout", func() {
-			ht := &httpTool{client: &http.Client{}, maxResponseBytes: defaultMaxResponseBytes, defaultTimeout: 30}
+			ht := &httpTool{client: httputil.GetClient(), maxResponseBytes: defaultMaxResponseBytes, defaultTimeout: 30}
 			// This just verifies no panic; the timeout capping is internal
 			_, err := ht.Do(ctx, HTTPRequest{
 				URL:     "http://localhost:1", // will fail but tests the path
