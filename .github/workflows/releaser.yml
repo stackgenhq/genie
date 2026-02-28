@@ -14,9 +14,11 @@ jobs:
   goreleaser:
     runs-on: ubuntu-latest
     # contents: write required to create releases and push artifacts (Token-Permissions / Scorecard).
+    # attestations: write required for build provenance (Signed-Releases / Scorecard).
     permissions:
       contents: write
       id-token: write
+      attestations: write
     container:
       # Pinned by digest for supply-chain security (Code Scanning / Pinned-Dependencies).
       image: goreleaser/goreleaser-cross@sha256:1e9415eb6fb00dbbd44467419862787671371847da460bc5c4967b56c489425c
@@ -45,6 +47,11 @@ jobs:
           chmod +x /usr/local/bin/quill
           rm -rf /tmp/quill.tar.gz /tmp/quill*
           quill --version
+      - name: Install cosign
+        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+        with:
+          cosign-release: "v2.2.4"
+          install-dir: /usr/local/bin
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6
         with:
@@ -77,3 +84,8 @@ jobs:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
         run: goreleaser release --clean --config ./goreleaser-beta.yaml
+      - name: Attest build provenance
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-checksums: ./dist/checksums.txt
