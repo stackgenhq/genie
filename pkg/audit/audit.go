@@ -1,3 +1,12 @@
+// Package audit provides durable, structured logging of agent and tool events
+// (commands, tool calls, LLM requests/responses, errors) for debugging and
+// compliance.
+//
+// It solves the problem of having a single, consistent audit trail: events are
+// written as NDJSON to rotating files (~/.genie/{agent}.{date}.ndjson) or a
+// configured path. Activity reports and downstream analytics can read these
+// files. Without this package, there would be no unified record of what the
+// agent did and which tools were invoked.
 package audit
 
 import (

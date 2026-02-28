@@ -11,7 +11,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
+
+	"github.com/appcd-dev/go-lib/httputil"
 )
 
 // DefaultOllamaURL is the default base URL for a local Ollama server.
@@ -32,8 +33,7 @@ func OllamaReachable(ctx context.Context, url string) bool {
 	if err != nil {
 		return false
 	}
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := httputil.GetClient().Do(req)
 	if err != nil {
 		return false
 	}
@@ -59,8 +59,7 @@ func ListModels(ctx context.Context, url string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ollama list models: %w", err)
 	}
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := httputil.GetClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("ollama list models: %w", err)
 	}
@@ -102,8 +101,7 @@ func PullModel(ctx context.Context, url, model string) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	// Pull can take many minutes for large models.
-	client := &http.Client{Timeout: 15 * time.Minute}
-	resp, err := client.Do(req)
+	resp, err := httputil.GetClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("ollama pull: %w", err)
 	}

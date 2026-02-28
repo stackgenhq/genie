@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/appcd-dev/go-lib/httputil"
 	"github.com/stackgenhq/genie/pkg/htmlutils"
 
 	"trpc.group/trpc-go/trpc-agent-go/tool"
@@ -65,9 +66,7 @@ type fetchTools struct {
 
 func newFetchTools() *fetchTools {
 	return &fetchTools{
-		client: &http.Client{
-			Timeout: defaultTimeout,
-		},
+		client: httputil.GetClient(),
 	}
 }
 

@@ -1,3 +1,12 @@
+// Package orchestrator implements Genie's request routing and execution flow:
+// it receives user messages, classifies intent (simple vs complex), runs the
+// appropriate expert(s), and coordinates ReAcTree multi-step workflows.
+//
+// It solves the problem of connecting the messenger layer to the agent layer:
+// the orchestrator owns the conversation loop, injects runbooks/skills/memory,
+// applies HITL and clarification flows, and streams AG-UI events to the client.
+// Without this package, there would be no single place that ties config, tools,
+// experts, and execution together.
 package orchestrator
 
 import (

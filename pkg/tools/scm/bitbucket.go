@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/appcd-dev/go-lib/httputil"
 	go_scm "github.com/drone/go-scm/scm"
 	"github.com/drone/go-scm/scm/driver/bitbucket"
-	"github.com/drone/go-scm/scm/transport/oauth2"
 )
 
 const defaultBitbucketURL = "https://api.bitbucket.org"
@@ -30,13 +30,9 @@ func newBitbucket(cfg Config) (*go_scm.Client, error) {
 		return nil, fmt.Errorf("bitbucket: failed to create client: %w", err)
 	}
 
-	client.Client = &http.Client{
-		Transport: &oauth2.Transport{
-			Source: oauth2.StaticTokenSource(
-				&go_scm.Token{Token: cfg.Token},
-			),
-		},
-	}
+	client.Client = httputil.GetClient(func(req *http.Request) {
+		req.Header.Set("Authorization", "Bearer "+cfg.Token)
+	})
 
 	return client, nil
 }

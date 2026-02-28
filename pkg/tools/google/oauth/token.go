@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/stackgenhq/genie/pkg/httputil"
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/security/keyring"
 	"golang.org/x/oauth2"
@@ -98,7 +99,10 @@ func HTTPClient(ctx context.Context, credsJSON, tokenJSON []byte, saveToken func
 
 	baseTS := config.TokenSource(ctx, &tok)
 	savingTS := &savingTokenSource{base: baseTS, save: saveToken}
-	return &http.Client{Transport: &oauth2.Transport{Source: savingTS}}, nil
+	httputil.GetClient(func(req *http.Request) {
+		req.Header.Set("Authorization", "Bearer "+tok.AccessToken)
+	})
+	return httputil.GetClient(), nil
 }
 
 // savingTokenSource wraps a TokenSource and persists the token only when it changes (e.g. after refresh).
