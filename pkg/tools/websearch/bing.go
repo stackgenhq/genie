@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/appcd-dev/go-lib/httputil"
+	"github.com/stackgenhq/genie/pkg/httputil"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )

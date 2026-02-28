@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/appcd-dev/go-lib/httputil"
 	go_scm "github.com/drone/go-scm/scm"
 	"github.com/drone/go-scm/scm/driver/bitbucket"
+	"github.com/stackgenhq/genie/pkg/httputil"
 )
 
 const defaultBitbucketURL = "https://api.bitbucket.org"

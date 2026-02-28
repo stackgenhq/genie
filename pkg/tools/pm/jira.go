@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/appcd-dev/go-lib/httputil"
+	"github.com/stackgenhq/genie/pkg/httputil"
 )
 
 // jiraService implements Service via the Jira REST API v3.

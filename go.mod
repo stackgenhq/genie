@@ -6,7 +6,6 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/adhocore/gronx v1.19.6
 	github.com/ag-ui-protocol/ag-ui/sdks/community/go v0.0.0-20260201021820-c2d2db22a1c9
-	github.com/appcd-dev/go-lib v0.0.0-20260226175855-afda0e39b7f1
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de
 	github.com/aragossa/pii-shield v1.2.0
 	github.com/bwmarrin/discordgo v0.29.0
@@ -217,6 +216,7 @@ require (
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
+	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect

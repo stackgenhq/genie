@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/appcd-dev/go-lib/httputil"
+	"github.com/stackgenhq/genie/pkg/httputil"
 	"github.com/stackgenhq/genie/pkg/retrier"
 )
 

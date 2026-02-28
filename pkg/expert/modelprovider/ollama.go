@@ -12,7 +12,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/appcd-dev/go-lib/httputil"
+	"github.com/stackgenhq/genie/pkg/httputil"
 )
 
 // DefaultOllamaURL is the default base URL for a local Ollama server.

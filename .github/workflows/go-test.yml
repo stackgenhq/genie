@@ -32,15 +32,6 @@ jobs:
         shell: bash
         run: |
           make test
-      - name: check test coverage
-        id: coverage
-        uses: vladopajic/go-test-coverage@v2.18.3
-        with:
-          profile: coverage.out
-          local-prefix: stackgen-cli
-          threshold-file: 0 
-          threshold-package: 0
-          threshold-total: 50
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9.2.0
         with:

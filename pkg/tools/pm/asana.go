@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/appcd-dev/go-lib/httputil"
+	"github.com/stackgenhq/genie/pkg/httputil"
 )
 
 const asanaBaseURL = "https://app.asana.com/api/1.0"

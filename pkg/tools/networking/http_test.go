@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 
-	"github.com/appcd-dev/go-lib/httputil"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/httputil"
 )
 
 var _ = Describe("HTTPTool", func() {
