@@ -13,11 +13,13 @@ permissions:
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
+    # contents: write required to create releases and push artifacts (Token-Permissions / Scorecard).
     permissions:
       contents: write
       id-token: write
     container:
-      image: goreleaser/goreleaser-cross:latest
+      # Pinned by digest for supply-chain security (Code Scanning / Pinned-Dependencies).
+      image: goreleaser/goreleaser-cross@sha256:1e9415eb6fb00dbbd44467419862787671371847da460bc5c4967b56c489425c
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
