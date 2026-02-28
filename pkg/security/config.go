@@ -6,7 +6,7 @@ package security
 
 import "context"
 
-// Config holds the configuration for the secret provider.
+// Config holds the configuration for the secret provider and cryptographic policy.
 // When present in the Genie config, it controls how secrets are resolved
 // at runtime. Without this configuration, the application falls back to
 // reading all secrets from environment variables via os.Getenv.
@@ -19,6 +19,9 @@ type Config struct {
 	//   "ANTHROPIC_API_KEY": "awssecretsmanager://anthropic-api-key?region=us-east-2&decoder=string"
 	//   "SLACK_BOT_TOKEN": "file:///run/secrets/slack-token?decoder=string"
 	Secrets map[string]string `yaml:"secrets,omitempty" toml:"secrets,omitempty"`
+
+	// Crypto configures key lengths and algorithm policy (NIST 2030; weak algorithms are always disabled).
+	Crypto CryptoConfig `yaml:"crypto,omitempty" toml:"crypto,omitempty"`
 }
 
 func (c Config) Provider(ctx context.Context) SecretProvider {

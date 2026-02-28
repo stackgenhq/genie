@@ -1000,6 +1000,21 @@ if ok {
 - **Cache Results**: If you need data from a YAML spec multiple times, unmarshal it once and pass the resulting map/struct.
 - **Batch Requests**: Consolidate API calls if possible.
 
+### 4. Crypto Key Lengths (MANDATORY) [crypto_keylength]
+
+**Security mechanisms MUST use key lengths that at least meet the NIST minimum requirements through the year 2030 (as stated in NIST SP 800-131A, 2012). Weak algorithms and smaller key lengths MUST always be disabled; there is no option to enable them.**
+
+#### Rules
+
+- **Key lengths**: TLS and other crypto must use NIST 2030 minimums (e.g. TLS 1.2 minimum, RSA 2048 bits, ECDSA 224 bits, SHA-256 for hashes). Weak algorithms (e.g. MD5, TLS &lt; 1.2, weak ciphers) are always disabled.
+- **Central policy**: Use `pkg/security.CryptoConfig` and `TLSConfig()` for TLS clients; the encode tool always rejects MD5 and only offers SHA-256 for hashing.
+
+#### Reference
+
+- **Crypto policy**: [`pkg/security/crypto.go`](pkg/security/crypto.go) — `CryptoConfig`, `DefaultCryptoConfig()`, `TLSConfig()`, NIST constants.
+- **TLS wiring**: `httputil.SetDefaultTLSConfig()` at bootstrap; email `IMAPTLSConfig` from `Security.Crypto.TLSConfig()`.
+- **Encode tool**: [`pkg/tools/encodetool`](pkg/tools/encodetool/) — MD5 is always rejected; use SHA-256 for hashing.
+
 ## Documentation Standards
 
 ### 1. Code Documentation (MANDATORY)
@@ -1346,6 +1361,7 @@ These standards are **mandatory** and must be followed for all new code. When re
 17. ✅ Verify all Golang unit tests use BDD style with `Describe`, `Context`, and `It` blocks
 18. ✅ Verify all `It` blocks that need context receive `ctx context.Context` as a parameter and never use `context.Background()` directly
 19. ✅ Verify `make lint`, `make fmt`, and `make test` are green (run them before marking work complete or merging)
+20. ✅ Verify crypto defaults meet NIST 2030 minimums and that weak algorithms are always disabled ([crypto_keylength])
 
 ## Agent Workflow Guidelines
 

@@ -190,13 +190,15 @@ always_allowed = ["read_file", "list_file"]
 # expression = "0 9 * * 1-5"
 # action = "Summarize yesterday's git commits and open PRs"
 
-# ── Security (Secret Providers) ───────────────────────────
+# ── Security (Secret Providers & Crypto Policy) ──────────
 # Map secret names to runtimevar URLs for cloud/file-based resolution.
 # Without this section, all ${VAR} placeholders resolve from env vars.
 #
 # [security.secrets]
 # OPENAI_API_KEY    = "gcpsecretmanager://projects/my-project/secrets/openai-key?decoder=string"
 # ANTHROPIC_API_KEY = "file:///run/secrets/anthropic_key?decoder=string"
+#
+# NIST 2030 crypto: TLS 1.2+ and strong ciphers only; weak algorithms (e.g. MD5) are always disabled.
 
 # ── PII Redaction ──────────────────────────────────────────
 # [pii]

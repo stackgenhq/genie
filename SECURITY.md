@@ -26,7 +26,7 @@ Instead, please report vulnerabilities privately:
 
 ### What to expect
 
-- **Acknowledgment** within 48 hours
+- **Initial response** within 14 days (we aim to acknowledge within 48 hours)
 - **Assessment** within 5 business days
 - **Fix timeline** communicated once severity is determined
 - **Credit** in the release notes (unless you prefer anonymity)

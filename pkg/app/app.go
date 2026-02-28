@@ -31,6 +31,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/datasource"
 	geniedb "github.com/stackgenhq/genie/pkg/db"
 	"github.com/stackgenhq/genie/pkg/hitl"
+	"github.com/stackgenhq/genie/pkg/httputil"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/mcp"
 	"github.com/stackgenhq/genie/pkg/memory/graph"
@@ -161,6 +162,9 @@ func NewApplication(
 // CodeOwner agent. Call exactly once after NewApplication.
 func (a *Application) Bootstrap(ctx context.Context) error {
 	log := logger.GetLogger(ctx).With("fn", "app.Bootstrap")
+
+	// --- Crypto / TLS (NIST 2030 defaults: TLS 1.2+, optional cipher restriction) ---
+	httputil.SetDefaultTLSConfig(a.cfg.Security.Crypto.TLSConfig())
 
 	// --- Database ---
 	var err error
@@ -685,7 +689,7 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 		// --- Utility tools (stateless, no external dependencies) ---
 		mathtool.NewToolProvider(),
 		datetime.NewToolProvider(),
-		encodetool.NewToolProvider(),
+		encodetool.NewToolProvider(a.cfg.Security.Crypto),
 		jsontool.NewToolProvider(),
 		regextool.NewToolProvider(),
 		webfetch.NewToolProvider(),
@@ -759,7 +763,9 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 	}
 
 	// --- Email tools ---
-	if emailSvc, err := a.cfg.Email.New(); err == nil {
+	emailCfg := a.cfg.Email
+	emailCfg.IMAPTLSConfig = a.cfg.Security.Crypto.TLSConfig()
+	if emailSvc, err := emailCfg.New(); err == nil {
 		if vErr := emailSvc.Validate(ctx); vErr != nil {
 			log.Warn("Email health check failed, tools still registered", "error", vErr)
 		}

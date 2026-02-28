@@ -11,16 +11,14 @@
 //   - base64_encode / base64_decode — RFC 4648 standard encoding
 //   - url_encode / url_decode — RFC 3986 percent-encoding
 //   - sha256 — SHA-256 cryptographic hash (hex output)
-//   - md5 — MD5 hash (hex output, not for security purposes)
 //
 // Dependencies:
-//   - Go stdlib only (crypto/sha256, crypto/md5, encoding/base64, net/url)
+//   - Go stdlib only (crypto/sha256, encoding/base64, net/url)
 //   - No external system dependencies
 package encodetool
 
 import (
 	"context"
-	"crypto/md5" //nolint:gosec // MD5 is provided for non-security use cases
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -35,7 +33,7 @@ import (
 // ────────────────────── Request / Response ──────────────────────
 
 type encodeRequest struct {
-	Operation string `json:"operation" jsonschema:"description=The encoding operation. One of: base64_encode, base64_decode, url_encode, url_decode, sha256, md5.,enum=base64_encode,enum=base64_decode,enum=url_encode,enum=url_decode,enum=sha256,enum=md5"`
+	Operation string `json:"operation" jsonschema:"description=The encoding operation. One of: base64_encode, base64_decode, url_encode, url_decode, sha256.,enum=base64_encode,enum=base64_decode,enum=url_encode,enum=url_decode,enum=sha256"`
 	Input     string `json:"input" jsonschema:"description=The string to encode/decode/hash."`
 }
 
@@ -50,16 +48,16 @@ type encodeResponse struct {
 
 type encodeTools struct{}
 
-func newEncodeTools() *encodeTools { return &encodeTools{} }
+func newEncodeTools() *encodeTools {
+	return &encodeTools{}
+}
 
 func (e *encodeTools) encodeTool() tool.CallableTool {
+	desc := "Encode, decode, or hash strings. Supported operations: base64_encode, base64_decode, url_encode, url_decode, sha256."
 	return function.NewFunctionTool(
 		e.encode,
 		function.WithName("encode_string"),
-		function.WithDescription(
-			"Encode, decode, or hash strings. Supported operations: "+
-				"base64_encode, base64_decode, url_encode, url_decode, sha256, md5.",
-		),
+		function.WithDescription(desc),
 	)
 }
 
@@ -107,12 +105,10 @@ func (e *encodeTools) encode(_ context.Context, req encodeRequest) (encodeRespon
 		resp.Message = "SHA-256 hash computed"
 
 	case "md5":
-		hash := md5.Sum([]byte(req.Input)) //nolint:gosec
-		resp.Result = hex.EncodeToString(hash[:])
-		resp.Message = "MD5 hash computed (not suitable for security purposes)"
+		return resp, fmt.Errorf("md5 is disabled by security policy; use sha256 for hashing")
 
 	default:
-		return resp, fmt.Errorf("unsupported operation %q: must be one of base64_encode, base64_decode, url_encode, url_decode, sha256, md5", req.Operation)
+		return resp, fmt.Errorf("unsupported operation %q: must be one of base64_encode, base64_decode, url_encode, url_decode, sha256", req.Operation)
 	}
 
 	return resp, nil
