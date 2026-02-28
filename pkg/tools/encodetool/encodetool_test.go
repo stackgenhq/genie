@@ -3,9 +3,9 @@ package encodetool
 import (
 	"context"
 
-	"github.com/stackgenhq/genie/pkg/security"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/security"
 )
 
 var _ = Describe("Encode Tool encode_string", func() {
