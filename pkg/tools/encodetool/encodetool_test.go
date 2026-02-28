@@ -76,8 +76,8 @@ var _ = Describe("Encode Tool encode_string", func() {
 	})
 
 	Describe("md5", func() {
-		It("rejects md5 with security policy error", func() {
-			_, err := e.encode(context.Background(), encodeRequest{Operation: "md5", Input: "hello"})
+		It("rejects md5 with security policy error", func(ctx context.Context) {
+			_, err := e.encode(ctx, encodeRequest{Operation: "md5", Input: "hello"})
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("disabled by security policy"))
 			Expect(err.Error()).To(ContainSubstring("sha256"))

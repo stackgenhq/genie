@@ -10,8 +10,8 @@ type ToolProvider struct {
 	crypto security.CryptoConfig
 }
 
-// NewToolProvider creates a ToolProvider for the encode tool. CryptoConfig is accepted for API compatibility;
-// weak algorithms (e.g. MD5) are always disabled.
+// NewToolProvider creates a ToolProvider for the encode tool. CryptoConfig is passed so the provider
+// shares the same security policy as the rest of the app; weak algorithms (e.g. MD5) are always disabled.
 func NewToolProvider(crypto security.CryptoConfig) *ToolProvider {
 	return &ToolProvider{crypto: crypto}
 }

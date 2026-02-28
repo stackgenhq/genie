@@ -27,7 +27,7 @@ a tested PR — with human approval at every write step?
                           ┌──────────────▼────────────────────────┐
                           │          CodeOwner (Orchestrator)     │
                           │  • Classify → route to ReAcTree       │
-                          │  • Load Agents.md agents person       │
+                          │  • Load Agents.md agent persona       │
                           │  • Retrieve relevant memories         │
                           └──────────────┬────────────────────────┘
                                          │

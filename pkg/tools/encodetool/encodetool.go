@@ -33,7 +33,7 @@ import (
 // ────────────────────── Request / Response ──────────────────────
 
 type encodeRequest struct {
-	Operation string `json:"operation" jsonschema:"description=The encoding operation. One of: base64_encode, base64_decode, url_encode, url_decode, sha256.,enum=base64_encode,enum=base64_decode,enum=url_encode,enum=url_decode,enum=sha256"`
+	Operation string `json:"operation" jsonschema:"description=The encoding operation. One of: base64_encode, base64_decode, url_encode, url_decode, sha256,enum=base64_encode,enum=base64_decode,enum=url_encode,enum=url_decode,enum=sha256"`
 	Input     string `json:"input" jsonschema:"description=The string to encode/decode/hash."`
 }
 

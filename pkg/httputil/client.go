@@ -16,10 +16,15 @@ var (
 // SetDefaultTLSConfig sets the TLS config used by GetClient and NewRoundTripper.
 // Call this at startup (e.g. from config) to enforce NIST 2030 minimums (TLS 1.2+).
 // When nil, no custom TLS config is applied (Go defaults apply).
+// The config is cloned so later mutation by the caller does not affect the default.
 func SetDefaultTLSConfig(cfg *tls.Config) {
 	defaultTLSMu.Lock()
 	defer defaultTLSMu.Unlock()
-	defaultTLSConfig = cfg
+	if cfg != nil {
+		defaultTLSConfig = cfg.Clone()
+	} else {
+		defaultTLSConfig = nil
+	}
 }
 
 func getDefaultTLSConfig() *tls.Config {
