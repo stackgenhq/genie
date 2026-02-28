@@ -27,8 +27,8 @@ This document summarizes the issues reported under **Security → Code scanning*
 
 **Remediation:**
 
-- **Option A:** Upgrade `github.com/ollama/ollama` when a fixed version is available (`govulncheck` currently reports “Fixed in: N/A” for these). Note: upgrading to v0.17.x without updating `trpc.group/trpc-go/trpc-agent-go/model/ollama` (or its fork) causes build failures due to API changes in the ollama client; coordinate with the trpc-agent-go dependency.
-- **Option B:** If Genie only talks to a trusted/local Ollama server, the exposure may be limited; document that and any network/access controls.
+- **Upgrade blocked:** Upgrading `github.com/ollama/ollama` to v0.17.x fails the build because `trpc.group/trpc-go/trpc-agent-go/model/ollama@v1.5.0` is incompatible with the ollama v0.17 API (type changes: `api.ToolCallFunctionArguments`, `*api.ToolPropertiesMap`). The vuln database reports "Fixed in: N/A" for all 9; once trpc-agent-go (or a fork) supports ollama v0.17+, upgrade and re-run `govulncheck ./...`.
+- **Mitigation:** If Genie only talks to a trusted/local Ollama server, exposure may be limited; ensure the Ollama API is not exposed to untrusted networks.
 - Run `govulncheck ./...` periodically and after dependency updates.
 
 ---

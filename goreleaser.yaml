@@ -4,6 +4,21 @@ release:
   prerelease: auto
   draft: false
 
+# Predictable checksum filename for attest-build-provenance (subject-checksums).
+checksum:
+  name_template: "checksums.txt"
+
+# Sign checksum file with cosign (keyless in GHA) for Signed-Releases / Scorecard.
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args:
+      - "sign-blob"
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+
 git:
   tag_sort: -version:creatordate
   ignore_tags:
@@ -14,7 +29,6 @@ builds:
     binary: &binaryName genie
     goos:
       - linux
-    # 32-bit arm (goarch: arm) omitted: GCC 13 in goreleaser-cross does not support -marm (removed in GCC 10+), causing "unrecognized command-line option '-marm'" for linux_arm_6/7.
     goarch:
       - amd64
       - arm64

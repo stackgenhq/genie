@@ -4,6 +4,21 @@ release:
   prerelease: auto
   draft: false
 
+# Predictable checksum filename for attest-build-provenance (subject-checksums).
+checksum:
+  name_template: "checksums.txt"
+
+# Sign checksum file with cosign (keyless in GHA) for Signed-Releases / Scorecard.
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args:
+      - "sign-blob"
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+
 git:
   tag_sort: -version:creatordate
   ignore_tags:
