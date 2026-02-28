@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/stackgenhq/genie/pkg/httputil"
 )
@@ -101,7 +102,8 @@ func PullModel(ctx context.Context, url, model string) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	// Pull can take many minutes for large models.
-	resp, err := httputil.GetClient().Do(req)
+	client := &http.Client{Timeout: 15 * time.Minute}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("ollama pull: %w", err)
 	}
