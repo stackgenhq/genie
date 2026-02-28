@@ -1,0 +1,79 @@
+# Example Configuration with Remote Skills
+
+# Using skills roots (supports single or multiple paths)
+skills_roots = [
+]
+
+[db_config]
+db_file = "./.genie.db"
+
+# Genie Configuration — Feb 2026
+# Model providers mapped to task types based on open benchmarks.
+# Multiple entries per provider are supported; each entry is the
+# "best available" model for the given task type.
+
+[model_config]
+
+# Gemini 3 Pro → planning (fastest throughput, lowest cost)
+# Best for: high-volume processing, cost-sensitive operations
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-pro-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "planning"
+
+# Gemini 3 Flash → efficiency (fastest throughput, lowest cost)
+# Best for: high-volume processing, cost-sensitive operations
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "efficiency"
+
+
+# ── GitHub (SCM) ────────────────────────────────────────────────────────
+# Source-code management: list repos, get/create pull requests
+[scm]
+provider = "github"
+token = "${GITHUB_TOKEN}"
+# baseurl = "https://github.example.com/api/v3"  # uncomment for GitHub Enterprise
+
+# # ── Linear (PM) ─────────────────────────────────────────────────────────
+# # Project management: get/create/assign issues
+# [project_management]
+# provider = "linear"
+# api_token = "${PM_API_TOKEN}"
+# base_url = "https://linear.app/"
+
+# ── Vector Memory (Ollama) ──────────────────────────────────────────────
+# Local embedding-backed memory for conversation context and code recall.
+# Requires: ollama serve && ollama pull nomic-embed-text
+[vector_memory]
+embedding_provider = "ollama"
+ollama_url = "http://localhost:11434"
+ollama_model = "nomic-embed-text"
+persistence_dir = "./.genie/vector_store"
+
+# ── AG-UI Server ────────────────────────────────────────────────────────
+# Browser-based chat interface served over HTTP/SSE.
+# The server runs in the foreground when `genie grant` is invoked.
+[messenger.agui]
+port = 8080
+cors_origins = ["*"]
+rate_limit = 10
+rate_burst = 3
+max_concurrent = 5
+max_body_bytes = 1048576
+
+
+[hitl]
+always_allowed = [
+  "scm_list_repos",
+  "projectmanagement_list_users",
+  "projectmanagement_list_issues",
+]
+
+[langfuse]
+public_key = "${LANGFUSE_PUBLIC_KEY}"
+secret_key = "${LANGFUSE_SECRET_KEY}"
+host = "langfuse.cloud.stackgen.com"

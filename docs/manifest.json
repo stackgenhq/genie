@@ -1,0 +1,25 @@
+{
+  "name": "Genie Chat",
+  "short_name": "Genie",
+  "description": "Chat with Genie — your intelligent assistant. Powered by AG-UI protocol for real-time streaming.",
+  "start_url": "chat.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#8247E7",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "https://stackgen.com/hubfs/StackGen-Logo-RGB-080124.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://stackgen.com/hubfs/StackGen-Logo-RGB-080124.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

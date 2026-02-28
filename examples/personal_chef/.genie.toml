@@ -1,0 +1,53 @@
+disable_pensieve = true
+
+[db_config]
+db_file = "${PWD}/.genie/personal_chef.db"
+
+[model_config]
+[[model_config.providers]]
+provider = "openai"
+model_name = "gpt-5.2"
+token = "${OPENAI_API_KEY}"
+good_for_task = "efficiency"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "efficiency"
+
+[messenger]
+platform = "whatsapp"
+allowed_senders = ["19253538761"]
+
+[vector_memory]
+embedding_provider = "ollama"
+ollama_url = "http://localhost:11434"
+ollama_model = "nomic-embed-text"
+persistence_dir = "${PWD}/.genie/vector_store"
+
+
+[messenger.agui]
+port = 8080
+cors_origins = ["https://stackgenhq.github.io"]
+
+
+[hitl]
+always_allowed = ["send_message", "http_*"]
+denied_tools = [
+    "run_shell",
+    "list_file",
+    "read_multiple_files",
+    "search_content",
+    "search_file",
+    "web_search",
+]
+
+[pii]
+[[pii.custom_regexes]]
+pattern = '\b1?\d{10}\b'
+name = "phone_number"
+
+[[pii.custom_regexes]]
+pattern = '\b\d{3}[-.]?\d{3}[-.]?\d{4}\b'
+name = "phone_number_formatted"

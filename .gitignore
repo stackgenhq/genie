@@ -1,0 +1,14 @@
+vendor
+**/*.test
+.env
+coverage.out
+testreports
+genie_output
+genie_audit.log
+build
+**/.genie.db*
+**/*genie_audit.ndjson
+examples/**/*.sh
+examples/**/.genie/*
+*.out
+.genie

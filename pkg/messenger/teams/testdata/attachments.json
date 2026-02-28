@@ -1,0 +1,38 @@
+{
+    "attachments": [
+        {
+            "contentType": "application/vnd.microsoft.card.adaptive",
+            "content": {
+                "type": "AdaptiveCard",
+                "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                "version": "1.4",
+                "body": [
+                    {
+                        "type": "TextBlock",
+                        "text": "⚠️ Approval Required — write_file",
+                        "size": "Large",
+                        "weight": "Bolder",
+                        "wrap": true
+                    },
+                    {
+                        "type": "TextBlock",
+                        "text": "📋 **Arguments**:",
+                        "wrap": true,
+                        "weight": "Bolder"
+                    }
+                ],
+                "actions": [
+                    {
+                        "type": "Action.Submit",
+                        "title": "✅ Approve",
+                        "style": "positive",
+                        "data": {
+                            "action": "approve",
+                            "approvalId": "test-001"
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}

@@ -1,0 +1,23 @@
+# Build artifacts
+build/
+dist/
+
+# Test artifacts
+coverage.out
+testreports/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Git
+.git/
+.github/
+
+# Docs site (not needed in image)
+docs/
+
+# Vendor (re-downloaded in build)
+vendor/

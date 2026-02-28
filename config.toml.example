@@ -1,0 +1,226 @@
+# ─────────────────────────────────────────────────────────
+# Genie Configuration Example
+#
+# Copy this file to .genie.toml (or .genie.yaml) and customise.
+# Values wrapped in ${VAR} are resolved from environment variables
+# by default, or from cloud secret stores when [security.secrets]
+# is configured. See README.md for details.
+# ─────────────────────────────────────────────────────────
+
+# ── Agent ─────────────────────────────────────────────────
+# Name of your agent. Set during `genie setup`; gives the agent a personality
+# and controls the default audit log path: ~/.genie/{agent_name}.<yyyy_mm_dd>.ndjson
+# agent_name = "Genie"
+
+# ── Model Providers ────────────────────────────────────────
+# Configure one or more LLM providers. Genie routes each task
+# to the provider/model marked as best for that task type.
+
+[[model_config.providers]]
+provider = "openai"
+model_name = "gpt-5.2"
+token = "${OPENAI_API_KEY}"
+good_for_task = "planning"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "tool_calling"
+
+# Local models via Ollama (no token required)
+# [[model_config.providers]]
+# provider = "ollama"
+# model_name = "llama3"
+# host = "http://localhost:11434"
+# good_for_task = "efficiency"
+
+# ── Skills ─────────────────────────────────────────────────
+# Reusable agent capabilities (https://agentskills.io)
+skills_roots = ["./skills"]
+
+# ── MCP Servers ────────────────────────────────────────────
+# Extend Genie with external tool servers via MCP.
+# Validate config, MCP, SCM, secrets: genie doctor
+# For GitHub MCP: set GH_TOKEN or GITHUB_PERSONAL_ACCESS_TOKEN when running
+
+# Playwright (browser automation, no token)
+# [[mcp.servers]]
+# name = "playwright"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@playwright/mcp@latest"]
+
+# GitHub (set GH_TOKEN or use env when running)
+# [[mcp.servers]]
+# name = "github"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@anthropic/github-mcp-server"]
+# [mcp.servers.env]
+# GITHUB_PERSONAL_ACCESS_TOKEN = "${GH_TOKEN}"
+
+# Terraform registry
+# [[mcp.servers]]
+# name = "terraform-registry"
+# transport = "stdio"
+# command = "npx"
+# args = ["@anthropic/mcp-tf"]
+# timeout = "10s"
+
+# Remote HTTP server
+# [[mcp.servers]]
+# name = "remote-tools"
+# transport = "streamable_http"
+# server_url = "http://localhost:3000/mcp"
+# [mcp.servers.headers]
+# Authorization = "Bearer ${MCP_TOKEN}"
+
+# ── Web Search ─────────────────────────────────────────────
+# [web_search]
+# provider = "duckduckgo"    # or "google", "bing"
+# google_api_key = "${GOOGLE_API_KEY}"
+# google_cx = "${GOOGLE_CX}"
+
+# ── Data Sources (Gmail, Drive, etc.) ─────────────────────
+# When enabled, Genie syncs items from connected sources into vector memory
+# for better answers. Optional: only index items that mention these keywords
+# (up to 10). Omit or leave empty to index everything.
+#
+# [data_sources]
+# enabled = true
+# sync_interval = "15m"
+# search_keywords = ["Acme", "Q4 roadmap", "onboarding"]
+# [data_sources.gmail]
+# enabled = true
+# label_ids = ["INBOX"]
+# [data_sources.gdrive]
+# enabled = true
+# folder_ids = ["root"]
+# GitHub and GitLab use the same go-scm adapter; set [scm] provider to match (e.g. provider = "github").
+# [data_sources.github]
+# enabled = true
+# repos = ["owner/repo"]
+# [data_sources.gitlab]
+# enabled = true
+# repos = ["group/project"]
+# [data_sources.calendar]
+# enabled = true
+# calendar_ids = ["primary"]
+
+# ── Vector Memory ─────────────────────────────────────────
+# [vector_memory]
+# persistence_dir = ".genie/memory"
+# embedding_provider = "openai"   # or "ollama", "dummy"
+# api_key = "${OPENAI_API_KEY}"
+# allowed_metadata_keys = ["product", "category", "source"]  # optional: only these keys allowed in memory_store metadata and memory_search filter (product/category buckets)
+
+# [graph]
+# disabled = false  # set true to disable knowledge graph and graph_* tools (store entity, store relation, query, get entity, shortest path)
+# data_dir = ""     # optional: e.g. ~/.genie/<agent>. When empty or unset, graph data is not persisted. Snapshot saved as memory.bin.zst (gob+zstd)
+
+# ── Messenger ─────────────────────────────────────────────
+# [messenger]
+# platform = "slack"
+# [messenger.slack]
+# app_token = "${SLACK_APP_TOKEN}"
+# bot_token = "${SLACK_BOT_TOKEN}"
+
+# AG-UI server settings (default messenger when no platform is set)
+[messenger.agui]
+port = 8080
+cors_origins = ["*"]            # Restrict in production
+rate_limit = 0.5                # requests/sec per IP
+rate_burst = 3
+max_concurrent = 5
+
+# ── Browser ────────────────────────────────────────────────
+# [browser]
+# blocked_domains = ["admin.internal.corp"]
+
+# ── Source Control ─────────────────────────────────────────
+# [scm]
+# provider = "github"
+# token = "${GITHUB_TOKEN}"
+
+# ── Project Management ────────────────────────────────────
+# [project_management]
+# provider = "jira"
+# api_token = "${JIRA_API_TOKEN}"
+# base_url = "https://mycompany.atlassian.net"
+# email = "you@company.com"
+
+# ── Email ──────────────────────────────────────────────────
+# [email]
+# provider = "sendgrid"
+# api_key = "${SENDGRID_API_KEY}"
+
+# ── Human-in-the-Loop ─────────────────────────────────────
+[hitl]
+# Tools listed here skip approval (read-only / safe operations).
+# Use ["*"] to auto-approve everything (not recommended in production).
+always_allowed = ["read_file", "list_file"]
+# Tools listed here are completely blocked.
+# denied_tools = ["delete_file"]
+# How long an approved tool+args combination stays auto-approved.
+# After this duration the same call requires fresh human approval.
+# cache_ttl = "10m"
+
+# ── Database ───────────────────────────────────────────────
+# [db_config]
+# driver = "sqlite"
+# dsn = ".genie/genie.db"
+
+# ── Langfuse Observability ─────────────────────────────────
+# [langfuse]
+# public_key = "${LANGFUSE_PUBLIC_KEY}"
+# secret_key = "${LANGFUSE_SECRET_KEY}"
+# host = "https://cloud.langfuse.com"
+
+# ── Runbooks ───────────────────────────────────────────────
+# [runbook]
+# runbook_paths = ["./docs/runbooks", "./CODING_STANDARDS.md"]
+# Or just create .genie/runbooks/ — auto-discovered, no config needed.
+
+# ── Cron (Scheduled Tasks) ─────────────────────────────────
+# [cron]
+# enabled = true
+# [[cron.tasks]]
+# name = "daily-standup-summary"
+# expression = "0 9 * * 1-5"
+# action = "Summarize yesterday's git commits and open PRs"
+
+# ── Security (Secret Providers) ───────────────────────────
+# Map secret names to runtimevar URLs for cloud/file-based resolution.
+# Without this section, all ${VAR} placeholders resolve from env vars.
+#
+# [security.secrets]
+# OPENAI_API_KEY    = "gcpsecretmanager://projects/my-project/secrets/openai-key?decoder=string"
+# ANTHROPIC_API_KEY = "file:///run/secrets/anthropic_key?decoder=string"
+
+# ── PII Redaction ──────────────────────────────────────────
+# [pii]
+# salt = "my-team-salt"
+# entropy_threshold = 4.2    # Higher = more permissive (fewer redactions). Default: 4.2
+# min_secret_length = 12     # Tokens shorter than this are never redacted. Default: 12
+
+# ── Pensieve (Context Self-Management) ─────────────────────
+# disable_pensieve = true
+
+# ── Tool Middleware ────────────────────────────────────────
+# [toolwrap.timeout]
+# enabled = true
+# default = "30s"
+# [toolwrap.timeout.per_tool]
+# execute_code = "120s"
+
+# [toolwrap.rate_limit]
+# enabled = true
+# global_rate_per_minute = 60
+
+# [toolwrap.metrics]
+# enabled = true
+# prefix = "genie.tools"
+
+# [toolwrap.tracing]
+# enabled = true

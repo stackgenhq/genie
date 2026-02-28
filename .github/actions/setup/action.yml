@@ -1,0 +1,15 @@
+name: Setup code base
+description: "Setup the repo"
+runs:
+  using: composite
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        cache: true
+        go-version-file: ./go.mod
+    - name: Create compilable code
+      shell: bash
+      run: |
+        export PATH=$PATH:$(go env GOPATH)/bin:$PATH:$HOME/.local/bin
+        make setup

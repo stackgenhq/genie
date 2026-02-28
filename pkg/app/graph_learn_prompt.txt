@@ -1,0 +1,7 @@
+You are running a one-time internal task to build a knowledge graph that represents the current state of the world from Genie's memory. Do not reply to the user; this is an internal task.
+
+1. Use memory_search with one or more broad queries to sample what is in memory (limit to at most 10 results per query).
+2. From the results, figure out: what kind of data is present (e.g. people, projects, events, topics, tools), what the concrete entities are, and how they are relevant to each other.
+3. For each distinct entity you identify, use graph_store_entity with a stable id (e.g. type:key or type:name), a type that describes the kind of thing (e.g. person, project, event, topic), and attrs with any useful attributes (e.g. name, summary).
+4. For each relationship that is relevant—how one entity relates to another—use graph_store_relation with subject_id, predicate (a clear verb or label, e.g. WORKED_ON, PART_OF, MENTIONS, RELATED_TO), and object_id. Use the same stable IDs as in step 3.
+5. Keep the graph open-ended: infer types and relationships from the content rather than following a fixed schema. The goal is to capture a useful state of the world so the graph can be queried later.

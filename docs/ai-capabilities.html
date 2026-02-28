@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Capabilities — Genie by Stackgen</title>
+    <meta name="description"
+        content="How Genie aligns with the DORA AI Capabilities Model. We're working toward these goals together — your participation and feedback shape how we grow.">
+    <link rel="icon" href="https://stackgen.com/hubfs/StackGen-Logo-RGB-080124.png" type="image/png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
+                    colors: { navy: '#09152B', purple: { 50: '#f3eaff', 100: '#e0d4f7', 500: '#8247E7', 600: '#6d28d9', 900: '#2E004F' } }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="css/custom.css">
+    <style>
+        .capability-card { transition: box-shadow 0.2s ease, transform 0.2s ease; }
+        .capability-card:hover { box-shadow: 0 8px 24px rgba(130, 71, 231, 0.12); }
+        .badge-strong { background: rgba(34, 197, 94, 0.15); color: #166534; }
+        .badge-partial { background: rgba(234, 179, 8, 0.15); color: #854d0e; }
+        .badge-weak { background: rgba(239, 68, 68, 0.12); color: #991b1b; }
+        .section-anchor { scroll-margin-top: 100px; }
+    </style>
+</head>
+
+<body class="font-sans text-navy bg-white antialiased overflow-x-hidden">
+
+    <!-- Nav -->
+    <div id="nav-container"></div>
+
+    <!-- Glow -->
+    <div class="glow-blob glow-purple" style="width:500px;height:500px;top:-100px;left:-200px;"></div>
+    <div class="glow-blob glow-blue" style="width:400px;height:400px;top:600px;right:-100px;"></div>
+
+    <!-- Header -->
+    <section class="relative pt-28 pb-8 px-6">
+        <div class="max-w-4xl mx-auto text-center fade-in">
+            <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight mb-4">
+                AI capabilities & <span class="gradient-text">Genie</span>
+            </h1>
+            <p class="text-lg text-gray-500 max-w-2xl mx-auto mb-4">
+                Genie is designed with the
+                <a href="https://dora.dev/research/2025/ai-capabilities-model/" target="_blank" rel="noopener" class="text-purple-600 hover:text-purple-700 font-medium">DORA AI Capabilities Model</a>
+                in mind — seven practices that amplify the benefits of AI in software development. Below is how we’re aligning with each capability today.
+            </p>
+            <p class="text-base text-gray-600 max-w-2xl mx-auto mb-6">
+                Responsible AI isn’t something one organization defines alone — <strong class="text-gray-800">it takes a village.</strong> We’re actively working toward these goals and your participation is key. Where we’re still evolving, we’d love your feedback: what would help your team? What’s missing? Your input shapes how Genie grows.
+            </p>
+            <div class="flex flex-wrap justify-center gap-2 text-sm">
+                <span class="px-2.5 py-1 rounded-full badge-strong font-medium">Strong</span>
+                <span class="px-2.5 py-1 rounded-full badge-partial font-medium">Evolving</span>
+                <span class="px-2.5 py-1 rounded-full badge-weak font-medium">Focus area</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Quick nav -->
+    <section class="px-6 pb-6">
+        <div class="max-w-4xl mx-auto">
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">The seven capabilities</p>
+            <div class="flex flex-wrap gap-2">
+                <a href="#stance" class="doc-pill no-underline">1. AI stance</a>
+                <a href="#data-ecosystems" class="doc-pill no-underline">2. Data ecosystems</a>
+                <a href="#ai-accessible-data" class="doc-pill no-underline">3. AI-accessible data</a>
+                <a href="#version-control" class="doc-pill no-underline">4. Version control</a>
+                <a href="#small-batches" class="doc-pill no-underline">5. Small batches</a>
+                <a href="#user-centric" class="doc-pill no-underline">6. User-centric</a>
+                <a href="#platforms" class="doc-pill no-underline">7. Internal platforms</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Content -->
+    <section class="py-8 px-6 pb-20">
+        <div class="max-w-4xl mx-auto space-y-10">
+
+            <!-- 1. Clear and communicated AI stance -->
+            <div id="stance" class="section-anchor capability-card feature-card p-6 md:p-8 fade-in">
+                <div class="flex flex-wrap items-center gap-2 mb-3">
+                    <span class="text-2xl">📋</span>
+                    <h2 class="text-xl font-bold text-gray-900">1. Clear and communicated AI stance</h2>
+                    <span class="px-2.5 py-1 rounded-full badge-partial font-medium text-sm">Evolving</span>
+                </div>
+                <p class="text-gray-600 mb-4">
+                    Organizations should set clear expectations for AI tool use, support experimentation, and communicate which tools are approved and which actions require approval.
+                </p>
+                <p class="text-sm font-semibold text-gray-700 mb-2">How Genie supports this</p>
+                <ul class="list-disc pl-5 text-gray-600 text-sm space-y-1 mb-4">
+                    <li><strong>HITL config</strong> — <code class="bg-gray-100 px-1 rounded">[hitl]</code> with <code class="bg-gray-100 px-1 rounded">always_allowed</code> and <code class="bg-gray-100 px-1 rounded">denied_tools</code> lets operators define what the agent can do without approval and what is blocked.</li>
+                    <li><strong>Config Builder</strong> — Non-technical users can set tool policy via the web Config Builder; docs describe approved vs. denied tools.</li>
+                    <li><strong>Chat UX</strong> — After connecting, the chat fetches <code class="bg-gray-100 px-1 rounded">GET /api/v1/capabilities</code> and shows a collapsible “What Genie can do” panel (available tools, auto-approved, blocked). When approval is required, the UI shows why and links to how to add tools to <code class="bg-gray-100 px-1 rounded">always_allowed</code>.</li>
+                </ul>
+                <p class="text-sm text-gray-600 bg-purple-50/50 border border-purple-100 rounded-lg px-3 py-2">
+                    <strong class="text-gray-800">Where we’re evaluating:</strong> Making the “AI stance” more visible to end users up front (e.g. a short “What Genie can do” in docs or first-run). We’d love community feedback: how do you communicate AI expectations in your org?
+                </p>
+            </div>
+
+            <!-- 2. Healthy data ecosystems -->
+            <div id="data-ecosystems" class="section-anchor capability-card feature-card p-6 md:p-8 fade-in">
+                <div class="flex flex-wrap items-center gap-2 mb-3">
+                    <span class="text-2xl">🗄️</span>
+                    <h2 class="text-xl font-bold text-gray-900">2. Healthy data ecosystems</h2>
+                    <span class="px-2.5 py-1 rounded-full badge-partial font-medium text-sm">Evolving</span>
+                </div>
+                <p class="text-gray-600 mb-4">
+                    High-quality, easily accessible, and unified internal data significantly amplifies AI’s positive impact on performance.
+                </p>
+                <p class="text-sm font-semibold text-gray-700 mb-2">How Genie supports this</p>
+                <ul class="list-disc pl-5 text-gray-600 text-sm space-y-1 mb-4">
+                    <li><strong>Vector store</strong> — In-memory or Milvus for semantic search; runbooks and memory are ingested and queryable.</li>
+                    <li><strong>Runbooks</strong> — Structured procedures and playbooks loaded from <code class="bg-gray-100 px-1 rounded">.genie/runbooks</code> and exposed via <code class="bg-gray-100 px-1 rounded">search_runbook</code>.</li>
+                    <li><strong>PII redaction</strong> — Configurable redaction before data is stored so sensitive content isn’t persisted in memory.</li>
+                </ul>
+                <p class="text-sm text-gray-600 bg-purple-50/50 border border-purple-100 rounded-lg px-3 py-2">
+                    <strong class="text-gray-800">Where we’re evaluating:</strong> Framing runbooks and memory as the “internal data” that powers Genie and sharing guidance on keeping them healthy. We’d love to hear how you maintain data quality and freshness in your setup.
+                </p>
+            </div>
+
+            <!-- 3. AI-accessible internal data -->
+            <div id="ai-accessible-data" class="section-anchor capability-card feature-card p-6 md:p-8 fade-in">
+                <div class="flex flex-wrap items-center gap-2 mb-3">
+                    <span class="text-2xl">🔌</span>
+                    <h2 class="text-xl font-bold text-gray-900">3. AI-accessible internal data</h2>
+                    <span class="px-2.5 py-1 rounded-full badge-strong font-medium text-sm">Strong</span>
+                </div>
+                <p class="text-gray-600 mb-4">
+                    Connecting AI tools to internal data through “context engineering” (RAG, APIs, memory) boosts impact on effectiveness and quality.
+                </p>
+                <p class="text-sm font-semibold text-gray-700 mb-2">How Genie supports this</p>
+                <ul class="list-disc pl-5 text-gray-600 text-sm space-y-1">
+                    <li><strong>Runbooks in vector store</strong> — Loaded, embedded, and searched so the agent can follow your procedures.</li>
+                    <li><strong>Working and episodic memory</strong> — Shared context across agent nodes in a run; past accomplishments stored and retrieved for follow-up.</li>
+                    <li><strong>MCP</strong> — Connect to external data and tools (DBs, APIs, internal services) via the Model Context Protocol.</li>
+                    <li><strong>Persona and classification</strong> — System prompts and routing so the right context is used for each request.</li>
+                </ul>
+            </div>
+
+            <!-- 4. Strong version control practices -->
+            <div id="version-control" class="section-anchor capability-card feature-card p-6 md:p-8 fade-in">
+                <div class="flex flex-wrap items-center gap-2 mb-3">
+                    <span class="text-2xl">📂</span>
+                    <h2 class="text-xl font-bold text-gray-900">4. Strong version control practices</h2>
+                    <span class="px-2.5 py-1 rounded-full badge-weak font-medium text-sm">Focus area</span>
+                </div>
+                <p class="text-gray-600 mb-4">
+                    Frequent commits and robust rollback are especially important as AI increases the volume and velocity of generated code.
+                </p>
+                <p class="text-sm font-semibold text-gray-700 mb-2">How Genie supports this</p>
+                <ul class="list-disc pl-5 text-gray-600 text-sm space-y-1 mb-4">
+                    <li><strong>SCM tools</strong> — GitHub, GitLab, Bitbucket integrations for repo operations; <code class="bg-gray-100 px-1 rounded">run_shell</code> can run git commands when allowed.</li>
+                </ul>
+                <p class="text-sm text-gray-600 bg-purple-50/50 border border-purple-100 rounded-lg px-3 py-2">
+                    <strong class="text-gray-800">Where we’re evaluating:</strong> Runbook and docs guidance on frequent commits and rollback when Genie is used for code or infra — and whether templates that encourage small, revertible commits would help. We’d love community input: what practices work for you?
+                </p>
+            </div>
+
+            <!-- 5. Working in small batches -->
+            <div id="small-batches" class="section-anchor capability-card feature-card p-6 md:p-8 fade-in">
+                <div class="flex flex-wrap items-center gap-2 mb-3">
+                    <span class="text-2xl">📦</span>
+                    <h2 class="text-xl font-bold text-gray-900">5. Working in small batches</h2>
+                    <span class="px-2.5 py-1 rounded-full badge-partial font-medium text-sm">Evolving</span>
+                </div>
+                <p class="text-gray-600 mb-4">
+                    Small batches amplify AI’s positive influence on product performance; the same DORA principle applies in AI-assisted workflows.
+                </p>
+                <p class="text-sm font-semibold text-gray-700 mb-2">How Genie supports this</p>
+                <ul class="list-disc pl-5 text-gray-600 text-sm space-y-1 mb-4">
+                    <li><strong>ReAcTree and planning</strong> — The planner breaks work into discrete steps; <code class="bg-gray-100 px-1 rounded">create_agent</code> spawns focused sub-agents with right-sized goals and tool budgets.</li>
+                    <li><strong>Persona guidance</strong> — “Batch related work,” “Right-size your agents,” and sequence/parallel/fallback flows encourage small, testable units of work.</li>
+                </ul>
+                <p class="text-sm text-gray-600 bg-purple-50/50 border border-purple-100 rounded-lg px-3 py-2">
+                    <strong class="text-gray-800">Where we’re evaluating:</strong> Making “small batches” more visible in docs and README so teams and stakeholders can see how ReAcTree and planning support this. We’d love feedback: how do you talk about batching with your teams?
+                </p>
+            </div>
+
+            <!-- 6. User-centric focus -->
+            <div id="user-centric" class="section-anchor capability-card feature-card p-6 md:p-8 fade-in">
+                <div class="flex flex-wrap items-center gap-2 mb-3">
+                    <span class="text-2xl">👤</span>
+                    <h2 class="text-xl font-bold text-gray-900">6. User-centric focus</h2>
+                    <span class="px-2.5 py-1 rounded-full badge-partial font-medium text-sm">Evolving</span>
+                </div>
+                <p class="text-gray-600 mb-4">
+                    Keeping the end-user experience central is critical; adopting AI without this focus can harm teams and outcomes.
+                </p>
+                <p class="text-sm font-semibold text-gray-700 mb-2">How Genie supports this</p>
+                <ul class="list-disc pl-5 text-gray-600 text-sm space-y-1 mb-4">
+                    <li><strong>Clarifying questions</strong> — The planner uses <code class="bg-gray-100 px-1 rounded">ask_clarifying_question</code> when intent is ambiguous, avoiding assumptions that hurt users.</li>
+                    <li><strong>QA and acceptance</strong> — Blackbox acceptance tests in <code class="bg-gray-100 px-1 rounded">qa/</code> and AGENTS.md require user-facing validation (Arrange/Act/Assert) for new features.</li>
+                    <li><strong>Messenger HITL</strong> — Approve or reject actions in Slack, Teams, etc., without leaving the conversation.</li>
+                </ul>
+                <p class="text-sm text-gray-600 bg-purple-50/50 border border-purple-100 rounded-lg px-3 py-2">
+                    <strong class="text-gray-800">Where we’re evaluating:</strong> Stating “user-centric focus” more explicitly in our principles and README so it’s clear that Genie is built for end-user outcomes. We’d love to hear how you prioritize user experience when adopting AI tools.
+                </p>
+            </div>
+
+            <!-- 7. Quality internal platforms -->
+            <div id="platforms" class="section-anchor capability-card feature-card p-6 md:p-8 fade-in">
+                <div class="flex flex-wrap items-center gap-2 mb-3">
+                    <span class="text-2xl">🛤️</span>
+                    <h2 class="text-xl font-bold text-gray-900">7. Quality internal platforms</h2>
+                    <span class="px-2.5 py-1 rounded-full badge-strong font-medium text-sm">Strong</span>
+                </div>
+                <p class="text-gray-600 mb-4">
+                    Automated, secure “paved roads” let AI benefits scale across the organization and prevent gains from being lost to downstream bottlenecks.
+                </p>
+                <p class="text-sm font-semibold text-gray-700 mb-2">How Genie supports this</p>
+                <ul class="list-disc pl-5 text-gray-600 text-sm space-y-1">
+                    <li><strong>Runbooks and skills</strong> — Standardized procedures and skill packs so teams don’t reinvent workflows.</li>
+                    <li><strong>Toolwrap</strong> — Resilience (rate limits, circuit breakers, retries), observability (tracing, metrics), and security (HITL, audit, sanitization) on every tool call.</li>
+                    <li><strong>Config-driven behavior</strong> — HITL, model routing, and tool policy are configured, not hard-coded, so the same platform can serve different policies.</li>
+                    <li><strong>MCP and skills</strong> — Extend the “road” to new data sources and capabilities without changing core code.</li>
+                </ul>
+            </div>
+
+            <!-- Feedback -->
+            <div class="section-anchor capability-card feature-card p-6 md:p-8 fade-in bg-purple-50/30 border-2 border-purple-100">
+                <div class="text-center max-w-xl mx-auto">
+                    <h3 class="text-lg font-bold text-gray-900 mb-2">Share your experience</h3>
+                    <p class="text-gray-600 text-sm mb-4">
+                        We’d love to hear how these AI capabilities resonate with your team and how you’re adopting Genie. Your feedback on our documentation and your organization’s practices helps us improve and support the community better.
+                    </p>
+                    <a href="https://forms.gle/iF5fi1cssLB7uwAs6" target="_blank" rel="noopener" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-white bg-purple-600 hover:bg-purple-700 transition-colors no-underline">
+                        Share feedback (short form)
+                    </a>
+                    <p class="text-gray-500 text-xs mt-4">Thank you for taking the time — it means a lot to us.</p>
+                </div>
+            </div>
+
+            <!-- CTA -->
+            <div class="text-center pt-8 border-t border-gray-100">
+                <p class="text-gray-600 mb-2">We’re on this journey together. Your feedback helps Genie and the community grow.</p>
+                <p class="text-gray-500 text-sm mb-4">Share ideas, report what’s missing, or contribute — <a href="https://github.com/stackgenhq/genie" target="_blank" rel="noopener" class="text-purple-600 hover:text-purple-700 font-medium">GitHub</a> and <a href="contact.html" class="text-purple-600 hover:text-purple-700 font-medium">Contact</a> are open.</p>
+                <div class="flex flex-wrap justify-center gap-3">
+                    <a href="docs.html" class="btn-primary no-underline">Documentation</a>
+                    <a href="config-builder.html" class="btn-secondary no-underline">Config Builder</a>
+                    <a href="https://dora.dev/research/2025/ai-capabilities-model/" target="_blank" rel="noopener" class="btn-secondary no-underline">DORA AI Capabilities Model</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <div id="footer-container"></div>
+
+    <script src="js/nav.js"></script>
+</body>
+
+</html>

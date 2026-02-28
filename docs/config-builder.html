@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Config Builder — Genie by Stackgen</title>
+    <meta name="description"
+        content="Interactively build your .genie.toml or .genie.yaml config file with dropdowns and form controls.">
+    <link rel="icon" href="https://stackgen.com/hubfs/StackGen-Logo-RGB-080124.png" type="image/png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
+                    colors: { navy: '#09152B', purple: { 50: '#f3eaff', 100: '#e0d4f7', 500: '#8247E7', 600: '#6d28d9', 900: '#2E004F' } }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="css/custom.css">
+</head>
+
+<body class="font-sans text-navy bg-white antialiased overflow-x-hidden">
+
+    <!-- Nav -->
+    <div id="nav-container"></div>
+
+    <!-- Glow -->
+    <div class="glow-blob glow-purple" style="width:500px;height:500px;top:-100px;left:-200px;"></div>
+    <div class="glow-blob glow-blue" style="width:400px;height:400px;top:600px;right:-100px;"></div>
+
+    <!-- Header -->
+    <section class="relative pt-32 pb-8 px-6">
+        <div class="max-w-4xl mx-auto text-center fade-in">
+            <div class="inline-flex items-center gap-2 bg-purple-50 text-purple-500 text-sm font-medium px-4 py-1.5 rounded-full mb-4">
+                <span>🧭</span> Easy onboarding — guided way to create your first config
+            </div>
+            <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight mb-4">
+                Config <span class="gradient-text">Builder</span>
+            </h1>
+            <p class="text-lg text-gray-500 max-w-2xl mx-auto">
+                The <strong>guided way</strong> to create your <code
+                    class="bg-gray-100 px-2 py-0.5 rounded text-sm font-mono text-purple-600">.genie.toml</code>
+                upfront. No TOML knowledge needed — fill in the form with sensible defaults and tooltips, then copy or download. Easiest way to onboard Genie.
+            </p>
+        </div>
+    </section>
+
+    <!-- Builder Layout -->
+    <section class="py-8 px-6">
+        <div class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-5 gap-8">
+
+            <!-- Form Panel (3 cols) -->
+            <div class="lg:col-span-3 space-y-4 fade-in">
+
+                <!-- Model Config -->
+                <div class="config-section" id="section-providers">
+                    <div class="config-section-header" onclick="toggleSection('providers-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">🤖</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Model Providers</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">LLM provider, model, variant, and task
+                                    specialization</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="providers-body" class="config-section-body open"></div>
+                </div>
+
+
+
+
+
+                <!-- Skills -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('skills-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">🎯</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Skills Roots</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Paths or URLs to skill directories</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="skills-body" class="config-section-body"></div>
+                </div>
+
+                <!-- Runbooks -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('runbook-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">📖</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Runbooks</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Customer-provided instruction files
+                                    injected into the agent persona</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="runbook-body" class="config-section-body"></div>
+                </div>
+
+                <!-- MCP -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('mcp-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">🔌</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">MCP Servers</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Model Context Protocol server connections</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="mcp-body" class="config-section-body"></div>
+                </div>
+
+                <!-- Web Search -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('websearch-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">🔍</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Web Search</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Google Custom Search API credentials</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="websearch-body" class="config-section-body"></div>
+                </div>
+
+                <!-- Vector Memory -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('vector-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">🧠</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Vector Memory</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Embedding provider and persistence settings</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="vector-body" class="config-section-body"></div>
+                </div>
+
+                <!-- Graph -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('graph-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">🕸️</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Knowledge Graph</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Store and query entities and relations (graph_* tools); persistence to memory.bin.zst</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="graph-body" class="config-section-body"></div>
+                </div>
+
+                <!-- Data Sources -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('data-sources-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">📂</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Data Sources</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Gmail, Drive sync into vector memory (background)</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="data-sources-body" class="config-section-body"></div>
+                </div>
+
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('messenger-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">💬</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Messenger</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Chat platform integration (Slack, Discord,
+                                    Telegram, Teams, Google Chat, WhatsApp)</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="messenger-body" class="config-section-body"></div>
+                </div>
+
+                <!-- SCM -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('scm-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">🐙</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">SCM</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Source Control Management (GitHub, GitLab,
+                                    Bitbucket)</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="scm-body" class="config-section-body"></div>
+                </div>
+
+                <!-- PM -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('pm-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">📋</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Project Management</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Issue tracking integration (JIRA, Linear,
+                                    Asana)</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="pm-body" class="config-section-body"></div>
+                </div>
+
+
+
+                <!-- Browser -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('browser-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">🌐</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Browser</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Headless browser automation settings</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="browser-body" class="config-section-body"></div>
+                </div>
+
+                <!-- Email -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('email-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">📧</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Email</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">SMTP/IMAP settings for sending and reading
+                                    emails</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="email-body" class="config-section-body"></div>
+                </div>
+
+                <!-- HITL -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('hitl-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">👮</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Human-in-the-Loop</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Approval policies for sensitive tool usage</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="hitl-body" class="config-section-body"></div>
+                </div>
+
+                <!-- Toolwrap Middleware -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('toolwrap-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">🔧</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Tool Middleware Pipeline</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Resilience, observability & security for every
+                                    tool call</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="toolwrap-body" class="config-section-body"></div>
+                </div>
+
+                <!-- Security -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('security-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">🔐</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Enterprise Secret Vault</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Cloud-native secret management (GCP, AWS,
+                                    Azure)</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="security-body" class="config-section-body"></div>
+                </div>
+
+                <!-- PII Redaction -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('pii-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">🛡️</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">PII Redaction</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Entropy-based automatic scrubbing of
+                                    secrets, API keys, and sensitive data before storage</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="pii-body" class="config-section-body"></div>
+                </div>
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('db-config-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">🗄️</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Database</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">SQLite database configuration</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="db-config-body" class="config-section-body"></div>
+                </div>
+
+                <!-- AGUI Server -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('agui-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">🖥️</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">AGUI Server</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">HTTP server settings (Port, CORS, Rate Limiting)
+                                </p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="agui-body" class="config-section-body"></div>
+                </div>
+
+                <!-- Langfuse -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('langfuse-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">🪢</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Langfuse</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Observability & Prompt Management</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="langfuse-body" class="config-section-body"></div>
+                </div>
+
+                <!-- Cron -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('cron-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">⏰</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Cron Scheduler</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Recurring scheduled tasks</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="cron-body" class="config-section-body"></div>
+                </div>
+
+
+            </div>
+
+            <!-- Output Panel (2 cols, sticky) -->
+            <div class="lg:col-span-2 fade-in">
+                <div class="lg:sticky lg:top-20">
+                    <div class="output-panel">
+                        <div class="output-toolbar">
+                            <div class="format-toggle">
+                                <button data-fmt="toml" class="active" onclick="setFormat('toml')">TOML</button>
+                                <button data-fmt="yaml" onclick="setFormat('yaml')">YAML</button>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button id="copy-btn" class="btn-copy" onclick="copyOutput()">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                    </svg>
+                                    Copy
+                                </button>
+                                <button class="btn-copy" onclick="downloadConfig()">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M12 10v6m0 0l-3-3m3 3l3-3M3 17v3a2 2 0 002 2h14a2 2 0 002-2v-3" />
+                                    </svg>
+                                    Download
+                                </button>
+                            </div>
+                        </div>
+                        <pre id="output-code" class="output-code"></pre>
+                    </div>
+                    <p class="text-xs text-gray-400 mt-3 text-center">
+                        Save as <code
+                            class="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-purple-600">.genie.toml</code> in
+                        your project root
+                    </p>
+                </div>
+            </div>
+
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <div id="footer-container" class="mt-12"></div>
+
+    <script src="js/nav.js"></script>
+    <script src="js/config-builder.js"></script>
+</body>
+
+</html>

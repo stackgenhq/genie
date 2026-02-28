@@ -1,0 +1,1054 @@
+package orchestrator
+
+import (
+	"context"
+	_ "embed"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf8"
+
+	"github.com/stackgenhq/genie/pkg/agentutils"
+	"github.com/stackgenhq/genie/pkg/agui"
+	"github.com/stackgenhq/genie/pkg/audit"
+	"github.com/stackgenhq/genie/pkg/cron"
+	"github.com/stackgenhq/genie/pkg/expert"
+	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
+	"github.com/stackgenhq/genie/pkg/hitl"
+	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/memory/vector"
+	"github.com/stackgenhq/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/pii"
+	"github.com/stackgenhq/genie/pkg/reactree"
+	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
+	"github.com/stackgenhq/genie/pkg/runbook"
+	"github.com/stackgenhq/genie/pkg/tools"
+	"github.com/stackgenhq/genie/pkg/toolwrap"
+	"github.com/stackgenhq/genie/pkg/ttlcache"
+	"trpc.group/trpc-go/trpc-agent-go/graph"
+	"trpc.group/trpc-go/trpc-agent-go/memory"
+	"trpc.group/trpc-go/trpc-agent-go/model"
+	"trpc.group/trpc-go/trpc-agent-go/session"
+	"trpc.group/trpc-go/trpc-agent-go/telemetry/trace"
+)
+
+//go:embed prompts/persona.txt
+var persona string
+
+//go:embed prompts/classify.txt
+var classifyPrompt string
+
+type CodeQuestion struct {
+	Question string `json:"question"`
+
+	// SkipClassification when true skips front-desk classification and runs
+	// the request as COMPLEX. Used for internal tasks (e.g. graph learn) that
+	// would otherwise be misclassified as REFUSE.
+	SkipClassification bool `json:"-"`
+
+	// Attachments holds file/media attachments from the incoming message.
+	// Image attachments are passed as multimodal content to the LLM so it
+	// can "see" them; other types are described textually.
+	Attachments []messenger.Attachment `json:"-"`
+
+	// BrowserTab is an optional context for a specific browser tab.
+	// If provided, browser tools will use this context.
+	BrowserTab context.Context `json:"-"`
+}
+
+//go:generate go tool counterfeiter -generate
+
+// Orchestrator is an expert that can answer users questions
+//
+//counterfeiter:generate . Orchestrator
+type Orchestrator interface {
+	Chat(ctx context.Context, req CodeQuestion, outputChan chan<- string) error
+	Close() error
+	Resume(ctx context.Context) string
+}
+
+// requestCategory represents the front desk classification result.
+type requestCategory string
+
+const (
+	categoryRefuse     requestCategory = "REFUSE"
+	categorySalutation requestCategory = "SALUTATION"
+	categoryOutOfScope requestCategory = "OUT_OF_SCOPE"
+	categoryComplex    requestCategory = "COMPLEX"
+)
+
+// classificationResult carries the front-desk category together with an
+// optional human-friendly reason (currently only set for OUT_OF_SCOPE).
+type classificationResult struct {
+	Category requestCategory
+	Reason   string // non-empty only for OUT_OF_SCOPE
+}
+
+type orchestrator struct {
+	expert          expert.Expert
+	frontDeskExpert expert.Expert
+	treeExecutor    reactree.TreeExecutor
+	memorySvc       memory.Service
+	memoryUserKey   memory.UserKey
+	toolRegistry    *tools.Registry
+	auditor         audit.Auditor
+	resume          *ttlcache.Item[string]
+	resumeCancel    context.CancelFunc
+	vectorStore     vector.IStore
+
+	// availableToolNames holds the names of all tools registered in the full
+	// tool registry (not just the orchestrator's own tools). This list is
+	// injected into the resume so the front-desk classifier knows about
+	// every capability (email, SCM, browser, etc.) when determining scope.
+	availableToolNames []string
+
+	// Per-sender memory isolation. These maps use sync.Map for concurrent
+	// access and lazily create instances on first access per sender.
+	workingMemories   sync.Map // map[string]*rtmemory.WorkingMemory
+	episodicMemories  sync.Map // map[string]rtmemory.EpisodicMemory
+	episodicMemoryCfg rtmemory.EpisodicMemoryConfig
+}
+
+// Resume returns a natural language description of the agent's capabilities.
+func (c *orchestrator) Resume(ctx context.Context) string {
+	result, _ := c.resume.GetValue(ctx)
+	return result
+}
+
+// NewOrchestrator creates a new orchestrator with an integrated ReAcTree executor.
+// The working memory persists across chat turns, allowing the agent to share
+// observations from previous interactions. The tree executor enables
+// hierarchical task decomposition for complex queries when activated.
+// The approvalStore enables HITL approval gating for sub-agent tool calls;
+// when nil, sub-agents execute tools without requiring human approval.
+// The runbookCfg enables loading customer-provided instructional runbooks
+// that get injected into the agent's system prompt.
+// OrchestratorOption configures optional behaviour on the orchestrator.
+type OrchestratorOption func(*orchestratorOpts)
+
+type orchestratorOpts struct {
+	toolwrapOpts []toolwrap.ServiceOption
+}
+
+// WithToolwrapOptions passes per-agent middleware configuration to the
+// underlying toolwrap.Service. Use this to enable rate limiting, tracing,
+// retries, timeouts, etc. on a per-agent basis.
+func WithToolwrapOptions(opts ...toolwrap.ServiceOption) OrchestratorOption {
+	return func(o *orchestratorOpts) {
+		o.toolwrapOpts = append(o.toolwrapOpts, opts...)
+	}
+}
+
+func NewOrchestrator(
+	ctx context.Context,
+	modelProvider modelprovider.ModelProvider,
+	availableTools *tools.Registry,
+	runbook runbook.Runbook,
+	vectorStore vector.IStore,
+	auditor audit.Auditor,
+	approvalStore hitl.ApprovalStore,
+	memorySvc memory.Service,
+	runbookCfg runbook.Config,
+	sessionSvc session.Service,
+	agentPersona string,
+	extraOpts ...OrchestratorOption,
+) (Orchestrator, error) {
+	var oo orchestratorOpts
+	for _, fn := range extraOpts {
+		fn(&oo)
+	}
+	// Build the persona prompt. When agentPersona is provided (GUILD agents),
+	// use it instead of the default Genie persona. This enables per-agent
+	// identity customisation.
+	fullPersona := persona
+	if agentPersona != "" {
+		fullPersona += "\n\n" + agentPersona
+	}
+	// Load customer runbooks into the vector store for semantic search.
+	// Instead of bloating the persona prompt, runbook content is indexed
+	// individually and made available via the search_runbook tool.
+	if count, err := runbook.Load(ctx); err != nil {
+		logger.GetLogger(ctx).Warn("failed to load runbooks", "error", err)
+	} else if count > 0 {
+		fullPersona += "\n\n## Runbooks\n\nCustomer-provided runbooks are available. " +
+			"Use the `search_runbook` tool to find relevant deployment procedures, " +
+			"troubleshooting playbooks, coding standards, and other operational instructions " +
+			"before taking action."
+	}
+
+	expertBio := expert.ExpertBio{
+		Personality: fullPersona,
+		Name:        "genie",
+		Description: "Genie — strategic AI planner that decomposes requests into structured plans and orchestrates sub-agents",
+	}
+
+	var expertOpts []expert.ExpertOption
+	if sessionSvc != nil {
+		expertOpts = append(expertOpts, expert.WithExpertSessionService(sessionSvc))
+	}
+	// Create the summarizer for condensing tool outputs via the front desk model.
+	summarizer, err := agentutils.NewSummarizer(ctx, modelProvider, auditor)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create summarizer: %w", err)
+	}
+	logger.GetLogger(ctx).Debug("Summarizer created")
+
+	// Tools are pre-built and pre-filtered by the tool registry (toolreg).
+	// Build the reactree.ToolRegistry from the provided []tool.Tool.
+	// Adapt the agentutils.Summarizer into a toolwrap.SummarizeFunc so the
+	// middleware can auto-compress oversized tool results (>100 000 chars).
+	summarizeFunc := toolwrap.SummarizeFunc(func(ctx context.Context, content string) (string, error) {
+		return summarizer.Summarize(ctx, agentutils.SummarizeRequest{
+			Content:              content,
+			RequiredOutputFormat: agentutils.OutputFormatText,
+		})
+	})
+	toolWrapSvc := toolwrap.NewService(auditor, approvalStore, summarizeFunc, oo.toolwrapOpts...)
+
+	exp, err := expertBio.ToExpert(ctx, modelProvider, auditor, toolWrapSvc, expertOpts...)
+	if err != nil {
+		return nil, err
+	}
+	logger.GetLogger(ctx).Info("Expert bio created", "name", expertBio.Name, "persistentSession", sessionSvc != nil)
+
+	// Create a lightweight front desk expert for request classification.
+	// Uses TaskFrontDesk which maps to a fast, cheap model (e.g. gemini-3-flash).
+	frontDeskBio := expert.ExpertBio{
+		Personality: classifyPrompt,
+		Name:        "front-desk",
+		Description: "Classifies incoming requests to determine routing. Validate against the agents personality and make the judgement accordingly",
+	}
+	frontDeskExp, err := frontDeskBio.ToExpert(ctx, modelProvider, auditor, toolWrapSvc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create front desk expert: %w", err)
+	}
+	logger.GetLogger(ctx).Debug("Front desk expert created")
+
+	// Initialize shared working memory for cross-turn observation sharing
+	wm := rtmemory.NewWorkingMemory()
+
+	// Keep the base episodic memory config for creating per-sender instances.
+	episodicMemoryCfg := rtmemory.DefaultEpisodicMemoryConfig()
+	episodicMemoryCfg.Service = memorySvc
+	episodicMem := episodicMemoryCfg.NewEpisodicMemory()
+	var checkpointer graph.CheckpointSaver
+	if store, ok := sessionSvc.(interface{ Checkpointer() graph.CheckpointSaver }); ok {
+		checkpointer = store.Checkpointer()
+	}
+
+	treeExec := reactree.NewTreeExecutor(exp, wm, episodicMem, reactree.TreeConfig{
+		MaxDepth:            3,
+		MaxDecisionsPerNode: 10,
+		MaxTotalNodes:       30,
+		MaxIterations:       3,
+		Checkpointer:        checkpointer,
+	})
+
+	// Use provided memory.Service for conversation history persistence.
+	logger.GetLogger(ctx).Info("Using persistent memory service")
+	memoryUserKey := memory.UserKey{
+		AppName: "genie-orchestrator",
+		UserID:  "default",
+	}
+
+	logger.GetLogger(ctx).Info("orchestrator: toolwrap.Service created for sub-agents",
+		"hasAuditor", auditor != nil,
+		"hasApprovalStore", approvalStore != nil,
+		"hasSummarizer", true,
+	)
+	createAgentTool := reactree.NewCreateAgentTool(
+		modelProvider, exp, summarizer, availableTools,
+		wm, episodicMem,
+		toolWrapSvc,
+	)
+	// Log tool counts so operators can verify email, gmail, etc. are wired for sub-agents.
+	n := len(availableTools.ToolNames())
+	logger.GetLogger(ctx).Info("create_agent sub-agent tools wired",
+		"registry_total", n,
+		"sub_agent_tools", n-2, // exclude create_agent and send_message
+	)
+
+	// Build the main agent's tool registry:
+	//   - create_agent: to delegate detailed work to sub-agents
+	//   - ask_clarifying_question: to ask users for clarification directly
+	//
+	// Sub-agent tool scoping (excluding create_agent + send_message) is
+	// handled inside create_agent.go via subAgentRegistry, NOT here.
+	orchestratorToolSlice := tools.Tools{
+		createAgentTool.GetTool(),
+	}
+	// Lift ask_clarifying_question from the full registry so the main
+	// agent (planner) can ask users directly without delegating to a sub-agent.
+	if t, err := availableTools.GetTool("ask_clarifying_question"); err == nil {
+		orchestratorToolSlice = append(orchestratorToolSlice, t)
+	}
+	// Lift create_recurring_task so the main agent can schedule recurring tasks
+	// directly (e.g. "remind me daily", "run this every hour") without delegating.
+	if t, err := availableTools.GetTool(cron.ToolName); err == nil {
+		orchestratorToolSlice = append(orchestratorToolSlice, t)
+	}
+	orchestratorTools := tools.NewRegistry(ctx, orchestratorToolSlice)
+	logger := logger.GetLogger(ctx).With("fn", "createOrchestrator")
+	logger.Info("Orchestrator tool registry initialized", "count", len(orchestratorTools.ToolNames()))
+
+	orchestrator := &orchestrator{
+		expert:             exp,
+		frontDeskExpert:    frontDeskExp,
+		treeExecutor:       treeExec,
+		memorySvc:          memorySvc,
+		memoryUserKey:      memoryUserKey,
+		toolRegistry:       orchestratorTools,
+		auditor:            auditor,
+		vectorStore:        vectorStore,
+		episodicMemoryCfg:  episodicMemoryCfg,
+		availableToolNames: availableTools.GetToolDescriptions(),
+	}
+	// keep updating the resume less than 24 hours
+	// Create a dedicated context for the background refresher that we can cancel on Close()
+	resumeCtx, resumeCancel := context.WithCancel(context.Background())
+	orchestrator.resumeCancel = resumeCancel
+
+	orchestrator.resume = ttlcache.NewItem(func(ctx context.Context) (string, error) {
+		return orchestrator.createResume(ctx, summarizer, fullPersona)
+	}, 24*time.Hour)
+
+	// Use WithoutCancel to detach from startup context, but we use our own resumeCtx
+	// which we control via Close().
+	go func() {
+		_, _ = orchestrator.resume.GetValue(resumeCtx)
+		if err := orchestrator.resume.KeepItFresh(resumeCtx); err != nil && !errors.Is(err, context.Canceled) {
+			// context.Canceled is expected on Close()
+			logger.Error("failed to keep resume fresh", "err", err)
+		}
+	}()
+	return orchestrator, nil
+}
+
+// createResume generates a natural-language resume for the orchestrator agent
+// based on the tools available to both the main agent and its subagents,
+// enriched with recent accomplishments from the vector memory store.
+// Accomplishments act as confidence-building evidence that demonstrate
+// the agent's track record to users. Without this, the resume would be
+// purely theoretical ("I can do X") rather than evidence-based
+// ("I have done X, Y, Z").
+func (c *orchestrator) createResume(
+	ctx context.Context,
+	summarizer agentutils.Summarizer,
+	fullPersona string,
+) (string, error) {
+	logger := logger.GetLogger(ctx)
+	logger.Info("building my resume")
+
+	// Inject a system-level MessageOrigin so downstream calls
+	// (expert.getRunner → MessageOriginFrom) don't warn about missing origin.
+	ctx = messenger.WithMessageOrigin(ctx, messenger.SystemMessageOrigin())
+
+	// Retrieve recent accomplishments from vector memory to enrich the resume.
+	accomplishments := c.recallAccomplishments(ctx)
+
+	accomplishmentsSection := ""
+	if accomplishments != "" {
+		accomplishmentsSection = fmt.Sprintf(`
+
+Recent Accomplishments (things I have successfully done):
+%s`, accomplishments)
+	}
+
+	toolsSection := ""
+	toolsInstruction := ""
+	if len(c.availableToolNames) > 0 {
+		sortedNames := make([]string, len(c.availableToolNames))
+		copy(sortedNames, c.availableToolNames)
+		sort.Strings(sortedNames)
+		toolsSection = fmt.Sprintf(`
+
+Available Tools (capabilities I can use via sub-agents):
+%s`, strings.Join(sortedNames, ", "))
+		toolsInstruction = "\n- The Available Tools section lists every tool the agent can delegate to sub-agents. Mention the key capability areas they enable (e.g. email, source control, browsing, file management)."
+	}
+
+	result, err := summarizer.Summarize(ctx, agentutils.SummarizeRequest{
+		RequiredOutputFormat: agentutils.OutputFormatMarkdown,
+		Content: fmt.Sprintf(`Create a linkedIn worthy resume based and things that I can accomplish based on tools available to the given AI Agent:
+
+- Talk in First Person
+- You are trying to sell yourself to the user.
+- Give some examples of what you can do.
+- Keep it short and concise.
+- If accomplishments are available, highlight them as proof of your capabilities.%s
+
+Persona:
+%s
+%s
+%s`, toolsInstruction, fullPersona, accomplishmentsSection, toolsSection),
+	})
+	if err != nil {
+		logger.Error("error creating resume", "error", err)
+		return "", fmt.Errorf("error creating resume: %w", err)
+	}
+	return result, nil
+}
+
+// Close releases resources held by the orchestrator, including the conversation
+// history memory service. Callers should defer Close() after NewOrchestrator.
+func (c *orchestrator) Close() error {
+	if c.resumeCancel != nil {
+		c.resumeCancel()
+	}
+	if c.memorySvc != nil {
+		return c.memorySvc.Close()
+	}
+	return nil
+}
+
+// bridgeBrowserTab creates a context that carries both the chromedp tab's
+// executor and the per-request values from the caller's context (parent).
+//
+// chromedp contexts form their own hierarchy rooted at the allocator created
+// at init time, so they never carry per-request values such as ThreadID,
+// RunID, or MessageOrigin. This function bridges the two hierarchies by:
+//  1. Deriving a cancellable context from the tab (for chromedp operations).
+//  2. Inheriting the parent's deadline.
+//  3. Re-injecting per-request values from the parent.
+//  4. Propagating parent cancellation to the tab.
+//
+// Without this, any tool call running inside a browser-tab context would
+// silently lose AG-UI identifiers, breaking HITL approval and sub-agent
+// correlation.
+//
+// The returned CancelFunc must be deferred by the caller.
+func bridgeBrowserTab(parent, tab context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(tab)
+
+	if deadline, ok := parent.Deadline(); ok {
+		var dlCancel context.CancelFunc
+		ctx, dlCancel = context.WithDeadline(ctx, deadline)
+		baseCancel := cancel
+		cancel = func() { dlCancel(); baseCancel() }
+	}
+
+	if origin := messenger.MessageOriginFrom(parent); !origin.IsZero() {
+		ctx = messenger.WithMessageOrigin(ctx, origin)
+	}
+	if tid := agui.ThreadIDFromContext(parent); tid != "" {
+		ctx = agui.WithThreadID(ctx, tid)
+	}
+	if rid := agui.RunIDFromContext(parent); rid != "" {
+		ctx = agui.WithRunID(ctx, rid)
+	}
+
+	go func() {
+		select {
+		case <-parent.Done():
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
+	return ctx, cancel
+}
+
+// classifyAndMaybeShortCircuit runs front-desk classification (unless skipped) and
+// handles REFUSE, OUT_OF_SCOPE, and SALUTATION by sending a response and returning
+// (true, nil). For COMPLEX it returns (false, nil) so the caller continues with the
+// full pipeline. Returns (_, err) on salutation response failure.
+func (c *orchestrator) classifyAndMaybeShortCircuit(ctx context.Context, req CodeQuestion, outputChan chan<- string) (handled bool, err error) {
+	logr := logger.GetLogger(ctx).With("fn", "classifyAndMaybeShortCircuit")
+	var category requestCategory
+	var cr classificationResult
+	if req.SkipClassification {
+		category = categoryComplex
+		logr.Info("front desk classification skipped (internal task)", "category", category)
+	} else {
+		var classifyErr error
+		cr, classifyErr = c.classifyRequest(ctx, req.Question)
+		if classifyErr != nil {
+			logr.Warn("front desk classification failed, defaulting to complex", "error", classifyErr)
+			cr = classificationResult{Category: categoryComplex}
+		}
+		category = cr.Category
+		logr.Info("front desk classified request", "category", category)
+		c.auditor.Log(ctx, audit.LogRequest{
+			EventType: audit.EventClassification,
+			Actor:     "front-desk",
+			Action:    string(category),
+			Metadata:  map[string]interface{}{"question": req.Question},
+		})
+	}
+	switch category {
+	case categoryRefuse:
+		outputChan <- "🚫 Whoa there! That's a no-go zone for me. " +
+			"I'm here to build cool things, not blow them up! " +
+			"Got something constructive? I'm all ears 👂"
+		return true, nil
+	case categoryOutOfScope:
+		reason := cr.Reason
+		if reason == "" {
+			reason = "That doesn't seem to be within my area of expertise."
+		}
+		outputChan <- fmt.Sprintf(
+			"🙈 Hmm, I can't help with that — %s\n\n"+
+				"Try me with something in my wheelhouse — I promise I'm great at it! 🚀",
+			reason,
+		)
+		return true, nil
+	case categorySalutation:
+		salutationMsg := fmt.Sprintf(
+			"IMPORTANT: Respond conversationally to the greeting below. "+
+				"Do NOT describe files, directories, or workspace contents. "+
+				"Do NOT pretend you have inspected the environment. "+
+				"Simply greet them and briefly mention what you can help with.\n\n%s",
+			req.Question,
+		)
+		salutationCtx := agui.WithSuppressEmit(ctx)
+		resp, doErr := c.expert.Do(salutationCtx, expert.Request{
+			Message:  salutationMsg,
+			TaskType: modelprovider.TaskEfficiency,
+			Mode: expert.ExpertConfig{
+				MaxLLMCalls:       1,
+				MaxToolIterations: 0,
+			},
+		})
+		if doErr != nil {
+			return true, fmt.Errorf("front desk salutation response failed: %w", doErr)
+		}
+		output := extractTextFromChoices(resp.Choices)
+		outputChan <- output
+		c.storeConversation(ctx, req.Question, output)
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
+func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan chan<- string) error {
+	// Create a parent span so all sub-operations (recall, tree execution,
+	// store, audit) are children of a single Langfuse trace.
+	ctx, chatSpan := trace.Tracer.Start(ctx, "codeowner.chat")
+	defer chatSpan.End()
+
+	logr := logger.GetLogger(ctx).With("fn", "codeExpert.Chat")
+	logr.Info("codeOwner.Chat invoked", "question", toolwrap.TruncateForAudit(req.Question, 100))
+
+	handled, err := c.classifyAndMaybeShortCircuit(ctx, req, outputChan)
+	if err != nil {
+		return err
+	}
+	if handled {
+		return nil
+	}
+
+	// Use TaskPlanning for complex requests — the planner persona needs
+	// a reasoning-heavy model to analyze, decompose, and plan before
+	// delegating execution to sub-agents via create_agent.
+	taskType := modelprovider.TaskPlanning
+
+	// categoryComplex (default): Full ReAcTree pipeline
+
+	// Retrieve relevant past conversation turns from memory.
+	// Uses sender-based key so each sender/thread has isolated history.
+	pastContext := c.recallConversation(ctx, req.Question)
+
+	// Build the message with past conversation context injected.
+	// When past context contains [HIDDEN:...], that indicates PII-redacted text the user
+	// already provided (e.g. email, "7 days"). Instruct the model not to re-ask for the
+	// same clarification so we avoid duplicate questions.
+	message := req.Question
+	if pastContext != "" {
+		hiddenHint := ""
+		message = fmt.Sprintf(
+			"## Relevant Past Conversations\n%s%s\n\n## Current Question\n%s",
+			hiddenHint, pastContext, req.Question,
+		)
+	}
+
+	runCtx := ctx
+	if req.BrowserTab != nil {
+		var cleanup context.CancelFunc
+		runCtx, cleanup = bridgeBrowserTab(ctx, req.BrowserTab)
+		defer cleanup()
+	}
+
+	// Stash the original question in context so toolwrap can persist it in
+	// the approval row — needed for replay-on-resume after server restart.
+	runCtx = toolwrap.WithOriginalQuestion(runCtx, req.Question)
+
+	// Execute using ReAcTree for structured reasoning and task decomposition
+	res, err := c.treeExecutor.Run(runCtx, reactree.TreeRequest{
+		Goal:           message,
+		Tools:          c.toolRegistry.GetTools(),
+		TaskType:       taskType,
+		Attachments:    req.Attachments,
+		WorkingMemory:  c.workingMemoryForSender(ctx),
+		EpisodicMemory: c.episodicMemoryForSender(ctx),
+	})
+
+	if err != nil {
+		return err
+	}
+
+	// Send the final result to the output channel
+	outputChan <- res.Output
+
+	// Store the conversation turn in memory for future recall (best-effort).
+	c.storeConversation(ctx, req.Question, res.Output)
+
+	// Persist a concise accomplishment so the agent's resume can reference
+	// real work it has completed, boosting user confidence.
+	c.storeAccomplishment(ctx, req.Question, res)
+
+	// Audit: log complete conversation turn
+	c.auditor.Log(ctx, audit.LogRequest{
+		EventType: audit.EventConversation,
+		Actor:     "orchestrator",
+		Action:    "chat_turn_completed",
+		Metadata: map[string]interface{}{
+			"question": req.Question,
+			"answer":   res.Output,
+		},
+	})
+
+	return nil
+}
+
+// recallConversation searches memory.Service for past turns relevant
+// to the current question and formats them as context.
+// Uses senderID-based key so each sender/thread has isolated history.
+func (c *orchestrator) recallConversation(ctx context.Context, question string) string {
+	convKey := c.conversationKeyFromContext(ctx)
+	key := c.memoryKeyForSender(convKey)
+	// Try to search for relevant memories
+	entries, err := c.memorySvc.SearchMemories(ctx, key, question)
+	if err != nil {
+		logger.GetLogger(ctx).Warn("failed to search memories", "error", err)
+	}
+
+	// Fallback to recent history if search yields no results (common for "what did we just talk about?" queries)
+	// or if the search implementation is basic (like our SQLite LIKE search).
+	if len(entries) == 0 {
+		recents, err := c.memorySvc.ReadMemories(ctx, key, 5)
+		if err == nil {
+			entries = recents
+		}
+	}
+
+	if len(entries) == 0 {
+		return ""
+	}
+
+	// Limit to top 3 most relevant past turns (or recent turns if fallback used)
+	limit := 3
+	if len(entries) < limit {
+		limit = len(entries)
+	}
+
+	// Cap total recall size to prevent past conversations from
+	// dominating the context window in multi-turn sessions.
+	const maxRecallSize = 1500
+	var sb strings.Builder
+	for i := 0; i < limit; i++ {
+		if entries[i] == nil || entries[i].Memory == nil {
+			continue
+		}
+		entry := entries[i].Memory.Memory
+		if sb.Len()+len(entry) > maxRecallSize {
+			sb.WriteString("... (earlier turns omitted for brevity)\n")
+			break
+		}
+		sb.WriteString(entry)
+		sb.WriteString("\n\n")
+	}
+
+	// Audit: log memory recall.
+	c.auditor.Log(ctx, audit.LogRequest{
+		EventType: audit.EventMemoryAccess,
+		Actor:     "orchestrator",
+		Action:    "recall_conversation",
+		Metadata: map[string]interface{}{
+			"results": limit,
+		},
+	})
+
+	return sb.String()
+}
+
+// storeConversation persists a Q&A turn into memory.Service.
+// Uses senderID-based key so each sender/thread has isolated history.
+// PII is redacted before storage to prevent sensitive data leakage.
+func (c *orchestrator) storeConversation(ctx context.Context, question, answer string) {
+	// Format the turn as a structured summary for retrieval.
+	// Truncate both question and answer to prevent tool output from
+	// prior turns from entering conversation memory and bloating
+	// future context windows.
+	summary := fmt.Sprintf("Q: %s\nA: %s",
+		toolwrap.TruncateForAudit(question, 300),
+		toolwrap.TruncateForAudit(answer, 500))
+
+	// Redact PII before persisting to prevent sensitive data leakage.
+	summary = pii.Redact(summary)
+
+	topics := []string{"conversation", "chat-turn"}
+
+	convKey := c.conversationKeyFromContext(ctx)
+	key := c.memoryKeyForSender(convKey)
+	_ = c.memorySvc.AddMemory(ctx, key, summary, topics)
+
+	// Audit: log memory write.
+	c.auditor.Log(ctx, audit.LogRequest{
+		EventType: audit.EventMemoryAccess,
+		Actor:     "orchestrator",
+		Action:    "store_conversation",
+		Metadata:  map[string]interface{}{},
+	})
+}
+
+// recallAccomplishments searches the vector store for recent accomplishments
+// and formats them as a bulleted list for inclusion in the agent's resume.
+// Returns an empty string if no accomplishments are found or the vector store
+// is not configured. Without this, the resume would lack evidence-based
+// confidence signals.
+//
+// Applies visibility-based filtering: private context sees only own
+// accomplishments; group context sees the group's accomplishments.
+// Fallback: if private context yields sparse results (<2), also searches
+// by sender_id across all visibility scopes — so a user's group
+// accomplishments follow them to DMs.
+func (c *orchestrator) recallAccomplishments(ctx context.Context) string {
+	if c.vectorStore == nil {
+		return ""
+	}
+
+	// Build metadata filter based on current sender context.
+	filter := map[string]string{
+		"type": rtmemory.AccomplishmentType,
+	}
+	origin := messenger.MessageOriginFrom(ctx)
+	filter["visibility"] = origin.DeriveVisibility()
+
+	results, err := c.vectorStore.SearchWithFilter(ctx, rtmemory.AccomplishmentType, 50, filter)
+	if err != nil {
+		logger.GetLogger(ctx).Warn("failed to search accomplishments for resume", "error", err)
+		return ""
+	}
+
+	// Fallback: if private context yields sparse results, also search by
+	// sender_id across all visibility scopes. This ensures a user's group
+	// accomplishments follow them when they switch to DMs (blind spot #6).
+	const minResults = 2
+	if origin.IsPrivateContext() && len(results) < minResults {
+		senderFilter := map[string]string{
+			"type":      rtmemory.AccomplishmentType,
+			"sender_id": origin.Sender.ID,
+		}
+		extraResults, err := c.vectorStore.SearchWithFilter(ctx, rtmemory.AccomplishmentType, 50, senderFilter)
+		if err == nil {
+			// Deduplicate by ID.
+			seen := make(map[string]bool, len(results))
+			for _, r := range results {
+				seen[r.ID] = true
+			}
+			for _, r := range extraResults {
+				if !seen[r.ID] {
+					results = append(results, r)
+				}
+			}
+		}
+	}
+
+	if len(results) == 0 {
+		return ""
+	}
+
+	// Sort by score descending to surface the most relevant accomplishments.
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
+	})
+
+	// Limit to top 5 accomplishments to keep the resume concise.
+	limit := 5
+	if len(results) < limit {
+		limit = len(results)
+	}
+
+	var sb strings.Builder
+	for i := 0; i < limit; i++ {
+		sb.WriteString("- ")
+		sb.WriteString(results[i].Content)
+		sb.WriteString("\n")
+	}
+
+	// Audit: log memory recall.
+	c.auditor.Log(ctx, audit.LogRequest{
+		EventType: audit.EventMemoryAccess,
+		Actor:     "orchestrator",
+		Action:    "recall_accomplishments",
+		Metadata: map[string]interface{}{
+			"results": limit,
+		},
+	})
+
+	return sb.String()
+}
+
+// storeAccomplishment persists a concise summary of a successfully completed
+// task into the vector store. These entries are later retrieved by
+// recallAccomplishments to enrich the agent's resume with evidence of real
+// work. Without this, the agent would have no way to demonstrate its track
+// record to users.
+//
+// Each entry is tagged with source metadata (platform, sender, channel,
+// visibility) so that privacy-aware filtering can be applied during retrieval.
+// PII is redacted before storage to prevent sensitive data leakage.
+func (c *orchestrator) storeAccomplishment(ctx context.Context, question string, res reactree.TreeResult) {
+	if c.vectorStore == nil {
+		return
+	}
+
+	// Only store as an accomplishment if the tree completed successfully
+	// and produced non-empty output. We intentionally avoid filtering on
+	// output text (e.g. checking for "error") because valid accomplishments
+	// often mention errors they fixed (e.g. "Fixed error handling in auth").
+	if res.Status != reactree.Success || strings.TrimSpace(res.Output) == "" {
+		return
+	}
+
+	// Build a concise accomplishment summary from the Q&A turn.
+	summary := fmt.Sprintf("Q: %s\nA: %s",
+		toolwrap.TruncateForAudit(question, 200),
+		toolwrap.TruncateForAudit(res.Output, 500))
+
+	// Redact PII before persisting to prevent sensitive data leakage.
+	summary = pii.Redact(summary)
+
+	metadata := map[string]string{
+		"type":      rtmemory.AccomplishmentType,
+		"timestamp": time.Now().Format(time.RFC3339),
+	}
+
+	// Tag with source attribution for privacy-aware filtering.
+	if origin := messenger.MessageOriginFrom(ctx); !origin.IsZero() {
+		metadata["platform"] = string(origin.Platform)
+		metadata["sender_id"] = origin.Sender.ID
+		metadata["channel_id"] = origin.Channel.ID
+		metadata["visibility"] = origin.DeriveVisibility()
+	} else {
+		metadata["visibility"] = "global"
+	}
+
+	if err := c.vectorStore.Add(ctx, vector.BatchItem{
+		ID:       fmt.Sprintf("%s-%d", rtmemory.AccomplishmentType, time.Now().UnixNano()),
+		Text:     summary,
+		Metadata: metadata,
+	}); err != nil {
+		logger.GetLogger(ctx).Warn("failed to store accomplishment", "error", err)
+	}
+
+	// Audit: log memory write.
+	c.auditor.Log(ctx, audit.LogRequest{
+		EventType: audit.EventMemoryAccess,
+		Actor:     "orchestrator",
+		Action:    "store_accomplishment",
+		Metadata: map[string]interface{}{
+			"summary_length": len(summary),
+		},
+	})
+}
+
+// memoryKeyForSender returns a memory.UserKey scoped to the given sender.
+// When senderID is empty (e.g. TUI with no context), falls back to "default".
+func (c *orchestrator) memoryKeyForSender(senderID string) memory.UserKey {
+	if senderID == "" {
+		return c.memoryUserKey // fallback to default
+	}
+	return memory.UserKey{
+		AppName: c.memoryUserKey.AppName,
+		UserID:  senderID,
+	}
+}
+
+// workingMemoryForSender returns (or creates) an isolated WorkingMemory
+// instance for the given sender. This prevents User A's observations from
+// leaking into User B's context.
+func (c *orchestrator) workingMemoryForSender(ctx context.Context) *rtmemory.WorkingMemory {
+	origin := messenger.MessageOriginFrom(ctx)
+	sender := origin.DeriveVisibility()
+	if sender == "" {
+		sender = "default"
+	}
+	if existing, ok := c.workingMemories.Load(sender); ok {
+		return existing.(*rtmemory.WorkingMemory)
+	}
+	newWM := rtmemory.NewWorkingMemory()
+	actual, _ := c.workingMemories.LoadOrStore(sender, newWM)
+	return actual.(*rtmemory.WorkingMemory)
+}
+
+// episodicMemoryForSender returns (or creates) an isolated EpisodicMemory
+// instance for the given sender. Each sender has its own episode pool.
+func (c *orchestrator) episodicMemoryForSender(ctx context.Context) rtmemory.EpisodicMemory {
+	origin := messenger.MessageOriginFrom(ctx)
+	sender := origin.DeriveVisibility()
+	if sender == "" {
+		sender = "default"
+	}
+	if existing, ok := c.episodicMemories.Load(sender); ok {
+		return existing.(rtmemory.EpisodicMemory)
+	}
+	newEp := c.episodicMemoryCfg.WithUserID(sender).NewEpisodicMemory()
+	actual, _ := c.episodicMemories.LoadOrStore(sender, newEp)
+	return actual.(rtmemory.EpisodicMemory)
+}
+
+// conversationKeyFromContext returns the appropriate memory key for
+// conversation history isolation. In group chats, all members share
+// history (keyed by channel ID). In DMs, each sender has private history.
+//
+// When running under GUILD with multiple agents, the key is prefixed
+// with the agent name so agents sharing a channel have isolated memory.
+func (c *orchestrator) conversationKeyFromContext(ctx context.Context) string {
+	origin := messenger.MessageOriginFrom(ctx)
+	key := origin.DeriveVisibility()
+	if agentName := audit.AgentNameFromContext(ctx); agentName != "" {
+		key = agentName + ":" + key
+	}
+	return key
+}
+
+// ForgetUser clears all memory stores associated with a given sender.
+// This implements the "right to be forgotten" for privacy compliance.
+func (c *orchestrator) ForgetUser(ctx context.Context, senderID string) error {
+	// 1. Clear conversation history.
+	key := c.memoryKeyForSender(senderID)
+	if err := c.memorySvc.ClearMemories(ctx, key); err != nil {
+		return fmt.Errorf("failed to clear conversation memory: %w", err)
+	}
+
+	// 2. Clear working memory for this sender.
+	if wm, ok := c.workingMemories.LoadAndDelete(senderID); ok {
+		wm.(*rtmemory.WorkingMemory).Clear()
+	}
+
+	// 3. Clear episodic memory for this sender.
+	// Episodic memory is backed by memory.Service with a scoped UserKey,
+	// so clearing its memory.Service entries removes episodes.
+	episodicKey := memory.UserKey{
+		AppName: "reactree",
+		UserID:  senderID,
+	}
+	_ = c.memorySvc.ClearMemories(ctx, episodicKey)
+	c.episodicMemories.Delete(senderID)
+
+	// 4. Delete vector store accomplishments for this sender.
+	// Vector store entries are tagged with sender_id metadata, so we
+	// search and delete matching entries.
+	if c.vectorStore != nil {
+		results, err := c.vectorStore.SearchWithFilter(ctx, rtmemory.AccomplishmentType, 100, map[string]string{
+			"sender_id": senderID,
+		})
+		if err == nil {
+			ids := make([]string, 0, len(results))
+			for _, r := range results {
+				ids = append(ids, r.ID)
+			}
+			if len(ids) > 0 {
+				_ = c.vectorStore.Delete(ctx, ids...)
+			}
+		}
+	}
+
+	// 5. Audit the forget operation.
+	c.auditor.Log(ctx, audit.LogRequest{
+		EventType: audit.EventMemoryAccess,
+		Actor:     "system",
+		Action:    "forget_user",
+		Metadata: map[string]interface{}{
+			"sender_id": senderID,
+		},
+	})
+
+	return nil
+}
+
+// classifyRequest uses the front desk expert (a fast, lightweight model) to classify
+// the incoming request into one of four categories: REFUSE, SALUTATION, OUT_OF_SCOPE,
+// or COMPLEX. The agent's resume is injected so the classifier can determine whether
+// the request is within scope. On any error or unexpected response, defaults to
+// categoryComplex (fail-open).
+//
+// For OUT_OF_SCOPE, the classifier also returns a human-friendly reason extracted
+// from the "OUT_OF_SCOPE | <reason>" response format.
+func (c *orchestrator) classifyRequest(ctx context.Context, question string) (classificationResult, error) {
+	resume := c.Resume(ctx)
+	// Always send an "Agent Resume" section so the classifier has clear instructions.
+	// When resume is empty (e.g. still building on first request), tell the model to treat
+	// task-oriented messages as COMPLEX so we avoid false OUT_OF_SCOPE (e.g. "any emails for me").
+	resumeSection := resume
+	if resumeSection == "" {
+		resumeSection = "(Resume not yet available. Treat any task-oriented or actionable request as COMPLEX.)"
+	} else {
+		// Cap the resume to avoid exceeding the lightweight classifier
+		// model's context window. 2000 chars is enough for the classifier
+		// to determine scope without risking token overflow.
+		const maxResumeLen = 2000
+		if len(resumeSection) > maxResumeLen {
+			// Truncate at a valid UTF-8 boundary to avoid producing
+			// garbled multi-byte characters at the cut point.
+			cut := maxResumeLen
+			for cut > 0 && !utf8.RuneStart(resumeSection[cut]) {
+				cut--
+			}
+			resumeSection = resumeSection[:cut] + "\n...(truncated)"
+		}
+	}
+	message := fmt.Sprintf("## User Message\n%s\n\n## Agent Resume\n%s", question, resumeSection)
+
+	// Suppress AG-UI emissions so the front desk classification response never reaches the user.
+	resp, err := c.frontDeskExpert.Do(agui.WithSuppressEmit(ctx), expert.Request{
+		Message:  message,
+		TaskType: modelprovider.TaskEfficiency,
+		Mode: expert.ExpertConfig{
+			MaxLLMCalls:       1,
+			MaxToolIterations: 0,
+		},
+	})
+	if err != nil {
+		return classificationResult{Category: categoryComplex}, fmt.Errorf("classification call failed: %w", err)
+	}
+
+	raw := strings.TrimSpace(extractTextFromChoices(resp.Choices))
+	// The classifier returns a single word for most categories, but
+	// OUT_OF_SCOPE uses "OUT_OF_SCOPE | <reason>" format.
+	normalized := strings.ToUpper(raw)
+
+	switch {
+	case strings.Contains(normalized, string(categoryRefuse)):
+		return classificationResult{Category: categoryRefuse}, nil
+	case strings.Contains(normalized, string(categorySalutation)):
+		return classificationResult{Category: categorySalutation}, nil
+	case strings.Contains(normalized, string(categoryOutOfScope)):
+		// Extract the reason after the pipe, if present.
+		reason := ""
+		if idx := strings.Index(raw, "|"); idx != -1 {
+			reason = strings.TrimSpace(raw[idx+1:])
+		}
+		return classificationResult{Category: categoryOutOfScope, Reason: reason}, nil
+	case strings.Contains(normalized, string(categoryComplex)):
+		return classificationResult{Category: categoryComplex}, nil
+	default:
+		// Unexpected response — default to complex (fail-open)
+		return classificationResult{Category: categoryComplex}, nil
+	}
+}
+
+// extractTextFromChoices returns the text content from the first model choice.
+// Earlier versions concatenated ALL choices, which caused duplicate output when
+// the model returned multiple choices with identical content.
+func extractTextFromChoices(choices []model.Choice) string {
+	if len(choices) == 0 {
+		return ""
+	}
+	return choices[len(choices)-1].Message.Content
+}

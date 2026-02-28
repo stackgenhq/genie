@@ -1,0 +1,501 @@
+// Package teams provides a Messenger adapter for Microsoft Teams using the
+// Bot Framework protocol for bi-directional communication.
+//
+// The adapter wraps [github.com/infracloudio/msbotbuilder-go] and exposes an
+// HTTP endpoint that receives Bot Framework activities. Outgoing messages are
+// sent as proactive messages through the Bot Framework REST API.
+//
+// Transport: HTTP webhook (public endpoint required).
+//
+// # Authentication
+//
+// A Bot Framework App ID and App Password are required. These are obtained
+// from the Azure Bot registration portal.
+//
+// # Usage
+//
+//	m, err := teams.New(teams.Config{
+//		AppID:       os.Getenv("TEAMS_APP_ID"),
+//		AppPassword: os.Getenv("TEAMS_APP_PASSWORD"),
+//		ListenAddr:  ":3978",
+//	})
+//	if err != nil { /* handle */ }
+//	if err := m.Connect(ctx); err != nil { /* handle */ }
+//	defer m.Disconnect(ctx)
+package teams
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/infracloudio/msbotbuilder-go/core"
+	"github.com/infracloudio/msbotbuilder-go/core/activity"
+	"github.com/infracloudio/msbotbuilder-go/schema"
+	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/messenger"
+)
+
+func init() {
+	messenger.RegisterAdapter(messenger.PlatformTeams, func(params map[string]string, opts ...messenger.Option) (messenger.Messenger, error) {
+		cfg := Config{
+			AppID:       params["app_id"],
+			AppPassword: params["app_password"],
+			ListenAddr:  params["listen_addr"],
+		}
+		if cfg.ListenAddr == "" {
+			cfg.ListenAddr = ":3978"
+		}
+		return New(cfg, opts...)
+	})
+}
+
+// Config holds Teams-specific configuration.
+type Config struct {
+	// AppID is the Microsoft Bot Framework App ID.
+	AppID string
+	// AppPassword is the Microsoft Bot Framework App Password.
+	AppPassword string
+	// ListenAddr is the address to listen on for incoming activities (e.g., ":3978").
+	ListenAddr string
+}
+
+// Messenger implements the [messenger.Messenger] interface for Microsoft Teams.
+// It provides an HTTP handler for receiving Bot Framework activities and uses
+// the adapter to send proactive messages. The caller is responsible for
+// mounting the handler on a shared HTTP mux.
+type Messenger struct {
+	cfg        Config
+	adapterCfg messenger.AdapterConfig
+	adapter    core.Adapter
+	incoming   chan messenger.IncomingMessage
+	connected  bool
+	cancel     context.CancelFunc
+	mu         sync.RWMutex
+}
+
+// New creates a new Teams Messenger with the given config and options.
+func New(cfg Config, opts ...messenger.Option) (*Messenger, error) {
+	adapterCfg := messenger.ApplyOptions(opts...)
+
+	if cfg.ListenAddr != "" {
+		slog.Warn("Teams ListenAddr is deprecated and ignored — the shared HTTP server is managed by the application",
+			"listen_addr", cfg.ListenAddr)
+	}
+
+	setting := core.AdapterSetting{
+		AppID:       cfg.AppID,
+		AppPassword: cfg.AppPassword,
+	}
+
+	adapter, err := core.NewBotAdapter(setting)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Teams bot adapter: %w", err)
+	}
+
+	return &Messenger{
+		cfg:        cfg,
+		adapterCfg: adapterCfg,
+		adapter:    adapter,
+	}, nil
+}
+
+// Connect initializes the Teams Bot Framework adapter and returns an
+// http.Handler for receiving Bot Framework activities. The caller mounts
+// this handler on a shared HTTP mux at the desired context path
+// (e.g., /agents/{name}/teams/events).
+//
+// The adapter DOES NOT start its own http.Server.
+func (m *Messenger) Connect(ctx context.Context) (http.Handler, error) {
+	log := logger.GetLogger(ctx).With("platform", "teams", "fn", "teams.Connect")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.connected {
+		return nil, messenger.ErrAlreadyConnected
+	}
+
+	m.incoming = make(chan messenger.IncomingMessage, m.adapterCfg.MessageBufferSize)
+
+	_, cancel := context.WithCancel(ctx)
+	m.cancel = cancel
+
+	m.connected = true
+	log.Info("Teams adapter connected (handler returned for caller to mount)")
+	return http.HandlerFunc(m.handleActivity), nil
+}
+
+// Disconnect gracefully shuts down the Teams adapter.
+func (m *Messenger) Disconnect(ctx context.Context) error {
+	log := logger.GetLogger(ctx).With("platform", "teams", "fn", "teams.Disconnect")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.connected {
+		return messenger.ErrNotConnected
+	}
+
+	m.cancel()
+	// Note: we don't close(m.incoming) here because the shared HTTP server
+	// may still have in-flight requests writing to it. The caller's
+	// http.Server.Shutdown() drains connections before Disconnect is called.
+	// The channel will be GC'd when all references are released.
+	m.incoming = nil
+	m.connected = false
+	log.Info("disconnected from Teams")
+	return nil
+}
+
+// Send delivers a message to a Teams conversation.
+// If req.Metadata["attachments"] contains a []schema.Attachment, the message is
+// sent with Adaptive Card formatting (the text field is used as the plaintext fallback).
+func (m *Messenger) Send(ctx context.Context, req messenger.SendRequest) (messenger.SendResponse, error) {
+	m.mu.RLock()
+	connected := m.connected
+	m.mu.RUnlock()
+
+	if !connected {
+		return messenger.SendResponse{}, messenger.ErrNotConnected
+	}
+
+	if req.Type == messenger.SendTypeReaction {
+		return messenger.SendResponse{}, fmt.Errorf("%w: Teams adapter does not support adding reactions", messenger.ErrSendFailed)
+	}
+
+	// Build a ConversationReference to send a proactive message.
+	ref := schema.ConversationReference{
+		Conversation: schema.ConversationAccount{
+			ID: req.Channel.ID,
+		},
+	}
+
+	if req.ThreadID != "" {
+		ref.ActivityID = req.ThreadID
+	}
+
+	// Build message options.
+	msgOpts := []activity.MsgOption{
+		activity.MsgOptionText(req.Content.Text),
+	}
+
+	if attachments := extractAttachments(req.Metadata); len(attachments) > 0 {
+		msgOpts = append(msgOpts, activity.MsgOptionAttachments(attachments))
+	}
+
+	err := m.adapter.ProactiveMessage(ctx, ref, activity.HandlerFuncs{
+		OnMessageFunc: func(turn *activity.TurnContext) (schema.Activity, error) {
+			return turn.SendActivity(msgOpts...)
+		},
+	})
+	if err != nil {
+		return messenger.SendResponse{}, fmt.Errorf("%w: %s", messenger.ErrSendFailed, err)
+	}
+
+	return messenger.SendResponse{
+		MessageID: ref.ActivityID,
+		Timestamp: time.Now(),
+	}, nil
+}
+
+// extractAttachments converts metadata["attachments"] into typed []schema.Attachment.
+// It accepts both typed []schema.Attachment (pass-through) and generic []any / []map[string]any
+// (JSON round-tripped into SDK types). Returns nil if no valid attachments are found.
+func extractAttachments(metadata map[string]any) []schema.Attachment {
+	if metadata == nil {
+		return nil
+	}
+
+	raw, ok := metadata["attachments"]
+	if !ok {
+		return nil
+	}
+
+	switch a := raw.(type) {
+	case []schema.Attachment:
+		return a
+	default:
+		// JSON round-trip []any / []map[string]any into SDK types.
+		data, err := json.Marshal(a)
+		if err != nil {
+			return nil
+		}
+		var attachments []schema.Attachment
+		if json.Unmarshal(data, &attachments) != nil {
+			return nil
+		}
+		return attachments
+	}
+}
+
+// Receive returns a channel of incoming messages from Teams.
+func (m *Messenger) Receive(_ context.Context) (<-chan messenger.IncomingMessage, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if !m.connected {
+		return nil, messenger.ErrNotConnected
+	}
+
+	return m.incoming, nil
+}
+
+// Platform returns the Teams platform identifier.
+func (m *Messenger) Platform() messenger.Platform {
+	return messenger.PlatformTeams
+}
+
+// ConnectionInfo returns connection instructions for the Teams adapter.
+func (m *Messenger) ConnectionInfo() string {
+	return fmt.Sprintf("Listening for Bot Framework activities on %s — message me in your Teams workspace", m.cfg.ListenAddr)
+}
+
+// handleActivity processes incoming Bot Framework activities.
+func (m *Messenger) handleActivity(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.GetLogger(ctx).With("platform", "teams", "fn", "teams.handleActivity")
+
+	act, err := m.adapter.ParseRequest(ctx, r)
+	if err != nil {
+		log.Error("failed to parse Teams activity", "error", err)
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	// Process the activity through the handler to handle auth, etc.
+	err = m.adapter.ProcessActivity(ctx, act, activity.HandlerFuncs{
+		OnMessageFunc: func(turn *activity.TurnContext) (schema.Activity, error) {
+			m.convertAndPublish(ctx, turn.Activity)
+			return schema.Activity{}, nil
+		},
+	})
+
+	if err != nil {
+		log.Error("failed to process Teams activity", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Respond with 200 OK as required by Bot Framework.
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (m *Messenger) convertAndPublish(ctx context.Context, act schema.Activity) {
+	if act.Type != schema.Message {
+		return
+	}
+
+	channelType := messenger.ChannelTypeChannel
+	if !act.Conversation.IsGroup {
+		channelType = messenger.ChannelTypeDM
+	}
+
+	msg := messenger.IncomingMessage{
+		ID:       act.ID,
+		Platform: messenger.PlatformTeams,
+		Channel: messenger.Channel{
+			ID:   act.Conversation.ID,
+			Name: act.Conversation.Name,
+			Type: channelType,
+		},
+		Sender: messenger.Sender{
+			ID:          act.From.ID,
+			DisplayName: act.From.Name,
+		},
+		Content: messenger.MessageContent{
+			Text: act.Text,
+		},
+		ThreadID:  act.ReplyToID,
+		Timestamp: time.Now(),
+	}
+	// ReplyToID is the message being replied to; set quoted_message_id so HITL
+	// can resolve the specific approval instead of FIFO.
+	if act.ReplyToID != "" {
+		msg.Metadata = map[string]any{messenger.QuotedMessageID: act.ReplyToID}
+	}
+
+	// Extract file attachments from Teams activity.
+	for _, a := range act.Attachments {
+		att := messenger.Attachment{
+			Name:        a.Name,
+			URL:         a.ContentURL,
+			ContentType: a.ContentType,
+		}
+		msg.Content.Attachments = append(msg.Content.Attachments, att)
+	}
+
+	m.mu.RLock()
+	connected := m.connected
+	m.mu.RUnlock()
+	if !connected {
+		return
+	}
+
+	select {
+	case m.incoming <- msg:
+	default:
+		logger.GetLogger(ctx).With("platform", "teams").Warn("incoming message buffer full, dropping message",
+			"conversation", act.Conversation.ID, "from", act.From.ID)
+	}
+}
+
+// FormatApproval builds a Microsoft Teams Adaptive Card for an approval notification.
+// This satisfies the messenger.ApprovalFormatter interface, keeping all
+// Teams-specific formatting inside the adapter.
+func (m *Messenger) FormatApproval(req messenger.SendRequest, info messenger.ApprovalInfo) messenger.SendRequest {
+	body := []any{
+		// Header
+		map[string]any{
+			"type":   "TextBlock",
+			"text":   fmt.Sprintf("⚠️ Approval Required — %s", info.ToolName),
+			"size":   "Large",
+			"weight": "Bolder",
+			"wrap":   true,
+		},
+	}
+
+	// Justification
+	if info.Feedback != "" {
+		body = append(body, map[string]any{
+			"type":  "TextBlock",
+			"text":  fmt.Sprintf("💡 **Why**: %s", info.Feedback),
+			"wrap":  true,
+			"color": "Accent",
+		})
+	}
+
+	// Args as code block
+	body = append(body, map[string]any{
+		"type":   "TextBlock",
+		"text":   "📋 **Arguments**:",
+		"wrap":   true,
+		"weight": "Bolder",
+	})
+	body = append(body, map[string]any{
+		"type":      "TextBlock",
+		"text":      info.Args,
+		"wrap":      true,
+		"fontType":  "Monospace",
+		"size":      "Small",
+		"isSubtle":  true,
+		"separator": true,
+	})
+
+	// Footer
+	body = append(body, map[string]any{
+		"type":     "TextBlock",
+		"text":     "_Reply **Yes** to approve, **No** to reject, or type feedback to revisit. You can also react with 👍 to approve or 👎 to reject._",
+		"wrap":     true,
+		"size":     "Small",
+		"isSubtle": true,
+	})
+
+	adaptiveCard := map[string]any{
+		"contentType": "application/vnd.microsoft.card.adaptive",
+		"content": map[string]any{
+			"type":    "AdaptiveCard",
+			"$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+			"version": "1.4",
+			"body":    body,
+			"actions": []any{
+				map[string]any{
+					"type":  "Action.Submit",
+					"title": "✅ Approve",
+					"style": "positive",
+					"data":  map[string]any{"action": "approve", "approvalId": info.ID},
+				},
+				map[string]any{
+					"type":  "Action.Submit",
+					"title": "🔄 Revisit",
+					"data":  map[string]any{"action": "revisit", "approvalId": info.ID},
+				},
+				map[string]any{
+					"type":  "Action.Submit",
+					"title": "❌ Reject",
+					"style": "destructive",
+					"data":  map[string]any{"action": "reject", "approvalId": info.ID},
+				},
+			},
+		},
+	}
+
+	if req.Metadata == nil {
+		req.Metadata = make(map[string]any)
+	}
+	req.Metadata["attachments"] = []any{adaptiveCard}
+
+	return req
+}
+
+// FormatClarification builds a Teams Adaptive Card for a clarification question.
+func (m *Messenger) FormatClarification(req messenger.SendRequest, info messenger.ClarificationInfo) messenger.SendRequest {
+	body := []any{
+		// Header
+		map[string]any{
+			"type":   "TextBlock",
+			"text":   "❓ Question from Genie",
+			"size":   "Large",
+			"weight": "Bolder",
+			"wrap":   true,
+		},
+	}
+
+	// Context (if provided)
+	if info.Context != "" {
+		body = append(body, map[string]any{
+			"type":  "TextBlock",
+			"text":  fmt.Sprintf("💡 **Context**: %s", info.Context),
+			"wrap":  true,
+			"color": "Accent",
+		})
+	}
+
+	// Question body
+	body = append(body, map[string]any{
+		"type":      "TextBlock",
+		"text":      info.Question,
+		"wrap":      true,
+		"separator": true,
+	})
+
+	// Footer
+	body = append(body, map[string]any{
+		"type":     "TextBlock",
+		"text":     "_Reply with your answer._",
+		"wrap":     true,
+		"size":     "Small",
+		"isSubtle": true,
+	})
+
+	adaptiveCard := map[string]any{
+		"contentType": "application/vnd.microsoft.card.adaptive",
+		"content": map[string]any{
+			"type":    "AdaptiveCard",
+			"$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+			"version": "1.4",
+			"body":    body,
+		},
+	}
+
+	if req.Metadata == nil {
+		req.Metadata = make(map[string]any)
+	}
+	req.Metadata["attachments"] = []any{adaptiveCard}
+
+	return req
+}
+
+// UpdateMessage is a no-op for Teams — the adapter does not currently
+// support editing previously sent messages. Returns nil to satisfy the
+// Messenger interface without error. Teams Adaptive Card updates will
+// be added incrementally.
+func (m *Messenger) UpdateMessage(_ context.Context, _ messenger.UpdateRequest) error {
+	return nil
+}
+
+// Compile-time interface compliance check.
+var _ messenger.Messenger = (*Messenger)(nil)

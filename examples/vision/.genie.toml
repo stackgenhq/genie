@@ -1,0 +1,27 @@
+# Vision example — answer questions about images and screenshots.
+# Requires a vision-capable model (e.g. Gemini). Set GEMINI_API_KEY in the environment.
+
+disable_pensieve = true
+
+[db_config]
+db_file = "${PWD}/.genie/vision_example.db"
+
+[model_config]
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-2.0-flash"
+token = "${GEMINI_API_KEY}"
+good_for_task = "tool_calling"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-2.0-flash"
+token = "${GEMINI_API_KEY}"
+good_for_task = "planning"
+
+[hitl]
+always_allowed = ["youtube_transcript"]
+
+[messenger.agui]
+port = 8080
+cors_origins = ["https://stackgenhq.github.io"]

@@ -1,0 +1,199 @@
+version: 2
+
+release:
+  prerelease: auto
+  draft: false
+
+git:
+  tag_sort: -version:creatordate
+  ignore_tags:
+    - "*-rc.*"
+
+builds:
+  - id: linux-build
+    binary: &binaryName genie-beta
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - ppc64le
+      - s390x
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -mod=mod
+      - -trimpath
+    overrides:
+      - goos: linux
+        goarch: amd64
+        env:
+          - CGO_ENABLED=1
+          - CC=x86_64-linux-gnu-gcc
+          - CXX=x86_64-linux-gnu-g++
+      - goos: linux
+        goarch: arm64
+        env:
+          - CGO_ENABLED=1
+          - CC=aarch64-linux-gnu-gcc
+          - CXX=aarch64-linux-gnu-g++
+      - goos: linux
+        goarch: ppc64le
+        env:
+          - CGO_ENABLED=1
+          - CC=powerpc64le-linux-gnu-gcc
+          - CXX=powerpc64le-linux-gnu-g++
+      - goos: linux
+        goarch: s390x
+        env:
+          - CGO_ENABLED=1
+          - CC=s390x-linux-gnu-gcc
+          - CXX=s390x-linux-gnu-g++
+    mod_timestamp: &build-timestamp '{{.CommitTimestamp}}'
+    ldflags: &build-ldflags |
+      -w
+      -s
+      -extldflags '-static'
+      -X github.com/stackgenhq/genie/cmd.Version={{.Version}}
+      -X github.com/stackgenhq/genie/cmd.BuildDate={{.Date}}
+  - id: darwin-build
+    binary: *binaryName
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -mod=mod
+      - -trimpath
+    overrides:
+      - goos: darwin
+        goarch: amd64
+        env:
+          - CGO_ENABLED=1
+          - CC=o64-clang
+          - CXX=o64-clang++
+      - goos: darwin
+        goarch: arm64
+        env:
+          - CGO_ENABLED=1
+          - CC=oa64-clang
+          - CXX=oa64-clang++
+    mod_timestamp: *build-timestamp
+    ldflags: |
+      -w
+      -s
+      -X github.com/stackgenhq/genie/cmd.Version={{.Version}}
+      -X github.com/stackgenhq/genie/cmd.BuildDate={{.Date}}
+    hooks:
+      post:
+        - cmd: quill sign "{{ .Path }}" --ad-hoc={{ .IsSnapshot }} -vv
+          env:
+            - QUILL_LOG_FILE=/tmp/quill-{{ .Target }}.log
+
+  - id: windows-build
+    binary: *binaryName
+    goos:
+      - windows
+    goarch:
+      - amd64
+    env:
+      - CGO_ENABLED=1
+      - CC=x86_64-w64-mingw32-gcc
+      - CXX=x86_64-w64-mingw32-g++
+    flags:
+      - -mod=mod
+      - -trimpath
+    mod_timestamp: *build-timestamp
+    ldflags: *build-ldflags
+
+archives:
+  - id: linux-archives
+    ids:
+      - linux-build
+
+  # note: the signing process is depending on tar.gz archives. If this format changes then .github/scripts/apple-signing/*.sh will need to be adjusted
+  - id: darwin-archives
+    ids:
+      - darwin-build
+
+  - id: windows-archives
+    ids:
+      - windows-build
+    format: zip
+
+blobs:
+  - provider: s3
+    bucket: "{{.Env.BUCKET}}"
+    directory: binaries/genie-beta/{{ .Tag }}
+    region: "{{.Env.AWS_REGION}}"
+    ids:
+      - darwin-archives
+      - linux-archives
+      - windows-archives
+
+nfpms:
+  - license: "Apache 2.0"
+    maintainer: "StackGen, Inc"
+    homepage: &website "https://stackgen.com/"
+    description: &description "Generative Infrastructure from Code"
+    formats:
+      - rpm
+      - deb
+
+brews:
+  - name: *binaryName
+    repository:
+      owner: stackgenhq
+      name: homebrew-stackgen
+      token: "{{.Env.BREW_TOKEN}}"
+    ids:
+      - darwin-archives
+      - linux-archives
+    homepage: *website
+    description: *description
+    license: "Apache License 2.0"
+    url_template: &url_template "https://releases.stackgen.com/binaries/genie-beta/{{ .Tag }}/{{ .ArtifactName }}"
+    commit_author:
+      name: stackgen-bot
+      email: bot@stackgen.com
+
+scoops:
+  - name: *binaryName
+    repository:
+      owner: stackgenhq
+      name: homebrew-stackgen
+      token: "{{.Env.BREW_TOKEN}}"
+    homepage: *website
+    description: *description
+    license: "Apache License 2.0"
+    url_template: *url_template
+    commit_author:
+      name: stackgen-bot
+      email: bot@stackgen.com
+
+changelog:
+  sort: asc
+  use: github
+  groups:
+    - title: "🚀 Features"
+      regexp: '^.*?feat(\([[:word:]]+\))?!?:.+$'
+      order: 0
+    - title: "🐛 Bug Fixes"
+      regexp: '^.*?fix(\([[:word:]]+\))?!?:.+$'
+      order: 1
+    - title: "🔒 Security"
+      regexp: '^.*?sec(\([[:word:]]+\))?!?:.+$'
+      order: 2
+    - title: "📖 Documentation"
+      regexp: '^.*?docs(\([[:word:]]+\))?!?:.+$'
+      order: 3
+    - title: "🧹 Other"
+      order: 999
+  filters:
+    exclude:
+      - "^Merge"
+      - "^chore\\(deps\\)"
+      - "^ci:"
