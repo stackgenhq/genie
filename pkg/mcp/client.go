@@ -47,6 +47,11 @@ type Client struct {
 //
 // The client must be closed when no longer needed to release resources.
 func NewClient(ctx context.Context, config MCPConfig, opts ...ClientOption) (*Client, error) {
+	// Apply defaults before validation so that empty sub-configs
+	// (e.g. {"retry": {}}) receive sensible values.
+	for i := range config.Servers {
+		config.Servers[i].SetDefaults()
+	}
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid MCP configuration: %w", err)
 	}
