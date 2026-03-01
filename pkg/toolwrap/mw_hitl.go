@@ -140,8 +140,8 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 	return func(ctx context.Context, tc *ToolCallContext) (any, error) {
 		// Always extract _justification — the audit middleware needs it
 		// even when HITL is disabled (store == nil).
-		justification, strippedArgs := extractJustification(tc.Args)
-		if justification != "" {
+		justification, strippedArgs, found := extractJustification(tc.Args)
+		if found {
 			tc.Args = strippedArgs
 			tc.Justification = justification
 		}

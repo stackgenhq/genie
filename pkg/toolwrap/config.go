@@ -4,7 +4,7 @@ package toolwrap
 // middlewares. It is embedded in GenieConfig and populated from the
 // config file (YAML/TOML). Each middleware has its own sub-struct
 // (defined alongside its middleware in the respective mw_*.go file)
-// with an Enabled flag. Where applicable, per-tool overrides are
+// with an Enabled or Disabled flag. Where applicable, per-tool overrides are
 // supported via map[string] fields on the individual configs.
 type MiddlewareConfig struct {
 	ContextMode    ContextModeConfig        `yaml:"context_mode,omitempty" toml:"context_mode,omitempty"`

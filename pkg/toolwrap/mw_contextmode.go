@@ -165,8 +165,8 @@ type chunkedStrings []string
 
 // chunkText splits text into chunks of approximately targetSize characters,
 // preferring paragraph boundaries (double newline). If a paragraph exceeds
-// targetSize it is split on sentence boundaries; if still too large, on
-// word boundaries.
+// targetSize it is split on sentence boundaries; if a sentence still exceeds
+// targetSize it is split on word boundaries.
 func chunkText(text string, targetSize int) chunkedStrings {
 	// Split on paragraph boundaries first.
 	paragraphs := splitOnBoundary(text, "\n\n")
@@ -189,6 +189,16 @@ func chunkText(text string, targetSize int) chunkedStrings {
 		for _, sent := range sentences {
 			sent = strings.TrimSpace(sent)
 			if sent == "" {
+				continue
+			}
+			// If a single sentence exceeds targetSize, split on words.
+			if len(sent) > targetSize {
+				// Flush anything accumulated so far.
+				if current.Len() > 0 {
+					chunks = append(chunks, strings.TrimSpace(current.String()))
+					current.Reset()
+				}
+				chunks = append(chunks, splitOnWords(sent, targetSize)...)
 				continue
 			}
 			if current.Len()+len(sent) > targetSize && current.Len() > 0 {
@@ -235,6 +245,29 @@ func splitOnSentences(text string) []string {
 // splitOnBoundary splits text on a boundary string, returning non-empty parts.
 func splitOnBoundary(text, boundary string) []string {
 	return strings.Split(text, boundary)
+}
+
+// splitOnWords splits text that exceeds targetSize into sub-chunks on word
+// boundaries. Each sub-chunk is at most targetSize characters (unless a
+// single word exceeds targetSize, in which case it becomes its own chunk).
+func splitOnWords(text string, targetSize int) chunkedStrings {
+	words := strings.Fields(text)
+	var chunks chunkedStrings
+	var current strings.Builder
+	for _, w := range words {
+		if current.Len()+1+len(w) > targetSize && current.Len() > 0 {
+			chunks = append(chunks, strings.TrimSpace(current.String()))
+			current.Reset()
+		}
+		if current.Len() > 0 {
+			current.WriteByte(' ')
+		}
+		current.WriteString(w)
+	}
+	if current.Len() > 0 {
+		chunks = append(chunks, strings.TrimSpace(current.String()))
+	}
+	return chunks
 }
 
 // extractQueryTerms pulls searchable terms from the JSON tool arguments.
@@ -290,27 +323,31 @@ func tokenise(s string) []string {
 func (chunks chunkedStrings) scoreChunks(queryTerms []string) scoredChunks {
 	n := len(chunks)
 
+	// Precompute lowercase chunks to avoid repeated ToLower calls.
+	lowerChunks := make([]string, n)
+	totalLen := 0
+	for i, chunk := range chunks {
+		lowerChunks[i] = strings.ToLower(chunk)
+		totalLen += len(chunk)
+	}
+
 	// Pre-compute document frequency for each query term.
 	df := make(map[string]int, len(queryTerms))
 	for _, term := range queryTerms {
-		for _, chunk := range chunks {
-			if strings.Contains(strings.ToLower(chunk), term) {
+		for _, lc := range lowerChunks {
+			if strings.Contains(lc, term) {
 				df[term]++
 			}
 		}
 	}
 
 	// Compute average chunk length.
-	totalLen := 0
-	for _, chunk := range chunks {
-		totalLen += len(chunk)
-	}
 	avgLen := float64(totalLen) / float64(n)
 
 	// Score each chunk.
 	scored := make([]scoredChunk, n)
 	for i, chunk := range chunks {
-		lowerChunk := strings.ToLower(chunk)
+		lowerChunk := lowerChunks[i]
 		chunkLen := float64(len(chunk))
 		score := 0.0
 
@@ -366,10 +403,10 @@ func (scored scoredChunks) selectTopK(k int) []scoredChunk {
 // buildResult assembles the compressed output with an annotation header.
 func buildResult(topK []scoredChunk, totalChunks, originalChars int) string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(
+	fmt.Fprintf(&b,
 		"[Context Mode: compressed from %d chars to showing %d of %d chunks]\n\n",
 		originalChars, len(topK), totalChunks,
-	))
+	)
 	for i, sc := range topK {
 		if i > 0 {
 			b.WriteString("\n\n---\n\n")
@@ -404,10 +441,10 @@ func buildBoundaryResult(chunks []string, maxChunks, originalChars int) string {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(
+	fmt.Fprintf(&b,
 		"[Context Mode: compressed from %d chars, showing %d of %d chunks (boundary selection — no query terms)]\n\n",
 		originalChars, len(selected), n,
-	))
+	)
 	for i, s := range selected {
 		if i > 0 {
 			b.WriteString("\n\n---\n\n")

@@ -197,11 +197,13 @@ func (m *Manager) GetSecret(ctx context.Context, req GetSecretRequest) (string, 
 	if !hasURL {
 		rawValue := os.Getenv(req.Name)
 		if nameJSONPath == "" {
-			m.auditSecretLookup(ctx, req)
+			if rawValue != "" {
+				m.auditSecretLookup(ctx, req)
+			}
 			return rawValue, nil
 		}
 		val, err := extractJSONPath(req.Name, rawValue, nameJSONPath)
-		if err == nil {
+		if err == nil && val != "" {
 			m.auditSecretLookup(ctx, req)
 		}
 		return val, err
@@ -214,11 +216,13 @@ func (m *Manager) GetSecret(ctx context.Context, req GetSecretRequest) (string, 
 			logr.Warn("Runtimevar resolution failed, falling back to env var", "error", err)
 			rawValue := os.Getenv(req.Name)
 			if nameJSONPath == "" {
-				m.auditSecretLookup(ctx, req)
+				if rawValue != "" {
+					m.auditSecretLookup(ctx, req)
+				}
 				return rawValue, nil
 			}
 			val, err := extractJSONPath(req.Name, rawValue, nameJSONPath)
-			if err == nil {
+			if err == nil && val != "" {
 				m.auditSecretLookup(ctx, req)
 			}
 			return val, err
@@ -234,11 +238,13 @@ func (m *Manager) GetSecret(ctx context.Context, req GetSecretRequest) (string, 
 		logr.Warn("Secret empty from runtimevar, falling back to env var", "req.Name", req.Name)
 		rawValue = os.Getenv(req.Name)
 		if nameJSONPath == "" {
-			m.auditSecretLookup(ctx, req)
+			if rawValue != "" {
+				m.auditSecretLookup(ctx, req)
+			}
 			return rawValue, nil
 		}
 		val, err := extractJSONPath(req.Name, rawValue, nameJSONPath)
-		if err == nil {
+		if err == nil && val != "" {
 			m.auditSecretLookup(ctx, req)
 		}
 		return val, err
