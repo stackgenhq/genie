@@ -548,11 +548,15 @@ config_sections:
       <strong>Production-Grade Middleware for Every Tool Call.</strong><br>
       Every tool call in Genie flows through a composable middleware pipeline — the same
       <code>func(next) next</code> pattern used in HTTP servers. The pipeline provides
+      <strong>context compression</strong> (local BM25-based chunk scoring — no LLM call),
       <strong>resilience</strong> (rate limiting, circuit breaking, retries, concurrency control),
       <strong>observability</strong> (OpenTelemetry metrics &amp; tracing), and
       <strong>security</strong> (output sanitization, input validation, HITL approval) — all
       configurable via YAML/TOML with zero code changes.<br><br>
-      Core middlewares (panic recovery, loop detection, caching, HITL, audit) are always active.
+      <strong>Context Mode</strong> is <em>enabled by default</em> and runs before the LLM summariser.
+      It chunks large tool outputs, scores them against the tool's input using BM25-lite, and returns
+      only the top-K most relevant chunks — saving tokens and API cost without any LLM call.<br><br>
+      Core middlewares (context mode, panic recovery, loop detection, caching, HITL, audit) are always active.
       Opt-in middlewares are enabled individually via their <code>enabled</code> flag.
       Backed by battle-tested libraries: <code>golang.org/x/time/rate</code>,
       <code>golang.org/x/sync/semaphore</code>, <code>sony/gobreaker/v2</code>,
@@ -561,24 +565,32 @@ config_sections:
       - label: Middleware Execution Order
         columns: [Position, Middleware, Type, Purpose]
         rows:
-          - ["1", "`PanicRecovery`", "Always-on", "Catches panics, prevents crash"]
-          - ["2", "`Tracing`", "Opt-in", "OpenTelemetry spans per tool call"]
-          - ["3", "`Metrics`", "Opt-in", "OTel counters + latency histogram"]
-          - ["4", "`Emitter`", "Always-on", "Streams responses to the UI"]
-          - ["5", "`Logger`", "Always-on", "Structured logging (debug/error)"]
-          - ["6", "`Audit`", "Always-on", "Audit trail for compliance"]
-          - ["7", "`Timeout`", "Opt-in", "Per-tool execution deadlines"]
-          - ["8", "`RateLimit`", "Opt-in", "Token-bucket rate limiting"]
-          - ["9", "`CircuitBreaker`", "Opt-in", "Three-state circuit (closed → open → half-open)"]
-          - ["10", "`Concurrency`", "Opt-in", "Weighted semaphore limiting"]
-          - ["11", "`Retry`", "Opt-in", "Exponential backoff with jitter"]
-          - ["12", "`LoopDetection`", "Always-on", "Blocks 3+ identical consecutive calls"]
-          - ["13", "`FailureLimit`", "Always-on", "Blocks tool after 3 consecutive failures"]
-          - ["14", "`SemanticCache`", "Always-on", "Deduplicates idempotent calls (TTL-based)"]
-          - ["15", "`Validation`", "Opt-in", "JSON schema validation on input args"]
-          - ["16", "`Sanitize`", "Opt-in", "Redacts secrets from tool output"]
-          - ["17", "`HITLApproval`", "Always-on", "Human approval gate for sensitive tools"]
-          - ["18", "`ContextEnrich`", "Always-on", "Injects thread/run IDs into context"]
+          - ["1", "`ContextMode`", "On by default", "BM25 chunk scoring — compresses large tool output locally (no LLM). Disable with `context_mode.disabled = true`"]
+          - ["2", "`PanicRecovery`", "Always-on", "Catches panics, prevents crash"]
+          - ["3", "`Tracing`", "Opt-in", "OpenTelemetry spans per tool call"]
+          - ["4", "`Metrics`", "Opt-in", "OTel counters + latency histogram"]
+          - ["5", "`Emitter`", "Always-on", "Streams responses to the UI"]
+          - ["6", "`Logger`", "Always-on", "Structured logging (debug/error)"]
+          - ["7", "`Audit`", "Always-on", "Audit trail for compliance"]
+          - ["8", "`Timeout`", "Opt-in", "Per-tool execution deadlines"]
+          - ["9", "`RateLimit`", "Opt-in", "Token-bucket rate limiting"]
+          - ["10", "`CircuitBreaker`", "Opt-in", "Three-state circuit (closed → open → half-open)"]
+          - ["11", "`Concurrency`", "Opt-in", "Weighted semaphore limiting"]
+          - ["12", "`Retry`", "Opt-in", "Exponential backoff with jitter"]
+          - ["13", "`LoopDetection`", "Always-on", "Blocks 3+ identical consecutive calls"]
+          - ["14", "`FailureLimit`", "Always-on", "Blocks tool after 3 consecutive failures"]
+          - ["15", "`SemanticCache`", "Always-on", "Deduplicates idempotent calls (TTL-based)"]
+          - ["16", "`Validation`", "Opt-in", "JSON schema validation on input args"]
+          - ["17", "`Sanitize`", "Opt-in", "Redacts secrets from tool output"]
+          - ["18", "`HITLApproval`", "Always-on", "Human approval gate for sensitive tools"]
+          - ["19", "`ContextEnrich`", "Always-on", "Injects thread/run IDs into context"]
+      - label: Context Mode Configuration
+        columns: [Key, Type, Default, Description]
+        rows:
+          - ["context_mode.disabled", "bool", "`false`", "Set to `true` to turn off local BM25 compression. Enabled by default."]
+          - ["context_mode.threshold", "int", "`20000`", "Character count above which responses are compressed (≈ 5k tokens)"]
+          - ["context_mode.max_chunks", "int", "`10`", "Maximum number of top-scored chunks returned"]
+          - ["context_mode.chunk_size", "int", "`800`", "Target character count per chunk (split on paragraph boundaries)"]
       - label: Resilience Configuration
         columns: [Key, Type, Default, Description]
         rows:
@@ -614,7 +626,8 @@ config_sections:
       - label: Key Features
         columns: [Feature, Detail]
         rows:
-          - ["Zero-config defaults", "Core middlewares run out of the box — no configuration needed for panic recovery, loop detection, caching, audit, and HITL"]
+          - ["Context Mode (on by default)", "Large tool outputs are chunked and BM25-scored against the tool's input — only the top-K most relevant chunks are kept. No LLM call, no API cost. Saves tokens and avoids hitting the summariser."]
+          - ["Zero-config defaults", "Core middlewares run out of the box — no configuration needed for context mode, panic recovery, loop detection, caching, audit, and HITL"]
           - ["Config-driven", "Enable any opt-in middleware with a single `enabled = true` — no code changes, no recompilation"]
           - ["Composable", "Mix and match middlewares, or build custom chains with `CompositeMiddleware`"]
           - ["Per-tool granularity", "Timeout, rate limit, concurrency, circuit breaker, and sanitize all support per-tool overrides"]
@@ -624,6 +637,15 @@ config_sections:
       label: Example TOML
       code: |
         [toolwrap]
+
+        # Context Mode — enabled by default.
+        # Compresses large tool output using BM25 chunk scoring (no LLM call).
+        # Uncomment to disable or tune:
+        # [toolwrap.context_mode]
+        # disabled = true          # set true to turn off
+        # threshold = 20000        # chars above which compression kicks in
+        # max_chunks = 10          # top-K chunks to keep
+        # chunk_size = 800         # target chars per chunk
 
         # Resilience
         [toolwrap.timeout]
