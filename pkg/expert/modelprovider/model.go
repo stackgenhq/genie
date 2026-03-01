@@ -312,7 +312,9 @@ func (p ProviderConfig) Validate(ctx context.Context, sp security.SecretProvider
 func (p ProviderConfig) toModel(ctx context.Context) (model.Model, error) {
 	switch strings.ToLower(p.Provider) {
 	case "openai":
-		opts := []openai.Option{}
+		opts := []openai.Option{
+			openai.WithEnableTokenTailoring(true), // Bound context per arXiv:2601.14192 (efficient agents: memory/token usage)
+		}
 		if p.Token != "" {
 			opts = append(opts, openai.WithAPIKey(p.Token))
 		}
@@ -324,7 +326,9 @@ func (p ProviderConfig) toModel(ctx context.Context) (model.Model, error) {
 		}
 		return openai.New(p.ModelName, opts...), nil
 	case "gemini":
-		opts := []gemini.Option{}
+		opts := []gemini.Option{
+			gemini.WithEnableTokenTailoring(true), // Bound context per arXiv:2601.14192 (efficient agents: memory/token usage)
+		}
 		if p.Token != "" {
 			opts = append(opts, gemini.WithGeminiClientConfig(&genai.ClientConfig{
 				APIKey: p.Token,
@@ -332,7 +336,9 @@ func (p ProviderConfig) toModel(ctx context.Context) (model.Model, error) {
 		}
 		return gemini.New(ctx, p.ModelName, opts...)
 	case "anthropic":
-		opts := []anthropic.Option{}
+		opts := []anthropic.Option{
+			anthropic.WithEnableTokenTailoring(true), // Bound context per arXiv:2601.14192 (efficient agents: memory/token usage)
+		}
 		if p.Token != "" {
 			opts = append(opts, anthropic.WithAPIKey(p.Token))
 		}
@@ -341,7 +347,9 @@ func (p ProviderConfig) toModel(ctx context.Context) (model.Model, error) {
 		}
 		return anthropic.New(p.ModelName, opts...), nil
 	case "ollama":
-		opts := []ollama.Option{}
+		opts := []ollama.Option{
+			ollama.WithEnableTokenTailoring(true), // Bound context per arXiv:2601.14192 (efficient agents: memory/token usage)
+		}
 		if p.Host != "" {
 			opts = append(opts, ollama.WithHost(p.Host))
 		}
