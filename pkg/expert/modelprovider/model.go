@@ -245,13 +245,13 @@ func (providers ProviderConfigs) getForTask(taskType TaskType) (ProviderConfigs,
 }
 
 type ProviderConfig struct {
-	Name                 string   `json:"name" yaml:"name,omitempty" toml:"name,omitempty"`
-	Provider             string   `json:"provider" yaml:"provider,omitempty" toml:"provider,omitempty"`
-	ModelName            string   `json:"model_name" yaml:"model_name,omitempty" toml:"model_name,omitempty"`
-	Variant              string   `json:"variant" yaml:"variant,omitempty" toml:"variant,omitempty"`
-	Token                string   `json:"token" yaml:"token,omitempty" toml:"token,omitempty"`
-	Host                 string   `json:"host" yaml:"host,omitempty" toml:"host,omitempty"`
-	GoodForTask          TaskType `json:"good_for_task" yaml:"good_for_task,omitempty" toml:"good_for_task,omitempty"`
+	Name        string   `json:"name" yaml:"name,omitempty" toml:"name,omitempty"`
+	Provider    string   `json:"provider" yaml:"provider,omitempty" toml:"provider,omitempty"`
+	ModelName   string   `json:"model_name" yaml:"model_name,omitempty" toml:"model_name,omitempty"`
+	Variant     string   `json:"variant" yaml:"variant,omitempty" toml:"variant,omitempty"`
+	Token       string   `json:"token" yaml:"token,omitempty" toml:"token,omitempty"`
+	Host        string   `json:"host" yaml:"host,omitempty" toml:"host,omitempty"`
+	GoodForTask TaskType `json:"good_for_task" yaml:"good_for_task,omitempty" toml:"good_for_task,omitempty"`
 	// EnableTokenTailoring when true (default) trims conversation history to the model's context window (arXiv:2601.14192).
 	// Set to false to disable (e.g. debugging or when the provider handles context itself).
 	EnableTokenTailoring *bool `json:"enable_token_tailoring,omitempty" yaml:"enable_token_tailoring,omitempty" toml:"enable_token_tailoring,omitempty"`
