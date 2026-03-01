@@ -4,11 +4,11 @@ repos:
   hooks:
   - id: gitleaks
 - repo: https://github.com/golangci/golangci-lint
-  rev: v1.52.2
+  rev: e1c3b41cb1b299dfdfd69263faf0e55fb53f7433
   hooks:
   - id: golangci-lint
 - repo: https://github.com/pre-commit/pre-commit-hooks
-  rev: v4.4.0
+  rev: 7bcb8f159d5c8711f91656e0e5a3a5d5a4e6a9f5
   hooks:
   - id: end-of-file-fixer
   - id: trailing-whitespace
