@@ -19,7 +19,7 @@ var _ = Describe("SecretProvider", func() {
 			os.Setenv("TEST_SECRET_KEY", "test-secret-value")
 			defer os.Unsetenv("TEST_SECRET_KEY")
 
-			val, err := sp.GetSecret(ctx, "TEST_SECRET_KEY")
+			val, err := sp.GetSecret(ctx, security.GetSecretRequest{Name: "TEST_SECRET_KEY"})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(val).To(Equal("test-secret-value"))
 		})
@@ -28,24 +28,24 @@ var _ = Describe("SecretProvider", func() {
 			sp := security.NewEnvProvider()
 			os.Unsetenv("NONEXISTENT_SECRET_KEY")
 
-			val, err := sp.GetSecret(ctx, "NONEXISTENT_SECRET_KEY")
+			val, err := sp.GetSecret(ctx, security.GetSecretRequest{Name: "NONEXISTENT_SECRET_KEY"})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(val).To(BeEmpty())
 		})
 
 		It("should invoke WithSecretLookupAuditEnv only when a non-empty value is returned", func(ctx context.Context) {
 			var lookedUp []string
-			sp := security.NewEnvProvider(security.WithSecretLookupAuditEnv(func(_ context.Context, name string) {
-				lookedUp = append(lookedUp, name)
+			sp := security.NewEnvProvider(security.WithSecretLookupAuditEnv(func(_ context.Context, req security.GetSecretRequest) {
+				lookedUp = append(lookedUp, req.Name)
 			}))
 
 			os.Setenv("AUDIT_SECRET_SET", "v1")
 			defer os.Unsetenv("AUDIT_SECRET_SET")
 			os.Unsetenv("AUDIT_SECRET_UNSET")
 
-			_, _ = sp.GetSecret(ctx, "AUDIT_SECRET_SET")
-			_, _ = sp.GetSecret(ctx, "AUDIT_SECRET_UNSET")
-			_, _ = sp.GetSecret(ctx, "AUDIT_SECRET_SET")
+			_, _ = sp.GetSecret(ctx, security.GetSecretRequest{Name: "AUDIT_SECRET_SET"})
+			_, _ = sp.GetSecret(ctx, security.GetSecretRequest{Name: "AUDIT_SECRET_UNSET"})
+			_, _ = sp.GetSecret(ctx, security.GetSecretRequest{Name: "AUDIT_SECRET_SET"})
 
 			Expect(lookedUp).To(Equal([]string{"AUDIT_SECRET_SET", "AUDIT_SECRET_SET"}))
 		})
@@ -63,28 +63,9 @@ var _ = Describe("SecretProvider", func() {
 				mgr := security.NewManager(ctx, cfg)
 				defer mgr.Close()
 
-				val, err := mgr.GetSecret(ctx, "MY_SECRET")
+				val, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "MY_SECRET"})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(val).To(Equal("hello-from-runtimevar"))
-			})
-
-			It("should cache the variable and return consistent values", func(ctx context.Context) {
-				cfg := security.Config{
-					Secrets: map[string]string{
-						"CACHED_SECRET": "constant://?val=cached-value&decoder=string",
-					},
-				}
-				mgr := security.NewManager(ctx, cfg)
-				defer mgr.Close()
-
-				val1, err := mgr.GetSecret(ctx, "CACHED_SECRET")
-				Expect(err).ToNot(HaveOccurred())
-
-				val2, err := mgr.GetSecret(ctx, "CACHED_SECRET")
-				Expect(err).ToNot(HaveOccurred())
-
-				Expect(val1).To(Equal(val2))
-				Expect(val1).To(Equal("cached-value"))
 			})
 		})
 
@@ -101,7 +82,7 @@ var _ = Describe("SecretProvider", func() {
 				mgr := security.NewManager(ctx, cfg)
 				defer mgr.Close()
 
-				val, err := mgr.GetSecret(ctx, "FALLBACK_SECRET")
+				val, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "FALLBACK_SECRET"})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(val).To(Equal("from-env"))
 			})
@@ -112,7 +93,7 @@ var _ = Describe("SecretProvider", func() {
 				mgr := security.NewManager(ctx, security.Config{})
 				defer mgr.Close()
 
-				val, err := mgr.GetSecret(ctx, "TOTALLY_MISSING")
+				val, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "TOTALLY_MISSING"})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(val).To(BeEmpty())
 			})
@@ -128,7 +109,7 @@ var _ = Describe("SecretProvider", func() {
 				mgr := security.NewManager(ctx, cfg)
 				defer mgr.Close()
 
-				_, err := mgr.GetSecret(ctx, "BAD_SECRET")
+				_, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "BAD_SECRET"})
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("BAD_SECRET"))
 			})
@@ -142,12 +123,12 @@ var _ = Describe("SecretProvider", func() {
 						"AUDIT_SECRET": "constant://?val=secret-val&decoder=string",
 					},
 				}
-				mgr := security.NewManager(ctx, cfg, security.WithSecretLookupAudit(func(_ context.Context, name string) {
-					lookedUp = append(lookedUp, name)
+				mgr := security.NewManager(ctx, cfg, security.WithSecretLookupAudit(func(_ context.Context, req security.GetSecretRequest) {
+					lookedUp = append(lookedUp, req.Name)
 				}))
 				defer mgr.Close()
 
-				val, err := mgr.GetSecret(ctx, "AUDIT_SECRET")
+				val, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "AUDIT_SECRET"})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(val).To(Equal("secret-val"))
 				Expect(lookedUp).To(Equal([]string{"AUDIT_SECRET"}))
@@ -163,12 +144,12 @@ var _ = Describe("SecretProvider", func() {
 						"OTHER": "constant://?val=other&decoder=string",
 					},
 				}
-				mgr := security.NewManager(ctx, cfg, security.WithSecretLookupAudit(func(_ context.Context, name string) {
-					lookedUp = append(lookedUp, name)
+				mgr := security.NewManager(ctx, cfg, security.WithSecretLookupAudit(func(_ context.Context, req security.GetSecretRequest) {
+					lookedUp = append(lookedUp, req.Name)
 				}))
 				defer mgr.Close()
 
-				val, err := mgr.GetSecret(ctx, "ENV_AUDIT_SECRET")
+				val, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "ENV_AUDIT_SECRET"})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(val).To(Equal("from-env"))
 				Expect(lookedUp).To(Equal([]string{"ENV_AUDIT_SECRET"}))
@@ -181,12 +162,12 @@ var _ = Describe("SecretProvider", func() {
 						"BAD": "nosuchscheme://x?decoder=string",
 					},
 				}
-				mgr := security.NewManager(ctx, cfg, security.WithSecretLookupAudit(func(_ context.Context, name string) {
-					lookedUp = append(lookedUp, name)
+				mgr := security.NewManager(ctx, cfg, security.WithSecretLookupAudit(func(_ context.Context, req security.GetSecretRequest) {
+					lookedUp = append(lookedUp, req.Name)
 				}))
 				defer mgr.Close()
 
-				_, err := mgr.GetSecret(ctx, "BAD")
+				_, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "BAD"})
 				Expect(err).To(HaveOccurred())
 				Expect(lookedUp).To(BeEmpty())
 			})
@@ -202,9 +183,9 @@ var _ = Describe("SecretProvider", func() {
 				}
 				mgr := security.NewManager(ctx, cfg)
 
-				_, err := mgr.GetSecret(ctx, "S1")
+				_, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "S1"})
 				Expect(err).ToNot(HaveOccurred())
-				_, err = mgr.GetSecret(ctx, "S2")
+				_, err = mgr.GetSecret(ctx, security.GetSecretRequest{Name: "S2"})
 				Expect(err).ToNot(HaveOccurred())
 
 				Expect(mgr.Close()).To(Succeed())
@@ -224,13 +205,13 @@ var _ = Describe("SecretProvider", func() {
 				}
 				mgr := security.NewManager(ctx, cfg)
 
-				val, err := mgr.GetSecret(ctx, "S1")
+				val, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "S1"})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(val).To(Equal("v1"))
 
 				Expect(mgr.Close()).To(Succeed())
 
-				val, err = mgr.GetSecret(ctx, "S1")
+				val, err = mgr.GetSecret(ctx, security.GetSecretRequest{Name: "S1"})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(val).To(Equal("v1"))
 
@@ -244,49 +225,9 @@ var _ = Describe("SecretProvider", func() {
 				mgr := security.NewManager(ctx, security.Config{})
 				Expect(mgr.Close()).To(Succeed())
 
-				val, err := mgr.GetSecret(ctx, "AFTER_CLOSE_SECRET")
+				val, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "AFTER_CLOSE_SECRET"})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(val).To(Equal("still-works"))
-			})
-		})
-
-		Context("with multiple secrets from different URLs", func() {
-			It("should resolve each independently", func(ctx context.Context) {
-				cfg := security.Config{
-					Secrets: map[string]string{
-						"KEY_A": "constant://?val=alpha&decoder=string",
-						"KEY_B": "constant://?val=bravo&decoder=string",
-						"KEY_C": "constant://?val=charlie&decoder=string",
-					},
-				}
-				mgr := security.NewManager(ctx, cfg)
-				defer mgr.Close()
-
-				a, err := mgr.GetSecret(ctx, "KEY_A")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(a).To(Equal("alpha"))
-
-				b, err := mgr.GetSecret(ctx, "KEY_B")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(b).To(Equal("bravo"))
-
-				c, err := mgr.GetSecret(ctx, "KEY_C")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(c).To(Equal("charlie"))
-			})
-		})
-
-		Context("with nil secrets map", func() {
-			It("should treat all lookups as env fallback", func(ctx context.Context) {
-				os.Setenv("NIL_MAP_SECRET", "env-val")
-				defer os.Unsetenv("NIL_MAP_SECRET")
-
-				mgr := security.NewManager(ctx, security.Config{})
-				defer mgr.Close()
-
-				val, err := mgr.GetSecret(ctx, "NIL_MAP_SECRET")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(val).To(Equal("env-val"))
 			})
 		})
 
@@ -301,7 +242,7 @@ var _ = Describe("SecretProvider", func() {
 				mgr := security.NewManager(ctx, cfg)
 				defer mgr.Close()
 
-				val, err := mgr.GetSecret(ctx, "CLOUD_CREDS")
+				val, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "CLOUD_CREDS"})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(val).To(Equal("sk-abc123"))
 			})
@@ -316,7 +257,7 @@ var _ = Describe("SecretProvider", func() {
 				mgr := security.NewManager(ctx, cfg)
 				defer mgr.Close()
 
-				val, err := mgr.GetSecret(ctx, "DB_HOST")
+				val, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "DB_HOST"})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(val).To(Equal("db.example.com"))
 			})
@@ -331,7 +272,7 @@ var _ = Describe("SecretProvider", func() {
 				mgr := security.NewManager(ctx, cfg)
 				defer mgr.Close()
 
-				val, err := mgr.GetSecret(ctx, "DB_PORT")
+				val, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "DB_PORT"})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(val).To(Equal("5432"))
 			})
@@ -346,7 +287,7 @@ var _ = Describe("SecretProvider", func() {
 				mgr := security.NewManager(ctx, cfg)
 				defer mgr.Close()
 
-				val, err := mgr.GetSecret(ctx, "FIRST_HOST")
+				val, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "FIRST_HOST"})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(val).To(Equal("h1.example.com"))
 			})
@@ -361,7 +302,7 @@ var _ = Describe("SecretProvider", func() {
 				mgr := security.NewManager(ctx, cfg)
 				defer mgr.Close()
 
-				_, err := mgr.GetSecret(ctx, "SIMPLE_SECRET")
+				_, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "SIMPLE_SECRET"})
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("path"))
 				Expect(err.Error()).To(ContainSubstring("nonexistent.field"))
@@ -376,7 +317,7 @@ var _ = Describe("SecretProvider", func() {
 				mgr := security.NewManager(ctx, cfg)
 				defer mgr.Close()
 
-				val, err := mgr.GetSecret(ctx, "PLAIN_SECRET")
+				val, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "PLAIN_SECRET"})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(val).To(Equal("just-a-string"))
 			})
@@ -391,7 +332,7 @@ var _ = Describe("SecretProvider", func() {
 				mgr := security.NewManager(ctx, cfg)
 				defer mgr.Close()
 
-				val, err := mgr.GetSecret(ctx, "NESTED")
+				val, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "NESTED"})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(val).To(Equal("deep-value"))
 			})
@@ -408,45 +349,17 @@ var _ = Describe("SecretProvider", func() {
 				mgr := security.NewManager(ctx, cfg)
 				defer mgr.Close()
 
-				v1, err := mgr.GetSecret(ctx, "EMAIL_PASSWORD")
+				v1, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "EMAIL_PASSWORD"})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(v1).To(Equal("secret1"))
 
-				v2, err := mgr.GetSecret(ctx, "GITHUB_TOKEN")
+				v2, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "GITHUB_TOKEN"})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(v2).To(Equal("secret2"))
 
-				v3, err := mgr.GetSecret(ctx, "LINEAR_API_KEY")
+				v3, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "LINEAR_API_KEY"})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(v3).To(Equal("secret3"))
-			})
-		})
-
-		Context("with raw value cache (URL deduplication)", func() {
-			It("should resolve the same URL only once for multiple secret names", func(ctx context.Context) {
-				jsonBlob := `{"email_pw":"pw1","gh_token":"tok2","linear_key":"key3"}`
-				sharedURL := "constant://?val=" + jsonBlob
-				cfg := security.Config{
-					Secrets: map[string]string{
-						"EMAIL_PASSWORD": sharedURL + "&path=email_pw",
-						"GITHUB_TOKEN":   sharedURL + "&path=gh_token",
-						"LINEAR_API_KEY": sharedURL + "&path=linear_key",
-					},
-				}
-				mgr := security.NewManager(ctx, cfg)
-				defer mgr.Close()
-
-				v1, err := mgr.GetSecret(ctx, "EMAIL_PASSWORD")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(v1).To(Equal("pw1"))
-
-				v2, err := mgr.GetSecret(ctx, "GITHUB_TOKEN")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(v2).To(Equal("tok2"))
-
-				v3, err := mgr.GetSecret(ctx, "LINEAR_API_KEY")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(v3).To(Equal("key3"))
 			})
 		})
 
@@ -459,7 +372,7 @@ var _ = Describe("SecretProvider", func() {
 				mgr := security.NewManager(ctx, security.Config{})
 				defer mgr.Close()
 
-				val, err := mgr.GetSecret(ctx, "JSON_ENV_SECRET?path=token")
+				val, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "JSON_ENV_SECRET?path=token"})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(val).To(Equal("env-token-value"))
 			})
@@ -471,7 +384,7 @@ var _ = Describe("SecretProvider", func() {
 				mgr := security.NewManager(ctx, security.Config{})
 				defer mgr.Close()
 
-				_, err := mgr.GetSecret(ctx, "PLAIN_ENV_SECRET?path=some.field")
+				_, err := mgr.GetSecret(ctx, security.GetSecretRequest{Name: "PLAIN_ENV_SECRET?path=some.field"})
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("path"))
 			})

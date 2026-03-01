@@ -13,6 +13,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/messenger"
 	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
+	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 )
 
 // maxApprovalCacheSize limits the number of entries in the approval cache.
@@ -144,6 +145,8 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 			tc.Args = strippedArgs
 			tc.Justification = justification
 		}
+
+		ctx = toolcontext.WithJustification(ctx, justification)
 
 		if m.store == nil {
 			return next(ctx, tc)

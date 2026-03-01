@@ -565,6 +565,39 @@ sanitize:
 
 ---
 
+#### ContextModeMiddleware
+
+**File:** `mw_contextmode.go` · **Config:** `context_mode`
+
+Compresses oversized tool responses using local BM25-like chunk scoring — no LLM call required. Chunks text on paragraph boundaries, scores each chunk against query terms extracted from the tool's input arguments, and returns only the top-K most relevant chunks in reading order. Sits before `AutoSummarizeMiddleware` as a cheap first-pass reducer: if context mode shrinks a response below the summarise threshold, the LLM summariser is never called.
+
+```go
+toolwrap.ContextModeMiddleware(toolwrap.ContextModeConfig{
+    Threshold: 20000,
+    MaxChunks: 10,
+    ChunkSize: 800,
+})
+```
+
+**Config:**
+```yaml
+context_mode:
+  enabled: true
+  threshold: 20000
+  max_chunks: 10
+  chunk_size: 800
+```
+
+| Aspect | Detail |
+|--------|--------|
+| Algorithm | BM25-lite (TF-IDF with saturation + length normalisation) |
+| State | Stateless |
+| Per-tool | N/A — applies to all tools |
+| Fallback | Boundary selection (first + last chunks) when no query terms available |
+| Position | Post-execution, before `AutoSummarizeMiddleware` |
+
+---
+
 ## Writing Custom Middleware
 
 Implement the `Middleware` interface or use `MiddlewareFunc`:
@@ -628,3 +661,5 @@ chain := toolwrap.CompositeMiddleware{
 | `mw_tracing.go` | `TracingMiddleware` |
 | `mw_validate.go` | `InputValidationMiddleware` |
 | `mw_sanitize.go` | `OutputSanitizationMiddleware` |
+| `mw_contextmode.go` | `ContextModeMiddleware` — local BM25 chunk compression |
+| `mw_summarize.go` | `AutoSummarizeMiddleware` — LLM-backed summarisation |

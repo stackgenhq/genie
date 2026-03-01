@@ -39,7 +39,9 @@ import (
 
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/tools/google/oauth"
+	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 	"google.golang.org/api/chat/v1"
 	"google.golang.org/api/option"
 )
@@ -143,7 +145,10 @@ func (m *Messenger) Connect(ctx context.Context) (http.Handler, error) {
 	if m.adapterCfg.SecretProvider == nil {
 		return nil, fmt.Errorf("google Chat requires WithSecretProvider so it can use the logged-in user token; no service account credentials file")
 	}
-	credsEntry, _ := m.adapterCfg.SecretProvider.GetSecret(ctx, "CredentialsFile")
+	credsEntry, _ := m.adapterCfg.SecretProvider.GetSecret(ctx, security.GetSecretRequest{
+		Name:   "CredentialsFile",
+		Reason: toolcontext.GetJustification(ctx),
+	})
 	credsJSON, err := oauth.GetCredentials(credsEntry, "Chat")
 	if err != nil {
 		return nil, fmt.Errorf("google chat credentials: %w", err)

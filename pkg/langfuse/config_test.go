@@ -5,16 +5,9 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/security"
+	"github.com/stackgenhq/genie/pkg/security/securityfakes"
 )
-
-// fakeSecretProvider implements security.SecretProvider for testing.
-type fakeSecretProvider struct {
-	secrets map[string]string
-}
-
-func (f *fakeSecretProvider) GetSecret(_ context.Context, name string) (string, error) {
-	return f.secrets[name], nil
-}
 
 var _ = Describe("Config", func() {
 	DescribeTable("langfuseHost (full URL for HTTP API)",
@@ -43,12 +36,14 @@ var _ = Describe("Config", func() {
 
 var _ = Describe("DefaultConfig", func() {
 	It("should resolve secrets from SecretProvider", func() {
-		sp := &fakeSecretProvider{
-			secrets: map[string]string{
+		sp := &securityfakes.FakeSecretProvider{}
+		sp.GetSecretStub = func(_ context.Context, req security.GetSecretRequest) (string, error) {
+			secrets := map[string]string{
 				"LANGFUSE_PUBLIC_KEY": "pk-test",
 				"LANGFUSE_SECRET_KEY": "sk-test",
 				"LANGFUSE_HOST":       "langfuse.example.com",
-			},
+			}
+			return secrets[req.Name], nil
 		}
 		cfg := DefaultConfig(context.Background(), sp)
 		Expect(cfg.PublicKey).To(Equal("pk-test"))
@@ -57,7 +52,7 @@ var _ = Describe("DefaultConfig", func() {
 	})
 
 	It("should return empty config when secrets are not set", func() {
-		sp := &fakeSecretProvider{secrets: map[string]string{}}
+		sp := &securityfakes.FakeSecretProvider{}
 		cfg := DefaultConfig(context.Background(), sp)
 		Expect(cfg.PublicKey).To(BeEmpty())
 		Expect(cfg.SecretKey).To(BeEmpty())

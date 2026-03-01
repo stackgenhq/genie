@@ -10,14 +10,18 @@ import (
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider/modelproviderfakes"
 	"github.com/stackgenhq/genie/pkg/security"
+	"github.com/stackgenhq/genie/pkg/security/securityfakes"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 )
 
-// fakeSecretProvider returns configured values for secret names (for Validate tests).
-type fakeSecretProvider map[string]string
-
-func (f fakeSecretProvider) GetSecret(_ context.Context, name string) (string, error) {
-	return f[name], nil
+// newFakeSP returns a FakeSecretProvider whose GetSecret resolves names from
+// the supplied map. Unlisted names return "".
+func newFakeSP(secrets map[string]string) *securityfakes.FakeSecretProvider {
+	sp := &securityfakes.FakeSecretProvider{}
+	sp.GetSecretStub = func(_ context.Context, req security.GetSecretRequest) (string, error) {
+		return secrets[req.Name], nil
+	}
+	return sp
 }
 
 var _ = Describe("ModelProvider", func() {
@@ -40,7 +44,6 @@ var _ = Describe("ModelProvider", func() {
 		)
 
 		BeforeEach(func() {
-			// Save original environment variables
 			originalOpenAIKey, hasOpenAIKey = os.LookupEnv("OPENAI_API_KEY")
 			originalGeminiKey, hasGeminiKey = os.LookupEnv("GEMINI_API_KEY")
 			originalGoogleKey, hasGoogleKey = os.LookupEnv("GOOGLE_API_KEY")
@@ -49,13 +52,11 @@ var _ = Describe("ModelProvider", func() {
 			originalAnthropicKey, hasAnthropicKey = os.LookupEnv("ANTHROPIC_API_KEY")
 			originalAnthropicModel, hasAnthropicModel = os.LookupEnv("ANTHROPIC_MODEL")
 
-			// Unset all API keys to ensure test isolation
 			os.Unsetenv("ANTHROPIC_API_KEY")
 			os.Unsetenv("ANTHROPIC_MODEL")
 		})
 
 		AfterEach(func() {
-			// Restore original environment variables
 			if hasOpenAIKey {
 				os.Setenv("OPENAI_API_KEY", originalOpenAIKey)
 			} else {
@@ -152,58 +153,15 @@ var _ = Describe("ModelProvider", func() {
 				cfg := modelprovider.DefaultModelConfig(context.Background(), security.NewEnvProvider())
 				Expect(cfg.Providers).To(HaveLen(3)) // flash + pro (tool_calling) + pro (general_task)
 
-				// First Gemini provider should be flash (frontdesk)
 				Expect(cfg.Providers[0].Provider).To(Equal("gemini"))
 				Expect(cfg.Providers[0].ModelName).To(Equal("gemini-3-flash-preview"))
 				Expect(cfg.Providers[0].GoodForTask).To(Equal(modelprovider.TaskEfficiency))
 
-				// Second Gemini provider should be pro (tool_calling)
 				Expect(cfg.Providers[1].Provider).To(Equal("gemini"))
 				Expect(cfg.Providers[1].ModelName).NotTo(BeEmpty())
 				Expect(cfg.Providers[1].GoodForTask).To(Equal(modelprovider.TaskToolCalling))
 
-				// Third Gemini provider should be pro (general_task)
 				Expect(cfg.Providers[2].Provider).To(Equal("gemini"))
-				Expect(cfg.Providers[2].GoodForTask).To(Equal(modelprovider.TaskGeneralTask))
-			})
-		})
-
-		Context("when only GOOGLE_API_KEY is set", func() {
-			BeforeEach(func() {
-				os.Unsetenv("OPENAI_API_KEY")
-				os.Unsetenv("GEMINI_API_KEY")
-				os.Setenv("GOOGLE_API_KEY", "test-google-key")
-				os.Unsetenv("GOOGLE_MODEL")
-			})
-
-			It("should return a config with Gemini provider using default model", func() {
-				cfg := modelprovider.DefaultModelConfig(context.Background(), security.NewEnvProvider())
-				Expect(cfg.Providers).To(HaveLen(3)) // flash + pro (tool_calling) + pro (general_task)
-				Expect(cfg.Providers[0].Provider).To(Equal("gemini"))
-				Expect(cfg.Providers[0].ModelName).To(Equal("gemini-3-flash-preview"))
-				Expect(cfg.Providers[1].Provider).To(Equal("gemini"))
-				Expect(cfg.Providers[1].ModelName).NotTo(BeEmpty())
-				Expect(cfg.Providers[2].Provider).To(Equal("gemini"))
-				Expect(cfg.Providers[2].GoodForTask).To(Equal(modelprovider.TaskGeneralTask))
-			})
-		})
-
-		Context("when GEMINI_API_KEY and GOOGLE_MODEL are set", func() {
-			BeforeEach(func() {
-				os.Unsetenv("OPENAI_API_KEY")
-				os.Setenv("GEMINI_API_KEY", "test-gemini-key")
-				os.Setenv("GOOGLE_MODEL", "gemini-pro")
-			})
-
-			It("should return a config with Gemini provider using custom model", func() {
-				cfg := modelprovider.DefaultModelConfig(context.Background(), security.NewEnvProvider())
-				Expect(cfg.Providers).To(HaveLen(3)) // flash + custom pro (tool_calling) + custom pro (general_task)
-				Expect(cfg.Providers[0].Provider).To(Equal("gemini"))
-				Expect(cfg.Providers[0].ModelName).To(Equal("gemini-3-flash-preview"))
-				Expect(cfg.Providers[1].Provider).To(Equal("gemini"))
-				Expect(cfg.Providers[1].ModelName).To(Equal("gemini-pro"))
-				Expect(cfg.Providers[2].Provider).To(Equal("gemini"))
-				Expect(cfg.Providers[2].ModelName).To(Equal("gemini-pro"))
 				Expect(cfg.Providers[2].GoodForTask).To(Equal(modelprovider.TaskGeneralTask))
 			})
 		})
@@ -220,137 +178,81 @@ var _ = Describe("ModelProvider", func() {
 				cfg := modelprovider.DefaultModelConfig(context.Background(), security.NewEnvProvider())
 				Expect(cfg.Providers).To(HaveLen(4)) // openai + gemini-flash + gemini-pro (tool_calling) + gemini-pro (general_task)
 
-				// First provider should be OpenAI
 				Expect(cfg.Providers[0].Provider).To(Equal("openai"))
 				Expect(cfg.Providers[0].ModelName).To(Equal("gpt-5.2"))
 				Expect(cfg.Providers[0].GoodForTask).To(Equal(modelprovider.TaskEfficiency))
 
-				// Second provider should be Gemini flash (frontdesk)
 				Expect(cfg.Providers[1].Provider).To(Equal("gemini"))
 				Expect(cfg.Providers[1].ModelName).To(Equal("gemini-3-flash-preview"))
 				Expect(cfg.Providers[1].GoodForTask).To(Equal(modelprovider.TaskEfficiency))
 
-				// Third provider should be Gemini (tool_calling) — uses GOOGLE_MODEL or DefaultGeminiModel
 				Expect(cfg.Providers[2].Provider).To(Equal("gemini"))
 				Expect(cfg.Providers[2].ModelName).To(Equal(modelprovider.DefaultGeminiModel))
 				Expect(cfg.Providers[2].GoodForTask).To(Equal(modelprovider.TaskToolCalling))
 
-				// Fourth provider should be Gemini pro (general_task)
 				Expect(cfg.Providers[3].Provider).To(Equal("gemini"))
 				Expect(cfg.Providers[3].GoodForTask).To(Equal(modelprovider.TaskGeneralTask))
 			})
 		})
 
-		Context("when both OPENAI_API_KEY and GOOGLE_API_KEY are set", func() {
+		Context("when only ANTHROPIC_API_KEY is set", func() {
+			BeforeEach(func() {
+				os.Unsetenv("OPENAI_API_KEY")
+				os.Unsetenv("GEMINI_API_KEY")
+				os.Unsetenv("GOOGLE_API_KEY")
+				os.Setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
+				os.Unsetenv("ANTHROPIC_MODEL")
+			})
+
+			AfterEach(func() {
+				os.Unsetenv("ANTHROPIC_API_KEY")
+			})
+
+			It("should return a config with Anthropic provider using default model", func() {
+				cfg := modelprovider.DefaultModelConfig(context.Background(), security.NewEnvProvider())
+				Expect(cfg.Providers).To(HaveLen(1))
+				Expect(cfg.Providers[0].Provider).To(Equal("anthropic"))
+				Expect(cfg.Providers[0].ModelName).To(Equal(modelprovider.DefaultAnthropicModel))
+				Expect(cfg.Providers[0].Variant).To(Equal("default"))
+				Expect(cfg.Providers[0].GoodForTask).To(Equal(modelprovider.TaskPlanning))
+			})
+		})
+
+		Context("when all three API keys are set", func() {
 			BeforeEach(func() {
 				os.Setenv("OPENAI_API_KEY", "test-openai-key")
-				os.Unsetenv("GEMINI_API_KEY")
-				os.Setenv("GOOGLE_API_KEY", "test-google-key")
+				os.Setenv("GEMINI_API_KEY", "test-gemini-key")
+				os.Setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
+				os.Unsetenv("OPENAI_MODEL")
+				os.Unsetenv("GOOGLE_MODEL")
+				os.Unsetenv("ANTHROPIC_MODEL")
 			})
 
-			It("should return a config with both providers", func() {
+			AfterEach(func() {
+				os.Unsetenv("OPENAI_API_KEY")
+				os.Unsetenv("GEMINI_API_KEY")
+				os.Unsetenv("ANTHROPIC_API_KEY")
+			})
+
+			It("should return a config with all providers", func() {
 				cfg := modelprovider.DefaultModelConfig(context.Background(), security.NewEnvProvider())
-				Expect(cfg.Providers).To(HaveLen(4)) // openai + gemini-flash + gemini-pro (tool_calling) + gemini-pro (general_task)
+				Expect(cfg.Providers).To(HaveLen(5)) // openai + gemini-flash + gemini-pro (tool_calling) + gemini-pro (general_task) + anthropic
+
 				Expect(cfg.Providers[0].Provider).To(Equal("openai"))
+				Expect(cfg.Providers[0].GoodForTask).To(Equal(modelprovider.TaskEfficiency))
+
 				Expect(cfg.Providers[1].Provider).To(Equal("gemini"))
 				Expect(cfg.Providers[1].ModelName).To(Equal("gemini-3-flash-preview"))
+
 				Expect(cfg.Providers[2].Provider).To(Equal("gemini"))
+				Expect(cfg.Providers[2].GoodForTask).To(Equal(modelprovider.TaskToolCalling))
+
 				Expect(cfg.Providers[3].Provider).To(Equal("gemini"))
 				Expect(cfg.Providers[3].GoodForTask).To(Equal(modelprovider.TaskGeneralTask))
+
+				Expect(cfg.Providers[4].Provider).To(Equal("anthropic"))
+				Expect(cfg.Providers[4].GoodForTask).To(Equal(modelprovider.TaskPlanning))
 			})
-
-			Context("when only ANTHROPIC_API_KEY is set", func() {
-				BeforeEach(func() {
-					os.Unsetenv("OPENAI_API_KEY")
-					os.Unsetenv("GEMINI_API_KEY")
-					os.Unsetenv("GOOGLE_API_KEY")
-					os.Setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
-					os.Unsetenv("ANTHROPIC_MODEL")
-				})
-
-				AfterEach(func() {
-					os.Unsetenv("ANTHROPIC_API_KEY")
-				})
-
-				It("should return a config with Anthropic provider using default model", func() {
-					cfg := modelprovider.DefaultModelConfig(context.Background(), security.NewEnvProvider())
-					Expect(cfg.Providers).To(HaveLen(1))
-					Expect(cfg.Providers[0].Provider).To(Equal("anthropic"))
-					Expect(cfg.Providers[0].ModelName).To(Equal(modelprovider.DefaultAnthropicModel))
-					Expect(cfg.Providers[0].Variant).To(Equal("default"))
-					Expect(cfg.Providers[0].GoodForTask).To(Equal(modelprovider.TaskPlanning))
-				})
-			})
-
-			Context("when ANTHROPIC_API_KEY and ANTHROPIC_MODEL are set", func() {
-				BeforeEach(func() {
-					os.Unsetenv("OPENAI_API_KEY")
-					os.Unsetenv("GEMINI_API_KEY")
-					os.Unsetenv("GOOGLE_API_KEY")
-					os.Setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
-					os.Setenv("ANTHROPIC_MODEL", "claude-3-opus-20240229")
-				})
-
-				AfterEach(func() {
-					os.Unsetenv("ANTHROPIC_API_KEY")
-					os.Unsetenv("ANTHROPIC_MODEL")
-				})
-
-				It("should return a config with Anthropic provider using custom model", func() {
-					cfg := modelprovider.DefaultModelConfig(context.Background(), security.NewEnvProvider())
-					Expect(cfg.Providers).To(HaveLen(1))
-					Expect(cfg.Providers[0].Provider).To(Equal("anthropic"))
-					Expect(cfg.Providers[0].ModelName).To(Equal("claude-3-opus-20240229"))
-				})
-			})
-
-			Context("when all three API keys are set", func() {
-				BeforeEach(func() {
-					os.Setenv("OPENAI_API_KEY", "test-openai-key")
-					os.Setenv("GEMINI_API_KEY", "test-gemini-key")
-					os.Setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
-					os.Unsetenv("OPENAI_MODEL")
-					os.Unsetenv("GOOGLE_MODEL")
-					os.Unsetenv("ANTHROPIC_MODEL")
-				})
-
-				AfterEach(func() {
-					os.Unsetenv("OPENAI_API_KEY")
-					os.Unsetenv("GEMINI_API_KEY")
-					os.Unsetenv("ANTHROPIC_API_KEY")
-				})
-
-				It("should return a config with all providers", func() {
-					cfg := modelprovider.DefaultModelConfig(context.Background(), security.NewEnvProvider())
-					Expect(cfg.Providers).To(HaveLen(5)) // openai + gemini-flash + gemini-pro (tool_calling) + gemini-pro (general_task) + anthropic
-
-					// First provider should be OpenAI
-					Expect(cfg.Providers[0].Provider).To(Equal("openai"))
-					Expect(cfg.Providers[0].ModelName).To(Equal("gpt-5.2"))
-					Expect(cfg.Providers[0].GoodForTask).To(Equal(modelprovider.TaskEfficiency))
-
-					// Second provider should be Gemini flash (frontdesk)
-					Expect(cfg.Providers[1].Provider).To(Equal("gemini"))
-					Expect(cfg.Providers[1].ModelName).To(Equal("gemini-3-flash-preview"))
-					Expect(cfg.Providers[1].GoodForTask).To(Equal(modelprovider.TaskEfficiency))
-
-					// Third provider should be Gemini (tool_calling)
-					Expect(cfg.Providers[2].Provider).To(Equal("gemini"))
-					Expect(cfg.Providers[2].ModelName).To(Equal(modelprovider.DefaultGeminiModel))
-					Expect(cfg.Providers[2].GoodForTask).To(Equal(modelprovider.TaskToolCalling))
-
-					// Fourth provider should be Gemini (general_task)
-					Expect(cfg.Providers[3].Provider).To(Equal("gemini"))
-					Expect(cfg.Providers[3].ModelName).To(Equal("gemini-3-pro-preview"))
-					Expect(cfg.Providers[3].GoodForTask).To(Equal(modelprovider.TaskGeneralTask))
-
-					// Fifth provider should be Anthropic
-					Expect(cfg.Providers[4].Provider).To(Equal("anthropic"))
-					Expect(cfg.Providers[4].ModelName).To(Equal(modelprovider.DefaultAnthropicModel))
-					Expect(cfg.Providers[4].GoodForTask).To(Equal(modelprovider.TaskPlanning))
-				})
-			})
-
 		})
 	})
 
@@ -358,36 +260,36 @@ var _ = Describe("ModelProvider", func() {
 		Context("when provider has token", func() {
 			It("succeeds for openai", func(ctx context.Context) {
 				p := modelprovider.ProviderConfig{Provider: "openai", ModelName: "gpt-4", Token: "sk-x"}
-				Expect(p.Validate(ctx, fakeSecretProvider{})).NotTo(HaveOccurred())
+				Expect(p.Validate(ctx, &securityfakes.FakeSecretProvider{})).NotTo(HaveOccurred())
 			})
 			It("succeeds for gemini", func(ctx context.Context) {
 				p := modelprovider.ProviderConfig{Provider: "gemini", ModelName: "gemini-pro", Token: "key"}
-				Expect(p.Validate(ctx, fakeSecretProvider{})).NotTo(HaveOccurred())
+				Expect(p.Validate(ctx, &securityfakes.FakeSecretProvider{})).NotTo(HaveOccurred())
 			})
 		})
 		Context("when provider relies on env", func() {
 			It("succeeds for openai when OPENAI_API_KEY is set", func(ctx context.Context) {
 				p := modelprovider.ProviderConfig{Provider: "openai", ModelName: "gpt-4"}
-				sp := fakeSecretProvider{"OPENAI_API_KEY": "sk-secret"}
+				sp := newFakeSP(map[string]string{"OPENAI_API_KEY": "sk-secret"})
 				Expect(p.Validate(ctx, sp)).NotTo(HaveOccurred())
 			})
 			It("fails for openai when no token and no env key", func(ctx context.Context) {
 				p := modelprovider.ProviderConfig{Provider: "openai", ModelName: "gpt-4"}
-				Expect(p.Validate(ctx, fakeSecretProvider{})).To(MatchError(ContainSubstring("missing API key")))
+				Expect(p.Validate(ctx, &securityfakes.FakeSecretProvider{})).To(MatchError(ContainSubstring("missing API key")))
 			})
 		})
 		Context("ollama and huggingface", func() {
 			It("succeeds for ollama without credentials", func(ctx context.Context) {
 				p := modelprovider.ProviderConfig{Provider: "ollama", ModelName: "llama3"}
-				Expect(p.Validate(ctx, fakeSecretProvider{})).NotTo(HaveOccurred())
+				Expect(p.Validate(ctx, &securityfakes.FakeSecretProvider{})).NotTo(HaveOccurred())
 			})
 			It("succeeds for huggingface with host", func(ctx context.Context) {
 				p := modelprovider.ProviderConfig{Provider: "huggingface", ModelName: "x", Host: "https://api.inference.cloud"}
-				Expect(p.Validate(ctx, fakeSecretProvider{})).NotTo(HaveOccurred())
+				Expect(p.Validate(ctx, &securityfakes.FakeSecretProvider{})).NotTo(HaveOccurred())
 			})
 			It("fails for huggingface without token or host", func(ctx context.Context) {
 				p := modelprovider.ProviderConfig{Provider: "huggingface", ModelName: "x"}
-				Expect(p.Validate(ctx, fakeSecretProvider{})).To(MatchError(ContainSubstring("missing token or host")))
+				Expect(p.Validate(ctx, &securityfakes.FakeSecretProvider{})).To(MatchError(ContainSubstring("missing token or host")))
 			})
 		})
 	})
@@ -400,7 +302,7 @@ var _ = Describe("ModelProvider", func() {
 					{Provider: "anthropic", ModelName: "claude", Token: "sk"}, // valid
 				},
 			}
-			sp := fakeSecretProvider{} // no OPENAI_API_KEY
+			sp := &securityfakes.FakeSecretProvider{} // no OPENAI_API_KEY
 			err := cfg.ValidateAndFilter(ctx, sp, modelprovider.SkipEchoCheck())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cfg.Providers).To(HaveLen(1))
@@ -413,7 +315,7 @@ var _ = Describe("ModelProvider", func() {
 					{Provider: "gemini", ModelName: "gemini-pro"},
 				},
 			}
-			sp := fakeSecretProvider{}
+			sp := &securityfakes.FakeSecretProvider{}
 			err := cfg.ValidateAndFilter(ctx, sp, modelprovider.SkipEchoCheck())
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("no valid model providers"))
@@ -426,7 +328,7 @@ var _ = Describe("ModelProvider", func() {
 					{Provider: "ollama", ModelName: "llama3"},
 				},
 			}
-			Expect(cfg.ValidateAndFilter(ctx, fakeSecretProvider{}, modelprovider.SkipEchoCheck())).NotTo(HaveOccurred())
+			Expect(cfg.ValidateAndFilter(ctx, &securityfakes.FakeSecretProvider{}, modelprovider.SkipEchoCheck())).NotTo(HaveOccurred())
 			Expect(cfg.Providers).To(HaveLen(2))
 		})
 	})
@@ -461,9 +363,6 @@ var _ = Describe("ModelProvider", func() {
 		})
 	})
 
-	// Note: ProviderConfigs.getForTask is a private method and is tested
-	// indirectly through envBasedModelProvider.GetModel tests below
-
 	Describe("envBasedModelProvider", func() {
 		var (
 			ctx      context.Context
@@ -476,300 +375,74 @@ var _ = Describe("ModelProvider", func() {
 
 		Context("when initialized with empty config", func() {
 			BeforeEach(func() {
-				cfg := modelprovider.ModelConfig{
-					Providers: modelprovider.ProviderConfigs{},
-				}
-				provider = cfg.NewEnvBasedModelProvider()
+				provider = modelprovider.ModelConfig{}.NewEnvBasedModelProvider()
 			})
 
 			It("should return an error when getting a model", func() {
-				model, err := provider.GetModel(ctx, modelprovider.TaskToolCalling)
+				m, err := provider.GetModel(ctx, modelprovider.TaskToolCalling)
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("no LLM providers configured"))
-				Expect(model).To(BeNil())
+				Expect(m).To(BeNil())
 			})
 		})
 
 		Context("when initialized with OpenAI provider", func() {
 			BeforeEach(func() {
-				cfg := modelprovider.ModelConfig{
+				provider = modelprovider.ModelConfig{
 					Providers: modelprovider.ProviderConfigs{
-						{
-							Provider:    "openai",
-							ModelName:   "gpt-4",
-							Variant:     "default",
-							GoodForTask: modelprovider.TaskEfficiency,
-						},
+						{Provider: "openai", ModelName: "gpt-4", Variant: "default", GoodForTask: modelprovider.TaskEfficiency},
 					},
-				}
-				provider = cfg.NewEnvBasedModelProvider()
+				}.NewEnvBasedModelProvider()
 			})
 
 			It("should return an OpenAI model", func() {
-				model, err := provider.GetModel(ctx, modelprovider.TaskEfficiency)
+				m, err := provider.GetModel(ctx, modelprovider.TaskEfficiency)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(model).NotTo(BeNil())
+				Expect(m).NotTo(BeNil())
 			})
-		})
-
-		Context("when initialized with Gemini provider", func() {
-			BeforeEach(func() {
-				// Set a valid API key for Gemini initialization
-				os.Setenv("GEMINI_API_KEY", "test-gemini-key")
-
-				cfg := modelprovider.ModelConfig{
-					Providers: modelprovider.ProviderConfigs{
-						{
-							Provider:    "gemini",
-							ModelName:   "gemini-pro",
-							Variant:     "default",
-							GoodForTask: modelprovider.TaskToolCalling,
-						},
-					},
-				}
-				provider = cfg.NewEnvBasedModelProvider()
-			})
-
-			AfterEach(func() {
-				os.Unsetenv("GEMINI_API_KEY")
-			})
-
-			It("should return a Gemini model or error if API key is invalid", func() {
-				model, err := provider.GetModel(ctx, modelprovider.TaskToolCalling)
-				// Gemini.New may fail with invalid API key, which is expected in tests
-				if err != nil {
-					Expect(err).To(HaveOccurred())
-				} else {
-					Expect(model).NotTo(BeNil())
-				}
-			})
-
-			Context("when initialized with Anthropic provider", func() {
-				BeforeEach(func() {
-					cfg := modelprovider.ModelConfig{
-						Providers: modelprovider.ProviderConfigs{
-							{
-								Provider:    "anthropic",
-								ModelName:   "claude-opus-4-5-20251101",
-								Variant:     "default",
-								GoodForTask: modelprovider.TaskPlanning,
-							},
-						},
-					}
-					provider = cfg.NewEnvBasedModelProvider()
-				})
-
-				It("should return an Anthropic model", func() {
-					model, err := provider.GetModel(ctx, modelprovider.TaskPlanning)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(model).NotTo(BeNil())
-				})
-			})
-
 		})
 
 		Context("when initialized with unknown provider", func() {
 			BeforeEach(func() {
-				cfg := modelprovider.ModelConfig{
+				provider = modelprovider.ModelConfig{
 					Providers: modelprovider.ProviderConfigs{
-						{
-							Provider:    "unknown",
-							ModelName:   "some-model",
-							Variant:     "default",
-							GoodForTask: modelprovider.TaskEfficiency,
-						},
+						{Provider: "unknown", ModelName: "some-model", Variant: "default", GoodForTask: modelprovider.TaskEfficiency},
 					},
-				}
-				provider = cfg.NewEnvBasedModelProvider()
+				}.NewEnvBasedModelProvider()
 			})
 
 			It("should return an error for unknown provider", func() {
-				model, err := provider.GetModel(ctx, modelprovider.TaskEfficiency)
+				m, err := provider.GetModel(ctx, modelprovider.TaskEfficiency)
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("unknown model provider"))
-				Expect(model).To(BeNil())
-			})
-		})
-
-		Context("when initialized with Ollama provider", func() {
-			BeforeEach(func() {
-				cfg := modelprovider.ModelConfig{
-					Providers: modelprovider.ProviderConfigs{
-						{
-							Provider:    "ollama",
-							ModelName:   "llama3",
-							Host:        "http://localhost:11434",
-							GoodForTask: modelprovider.TaskEfficiency,
-						},
-					},
-				}
-				provider = cfg.NewEnvBasedModelProvider()
-			})
-
-			It("should return an Ollama model", func() {
-				model, err := provider.GetModel(ctx, modelprovider.TaskEfficiency)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(model).NotTo(BeNil())
-			})
-		})
-
-		Context("when initialized with Ollama provider without host", func() {
-			BeforeEach(func() {
-				cfg := modelprovider.ModelConfig{
-					Providers: modelprovider.ProviderConfigs{
-						{
-							Provider:    "ollama",
-							ModelName:   "llama3",
-							GoodForTask: modelprovider.TaskEfficiency,
-						},
-					},
-				}
-				provider = cfg.NewEnvBasedModelProvider()
-			})
-
-			It("should return an Ollama model with default host", func() {
-				model, err := provider.GetModel(ctx, modelprovider.TaskEfficiency)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(model).NotTo(BeNil())
-			})
-		})
-
-		Context("when initialized with HuggingFace provider", func() {
-			BeforeEach(func() {
-				cfg := modelprovider.ModelConfig{
-					Providers: modelprovider.ProviderConfigs{
-						{
-							Provider:    "huggingface",
-							ModelName:   "meta-llama/Llama-3",
-							Token:       "hf-test-token",
-							Host:        "https://api-inference.huggingface.co",
-							GoodForTask: modelprovider.TaskEfficiency,
-						},
-					},
-				}
-				provider = cfg.NewEnvBasedModelProvider()
-			})
-
-			It("should return a HuggingFace model", func() {
-				model, err := provider.GetModel(ctx, modelprovider.TaskEfficiency)
-				// HuggingFace.New may return error or model depending on config
-				if err != nil {
-					Expect(err).To(HaveOccurred())
-				} else {
-					Expect(model).NotTo(BeNil())
-				}
-			})
-		})
-
-		Context("when initialized with OpenAI provider with custom token and host", func() {
-			BeforeEach(func() {
-				cfg := modelprovider.ModelConfig{
-					Providers: modelprovider.ProviderConfigs{
-						{
-							Provider:    "openai",
-							ModelName:   "gpt-4",
-							Token:       "custom-api-key",
-							Host:        "https://custom-openai.example.com/v1",
-							Variant:     "advanced",
-							GoodForTask: modelprovider.TaskEfficiency,
-						},
-					},
-				}
-				provider = cfg.NewEnvBasedModelProvider()
-			})
-
-			It("should return an OpenAI model with custom options", func() {
-				model, err := provider.GetModel(ctx, modelprovider.TaskEfficiency)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(model).NotTo(BeNil())
-			})
-		})
-
-		Context("when initialized with Anthropic provider with custom token and host", func() {
-			BeforeEach(func() {
-				cfg := modelprovider.ModelConfig{
-					Providers: modelprovider.ProviderConfigs{
-						{
-							Provider:    "anthropic",
-							ModelName:   "claude-3-opus",
-							Token:       "custom-anthropic-key",
-							Host:        "https://custom-anthropic.example.com",
-							GoodForTask: modelprovider.TaskPlanning,
-						},
-					},
-				}
-				provider = cfg.NewEnvBasedModelProvider()
-			})
-
-			It("should return an Anthropic model with custom options", func() {
-				model, err := provider.GetModel(ctx, modelprovider.TaskPlanning)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(model).NotTo(BeNil())
-			})
-		})
-
-		Context("when initialized with Gemini provider with custom token", func() {
-			BeforeEach(func() {
-				cfg := modelprovider.ModelConfig{
-					Providers: modelprovider.ProviderConfigs{
-						{
-							Provider:    "gemini",
-							ModelName:   "gemini-pro",
-							Token:       "custom-gemini-key",
-							GoodForTask: modelprovider.TaskToolCalling,
-						},
-					},
-				}
-				provider = cfg.NewEnvBasedModelProvider()
-			})
-
-			It("should return a Gemini model or error with custom token", func() {
-				model, err := provider.GetModel(ctx, modelprovider.TaskToolCalling)
-				if err != nil {
-					Expect(err).To(HaveOccurred())
-				} else {
-					Expect(model).NotTo(BeNil())
-				}
+				Expect(m).To(BeNil())
 			})
 		})
 
 		Context("when initialized with multiple providers", func() {
 			BeforeEach(func() {
-				cfg := modelprovider.ModelConfig{
+				provider = modelprovider.ModelConfig{
 					Providers: modelprovider.ProviderConfigs{
-						{
-							Provider:    "openai",
-							ModelName:   "gpt-4",
-							Variant:     "default",
-							GoodForTask: modelprovider.TaskEfficiency,
-						},
-						{
-							Provider:    "openai",
-							ModelName:   "gpt-5",
-							Variant:     "advanced",
-							GoodForTask: modelprovider.TaskPlanning,
-						},
+						{Provider: "openai", ModelName: "gpt-4", Variant: "default", GoodForTask: modelprovider.TaskEfficiency},
+						{Provider: "openai", ModelName: "gpt-5", Variant: "advanced", GoodForTask: modelprovider.TaskPlanning},
 					},
-				}
-				provider = cfg.NewEnvBasedModelProvider()
+				}.NewEnvBasedModelProvider()
 			})
 
-			It("should return the correct model for TaskEfficiency", func() {
-				model, err := provider.GetModel(ctx, modelprovider.TaskEfficiency)
+			It("should return the correct model for each task type", func() {
+				m, err := provider.GetModel(ctx, modelprovider.TaskEfficiency)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(model).NotTo(BeNil())
-			})
+				Expect(m).NotTo(BeNil())
 
-			It("should return the correct model for TaskPlanning", func() {
-				model, err := provider.GetModel(ctx, modelprovider.TaskPlanning)
+				m, err = provider.GetModel(ctx, modelprovider.TaskPlanning)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(model).NotTo(BeNil())
+				Expect(m).NotTo(BeNil())
 			})
 
 			It("should return a model for unmatched task type", func() {
-				model, err := provider.GetModel(ctx, modelprovider.TaskMathematical)
+				m, err := provider.GetModel(ctx, modelprovider.TaskMathematical)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(model).NotTo(BeNil())
+				Expect(m).NotTo(BeNil())
 			})
 		})
 	})

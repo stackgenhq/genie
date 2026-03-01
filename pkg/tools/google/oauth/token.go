@@ -5,12 +5,14 @@ package oauth
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 
 	"github.com/stackgenhq/genie/pkg/httputil"
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/security/keyring"
+	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
@@ -20,7 +22,10 @@ import (
 // (inline from secret provider), then device keychain. Save should be called
 // after token refresh so the new token is persisted (to file or keyring).
 func GetToken(ctx context.Context, sp security.SecretProvider) (tokenJSON []byte, save func([]byte) error, err error) {
-	tokenFile, _ := sp.GetSecret(ctx, "TokenFile")
+	tokenFile, _ := sp.GetSecret(ctx, security.GetSecretRequest{
+		Name:   "TokenFile",
+		Reason: fmt.Sprintf("Google OAuth token: %s", toolcontext.GetJustification(ctx)),
+	})
 	if tokenFile != "" {
 		data, err := os.ReadFile(tokenFile)
 		if err != nil {
@@ -32,9 +37,15 @@ func GetToken(ctx context.Context, sp security.SecretProvider) (tokenJSON []byte
 		return data, save, nil
 	}
 
-	tokenInline, _ := sp.GetSecret(ctx, "Token")
+	tokenInline, _ := sp.GetSecret(ctx, security.GetSecretRequest{
+		Name:   "Token",
+		Reason: fmt.Sprintf("Google OAuth token: %s", toolcontext.GetJustification(ctx)),
+	})
 	if tokenInline == "" {
-		tokenInline, _ = sp.GetSecret(ctx, "Password")
+		tokenInline, _ = sp.GetSecret(ctx, security.GetSecretRequest{
+			Name:   "Password",
+			Reason: fmt.Sprintf("Google OAuth token: %s", toolcontext.GetJustification(ctx)),
+		})
 	}
 	if tokenInline != "" {
 		data := []byte(tokenInline)

@@ -207,6 +207,10 @@ func (deps MiddlewareDeps) DefaultMiddlewares(
 			cfg.Sanitize.PerTool, cfg.Sanitize.Replacement))
 	}
 
+	if !cfg.ContextMode.Disabled {
+		mws = append(mws, ContextModeMiddleware(cfg.ContextMode))
+	}
+
 	mws = append(mws,
 		AutoSummarizeMiddleware(deps.Summarize, deps.SummarizeThreshold),
 	)
@@ -236,20 +240,6 @@ func TruncateForAudit(s string, maxLen int) string {
 		return s
 	}
 	return string(runes[:maxLen]) + "…"
-}
-
-// extractJustification pulls the optional "_justification" key from a JSON
-// tool-call argument blob.
-func extractJustification(args []byte) (string, []byte) {
-	justification := gjson.GetBytes(args, "_justification")
-	if !justification.Exists() {
-		return "", args
-	}
-	stripped, err := sjson.DeleteBytes(args, "_justification")
-	if err != nil {
-		return "", args
-	}
-	return justification.String(), stripped
 }
 
 // sensitiveKeys lists JSON key substrings whose values are redacted in audit logs.

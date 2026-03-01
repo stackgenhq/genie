@@ -35,5 +35,10 @@ type SecretProvider interface {
 	// Returns an empty string (not an error) when the secret is
 	// simply absent — callers treat missing secrets as unconfigured
 	// features, not failures.
-	GetSecret(ctx context.Context, name string) (string, error)
+	GetSecret(ctx context.Context, req GetSecretRequest) (string, error)
+}
+
+type GetSecretRequest struct {
+	Name   string
+	Reason string
 }

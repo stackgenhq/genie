@@ -47,6 +47,7 @@ import (
 
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/tools/google/oauth"
+	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 	"golang.org/x/oauth2/google"
 	gcal "google.golang.org/api/calendar/v3"
 	"google.golang.org/api/option"
@@ -410,7 +411,10 @@ func (c *calendarTools) tools() []tool.CallableTool {
 // Returns a user-friendly error message when credentials are missing so the
 // agent can inform the user how to configure the integration.
 func (c *calendarTools) getCalendarService(ctx context.Context) (*gcal.Service, error) {
-	credsEntry, _ := c.secretProvider.GetSecret(ctx, "CredentialsFile")
+	credsEntry, _ := c.secretProvider.GetSecret(ctx, security.GetSecretRequest{
+		Name:   "CredentialsFile",
+		Reason: fmt.Sprintf("%s Google Calendar tool: %s", c.name, toolcontext.GetJustification(ctx)),
+	})
 	var credsJSON []byte
 	var err error
 	if c.credsGetter != nil {

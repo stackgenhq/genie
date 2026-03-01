@@ -9,11 +9,11 @@ import (
 )
 
 type FakeSecretProvider struct {
-	GetSecretStub        func(context.Context, string) (string, error)
+	GetSecretStub        func(context.Context, security.GetSecretRequest) (string, error)
 	getSecretMutex       sync.RWMutex
 	getSecretArgsForCall []struct {
 		arg1 context.Context
-		arg2 string
+		arg2 security.GetSecretRequest
 	}
 	getSecretReturns struct {
 		result1 string
@@ -27,12 +27,12 @@ type FakeSecretProvider struct {
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeSecretProvider) GetSecret(arg1 context.Context, arg2 string) (string, error) {
+func (fake *FakeSecretProvider) GetSecret(arg1 context.Context, arg2 security.GetSecretRequest) (string, error) {
 	fake.getSecretMutex.Lock()
 	ret, specificReturn := fake.getSecretReturnsOnCall[len(fake.getSecretArgsForCall)]
 	fake.getSecretArgsForCall = append(fake.getSecretArgsForCall, struct {
 		arg1 context.Context
-		arg2 string
+		arg2 security.GetSecretRequest
 	}{arg1, arg2})
 	stub := fake.GetSecretStub
 	fakeReturns := fake.getSecretReturns
@@ -53,13 +53,13 @@ func (fake *FakeSecretProvider) GetSecretCallCount() int {
 	return len(fake.getSecretArgsForCall)
 }
 
-func (fake *FakeSecretProvider) GetSecretCalls(stub func(context.Context, string) (string, error)) {
+func (fake *FakeSecretProvider) GetSecretCalls(stub func(context.Context, security.GetSecretRequest) (string, error)) {
 	fake.getSecretMutex.Lock()
 	defer fake.getSecretMutex.Unlock()
 	fake.GetSecretStub = stub
 }
 
-func (fake *FakeSecretProvider) GetSecretArgsForCall(i int) (context.Context, string) {
+func (fake *FakeSecretProvider) GetSecretArgsForCall(i int) (context.Context, security.GetSecretRequest) {
 	fake.getSecretMutex.RLock()
 	defer fake.getSecretMutex.RUnlock()
 	argsForCall := fake.getSecretArgsForCall[i]

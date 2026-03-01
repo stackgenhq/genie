@@ -16,6 +16,7 @@ import (
 
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/tools/google/oauth"
+	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 	people "google.golang.org/api/people/v1"
@@ -93,7 +94,10 @@ func (c *contactsTools) tools() []tool.CallableTool {
 // CredentialsFile + TokenFile from the secret provider, or embedded
 // build-time credentials (see pkg/tools/google/oauth).
 func (c *contactsTools) getPeopleService(ctx context.Context) (*people.Service, error) {
-	credsEntry, _ := c.secretProvider.GetSecret(ctx, "CredentialsFile")
+	credsEntry, _ := c.secretProvider.GetSecret(ctx, security.GetSecretRequest{
+		Name:   "CredentialsFile",
+		Reason: fmt.Sprintf("%s Google Contacts tool: %s", c.name, toolcontext.GetJustification(ctx)),
+	})
 	credsJSON, err := oauth.GetCredentials(credsEntry, "Contacts")
 	if err != nil {
 		return nil, err

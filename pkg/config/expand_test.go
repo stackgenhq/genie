@@ -9,6 +9,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	"github.com/stackgenhq/genie/pkg/security"
 )
 
 // staticProvider is a test SecretProvider that returns pre-configured values.
@@ -16,8 +18,8 @@ type staticProvider struct {
 	secrets map[string]string
 }
 
-func (s *staticProvider) GetSecret(_ context.Context, name string) (string, error) {
-	return s.secrets[name], nil
+func (s *staticProvider) GetSecret(_ context.Context, req security.GetSecretRequest) (string, error) {
+	return s.secrets[req.Name], nil
 }
 
 var _ = Describe("expandSecrets", func() {

@@ -22,6 +22,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/mcp"
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/tools/scm"
+	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 )
 
 // Severity indicates how severe a check result is.
@@ -64,7 +65,10 @@ func Run(ctx context.Context, cfg config.GenieConfig, cfgPath string, sp securit
 	// ─── Secrets ([security.secrets]) ───────────────────────────────────
 	if len(cfg.Security.Secrets) > 0 {
 		for name, url := range cfg.Security.Secrets {
-			_, err := sp.GetSecret(ctx, name)
+			_, err := sp.GetSecret(ctx, security.GetSecretRequest{
+				Name:   name,
+				Reason: toolcontext.GetJustification(ctx),
+			})
 			if err != nil {
 				out = append(out, Result{
 					ErrCode: ErrCodeSecretResolveFailed,

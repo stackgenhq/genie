@@ -8,6 +8,7 @@ import (
 
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/security"
+	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 	"google.golang.org/genai"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/model/anthropic"
@@ -84,7 +85,13 @@ func (c *ModelConfig) ValidateAndFilter(ctx context.Context, sp security.SecretP
 		defaultCfg := DefaultModelConfig(ctx, sp)
 		if len(defaultCfg.Providers) > 0 {
 			logr.Info("no configured providers passed validation; trying env-based defaults (OPENAI_API_KEY, GEMINI_API_KEY, GOOGLE_API_KEY, ANTHROPIC_API_KEY)")
-			get := func(name string) string { v, _ := sp.GetSecret(ctx, name); return v }
+			get := func(name string) string {
+				v, _ := sp.GetSecret(ctx, security.GetSecretRequest{
+					Name:   name,
+					Reason: toolcontext.GetJustification(ctx),
+				})
+				return v
+			}
 			for _, p := range defaultCfg.Providers {
 				// Resolve token from secret provider so toModel can pass it to the client.
 				p = resolveTokenForDefaultProvider(p, get)
@@ -146,7 +153,10 @@ func resolveTokenForDefaultProvider(p ProviderConfig, get func(string) string) P
 func DefaultModelConfig(ctx context.Context, sp security.SecretProvider) ModelConfig {
 	// Helper to resolve a secret, ignoring errors (treat as empty).
 	get := func(name string) string {
-		v, _ := sp.GetSecret(ctx, name)
+		v, _ := sp.GetSecret(ctx, security.GetSecretRequest{
+			Name:   name,
+			Reason: toolcontext.GetJustification(ctx),
+		})
 		return v
 	}
 	getWithDefault := func(name, defaultValue string) string {
@@ -256,7 +266,10 @@ func (p ProviderConfig) String() string {
 // Call this before using the provider so the server never starts with invalid credentials.
 func (p ProviderConfig) Validate(ctx context.Context, sp security.SecretProvider) error {
 	get := func(name string) string {
-		v, _ := sp.GetSecret(ctx, name)
+		v, _ := sp.GetSecret(ctx, security.GetSecretRequest{
+			Name:   name,
+			Reason: toolcontext.GetJustification(ctx),
+		})
 		return v
 	}
 	switch strings.ToLower(p.Provider) {

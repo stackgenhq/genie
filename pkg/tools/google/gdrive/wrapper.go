@@ -12,6 +12,7 @@ import (
 
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/tools/google/oauth"
+	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/option"
@@ -47,7 +48,10 @@ func New(ctx context.Context, cfg Config) (Service, error) {
 // device keychain). One sign-in can be reused for Calendar, Contacts, Drive,
 // and Gmail. Drive MUST use this path so it acts as the signed-in user.
 func NewFromSecretProvider(ctx context.Context, sp security.SecretProvider) (Service, error) {
-	credsEntry, _ := sp.GetSecret(ctx, "CredentialsFile")
+	credsEntry, _ := sp.GetSecret(ctx, security.GetSecretRequest{
+		Name:   "CredentialsFile",
+		Reason: fmt.Sprintf("Google Drive tool: %s", toolcontext.GetJustification(ctx)),
+	})
 	credsJSON, err := oauth.GetCredentials(credsEntry, "Drive")
 	if err != nil {
 		return nil, err

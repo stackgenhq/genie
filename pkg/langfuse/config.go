@@ -9,6 +9,7 @@ import (
 
 	"github.com/stackgenhq/genie/pkg/httputil"
 	"github.com/stackgenhq/genie/pkg/security"
+	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 	"github.com/stackgenhq/genie/pkg/ttlcache"
 )
 
@@ -28,7 +29,10 @@ type Config struct {
 func DefaultConfig(ctx context.Context, sp security.SecretProvider) Config {
 	// Helper to resolve a secret, ignoring errors (treat as empty).
 	get := func(name string) string {
-		v, _ := sp.GetSecret(ctx, name)
+		v, _ := sp.GetSecret(ctx, security.GetSecretRequest{
+			Name:   name,
+			Reason: toolcontext.GetJustification(ctx),
+		})
 		return v
 	}
 

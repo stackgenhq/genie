@@ -561,7 +561,7 @@ func (a *Application) secretProviderWithAudit(ctx context.Context) security.Secr
 
 // auditSecretLookup is the callback passed to Manager for secret-access auditing.
 // It logs the logical secret name only; the value is never recorded.
-func (a *Application) auditSecretLookup(ctx context.Context, name string) {
+func (a *Application) auditSecretLookup(ctx context.Context, req security.GetSecretRequest) {
 	if a.auditor == nil {
 		return
 	}
@@ -569,7 +569,10 @@ func (a *Application) auditSecretLookup(ctx context.Context, name string) {
 		EventType: audit.EventSecretAccess,
 		Actor:     "system",
 		Action:    "secret_lookup",
-		Metadata:  map[string]any{"secret_name": name},
+		Metadata: map[string]any{
+			"secret_name": req.Name,
+			"reason":      req.Reason,
+		},
 	})
 }
 
