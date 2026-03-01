@@ -15,6 +15,8 @@
 # ── Model Providers ────────────────────────────────────────
 # Configure one or more LLM providers. Genie routes each task
 # to the provider/model marked as best for that task type.
+# By default, token tailoring is enabled (conversation history trimmed to model
+# context window for efficiency). Set enable_token_tailoring = false to disable.
 
 [[model_config.providers]]
 provider = "openai"
@@ -34,6 +36,7 @@ good_for_task = "tool_calling"
 # model_name = "llama3"
 # host = "http://localhost:11434"
 # good_for_task = "efficiency"
+# enable_token_tailoring = false  # optional: disable if you need full context
 
 # ── Skills ─────────────────────────────────────────────────
 # Reusable agent capabilities (https://agentskills.io)

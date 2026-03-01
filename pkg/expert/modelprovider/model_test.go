@@ -294,6 +294,30 @@ var _ = Describe("ModelProvider", func() {
 		})
 	})
 
+	Describe("ProviderConfig EnableTokenTailoring", func() {
+		It("builds model successfully when EnableTokenTailoring is false", func(ctx context.Context) {
+			falseVal := false
+			cfg := &modelprovider.ModelConfig{
+				Providers: modelprovider.ProviderConfigs{
+					{Provider: "openai", ModelName: "gpt-4", Token: "sk-test", EnableTokenTailoring: &falseVal},
+				},
+			}
+			err := cfg.ValidateAndFilter(ctx, &securityfakes.FakeSecretProvider{}, modelprovider.SkipEchoCheck())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cfg.Providers).To(HaveLen(1))
+		})
+		It("builds model successfully when EnableTokenTailoring is nil (default true)", func(ctx context.Context) {
+			cfg := &modelprovider.ModelConfig{
+				Providers: modelprovider.ProviderConfigs{
+					{Provider: "openai", ModelName: "gpt-4", Token: "sk-test"}, // EnableTokenTailoring nil = default on
+				},
+			}
+			err := cfg.ValidateAndFilter(ctx, &securityfakes.FakeSecretProvider{}, modelprovider.SkipEchoCheck())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cfg.Providers).To(HaveLen(1))
+		})
+	})
+
 	Describe("ModelConfig.ValidateAndFilter", func() {
 		It("removes invalid providers and keeps valid ones", func(ctx context.Context) {
 			cfg := &modelprovider.ModelConfig{

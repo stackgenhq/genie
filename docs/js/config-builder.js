@@ -21,7 +21,7 @@
 
     var state = {
         format: 'toml',
-        providers: [{ provider: 'openai', model_name: 'gpt-5.2', variant: 'default', token: 'OPENAI_API_KEY', good_for_task: 'efficiency' }],
+        providers: [{ provider: 'openai', model_name: 'gpt-5.2', variant: 'default', token: 'OPENAI_API_KEY', good_for_task: 'efficiency', enable_token_tailoring: true }],
 
 
         skills_roots: ['./skills'],
@@ -257,13 +257,14 @@
                 fieldSelect('Model Name', p.model_name, models, function (v) { p.model_name = v; renderOutput(); }, 'The specific AI model to use — bigger models are smarter but slower'),
                 fieldText('Variant', p.variant, function (v) { p.variant = v; renderOutput(); }, 'e.g. default', 'Usually "default" — use "azure" if you host OpenAI on Microsoft Azure'),
                 fieldEnvVar('Token', p.token, function (v) { p.token = v; renderOutput(); }, 'OPENAI_API_KEY', 'The environment variable name holding your API key — keeps secrets out of config files'),
-                fieldSelect('Good For Task', p.good_for_task, TASK_TYPES, function (v) { p.good_for_task = v; renderOutput(); }, 'What this model is best at — Genie routes tasks to the best-fit model')
+                fieldSelect('Good For Task', p.good_for_task, TASK_TYPES, function (v) { p.good_for_task = v; renderOutput(); }, 'What this model is best at — Genie routes tasks to the best-fit model'),
+                fieldToggle('Enable token tailoring', p.enable_token_tailoring !== false, function (v) { p.enable_token_tailoring = v; renderOutput(); }, 'Trim conversation history to fit the model context window — reduces tokens and cost; turn off for debugging or full history')
             ])
         ]);
     }
 
     function addProvider() {
-        state.providers.push({ provider: 'gemini', model_name: 'gemini-3-pro-preview', variant: 'default', token: 'GEMINI_API_KEY', good_for_task: 'tool_calling' });
+        state.providers.push({ provider: 'gemini', model_name: 'gemini-3-pro-preview', variant: 'default', token: 'GEMINI_API_KEY', good_for_task: 'tool_calling', enable_token_tailoring: true });
         renderAll();
     }
 
@@ -843,6 +844,7 @@
             lines.push('variant = ' + q(p.variant));
             if (p.token) lines.push('token = ' + q('${' + p.token + '}'));
             if (p.good_for_task) lines.push('good_for_task = ' + q(p.good_for_task));
+            if (p.enable_token_tailoring === false) lines.push('enable_token_tailoring = false');
             lines.push('');
         });
     }
@@ -1309,6 +1311,7 @@
             lines.push('      variant: ' + p.variant);
             if (p.token) lines.push('      token: ' + yq('${' + p.token + '}'));
             if (p.good_for_task) lines.push('      good_for_task: ' + p.good_for_task);
+            if (p.enable_token_tailoring === false) lines.push('      enable_token_tailoring: false');
         });
         lines.push('');
     }
