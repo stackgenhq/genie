@@ -15,10 +15,11 @@
  ┌────────────────────────────────────────────────────────────────────────────┐
  │                        Middleware Chain                                    │
  │                                                                            │
- │  PanicRecovery → [Tracing] → [Metrics] → Emitter → Logger → Audit →      │
- │  [Timeout] → [RateLimit] → [CircuitBreaker] → [Concurrency] → [Retry] →  │
- │  LoopDetection → FailureLimit → SemanticCache → [Validation] →            │
- │  [Sanitize] → HITLApproval → ContextEnrich → execute()                    │
+ │  [ContextMode] → PanicRecovery → [Tracing] → [Metrics] → Emitter →        │
+ │  Logger → Audit → [Timeout] → [RateLimit] → [CircuitBreaker] →            │
+ │  [Concurrency] → [Retry] → LoopDetection → FailureLimit →                 │
+ │  SemanticCache → [Validation] → [Sanitize] → HITLApproval →               │
+ │  ContextEnrich → execute()                                                │
  │                                                                            │
  │  Always-on middlewares run unconditionally.                                │
  │  [Bracketed] middlewares are opt-in via MiddlewareConfig.                  │
@@ -89,6 +90,9 @@ result, err := handler(ctx, tc)
 
 ```yaml
 toolwrap:
+  context_mode:
+    disabled: false     # enabled by default
+    threshold: 20000    # compress responses above this char count
   timeout:
     enabled: true
     default: 30s
@@ -582,10 +586,10 @@ toolwrap.ContextModeMiddleware(toolwrap.ContextModeConfig{
 **Config:**
 ```yaml
 context_mode:
-  enabled: true
-  threshold: 20000
-  max_chunks: 10
-  chunk_size: 800
+  disabled: false      # enabled by default; set true to turn off
+  threshold: 20000     # compress responses above this char count
+  max_chunks: 10       # return at most this many top-scored chunks
+  chunk_size: 800      # target chars per chunk
 ```
 
 | Aspect | Detail |
