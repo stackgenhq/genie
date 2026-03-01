@@ -72,7 +72,7 @@ type Manager struct {
 	vars           map[string]*runtimevar.Variable
 	secretURLs     map[string]string
 	rawCache       *ttlcache.Item[remoteSecretMap]
-	onSecretLookup func(ctx context.Context, name string)
+	onSecretLookup func(ctx context.Context, req GetSecretRequest)
 }
 
 // ManagerOption configures a Manager at construction time.
@@ -81,7 +81,7 @@ type ManagerOption func(*Manager)
 // WithSecretLookupAudit sets a callback invoked whenever a secret is successfully
 // looked up (GetSecret returns a value). Use it to audit secret access; the
 // callback receives the logical secret name only, never the value.
-func WithSecretLookupAudit(fn func(ctx context.Context, name string)) ManagerOption {
+func WithSecretLookupAudit(fn func(ctx context.Context, req GetSecretRequest)) ManagerOption {
 	return func(m *Manager) {
 		m.onSecretLookup = fn
 	}
@@ -188,20 +188,23 @@ func isConfigError(err error) bool {
 // Errors are returned when the cache cannot be populated, or a requested
 // gjson path does not exist in the JSON. A missing env var returns "" with
 // no error — matching the existing behavior callers depend on.
-func (m *Manager) GetSecret(ctx context.Context, name string) (string, error) {
-	logr := logger.GetLogger(ctx).With("fn", "Manager.GetSecret", "name", name)
-	baseName, nameJSONPath := parseSecretName(name)
+func (m *Manager) GetSecret(ctx context.Context, req GetSecretRequest) (string, error) {
+	logr := logger.GetLogger(ctx).With("fn", "Manager.GetSecret", "name", req.Name)
+	var nameJSONPath string
+	req.Name, nameJSONPath = req.parseSecretName()
 
-	varURL, hasURL := m.secretURLs[baseName]
+	varURL, hasURL := m.secretURLs[req.Name]
 	if !hasURL {
-		rawValue := os.Getenv(baseName)
+		rawValue := os.Getenv(req.Name)
 		if nameJSONPath == "" {
-			m.auditSecretLookup(ctx, baseName)
+			if rawValue != "" {
+				m.auditSecretLookup(ctx, req)
+			}
 			return rawValue, nil
 		}
-		val, err := extractJSONPath(baseName, rawValue, nameJSONPath)
-		if err == nil {
-			m.auditSecretLookup(ctx, baseName)
+		val, err := extractJSONPath(req.Name, rawValue, nameJSONPath)
+		if err == nil && val != "" {
+			m.auditSecretLookup(ctx, req)
 		}
 		return val, err
 	}
@@ -211,34 +214,38 @@ func (m *Manager) GetSecret(ctx context.Context, name string) (string, error) {
 		// Fall back to env only for runtime failures (e.g. network, timeout), not config errors (e.g. unsupported scheme).
 		if !isConfigError(err) {
 			logr.Warn("Runtimevar resolution failed, falling back to env var", "error", err)
-			rawValue := os.Getenv(baseName)
+			rawValue := os.Getenv(req.Name)
 			if nameJSONPath == "" {
-				m.auditSecretLookup(ctx, baseName)
+				if rawValue != "" {
+					m.auditSecretLookup(ctx, req)
+				}
 				return rawValue, nil
 			}
-			val, err := extractJSONPath(baseName, rawValue, nameJSONPath)
-			if err == nil {
-				m.auditSecretLookup(ctx, baseName)
+			val, err := extractJSONPath(req.Name, rawValue, nameJSONPath)
+			if err == nil && val != "" {
+				m.auditSecretLookup(ctx, req)
 			}
 			return val, err
 		}
 		return "", err
 	}
 
-	rawValue, ok := resolved[baseName]
+	rawValue, ok := resolved[req.Name]
 	if !ok {
-		return "", fmt.Errorf("failed to resolve secret %q from runtimevar (configured URL could not be fetched — check credentials and network)", baseName)
+		return "", fmt.Errorf("failed to resolve secret %q from runtimevar (configured URL could not be fetched — check credentials and network)", req.Name)
 	}
 	if rawValue == "" {
-		logr.Warn("Secret empty from runtimevar, falling back to env var", "baseName", baseName)
-		rawValue = os.Getenv(baseName)
+		logr.Warn("Secret empty from runtimevar, falling back to env var", "req.Name", req.Name)
+		rawValue = os.Getenv(req.Name)
 		if nameJSONPath == "" {
-			m.auditSecretLookup(ctx, baseName)
+			if rawValue != "" {
+				m.auditSecretLookup(ctx, req)
+			}
 			return rawValue, nil
 		}
-		val, err := extractJSONPath(baseName, rawValue, nameJSONPath)
-		if err == nil {
-			m.auditSecretLookup(ctx, baseName)
+		val, err := extractJSONPath(req.Name, rawValue, nameJSONPath)
+		if err == nil && val != "" {
+			m.auditSecretLookup(ctx, req)
 		}
 		return val, err
 	}
@@ -249,13 +256,13 @@ func (m *Manager) GetSecret(ctx context.Context, name string) (string, error) {
 		jsonPath = nameJSONPath
 	}
 	if jsonPath == "" {
-		m.auditSecretLookup(ctx, baseName)
+		m.auditSecretLookup(ctx, req)
 		return rawValue, nil
 	}
 
-	val, err := extractJSONPath(baseName, rawValue, jsonPath)
+	val, err := extractJSONPath(req.Name, rawValue, jsonPath)
 	if err == nil {
-		m.auditSecretLookup(ctx, baseName)
+		m.auditSecretLookup(ctx, req)
 	}
 	return val, err
 }
@@ -263,16 +270,16 @@ func (m *Manager) GetSecret(ctx context.Context, name string) (string, error) {
 // auditSecretLookup invokes the optional onSecretLookup callback. Call only when
 // a secret value is successfully returned (never with the value; name is the logical key).
 // A panicking callback is recovered and logged so secret lookups still succeed.
-func (m *Manager) auditSecretLookup(ctx context.Context, name string) {
+func (m *Manager) auditSecretLookup(ctx context.Context, req GetSecretRequest) {
 	if m.onSecretLookup == nil {
 		return
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			logger.GetLogger(ctx).Warn("secret lookup audit callback panicked", "panic", r, "secret_name", name)
+			logger.GetLogger(ctx).Warn("secret lookup audit callback panicked", "panic", r, "secret_name", req.Name)
 		}
 	}()
-	m.onSecretLookup(ctx, name)
+	m.onSecretLookup(ctx, req)
 }
 
 // parseSecretName splits a secret name into its base name and an optional
@@ -281,14 +288,14 @@ func (m *Manager) auditSecretLookup(ctx context.Context, name string) {
 // a query string return the name unchanged and an empty path. This is used
 // for the env-var fallback path where there is no runtimevar URL to embed
 // the path in.
-func parseSecretName(name string) (baseName, jsonPath string) {
-	idx := strings.IndexByte(name, '?')
+func (req GetSecretRequest) parseSecretName() (baspath, jsonPath string) {
+	idx := strings.IndexByte(req.Name, '?')
 	if idx < 0 {
-		return name, ""
+		return req.Name, ""
 	}
 
-	baseName = name[:idx]
-	query := name[idx+1:]
+	query := req.Name[idx+1:]
+	req.Name = req.Name[:idx]
 
 	for _, part := range strings.Split(query, "&") {
 		if strings.HasPrefix(part, "path=") {
@@ -297,7 +304,7 @@ func parseSecretName(name string) (baseName, jsonPath string) {
 		}
 	}
 
-	return baseName, jsonPath
+	return req.Name, jsonPath
 }
 
 // stripPathParam extracts and removes the "path" query parameter from a

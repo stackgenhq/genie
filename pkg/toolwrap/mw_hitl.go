@@ -13,6 +13,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/messenger"
 	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
+	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 )
 
 // maxApprovalCacheSize limits the number of entries in the approval cache.
@@ -139,11 +140,13 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 	return func(ctx context.Context, tc *ToolCallContext) (any, error) {
 		// Always extract _justification — the audit middleware needs it
 		// even when HITL is disabled (store == nil).
-		justification, strippedArgs := extractJustification(tc.Args)
-		if justification != "" {
+		justification, strippedArgs, found := extractJustification(tc.Args)
+		if found {
 			tc.Args = strippedArgs
 			tc.Justification = justification
 		}
+
+		ctx = toolcontext.WithJustification(ctx, justification)
 
 		if m.store == nil {
 			return next(ctx, tc)

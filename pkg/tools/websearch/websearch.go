@@ -237,7 +237,10 @@ func (s *searchTool) searchGoogle(ctx context.Context, req SearchRequest) (strin
 // searchGoogleWithOAuth calls the Custom Search JSON API using the shared Google OAuth token.
 // Same token as Calendar, Drive, Gmail; one sign-in can power search too.
 func (s *searchTool) searchGoogleWithOAuth(ctx context.Context, query string) (string, error) {
-	credsEntry, _ := s.secretProvider.GetSecret(ctx, "CredentialsFile")
+	credsEntry, _ := s.secretProvider.GetSecret(ctx, security.GetSecretRequest{
+		Name:   "CredentialsFile",
+		Reason: "google web search OAuth: loading credentials for Custom Search API",
+	})
 	credsJSON, err := oauth.GetCredentials(credsEntry, "Custom Search")
 	if err != nil {
 		return "", fmt.Errorf("google search oauth credentials: %w", err)

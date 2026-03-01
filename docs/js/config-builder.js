@@ -46,6 +46,7 @@
         email: { provider: '', host: '', port: 587, username: '', password: '', imap_host: '', imap_port: 993 },
         hitl: { always_allowed: [], denied_tools: [], cache_ttl: '' },
         toolwrap: {
+            context_mode: { disabled: false, threshold: 20000, max_chunks: 10, chunk_size: 800 },
             timeout: { enabled: false, default_timeout: '30s', per_tool: '' },
             rate_limit: { enabled: false, global_rate_per_minute: 60, per_tool_rate_per_minute: '' },
             circuit_breaker: { enabled: false, failure_threshold: 5, open_duration: '30s' },
@@ -600,6 +601,17 @@
         c.innerHTML = '';
         var tw = state.toolwrap;
 
+        // Context Mode
+        c.appendChild(el('div', { className: 'space-y-3 mb-4' }, [
+            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Context Mode'),
+            el('div', { className: 'grid grid-cols-1 sm:grid-cols-3 gap-4' }, [
+                fieldToggle('Disabled', tw.context_mode.disabled, function (v) { tw.context_mode.disabled = v; renderAll(); }, 'Local BM25 compression for large tool outputs — reduces token usage without LLM calls. Enabled by default.'),
+                !tw.context_mode.disabled ? fieldNumber('Threshold (chars)', tw.context_mode.threshold, function (v) { tw.context_mode.threshold = v; renderOutput(); }, 1000, 500000, 'Character count above which responses are compressed (default 20000 ≈ 5k tokens)') : null,
+                !tw.context_mode.disabled ? fieldNumber('Max Chunks', tw.context_mode.max_chunks, function (v) { tw.context_mode.max_chunks = v; renderOutput(); }, 1, 100, 'Maximum number of top-scored chunks returned (default 10)') : null,
+                !tw.context_mode.disabled ? fieldNumber('Chunk Size (chars)', tw.context_mode.chunk_size, function (v) { tw.context_mode.chunk_size = v; renderOutput(); }, 100, 10000, 'Target character count per chunk (default 800)') : null
+            ].filter(Boolean))
+        ]));
+
         // Timeout
         c.appendChild(el('div', { className: 'space-y-3 mb-4' }, [
             el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Timeout'),
@@ -1127,10 +1139,16 @@
 
     function toolwrapToToml(lines) {
         var tw = state.toolwrap;
-        var any = tw.timeout.enabled || tw.rate_limit.enabled || tw.circuit_breaker.enabled ||
+        var any = tw.context_mode.disabled || tw.timeout.enabled || tw.rate_limit.enabled || tw.circuit_breaker.enabled ||
             tw.concurrency.enabled || tw.retry.enabled || tw.metrics.enabled ||
             tw.tracing.enabled || tw.sanitize.enabled || tw.validation.enabled;
         if (!any) return;
+
+        if (tw.context_mode.disabled) {
+            lines.push('[toolwrap.context_mode]');
+            lines.push('disabled = true');
+            lines.push('');
+        }
 
         if (tw.timeout.enabled) {
             lines.push('[toolwrap.timeout]');
@@ -1580,11 +1598,16 @@
 
     function toolwrapToYaml(lines) {
         var tw = state.toolwrap;
-        var any = tw.timeout.enabled || tw.rate_limit.enabled || tw.circuit_breaker.enabled ||
+        var any = tw.context_mode.disabled || tw.timeout.enabled || tw.rate_limit.enabled || tw.circuit_breaker.enabled ||
             tw.concurrency.enabled || tw.retry.enabled || tw.metrics.enabled ||
             tw.tracing.enabled || tw.sanitize.enabled || tw.validation.enabled;
         if (!any) return;
         lines.push('toolwrap:');
+
+        if (tw.context_mode.disabled) {
+            lines.push('  context_mode:');
+            lines.push('    disabled: true');
+        }
 
         if (tw.timeout.enabled) {
             lines.push('  timeout:');

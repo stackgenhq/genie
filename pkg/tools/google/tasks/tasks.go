@@ -21,6 +21,7 @@ import (
 
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/tools/google/oauth"
+	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 	tasksapi "google.golang.org/api/tasks/v1"
@@ -84,7 +85,10 @@ type tasksWrapper struct {
 // token (TokenFile, Token/Password, or device keyring). One sign-in can power
 // Calendar, Contacts, Drive, Gmail, and Tasks.
 func NewFromSecretProvider(ctx context.Context, sp security.SecretProvider) (Service, error) {
-	credsEntry, _ := sp.GetSecret(ctx, "CredentialsFile")
+	credsEntry, _ := sp.GetSecret(ctx, security.GetSecretRequest{
+		Name:   "CredentialsFile",
+		Reason: fmt.Sprintf("Google Tasks tool: %s", toolcontext.GetJustification(ctx)),
+	})
 	credsJSON, err := oauth.GetCredentials(credsEntry, "Tasks")
 	if err != nil {
 		return nil, err

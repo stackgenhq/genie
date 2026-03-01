@@ -19,7 +19,7 @@ import (
 // Without this provider, local development would require an external
 // secret store even for simple API key configuration.
 type envProvider struct {
-	onSecretLookup func(ctx context.Context, name string)
+	onSecretLookup func(ctx context.Context, req GetSecretRequest)
 }
 
 // EnvProviderOption configures an envProvider at construction time.
@@ -28,7 +28,7 @@ type EnvProviderOption func(*envProvider)
 // WithSecretLookupAudit sets a callback invoked whenever a secret is successfully
 // looked up (GetSecret returns a non-empty value). Use it to audit secret access;
 // the callback receives the logical secret name only, never the value.
-func WithSecretLookupAuditEnv(fn func(ctx context.Context, name string)) EnvProviderOption {
+func WithSecretLookupAuditEnv(fn func(ctx context.Context, req GetSecretRequest)) EnvProviderOption {
 	return func(e *envProvider) {
 		e.onSecretLookup = fn
 	}
@@ -49,10 +49,10 @@ func NewEnvProvider(opts ...EnvProviderOption) SecretProvider {
 // GetSecret returns the value of the environment variable named by name.
 // Returns an empty string (not an error) when the variable is unset,
 // matching the existing os.Getenv behavior that callers expect.
-func (e *envProvider) GetSecret(ctx context.Context, name string) (string, error) {
-	val := os.Getenv(name)
+func (e *envProvider) GetSecret(ctx context.Context, req GetSecretRequest) (string, error) {
+	val := os.Getenv(req.Name)
 	if val != "" && e.onSecretLookup != nil {
-		e.auditSecretLookup(ctx, name)
+		e.auditSecretLookup(ctx, req)
 	}
 	return val, nil
 }
@@ -60,14 +60,14 @@ func (e *envProvider) GetSecret(ctx context.Context, name string) (string, error
 // auditSecretLookup invokes the optional onSecretLookup callback. Call only when
 // a non-empty secret value was returned. A panicking callback is recovered and
 // logged so secret lookups still succeed.
-func (e *envProvider) auditSecretLookup(ctx context.Context, name string) {
+func (e *envProvider) auditSecretLookup(ctx context.Context, req GetSecretRequest) {
 	if e.onSecretLookup == nil {
 		return
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			logger.GetLogger(ctx).Warn("secret lookup audit callback panicked", "panic", r, "secret_name", name)
+			logger.GetLogger(ctx).Warn("secret lookup audit callback panicked", "panic", r, "secret_name", req.Name)
 		}
 	}()
-	e.onSecretLookup(ctx, name)
+	e.onSecretLookup(ctx, req)
 }

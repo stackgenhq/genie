@@ -11,6 +11,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/security"
+	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
@@ -153,7 +154,10 @@ func (c *Client) buildStdioEnv(ctx context.Context, config MCPServerConfig) []st
 // expandEnvValue expands ${NAME} and $NAME in value using the client's SecretProvider.
 func (c *Client) expandEnvValue(ctx context.Context, value string) string {
 	return os.Expand(value, func(name string) string {
-		val, err := c.secretProvider.GetSecret(ctx, name)
+		val, err := c.secretProvider.GetSecret(ctx, security.GetSecretRequest{
+			Name:   name,
+			Reason: toolcontext.GetJustification(ctx),
+		})
 		if err != nil {
 			logger.GetLogger(ctx).With("fn", "mcp.expandEnvValue").Debug("secret lookup failed", "name", name, "error", err)
 			return ""

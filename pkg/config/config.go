@@ -29,6 +29,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/tools/scm"
 	"github.com/stackgenhq/genie/pkg/tools/websearch"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
+	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 	"gopkg.in/yaml.v3"
 )
 
@@ -91,7 +92,10 @@ type GenieConfig struct {
 func LoadGenieConfig(ctx context.Context, sp security.SecretProvider, path string) (GenieConfig, error) {
 	// Helper to resolve a secret, ignoring errors (treat as empty).
 	get := func(name string) string {
-		v, _ := sp.GetSecret(ctx, name)
+		v, _ := sp.GetSecret(ctx, security.GetSecretRequest{
+			Name:   name,
+			Reason: toolcontext.GetJustification(ctx),
+		})
 		return v
 	}
 

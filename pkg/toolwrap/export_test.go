@@ -9,6 +9,10 @@ import (
 // RedactSensitiveArgsForTest exports redactSensitiveArgs for tests only. Not part of the public API.
 var RedactSensitiveArgsForTest = redactSensitiveArgs
 
+// ExtractJustificationForTest exports extractJustification for tests only. Not part of the public API.
+// Returns (justification, strippedArgs, found).
+var ExtractJustificationForTest = extractJustification
+
 // SemanticKeyForTest creates a temporary semanticCacheMiddleware and returns its key for tests only. Not part of the public API.
 func SemanticKeyForTest(toolName string, args []byte) (string, bool) {
 	m := &semanticCacheMiddleware{

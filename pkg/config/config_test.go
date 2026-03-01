@@ -9,16 +9,8 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/stackgenhq/genie/pkg/config"
 	"github.com/stackgenhq/genie/pkg/security"
+	"github.com/stackgenhq/genie/pkg/security/securityfakes"
 )
-
-// fakeSecretProvider returns configured values for secret names.
-type fakeSecretProvider struct {
-	secrets map[string]string
-}
-
-func (f *fakeSecretProvider) GetSecret(_ context.Context, name string) (string, error) {
-	return f.secrets[name], nil
-}
 
 var _ = Describe("LoadGenieConfig", func() {
 	var (
@@ -76,10 +68,12 @@ var _ = Describe("LoadGenieConfig", func() {
 	})
 
 	It("should set SKILLS_ROOT from env when path is empty", func() {
-		fakeSP := &fakeSecretProvider{
-			secrets: map[string]string{
+		fakeSP := &securityfakes.FakeSecretProvider{}
+		fakeSP.GetSecretStub = func(_ context.Context, req security.GetSecretRequest) (string, error) {
+			secrets := map[string]string{
 				"SKILLS_ROOT": "/tmp/my-skills",
-			},
+			}
+			return secrets[req.Name], nil
 		}
 		cfg, err := config.LoadGenieConfig(ctx, fakeSP, "")
 		Expect(err).NotTo(HaveOccurred())
@@ -93,10 +87,12 @@ var _ = Describe("LoadGenieConfig", func() {
 		err := os.WriteFile(cfgFile, []byte("model_config:\n  providers: []\n"), 0644)
 		Expect(err).NotTo(HaveOccurred())
 
-		fakeSP := &fakeSecretProvider{
-			secrets: map[string]string{
+		fakeSP := &securityfakes.FakeSecretProvider{}
+		fakeSP.GetSecretStub = func(_ context.Context, req security.GetSecretRequest) (string, error) {
+			secrets := map[string]string{
 				"SKILLS_ROOT": "/tmp/fallback-skills",
-			},
+			}
+			return secrets[req.Name], nil
 		}
 		cfg, err := config.LoadGenieConfig(ctx, fakeSP, cfgFile)
 		Expect(err).NotTo(HaveOccurred())
@@ -104,10 +100,12 @@ var _ = Describe("LoadGenieConfig", func() {
 	})
 
 	It("should set VectorMemory embedding provider to gemini when gemini key is set", func() {
-		fakeSP := &fakeSecretProvider{
-			secrets: map[string]string{
+		fakeSP := &securityfakes.FakeSecretProvider{}
+		fakeSP.GetSecretStub = func(_ context.Context, req security.GetSecretRequest) (string, error) {
+			secrets := map[string]string{
 				"GOOGLE_API_KEY": "test-gemini-key",
-			},
+			}
+			return secrets[req.Name], nil
 		}
 		cfg, err := config.LoadGenieConfig(ctx, fakeSP, "")
 		Expect(err).NotTo(HaveOccurred())
@@ -115,10 +113,12 @@ var _ = Describe("LoadGenieConfig", func() {
 	})
 
 	It("should set VectorMemory embedding provider to huggingface when HF URL is set", func() {
-		fakeSP := &fakeSecretProvider{
-			secrets: map[string]string{
+		fakeSP := &securityfakes.FakeSecretProvider{}
+		fakeSP.GetSecretStub = func(_ context.Context, req security.GetSecretRequest) (string, error) {
+			secrets := map[string]string{
 				"HUGGINGFACE_URL": "http://localhost:8080",
-			},
+			}
+			return secrets[req.Name], nil
 		}
 		cfg, err := config.LoadGenieConfig(ctx, fakeSP, "")
 		Expect(err).NotTo(HaveOccurred())
@@ -126,11 +126,13 @@ var _ = Describe("LoadGenieConfig", func() {
 	})
 
 	It("should prioritize openai over gemini for embedding provider", func() {
-		fakeSP := &fakeSecretProvider{
-			secrets: map[string]string{
+		fakeSP := &securityfakes.FakeSecretProvider{}
+		fakeSP.GetSecretStub = func(_ context.Context, req security.GetSecretRequest) (string, error) {
+			secrets := map[string]string{
 				"OPENAI_API_KEY": "test-openai-key",
 				"GEMINI_API_KEY": "test-gemini-key",
-			},
+			}
+			return secrets[req.Name], nil
 		}
 		cfg, err := config.LoadGenieConfig(ctx, fakeSP, "")
 		Expect(err).NotTo(HaveOccurred())
@@ -152,10 +154,12 @@ var _ = Describe("LoadGenieConfig", func() {
 		// Ensure the env var is NOT set so the only way to resolve is the provider.
 		os.Unsetenv("MY_TOKEN")
 
-		fakeSP := &fakeSecretProvider{
-			secrets: map[string]string{
+		fakeSP := &securityfakes.FakeSecretProvider{}
+		fakeSP.GetSecretStub = func(_ context.Context, req security.GetSecretRequest) (string, error) {
+			secrets := map[string]string{
 				"MY_TOKEN": "resolved-from-provider",
-			},
+			}
+			return secrets[req.Name], nil
 		}
 		path := filepath.Join("testdata", "secret_provider.yaml")
 		cfg, err := config.LoadGenieConfig(ctx, fakeSP, path)
@@ -187,7 +191,7 @@ var _ = Describe("LoadGenieConfig", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		os.Unsetenv("OPENAI_APY_KEY")
-		fakeSP := &fakeSecretProvider{secrets: map[string]string{}}
+		fakeSP := &securityfakes.FakeSecretProvider{}
 		cfg, err := config.LoadGenieConfig(ctx, fakeSP, cfgFile)
 		Expect(err).ToNot(HaveOccurred())
 		// Token resolves to empty — the warning is logged but not an error.

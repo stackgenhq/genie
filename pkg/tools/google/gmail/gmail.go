@@ -20,6 +20,7 @@ import (
 
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/tools/google/oauth"
+	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/option"
@@ -75,7 +76,10 @@ type gmailWrapper struct {
 // token (TokenFile, Token/Password, or device keyring). One sign-in can power
 // Calendar, Contacts, Drive, and Gmail.
 func NewFromSecretProvider(ctx context.Context, sp security.SecretProvider) (Service, error) {
-	credsEntry, _ := sp.GetSecret(ctx, "CredentialsFile")
+	credsEntry, _ := sp.GetSecret(ctx, security.GetSecretRequest{
+		Name:   "CredentialsFile",
+		Reason: fmt.Sprintf("Google Gmail tool: %s", toolcontext.GetJustification(ctx)),
+	})
 	credsJSON, err := oauth.GetCredentials(credsEntry, "Gmail")
 	if err != nil {
 		return nil, err

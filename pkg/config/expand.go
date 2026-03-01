@@ -12,6 +12,7 @@ import (
 
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/security"
+	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 )
 
 // providersRequiringToken lists provider names that typically require an
@@ -65,7 +66,10 @@ func (p providerTokenInfo) validate() error {
 func expandSecrets(ctx context.Context, sp security.SecretProvider, input string) string {
 	logger := logger.GetLogger(ctx).With("fn", "expandSecrets")
 	return os.Expand(input, func(name string) string {
-		val, err := sp.GetSecret(ctx, name)
+		val, err := sp.GetSecret(ctx, security.GetSecretRequest{
+			Name:   name,
+			Reason: toolcontext.GetJustification(ctx),
+		})
 		if err != nil {
 			logger.Warn("Failed to get secret", "name", name, "error", err)
 			return ""
