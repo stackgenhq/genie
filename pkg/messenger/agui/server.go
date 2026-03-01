@@ -487,11 +487,16 @@ func newDocsProxy() *httputil.ReverseProxy {
 
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
+		// Capture the raw request path before originalDirector modifies it.
+		// NewSingleHostReverseProxy joins the target's /genie/ base path with
+		// the request path, so reading req.URL.Path after the call would already
+		// have the /genie/ prefix — causing a double-prefix (/genie/genie/...).
+		reqPath := req.URL.Path
 		originalDirector(req)
 		req.Host = docsURL.Host
-		// Sanitise the path and re-apply the /genie/ prefix so
+		// Sanitise the original path and apply the /genie/ prefix so
 		// cleaned paths like "/" (from "/ui/../") cannot escape.
-		cleaned := path.Clean(req.URL.Path)
+		cleaned := path.Clean(reqPath)
 		req.URL.Path = path.Join("/genie", cleaned)
 		if !strings.HasPrefix(req.URL.Path, "/genie") {
 			req.URL.Path = "/genie/"
