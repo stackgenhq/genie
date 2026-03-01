@@ -632,8 +632,8 @@ github.com/sirupsen/logrus v1.9.3 h1:dueUQJ1C2q9oE3F7wvmSGAaVtTmUizReu6fjN8uqzbQ
 github.com/sirupsen/logrus v1.9.3/go.mod h1:naHLuLoDiP4jHNo9R0sCBMtWGeIprob74mVsIT4qYEQ=
 github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e h1:MRM5ITcdelLK2j1vwZ3Je0FKVCfqOLp5zO6trqMLYs0=
 github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e/go.mod h1:XV66xRDqSt+GTGFMVlhk3ULuV0y9ZmzeVGR4mloJI3M=
-github.com/sks/trpc-agent-go v0.0.0-20260222042814-5a8ec2571a6f h1:b02nZvJwz/AhYL5hnKlJ+nJOHFhjcSGV0p4okWS0l20=
-github.com/sks/trpc-agent-go v0.0.0-20260222042814-5a8ec2571a6f/go.mod h1:fkzxTI1tpMGyWawjK6PbyW7+SgM1iAs9C7sNyDXHRVw=
+github.com/sks/trpc-agent-go v0.0.0-20260301180246-c5e2a2e4bde6 h1:mOABmouyCUd6oyJ0df2m8olmTIMdxMrg+Pd/QrPOCTs=
+github.com/sks/trpc-agent-go v0.0.0-20260301180246-c5e2a2e4bde6/go.mod h1:fkzxTI1tpMGyWawjK6PbyW7+SgM1iAs9C7sNyDXHRVw=
 github.com/sks/trpc-agent-go/model/gemini v0.0.0-20260222042814-5a8ec2571a6f h1:fV7ZK4uBOVfSYgtWOyVuEbEQlB3o0es5kjydAMU9nEk=
 github.com/sks/trpc-agent-go/model/gemini v0.0.0-20260222042814-5a8ec2571a6f/go.mod h1:AKe0sobDAgFfnpdOU0sFm1B8tBrKk/PP1a8QDiqPNeg=
 github.com/slack-go/slack v0.18.0 h1:PM3IWgAoaPTnitOyfy8Unq/rk8OZLAxlBUhNLv8sbyg=
