@@ -1120,6 +1120,8 @@ func FunctionName() {
 
 **All unit tests MUST follow BDD principles:**
 
+- **Arrange-Act-Assert (MANDATORY)**: All unit tests MUST follow the Arrange-Act-Assert (AAA) pattern. Clearly separate test setup (Arrange), the action under test (Act), and the verification of results (Assert). Use blank lines or comments (`// Arrange`, `// Act`, `// Assert`) to visually separate the three phases when the test body is non-trivial.
+
 - **Given-When-Then Structure**: Structure tests to clearly express the scenario (Given), action (When), and expected outcome (Then)
 - **Descriptive Test Names**: Use `Describe` and `It` blocks with descriptive names that explain the behavior being tested
 - **Context Blocks**: Use `Context` blocks to group related scenarios and express different conditions
