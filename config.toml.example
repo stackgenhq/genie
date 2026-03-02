@@ -180,8 +180,6 @@ always_allowed = ["read_file", "list_file"]
 # secret_key = "${LANGFUSE_SECRET_KEY}"
 # host = "https://cloud.langfuse.com"
 
-
-
 # ── Cron (Scheduled Tasks) ─────────────────────────────────
 # [cron]
 # enabled = true

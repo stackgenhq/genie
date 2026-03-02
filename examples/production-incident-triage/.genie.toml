@@ -1,7 +1,7 @@
 # Example Configuration with Remote Skills
 
 # Using skills roots (supports single or multiple paths)
-skills_roots = ["${PWD}/runbooks/"]
+# skills_roots = ["./skills"]
 
 [db_config]
 db_file = "./.genie.db"
