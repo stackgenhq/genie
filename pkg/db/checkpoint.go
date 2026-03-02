@@ -17,9 +17,9 @@ import (
 // Each row stores a serialised graph checkpoint with its metadata,
 // keyed by lineage, namespace, and checkpoint ID.
 type checkpointRow struct {
-	LineageID          string `gorm:"primaryKey;type:text;column:lineage_id;default:''"`    //nolint:lll
-	CheckpointNS       string `gorm:"primaryKey;type:text;column:checkpoint_ns;default:''"` //nolint:lll
-	CheckpointID       string `gorm:"primaryKey;type:text;column:checkpoint_id;default:''"` //nolint:lll
+	LineageID          string `gorm:"primaryKey;type:text;column:lineage_id"`
+	CheckpointNS       string `gorm:"primaryKey;type:text;column:checkpoint_ns"`
+	CheckpointID       string `gorm:"primaryKey;type:text;column:checkpoint_id"`
 	ParentCheckpointID string `gorm:"type:text;column:parent_checkpoint_id"`
 	TS                 int64  `gorm:"type:bigint;not null;column:ts"`
 	CheckpointJSON     []byte `gorm:"type:bytea;not null;column:checkpoint_json"`
@@ -32,11 +32,11 @@ func (checkpointRow) TableName() string { return "checkpoints" }
 // Each row represents a single pending write linked to a checkpoint,
 // used for deterministic replay of graph execution.
 type checkpointWriteRow struct {
-	LineageID    string `gorm:"primaryKey;type:text;column:lineage_id;default:''"`    //nolint:lll
-	CheckpointNS string `gorm:"primaryKey;type:text;column:checkpoint_ns;default:''"` //nolint:lll
-	CheckpointID string `gorm:"primaryKey;type:text;column:checkpoint_id;default:''"` //nolint:lll
-	TaskID       string `gorm:"primaryKey;type:text;column:task_id;default:''"`       //nolint:lll
-	Idx          int    `gorm:"primaryKey;type:integer;column:idx;default:0"`
+	LineageID    string `gorm:"primaryKey;type:text;column:lineage_id"`
+	CheckpointNS string `gorm:"primaryKey;type:text;column:checkpoint_ns"`
+	CheckpointID string `gorm:"primaryKey;type:text;column:checkpoint_id"`
+	TaskID       string `gorm:"primaryKey;type:text;column:task_id"`
+	Idx          int    `gorm:"primaryKey;type:integer;column:idx"`
 	Channel      string `gorm:"type:text;not null;column:channel"`
 	ValueJSON    []byte `gorm:"type:bytea;not null;column:value_json"`
 	TaskPath     string `gorm:"type:text;column:task_path"`
@@ -66,8 +66,17 @@ func NewGormCheckpointSaver(db *gorm.DB) (*GormCheckpointSaver, error) {
 	// Fix pre-existing NULL checkpoint_ns values (from earlier schema versions)
 	// so that AutoMigrate's NOT NULL constraint is satisfied during the
 	// temp-table copy that SQLite performs.
-	db.Exec("UPDATE checkpoints SET checkpoint_ns = '' WHERE checkpoint_ns IS NULL")
-	db.Exec("UPDATE checkpoint_writes SET checkpoint_ns = '' WHERE checkpoint_ns IS NULL")
+	migrator := db.Migrator()
+	if migrator.HasTable(&checkpointRow{}) {
+		if err := db.Exec("UPDATE checkpoints SET checkpoint_ns = '' WHERE checkpoint_ns IS NULL").Error; err != nil {
+			return nil, fmt.Errorf("fixup checkpoints.checkpoint_ns NULLs: %w", err)
+		}
+	}
+	if migrator.HasTable(&checkpointWriteRow{}) {
+		if err := db.Exec("UPDATE checkpoint_writes SET checkpoint_ns = '' WHERE checkpoint_ns IS NULL").Error; err != nil {
+			return nil, fmt.Errorf("fixup checkpoint_writes.checkpoint_ns NULLs: %w", err)
+		}
+	}
 
 	if err := db.AutoMigrate(&checkpointRow{}, &checkpointWriteRow{}); err != nil {
 		return nil, fmt.Errorf("auto-migrate checkpoint tables: %w", err)
