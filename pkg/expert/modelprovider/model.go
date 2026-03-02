@@ -320,6 +320,66 @@ func (p ProviderConfig) enableTokenTailoring() bool {
 	return *p.EnableTokenTailoring
 }
 
+// anthropicModelMaxOutput maps known Anthropic model names to their hard API
+// max_tokens limits. These limits are separate from the input context window:
+// e.g. claude-sonnet-4-6 has a 200k input window but only 128k max output tokens.
+// Token tailoring computes output tokens from the context window remainder, which
+// can exceed the API limit and cause a 400. This map is used to cap the value.
+// Return 0 for unknown models (no cap applied — tailoring computes freely).
+var anthropicModelMaxOutput = map[string]int{
+	// Claude 4.x confirmed from API error: max_tokens: 179487 > 128000
+	"claude-sonnet-4-6": 128000,
+	"claude-opus-4-6":   128000,
+	// Claude 3.7
+	"claude-3-7-sonnet": 64000,
+	// Claude 3.5
+	"claude-3-5-sonnet": 8192,
+	"claude-3-5-haiku":  8192,
+	// Claude 3
+	"claude-3-opus":   4096,
+	"claude-3-sonnet": 4096,
+	"claude-3-haiku":  4096,
+}
+
+// resolveAnthropicMaxOutput returns the API max output token limit for a model.
+// Exact name match first, then prefix-based fallback, then 0 (no cap).
+func resolveAnthropicMaxOutput(modelName string) int {
+	key := strings.ToLower(modelName)
+	if v, ok := anthropicModelMaxOutput[key]; ok {
+		return v
+	}
+	for k, v := range anthropicModelMaxOutput {
+		if strings.HasPrefix(key, k) {
+			return v
+		}
+	}
+	return 0
+}
+
+// maxOutputCapModel wraps model.Model and caps GenerationConfig.MaxTokens before
+// each GenerateContent call. This ensures token tailoring never sends a max_tokens
+// value that exceeds the model's hard API output limit.
+// The underlying model's input token tailoring (message trimming) still runs normally
+// because that part of applyTokenTailoring is independent of MaxTokens.
+type maxOutputCapModel struct {
+	inner     model.Model
+	maxOutput int
+}
+
+func (m *maxOutputCapModel) Info() model.Info {
+	return m.inner.Info()
+}
+
+func (m *maxOutputCapModel) GenerateContent(ctx context.Context, req *model.Request) (<-chan *model.Response, error) {
+	if req != nil && m.maxOutput > 0 {
+		if req.MaxTokens == nil || *req.MaxTokens > m.maxOutput {
+			capped := m.maxOutput
+			req.MaxTokens = &capped
+		}
+	}
+	return m.inner.GenerateContent(ctx, req)
+}
+
 func (p ProviderConfig) toModel(ctx context.Context) (model.Model, error) {
 	tailoring := p.enableTokenTailoring()
 	if tailoring {
@@ -364,7 +424,11 @@ func (p ProviderConfig) toModel(ctx context.Context) (model.Model, error) {
 		if p.Host != "" {
 			opts = append(opts, anthropic.WithBaseURL(p.Host))
 		}
-		return anthropic.New(p.ModelName, opts...), nil
+		mod := anthropic.New(p.ModelName, opts...)
+		if maxOut := resolveAnthropicMaxOutput(p.ModelName); maxOut > 0 {
+			return &maxOutputCapModel{inner: mod, maxOutput: maxOut}, nil
+		}
+		return mod, nil
 	case "ollama":
 		opts := []ollama.Option{}
 		if tailoring {
@@ -412,15 +476,22 @@ func (m ModelMap) Providers() []string {
 // that the model accepts the request and the token is valid (no 401/403).
 const echoCheckPrompt = "Hi"
 
+// echoCheckMaxTokens is the max_tokens value sent during the echo check.
+// Setting it explicitly prevents token tailoring from computing a value that
+// exceeds the model's API output limit (e.g. 179k > 128k for claude-sonnet-4-6).
+const echoCheckMaxTokens = 10
+
 // EchoCheckModel performs a minimal GenerateContent call (echo check) to verify
 // that the given model's credentials are valid. It returns nil if the model
 // responds successfully, and an error if the API returns an auth error (e.g. 401)
 // or a system-level failure. Use this to validate tokens before using a provider.
 func EchoCheckModel(ctx context.Context, m model.Model) error {
+	maxTok := echoCheckMaxTokens
 	req := &model.Request{
 		Messages: []model.Message{model.NewUserMessage(echoCheckPrompt)},
 		GenerationConfig: model.GenerationConfig{
-			Stream: true,
+			Stream:    true,
+			MaxTokens: &maxTok,
 		},
 	}
 	ch, err := m.GenerateContent(ctx, req)

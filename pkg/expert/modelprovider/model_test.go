@@ -366,6 +366,23 @@ var _ = Describe("ModelProvider", func() {
 			fake.GenerateContentReturns(ch, nil)
 			Expect(modelprovider.EchoCheckModel(ctx, fake)).NotTo(HaveOccurred())
 		})
+
+		// Regression test: token tailoring computes max_tokens from the context window minus
+		// the tiny echo-check input (~5 tokens), yielding ~179k for claude-sonnet-4-6 (200k
+		// window) — which exceeds the 128k API limit and causes a 400. Fixing this requires
+		// EchoCheckModel to always send a small, explicit MaxTokens so tailoring skips it.
+		It("sends a small explicit MaxTokens to prevent token-tailoring from computing an oversized value", func(ctx context.Context) {
+			ch := make(chan *model.Response, 1)
+			ch <- &model.Response{}
+			close(ch)
+			fake := &modelproviderfakes.FakeModel{}
+			fake.GenerateContentReturns(ch, nil)
+			Expect(modelprovider.EchoCheckModel(ctx, fake)).NotTo(HaveOccurred())
+			_, req := fake.GenerateContentArgsForCall(0)
+			Expect(req.GenerationConfig.MaxTokens).NotTo(BeNil(), "EchoCheckModel must set MaxTokens")
+			Expect(*req.GenerationConfig.MaxTokens).To(BeNumerically(">", 0))
+			Expect(*req.GenerationConfig.MaxTokens).To(BeNumerically("<=", 100))
+		})
 		It("returns error when the response contains API error", func(ctx context.Context) {
 			ch := make(chan *model.Response, 1)
 			ch <- &model.Response{Error: &model.ResponseError{Message: "401 Unauthorized"}}
