@@ -17,9 +17,9 @@ import (
 // Each row stores a serialised graph checkpoint with its metadata,
 // keyed by lineage, namespace, and checkpoint ID.
 type checkpointRow struct {
-	LineageID          string `gorm:"primaryKey;type:text;column:lineage_id"`
-	CheckpointNS       string `gorm:"primaryKey;type:text;column:checkpoint_ns;default:''"`
-	CheckpointID       string `gorm:"primaryKey;type:text;column:checkpoint_id"`
+	LineageID          string `gorm:"primaryKey;type:text;column:lineage_id;default:''"`    //nolint:lll
+	CheckpointNS       string `gorm:"primaryKey;type:text;column:checkpoint_ns;default:''"` //nolint:lll
+	CheckpointID       string `gorm:"primaryKey;type:text;column:checkpoint_id;default:''"` //nolint:lll
 	ParentCheckpointID string `gorm:"type:text;column:parent_checkpoint_id"`
 	TS                 int64  `gorm:"type:bigint;not null;column:ts"`
 	CheckpointJSON     []byte `gorm:"type:bytea;not null;column:checkpoint_json"`
@@ -32,11 +32,11 @@ func (checkpointRow) TableName() string { return "checkpoints" }
 // Each row represents a single pending write linked to a checkpoint,
 // used for deterministic replay of graph execution.
 type checkpointWriteRow struct {
-	LineageID    string `gorm:"primaryKey;type:text;column:lineage_id"`
-	CheckpointNS string `gorm:"primaryKey;type:text;column:checkpoint_ns;default:''"`
-	CheckpointID string `gorm:"primaryKey;type:text;column:checkpoint_id"`
-	TaskID       string `gorm:"primaryKey;type:text;column:task_id"`
-	Idx          int    `gorm:"primaryKey;type:integer;column:idx"`
+	LineageID    string `gorm:"primaryKey;type:text;column:lineage_id;default:''"`    //nolint:lll
+	CheckpointNS string `gorm:"primaryKey;type:text;column:checkpoint_ns;default:''"` //nolint:lll
+	CheckpointID string `gorm:"primaryKey;type:text;column:checkpoint_id;default:''"` //nolint:lll
+	TaskID       string `gorm:"primaryKey;type:text;column:task_id;default:''"`       //nolint:lll
+	Idx          int    `gorm:"primaryKey;type:integer;column:idx;default:0"`
 	Channel      string `gorm:"type:text;not null;column:channel"`
 	ValueJSON    []byte `gorm:"type:bytea;not null;column:value_json"`
 	TaskPath     string `gorm:"type:text;column:task_path"`
