@@ -13,7 +13,7 @@ import (
 // MCPCaller is the subset of the MCP client interface used by ClientTool.
 // Extracting this allows unit testing Call() with counterfeiter fakes.
 //
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
+//go:generate go tool counterfeiter -generate
 //counterfeiter:generate . MCPCaller
 type MCPCaller interface {
 	CallTool(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)

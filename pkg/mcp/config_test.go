@@ -10,9 +10,6 @@ import (
 	"github.com/stackgenhq/genie/pkg/mcp"
 )
 
-// intPtr is a helper to create *int values for RetryConfig.MaxRetries in tests.
-func intPtr(v int) *int { return &v }
-
 func TestMCP(t *testing.T) {
 	t.Parallel()
 	RegisterFailHandler(Fail)
@@ -184,65 +181,6 @@ var _ = Describe("MCPConfig Validation", func() {
 	})
 })
 
-var _ = Describe("RetryConfig Validation", func() {
-	Context("when validating retry configuration", func() {
-		It("should accept valid retry config", func() {
-			config := mcp.RetryConfig{
-				MaxRetries:     intPtr(3),
-				InitialBackoff: 500 * time.Millisecond,
-				BackoffFactor:  2.0,
-				MaxBackoff:     8 * time.Second,
-			}
-			Expect(config.Validate()).To(Succeed())
-		})
-
-		It("should reject max retries above 10", func() {
-			config := mcp.RetryConfig{MaxRetries: intPtr(11)}
-			err := config.Validate()
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("max_retries must be between 0 and 10"))
-		})
-
-		It("should reject negative max retries", func() {
-			config := mcp.RetryConfig{MaxRetries: intPtr(-1)}
-			err := config.Validate()
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("max_retries must be between 0 and 10"))
-		})
-
-		It("should reject initial backoff above 30s", func() {
-			config := mcp.RetryConfig{InitialBackoff: 31 * time.Second}
-			err := config.Validate()
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("initial_backoff must be between 0 and 30s"))
-		})
-
-		It("should reject backoff factor below 1.0", func() {
-			config := mcp.RetryConfig{BackoffFactor: 0.5}
-			err := config.Validate()
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("backoff_factor must be between 1.0 and 10.0"))
-		})
-
-		It("should reject backoff factor above 10.0", func() {
-			config := mcp.RetryConfig{BackoffFactor: 11.0}
-			err := config.Validate()
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("backoff_factor must be between 1.0 and 10.0"))
-		})
-
-		It("should reject max backoff above 5 minutes", func() {
-			config := mcp.RetryConfig{
-				BackoffFactor: 2.0, // Set valid value so max_backoff validation is reached
-				MaxBackoff:    6 * time.Minute,
-			}
-			err := config.Validate()
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("max_backoff must be between 0 and 5m"))
-		})
-	})
-})
-
 var _ = Describe("ServerConfig Defaults", func() {
 	Context("when setting defaults", func() {
 		It("should set default timeout to 60s", func() {
@@ -253,34 +191,6 @@ var _ = Describe("ServerConfig Defaults", func() {
 			}
 			config.SetDefaults()
 			Expect(config.Timeout).To(Equal(60 * time.Second))
-		})
-
-		It("should set retry defaults when retry config is present", func() {
-			config := mcp.MCPServerConfig{
-				Name:      "test",
-				Transport: "stdio",
-				Command:   "go",
-				Retry:     &mcp.RetryConfig{},
-			}
-			config.SetDefaults()
-			Expect(*config.Retry.MaxRetries).To(Equal(2))
-			Expect(config.Retry.InitialBackoff).To(Equal(500 * time.Millisecond))
-			Expect(config.Retry.BackoffFactor).To(Equal(2.0))
-			Expect(config.Retry.MaxBackoff).To(Equal(8 * time.Second))
-		})
-	})
-})
-
-var _ = Describe("RetryConfig Defaults", func() {
-	Context("when setting defaults", func() {
-		It("should set all default values correctly", func() {
-			config := mcp.RetryConfig{}
-			config.SetDefaults()
-
-			Expect(*config.MaxRetries).To(Equal(2))
-			Expect(config.InitialBackoff).To(Equal(500 * time.Millisecond))
-			Expect(config.BackoffFactor).To(Equal(2.0))
-			Expect(config.MaxBackoff).To(Equal(8 * time.Second))
 		})
 	})
 })
@@ -321,11 +231,6 @@ var _ = Describe("JSON Deserialization", func() {
 			Expect(server.IncludeTools).To(Equal([]string{"github_list_prs", "github_create_issue"}))
 			Expect(server.ExcludeTools).To(Equal([]string{"github_delete_repo"}))
 			Expect(server.SessionReconnect).To(Equal(3))
-			Expect(server.Retry).NotTo(BeNil())
-			Expect(*server.Retry.MaxRetries).To(Equal(5))
-			Expect(server.Retry.InitialBackoff).To(Equal(1 * time.Second))
-			Expect(server.Retry.BackoffFactor).To(Equal(3.0))
-			Expect(server.Retry.MaxBackoff).To(Equal(16 * time.Second))
 		})
 
 		It("should handle empty retry object from JSONB and pass SetDefaults+Validate", func() {
@@ -351,13 +256,6 @@ var _ = Describe("JSON Deserialization", func() {
 			}
 
 			Expect(config.Validate()).To(Succeed())
-
-			// Verify defaults were applied to the empty retry config
-			retry := config.Servers[0].Retry
-			Expect(*retry.MaxRetries).To(Equal(2))
-			Expect(retry.InitialBackoff).To(Equal(500 * time.Millisecond))
-			Expect(retry.BackoffFactor).To(Equal(2.0))
-			Expect(retry.MaxBackoff).To(Equal(8 * time.Second))
 		})
 
 		It("should handle stdio config with env from JSON", func() {
@@ -437,8 +335,6 @@ var _ = Describe("JSON Deserialization", func() {
 				config.Servers[i].SetDefaults()
 			}
 			Expect(config.Validate()).To(Succeed())
-			Expect(config.Servers[0].Retry).To(BeNil())
-			Expect(config.Servers[0].Timeout).To(Equal(60 * time.Second))
 		})
 	})
 
@@ -455,12 +351,6 @@ var _ = Describe("JSON Deserialization", func() {
 						IncludeTools:     []string{"tool_a"},
 						ExcludeTools:     []string{"tool_b"},
 						SessionReconnect: 5,
-						Retry: &mcp.RetryConfig{
-							MaxRetries:     intPtr(4),
-							InitialBackoff: 1 * time.Second,
-							BackoffFactor:  3.5,
-							MaxBackoff:     30 * time.Second,
-						},
 					},
 				},
 			}
@@ -482,171 +372,11 @@ var _ = Describe("JSON Deserialization", func() {
 			Expect(s.IncludeTools).To(Equal([]string{"tool_a"}))
 			Expect(s.ExcludeTools).To(Equal([]string{"tool_b"}))
 			Expect(s.SessionReconnect).To(Equal(5))
-			Expect(*s.Retry.MaxRetries).To(Equal(4))
-			Expect(s.Retry.InitialBackoff).To(Equal(1 * time.Second))
-			Expect(s.Retry.BackoffFactor).To(Equal(3.5))
-			Expect(s.Retry.MaxBackoff).To(Equal(30 * time.Second))
-		})
-	})
-})
-
-var _ = Describe("SetDefaults Before Validate Integration", func() {
-	Context("when an empty retry sub-config is provided", func() {
-		It("should pass validation after SetDefaults", func() {
-			config := mcp.MCPServerConfig{
-				Name:      "defaults-test",
-				Transport: "stdio",
-				Command:   "go",
-				Retry:     &mcp.RetryConfig{},
-			}
-
-			// Without SetDefaults, empty RetryConfig has BackoffFactor=0
-			// which fails Validate (must be >= 1.0).
-			err := config.Retry.Validate()
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("backoff_factor"))
-
-			// After SetDefaults, all fields get sensible values
-			config.SetDefaults()
-			Expect(config.Retry.Validate()).To(Succeed())
-			Expect(config.Timeout).To(Equal(60 * time.Second))
-		})
-	})
-
-	Context("when custom values are already set", func() {
-		It("should not override existing non-zero values", func() {
-			config := mcp.MCPServerConfig{
-				Name:      "custom-test",
-				Transport: "stdio",
-				Command:   "node",
-				Timeout:   30 * time.Second,
-				Retry: &mcp.RetryConfig{
-					MaxRetries:     intPtr(5),
-					InitialBackoff: 1 * time.Second,
-					BackoffFactor:  3.0,
-					MaxBackoff:     16 * time.Second,
-				},
-			}
-
-			config.SetDefaults()
-
-			// Custom values must be preserved
-			Expect(config.Timeout).To(Equal(30 * time.Second))
-			Expect(*config.Retry.MaxRetries).To(Equal(5))
-			Expect(config.Retry.InitialBackoff).To(Equal(1 * time.Second))
-			Expect(config.Retry.BackoffFactor).To(Equal(3.0))
-			Expect(config.Retry.MaxBackoff).To(Equal(16 * time.Second))
-		})
-	})
-
-	Context("when retry config is nil", func() {
-		It("should not panic and should leave retry nil", func() {
-			config := mcp.MCPServerConfig{
-				Name:      "nil-retry-test",
-				Transport: "stdio",
-				Command:   "go",
-			}
-
-			Expect(func() { config.SetDefaults() }).NotTo(Panic())
-			Expect(config.Retry).To(BeNil())
-			Expect(config.Timeout).To(Equal(60 * time.Second))
 		})
 	})
 })
 
 var _ = Describe("Additional Validation Edge Cases", func() {
-	Context("when validating negative initial backoff", func() {
-		It("should reject negative initial backoff", func() {
-			config := mcp.RetryConfig{
-				InitialBackoff: -1 * time.Second,
-			}
-			err := config.Validate()
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("initial_backoff must be between 0 and 30s"))
-		})
-	})
-
-	Context("when validating negative max backoff", func() {
-		It("should reject negative max backoff", func() {
-			config := mcp.RetryConfig{
-				BackoffFactor: 2.0,
-				MaxBackoff:    -1 * time.Second,
-			}
-			err := config.Validate()
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("max_backoff must be between 0 and 5m"))
-		})
-	})
-
-	Context("when validating boundary values", func() {
-		It("should accept max retries at boundaries (0 and 10)", func() {
-			configZero := mcp.RetryConfig{
-				MaxRetries:    intPtr(0),
-				BackoffFactor: 1.0,
-			}
-			Expect(configZero.Validate()).To(Succeed())
-
-			configTen := mcp.RetryConfig{
-				MaxRetries:    intPtr(10),
-				BackoffFactor: 1.0,
-			}
-			Expect(configTen.Validate()).To(Succeed())
-		})
-
-		It("should accept initial backoff at 0 (unset/default)", func() {
-			config := mcp.RetryConfig{
-				InitialBackoff: 0,
-				BackoffFactor:  1.0,
-			}
-			Expect(config.Validate()).To(Succeed())
-		})
-
-		It("should accept initial backoff at 30s boundary", func() {
-			config := mcp.RetryConfig{
-				InitialBackoff: 30 * time.Second,
-				BackoffFactor:  1.0,
-			}
-			Expect(config.Validate()).To(Succeed())
-		})
-
-		It("should accept backoff factor at boundaries (1.0 and 10.0)", func() {
-			configMin := mcp.RetryConfig{BackoffFactor: 1.0}
-			Expect(configMin.Validate()).To(Succeed())
-
-			configMax := mcp.RetryConfig{BackoffFactor: 10.0}
-			Expect(configMax.Validate()).To(Succeed())
-		})
-
-		It("should accept max backoff at 5m boundary", func() {
-			config := mcp.RetryConfig{
-				BackoffFactor: 1.0,
-				MaxBackoff:    5 * time.Minute,
-			}
-			Expect(config.Validate()).To(Succeed())
-		})
-	})
-
-	Context("when validating server config with retry errors", func() {
-		It("should propagate retry validation errors", func() {
-			config := mcp.MCPConfig{
-				Servers: []mcp.MCPServerConfig{
-					{
-						Name:      "test",
-						Transport: "stdio",
-						Command:   "go",
-						Retry: &mcp.RetryConfig{
-							MaxRetries:    intPtr(15),
-							BackoffFactor: 2.0,
-						},
-					},
-				},
-			}
-			err := config.Validate()
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("retry config validation failed"))
-			Expect(err.Error()).To(ContainSubstring("max_retries must be between 0 and 10"))
-		})
-	})
 
 	Context("when validating multiple servers", func() {
 		It("should accept multiple valid servers with unique names", func() {

@@ -54,28 +54,6 @@ type MCPServerConfig struct {
 	// SessionReconnect enables automatic session reconnection with max retry attempts
 	// Set to 0 to disable session reconnection
 	SessionReconnect int `json:"session_reconnect,omitempty" yaml:"session_reconnect,omitempty" toml:"session_reconnect,omitempty,omitzero"`
-
-	// Retry configuration for MCP operations
-	Retry *RetryConfig `json:"retry,omitempty" yaml:"retry,omitempty" toml:"retry,omitempty"`
-}
-
-// RetryConfig represents retry configuration for MCP operations.
-// This matches the retry configuration pattern from trpc-agent-go.
-type RetryConfig struct {
-	// MaxRetries is the maximum number of retry attempts (range: 0-10, default: 2).
-	// A nil value means unset; SetDefaults() will set it to 2.
-	// An explicit 0 disables retries.
-	MaxRetries *int `json:"max_retries,omitempty" yaml:"max_retries,omitempty" toml:"max_retries,omitempty"`
-
-	// InitialBackoff is the initial delay before first retry (range: 0-30s, default: 500ms).
-	// A value of 0 means unset; SetDefaults() will replace it with 500ms.
-	InitialBackoff time.Duration `json:"initial_backoff,omitempty" yaml:"initial_backoff,omitempty" toml:"initial_backoff,omitempty"`
-
-	// BackoffFactor is the exponential backoff multiplier (range: 1.0-10.0, default: 2.0)
-	BackoffFactor float64 `json:"backoff_factor,omitempty" yaml:"backoff_factor,omitempty" toml:"backoff_factor,omitempty,omitzero"`
-
-	// MaxBackoff is the maximum delay cap (range: up to 5 minutes, default: 8s)
-	MaxBackoff time.Duration `json:"max_backoff,omitempty" yaml:"max_backoff,omitempty" toml:"max_backoff,omitempty"`
 }
 
 // Validate validates the MCP configuration and returns an error if invalid.
@@ -125,34 +103,6 @@ func (s *MCPServerConfig) Validate() error {
 		return fmt.Errorf("invalid transport: %s (must be stdio, streamable_http, or sse)", s.Transport)
 	}
 
-	if s.Retry != nil {
-		if err := s.Retry.Validate(); err != nil {
-			return fmt.Errorf("retry config validation failed: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// Validate validates retry configuration.
-// It ensures that retry parameters are within acceptable ranges.
-func (r *RetryConfig) Validate() error {
-	if r.MaxRetries != nil && (*r.MaxRetries < 0 || *r.MaxRetries > 10) {
-		return fmt.Errorf("max_retries must be between 0 and 10, got %d", *r.MaxRetries)
-	}
-
-	if r.InitialBackoff < 0 || r.InitialBackoff > 30*time.Second {
-		return fmt.Errorf("initial_backoff must be between 0 and 30s, got %v", r.InitialBackoff)
-	}
-
-	if r.BackoffFactor < 1.0 || r.BackoffFactor > 10.0 {
-		return fmt.Errorf("backoff_factor must be between 1.0 and 10.0, got %f", r.BackoffFactor)
-	}
-
-	if r.MaxBackoff < 0 || r.MaxBackoff > 5*time.Minute {
-		return fmt.Errorf("max_backoff must be between 0 and 5m, got %v", r.MaxBackoff)
-	}
-
 	return nil
 }
 
@@ -161,30 +111,5 @@ func (r *RetryConfig) Validate() error {
 func (s *MCPServerConfig) SetDefaults() {
 	if s.Timeout == 0 {
 		s.Timeout = 60 * time.Second
-	}
-
-	if s.Retry != nil {
-		s.Retry.SetDefaults()
-	}
-}
-
-// SetDefaults sets default values for retry configuration.
-// This matches the default retry behavior from trpc-agent-go.
-func (r *RetryConfig) SetDefaults() {
-	if r.MaxRetries == nil {
-		defaultRetries := 2
-		r.MaxRetries = &defaultRetries
-	}
-
-	if r.InitialBackoff == 0 {
-		r.InitialBackoff = 500 * time.Millisecond
-	}
-
-	if r.BackoffFactor == 0 {
-		r.BackoffFactor = 2.0
-	}
-
-	if r.MaxBackoff == 0 {
-		r.MaxBackoff = 8 * time.Second
 	}
 }

@@ -124,14 +124,6 @@ config_sections:
           - ["include_tools", "string[]", "Allowlist — only use these tools"]
           - ["exclude_tools", "string[]", "Blocklist — block these tools"]
           - ["session_reconnect", "int", "Auto-reconnect retries (`0` = off)"]
-      - label: Retry Configuration
-        columns: [Key, Type, Default, Description]
-        rows:
-          - ["timeout", "duration", "`10s`", "Connection timeout"]
-          - ["max_retries", "int", "`2`", "Retry count (0–10)"]
-          - ["initial_backoff", "duration", "`500ms`", "Wait before first retry"]
-          - ["backoff_factor", "float", "`2.0`", "Exponential backoff multiplier"]
-          - ["max_backoff", "duration", "`8s`", "Max wait between retries"]
 
   - id: web_search
     icon: "🔍"
