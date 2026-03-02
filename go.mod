@@ -25,7 +25,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/infracloudio/msbotbuilder-go v0.2.5
-	github.com/klauspost/compress v1.18.0
+	github.com/klauspost/compress v1.18.3
 	github.com/mark3labs/mcp-go v0.44.0
 	github.com/milvus-io/milvus/client/v2 v2.6.2
 	github.com/onsi/ginkgo/v2 v2.28.1
@@ -59,7 +59,7 @@ require (
 	trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/milvus v1.6.0
 	trpc.group/trpc-go/trpc-agent-go/model/anthropic v1.6.0
 	trpc.group/trpc-go/trpc-agent-go/model/gemini v1.5.1-0.20260213075829-fd2e4a85e54f
-	trpc.group/trpc-go/trpc-agent-go/model/ollama v1.5.0
+	trpc.group/trpc-go/trpc-agent-go/model/ollama v1.6.0
 	trpc.group/trpc-go/trpc-agent-go/tool/google v1.5.1-0.20260213075829-fd2e4a85e54f
 )
 
@@ -100,9 +100,9 @@ require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charmbracelet/bubbles v0.21.1-0.20250623103423-23b8fd6302d7 // indirect
-	github.com/charmbracelet/bubbletea v1.3.6 // indirect
+	github.com/charmbracelet/bubbletea v1.3.10 // indirect
 	github.com/charmbracelet/colorprofile v0.2.3-0.20250311203215-f60798e515dc // indirect
-	github.com/charmbracelet/x/ansi v0.9.3 // indirect
+	github.com/charmbracelet/x/ansi v0.10.1 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.13 // indirect
 	github.com/charmbracelet/x/exp/strings v0.0.0-20240722160745-212f7b056ed0 // indirect
 	github.com/charmbracelet/x/term v0.2.1 // indirect
@@ -191,7 +191,7 @@ require (
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
-	github.com/ollama/ollama v0.13.0 // indirect
+	github.com/ollama/ollama v0.16.3 // indirect
 	github.com/openai/openai-go v1.12.0 // indirect
 	github.com/opencontainers/runtime-spec v1.0.2 // indirect
 	github.com/panjf2000/ants/v2 v2.11.3 // indirect
