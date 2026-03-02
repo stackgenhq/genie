@@ -880,7 +880,7 @@
             case 'REASONING_MESSAGE_CONTENT':
                 // Show reasoning as a dimmer text
                 if (!currentAssistantBubble) startAssistantBubble();
-                appendToAssistantBubble(event.delta || '', true);
+                appendToAssistantBubble(event.delta || '');
                 break;
 
             case 'TOOL_CALL_START':
@@ -985,7 +985,7 @@
         scrollToBottom();
     }
 
-    function appendToAssistantBubble(text, isReasoning) {
+    function appendToAssistantBubble(text) {
         if (!currentAssistantBubble) return;
         currentAssistantContent += text;
         ensureTyping();
@@ -1190,15 +1190,15 @@
         const div = document.createElement('div');
         div.className = 'flex justify-start mb-3';
         const friendly = friendlyToolName(toolName);
-        const safeId = escapeAttr(toolCallId);
+        const domId = safeDomId(toolCallId);
         div.innerHTML = `
-<details class="tool-card" id="tool-${safeId}">
+<details class="tool-card" id="tool-${domId}">
   <summary>
     <span class="tool-label">${escapeHtml(friendly)}</span>
-    <span class="tool-status running" id="tool-status-${safeId}">Running…</span>
+    <span class="tool-status running" id="tool-status-${domId}">Running…</span>
     <span class="tool-chevron">▶</span>
   </summary>
-  <div class="tool-body" id="tool-body-${safeId}"></div>
+  <div class="tool-body" id="tool-body-${domId}"></div>
 </details>
       `;
         messagesEl.appendChild(div);
@@ -1206,7 +1206,8 @@
     }
 
     function updateToolCard(toolCallId, status, result) {
-        const statusEl = document.getElementById('tool-status-' + toolCallId);
+        const domId = safeDomId(toolCallId);
+        const statusEl = document.getElementById('tool-status-' + domId);
         if (statusEl) {
             if (status === 'error') {
                 statusEl.textContent = 'Error ✗';
@@ -1221,7 +1222,7 @@
 
         // Append human-friendly tool result if provided
         if (result) {
-            const bodyEl = document.getElementById('tool-body-' + toolCallId);
+            const bodyEl = document.getElementById('tool-body-' + domId);
             const meta = toolCallMeta[toolCallId];
             const toolName = meta ? meta.name : '';
             const friendly = formatToolResult(toolName, result, toolCallId);
@@ -1263,10 +1264,11 @@
         let args;
         try { args = JSON.parse(meta.args); } catch (_) { return; }
 
-        const bodyEl = document.getElementById('tool-body-' + toolCallId);
+        const domId = safeDomId(toolCallId);
+        const bodyEl = document.getElementById('tool-body-' + domId);
         if (!bodyEl) return;
 
-        const labelEl = document.getElementById('tool-' + toolCallId)
+        const labelEl = document.getElementById('tool-' + domId)
             ?.querySelector('.tool-label');
         if (labelEl && args.agent_name) {
             labelEl.textContent = '🤖 Delegating to ' + args.agent_name;
@@ -1706,6 +1708,18 @@
             .replace(/'/g, '&#39;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
+    }
+
+    // Produces a DOM-safe id fragment from an arbitrary string.
+    // Unlike escapeAttr (which HTML-entity-encodes), this replaces characters
+    // that are unsafe for DOM ids so the same canonical id can be used
+    // consistently in both innerHTML templates and getElementById lookups.
+    function safeDomId(text) {
+        if (text == null) return '';
+        if (typeof text !== 'string') text = String(text);
+        return text.replace(/[^a-zA-Z0-9_-]/g, function (ch) {
+            return '_' + ch.charCodeAt(0).toString(16) + '_';
+        });
     }
 
     // For embedding in a single-quoted JS string inside an HTML attribute (e.g. onclick="genie.foo('${id}')").
