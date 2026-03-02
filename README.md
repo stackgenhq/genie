@@ -7,7 +7,7 @@
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12058/badge)](https://www.bestpractices.dev/projects/12058)
 [![Release](https://img.shields.io/github/v/release/stackgenhq/genie)](https://img.shields.io/github/v/release/stackgenhq/genie)
 [![Scorecard](https://api.scorecard.dev/projects/github.com/stackgenhq/genie/badge)](https://scorecard.dev/viewer/?uri=github.com/stackgenhq/genie)
-[![codecov](https://codecov.io/gh/stackgenhq/genie/graph/badge.svg)](https://app.codecov.io/gh/stackgenhq/genie)
+[![codecov](https://codecov.io/gh/stackgenhq/genie/graph/badge.svg?token=8DPGF0MP08)](https://codecov.io/gh/stackgenhq/genie)
 
 Generative Engine for Natural Intent Execution
 
