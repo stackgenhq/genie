@@ -18,7 +18,7 @@ import (
 // keyed by lineage, namespace, and checkpoint ID.
 type checkpointRow struct {
 	LineageID          string `gorm:"primaryKey;type:text;column:lineage_id"`
-	CheckpointNS       string `gorm:"primaryKey;type:text;column:checkpoint_ns"`
+	CheckpointNS       string `gorm:"primaryKey;type:text;column:checkpoint_ns;default:''"`
 	CheckpointID       string `gorm:"primaryKey;type:text;column:checkpoint_id"`
 	ParentCheckpointID string `gorm:"type:text;column:parent_checkpoint_id"`
 	TS                 int64  `gorm:"type:bigint;not null;column:ts"`
@@ -33,7 +33,7 @@ func (checkpointRow) TableName() string { return "checkpoints" }
 // used for deterministic replay of graph execution.
 type checkpointWriteRow struct {
 	LineageID    string `gorm:"primaryKey;type:text;column:lineage_id"`
-	CheckpointNS string `gorm:"primaryKey;type:text;column:checkpoint_ns"`
+	CheckpointNS string `gorm:"primaryKey;type:text;column:checkpoint_ns;default:''"`
 	CheckpointID string `gorm:"primaryKey;type:text;column:checkpoint_id"`
 	TaskID       string `gorm:"primaryKey;type:text;column:task_id"`
 	Idx          int    `gorm:"primaryKey;type:integer;column:idx"`
@@ -63,6 +63,12 @@ func NewGormCheckpointSaver(db *gorm.DB) (*GormCheckpointSaver, error) {
 	if db == nil {
 		return nil, errors.New("db is nil")
 	}
+	// Fix pre-existing NULL checkpoint_ns values (from earlier schema versions)
+	// so that AutoMigrate's NOT NULL constraint is satisfied during the
+	// temp-table copy that SQLite performs.
+	db.Exec("UPDATE checkpoints SET checkpoint_ns = '' WHERE checkpoint_ns IS NULL")
+	db.Exec("UPDATE checkpoint_writes SET checkpoint_ns = '' WHERE checkpoint_ns IS NULL")
+
 	if err := db.AutoMigrate(&checkpointRow{}, &checkpointWriteRow{}); err != nil {
 		return nil, fmt.Errorf("auto-migrate checkpoint tables: %w", err)
 	}

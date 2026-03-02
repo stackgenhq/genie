@@ -76,6 +76,63 @@ var _ = Describe("GormCheckpointSaver", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(s).NotTo(BeNil())
 		})
+
+		It("migrates an existing database with NULL checkpoint_ns values", func(ctx context.Context) {
+			// Arrange: create a raw table with NULL checkpoint_ns (simulates
+			// an older schema that didn't have NOT NULL on this column).
+			testDB := openCheckpointTestDB()
+			defer geniedb.Close(testDB)
+
+			sqlDB, err := testDB.DB()
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = sqlDB.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS checkpoints (
+				lineage_id TEXT,
+				checkpoint_ns TEXT,
+				checkpoint_id TEXT,
+				parent_checkpoint_id TEXT,
+				ts INTEGER NOT NULL,
+				checkpoint_json BLOB NOT NULL,
+				metadata_json BLOB NOT NULL,
+				PRIMARY KEY (lineage_id, checkpoint_ns, checkpoint_id)
+			)`)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Insert a row with NULL checkpoint_ns — this is what causes the
+			// migration failure without the fix.
+			_, err = sqlDB.ExecContext(ctx,
+				`INSERT INTO checkpoints (lineage_id, checkpoint_ns, checkpoint_id, ts, checkpoint_json, metadata_json)
+				 VALUES ('lin-1', NULL, 'ckpt-1', 1, '{}', '{}')`)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Also create the writes table with a NULL row.
+			_, err = sqlDB.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS checkpoint_writes (
+				lineage_id TEXT,
+				checkpoint_ns TEXT,
+				checkpoint_id TEXT,
+				task_id TEXT,
+				idx INTEGER,
+				channel TEXT NOT NULL,
+				value_json BLOB NOT NULL,
+				task_path TEXT,
+				seq INTEGER NOT NULL,
+				PRIMARY KEY (lineage_id, checkpoint_ns, checkpoint_id, task_id, idx)
+			)`)
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = sqlDB.ExecContext(ctx,
+				`INSERT INTO checkpoint_writes (lineage_id, checkpoint_ns, checkpoint_id, task_id, idx, channel, value_json, seq)
+				 VALUES ('lin-1', NULL, 'ckpt-1', 't1', 0, 'ch', '"v"', 1)`)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Act: NewGormCheckpointSaver should fix NULLs and migrate
+			// successfully without the NOT NULL constraint error.
+			s, err := geniedb.NewGormCheckpointSaver(testDB)
+
+			// Assert
+			Expect(err).NotTo(HaveOccurred())
+			Expect(s).NotTo(BeNil())
+		})
 	})
 
 	// -------------------------------------------------------------------
