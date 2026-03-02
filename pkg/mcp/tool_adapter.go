@@ -5,17 +5,25 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stackgenhq/genie/pkg/mcputils"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
+// MCPCaller is the subset of the MCP client interface used by ClientTool.
+// Extracting this allows unit testing Call() with counterfeiter fakes.
+//
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
+//counterfeiter:generate . MCPCaller
+type MCPCaller interface {
+	CallTool(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
+}
+
 // ClientTool wraps an MCP Client and Tool to implement the trpc-agent-go tool.Tool interface.
 // Tools are namespaced by server name to avoid collisions when multiple MCP
 // servers expose tools with the same name (e.g. "search").
 type ClientTool struct {
-	client     *client.Client
+	client     MCPCaller
 	tool       mcp.Tool
 	serverName string
 }
@@ -23,9 +31,9 @@ type ClientTool struct {
 // NewClientTool creates a new ClientTool wrapper.
 // The serverName is used to prefix the tool name so that tools from different
 // MCP servers are disambiguated (e.g. "github_search" vs "jira_search").
-func NewClientTool(client *client.Client, mcpTool mcp.Tool, serverName string) *ClientTool {
+func NewClientTool(caller MCPCaller, mcpTool mcp.Tool, serverName string) *ClientTool {
 	return &ClientTool{
-		client:     client,
+		client:     caller,
 		tool:       mcpTool,
 		serverName: serverName,
 	}
