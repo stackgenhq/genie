@@ -1077,8 +1077,8 @@ trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/gemini v1.5.1-0.202602171408
 trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/gemini v1.5.1-0.20260217140857-7458387542dc/go.mod h1:JXE+93ZlwuYsNlRxjsJW5+WUrIh/OTMcray/MhRFtAo=
 trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/huggingface v1.5.1-0.20260217140857-7458387542dc h1:MOXzr2FM4ml0EKzK5REiAI/uobKpxfiy0lj3uKYV0u8=
 trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/huggingface v1.5.1-0.20260217140857-7458387542dc/go.mod h1:9sOMT0Cn+RBo7jIHj7lpzMYpwziYzlRFiJ1oleR23fk=
-trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/milvus v1.5.1-0.20260224093107-42ba37309edf h1:FG5ByCfdLVKi5zrfkpL9ykgaZGatF9lUa/zXiDP+3lc=
-trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/milvus v1.5.1-0.20260224093107-42ba37309edf/go.mod h1:uoRtEj7kuMICYuvBXwKo5+t52g3zr1gGw8jYXD2SXBU=
+trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/milvus v1.6.0 h1:pFYOQi5Kr6ND2bVTXfQbksgll3p46r+pOY/ejfSB9Oc=
+trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/milvus v1.6.0/go.mod h1:uoRtEj7kuMICYuvBXwKo5+t52g3zr1gGw8jYXD2SXBU=
 trpc.group/trpc-go/trpc-agent-go/model/anthropic v1.6.0 h1:7xsYRpj3xJt82neJfawyMijH0RTsxLyn80NxNgAbIH0=
 trpc.group/trpc-go/trpc-agent-go/model/anthropic v1.6.0/go.mod h1:BlAyN49KQKfVrw3W8azAIOisLy0pzkIVZOj4uTjpW7Q=
 trpc.group/trpc-go/trpc-agent-go/model/ollama v1.5.0 h1:DbNTsyO5fYj49+VO7CBm/DOOJ0L8pZxieD7jHTFcHd0=
