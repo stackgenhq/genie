@@ -60,7 +60,7 @@ require (
 	trpc.group/trpc-go/trpc-agent-go/model/anthropic v1.6.0
 	trpc.group/trpc-go/trpc-agent-go/model/gemini v1.5.1-0.20260213075829-fd2e4a85e54f
 	trpc.group/trpc-go/trpc-agent-go/model/ollama v1.6.0
-	trpc.group/trpc-go/trpc-agent-go/tool/google v1.5.1-0.20260213075829-fd2e4a85e54f
+	trpc.group/trpc-go/trpc-agent-go/tool/google v1.6.0
 )
 
 require (
