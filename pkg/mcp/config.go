@@ -63,7 +63,7 @@ type MCPServerConfig struct {
 // This matches the retry configuration pattern from trpc-agent-go.
 type RetryConfig struct {
 	// MaxRetries is the maximum number of retry attempts (range: 0-10, default: 2)
-	MaxRetries int `json:"max_retries,omitempty" yaml:"max_retries,omitempty" toml:"max_retries,omitempty,omitzero"`
+	MaxRetries int `json:"max_retries" yaml:"max_retries" toml:"max_retries"`
 
 	// InitialBackoff is the initial delay before first retry (range: 0-30s, default: 500ms).
 	// A value of 0 means unset; SetDefaults() will replace it with 500ms.

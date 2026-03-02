@@ -25,7 +25,7 @@ name = "local-tools"
 transport = "stdio"
 command = "go"
 args = ["run", "./mcp-server/main.go"]
-timeout = "10s"
+timeout = "60s"
 include_tools = ["echo", "add"]  # Optional: allowlist specific tools
 
 # Stdio with env (e.g. GitHub token from gh auth token)
@@ -43,7 +43,7 @@ include_tools = ["echo", "add"]  # Optional: allowlist specific tools
 name = "terraform-registry"
 transport = "streamable_http"
 server_url = "http://localhost:3000/mcp"
-timeout = "10s"
+timeout = "60s"
 
 [mcp.servers.headers]
 User-Agent = "genie/1.0"
@@ -56,7 +56,7 @@ include_tools = ["search_modules", "get_module"]
 name = "sse-server"
 transport = "sse"
 server_url = "http://localhost:8080/sse"
-timeout = "10s"
+timeout = "60s"
 ```
 
 ### YAML Configuration Example
@@ -70,7 +70,7 @@ mcp:
       args:
         - run
         - ./mcp-server/main.go
-      timeout: 10s
+      timeout: 60s
       include_tools:
         - echo
         - add
@@ -78,7 +78,7 @@ mcp:
     - name: terraform-registry
       transport: streamable_http
       server_url: http://localhost:3000/mcp
-      timeout: 10s
+      timeout: 60s
       headers:
         User-Agent: genie/1.0
         Authorization: Bearer your-token-here
@@ -105,7 +105,7 @@ config := mcp.MCPConfig{
             Name:      "terraform",
             Transport: "streamable_http",
             ServerURL: "http://localhost:3000/mcp",
-            Timeout:   10 * time.Second,
+            Timeout:   60 * time.Second,
             IncludeTools: []string{"search_modules", "get_module"},
         },
     },
@@ -179,7 +179,7 @@ client, err := mcp.NewClient(ctx, config)
 | `server_url` | string | For HTTP/SSE | Server URL for HTTP/SSE transports |
 | `command` | string | For stdio | Executable command for stdio transport |
 | `args` | []string | No | Command arguments for stdio transport |
-| `timeout` | duration | No | Connection timeout (default: 10s) |
+| `timeout` | duration | No | Connection timeout (default: 60s) |
 | `headers` | map[string]string | No | Custom HTTP headers for HTTP/SSE transports |
 | `env` | map[string]string | No | Env vars for stdio subprocess (values support ${VAR} expansion) |
 | `include_tools` | []string | No | allowlist of tool names to include |
