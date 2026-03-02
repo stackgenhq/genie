@@ -10,6 +10,9 @@ import (
 	"github.com/stackgenhq/genie/pkg/mcp"
 )
 
+// intPtr is a helper to create *int values for RetryConfig.MaxRetries in tests.
+func intPtr(v int) *int { return &v }
+
 func TestMCP(t *testing.T) {
 	t.Parallel()
 	RegisterFailHandler(Fail)
@@ -185,7 +188,7 @@ var _ = Describe("RetryConfig Validation", func() {
 	Context("when validating retry configuration", func() {
 		It("should accept valid retry config", func() {
 			config := mcp.RetryConfig{
-				MaxRetries:     3,
+				MaxRetries:     intPtr(3),
 				InitialBackoff: 500 * time.Millisecond,
 				BackoffFactor:  2.0,
 				MaxBackoff:     8 * time.Second,
@@ -194,14 +197,14 @@ var _ = Describe("RetryConfig Validation", func() {
 		})
 
 		It("should reject max retries above 10", func() {
-			config := mcp.RetryConfig{MaxRetries: 11}
+			config := mcp.RetryConfig{MaxRetries: intPtr(11)}
 			err := config.Validate()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("max_retries must be between 0 and 10"))
 		})
 
 		It("should reject negative max retries", func() {
-			config := mcp.RetryConfig{MaxRetries: -1}
+			config := mcp.RetryConfig{MaxRetries: intPtr(-1)}
 			err := config.Validate()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("max_retries must be between 0 and 10"))
@@ -260,7 +263,7 @@ var _ = Describe("ServerConfig Defaults", func() {
 				Retry:     &mcp.RetryConfig{},
 			}
 			config.SetDefaults()
-			Expect(config.Retry.MaxRetries).To(Equal(2))
+			Expect(*config.Retry.MaxRetries).To(Equal(2))
 			Expect(config.Retry.InitialBackoff).To(Equal(500 * time.Millisecond))
 			Expect(config.Retry.BackoffFactor).To(Equal(2.0))
 			Expect(config.Retry.MaxBackoff).To(Equal(8 * time.Second))
@@ -274,7 +277,7 @@ var _ = Describe("RetryConfig Defaults", func() {
 			config := mcp.RetryConfig{}
 			config.SetDefaults()
 
-			Expect(config.MaxRetries).To(Equal(2))
+			Expect(*config.MaxRetries).To(Equal(2))
 			Expect(config.InitialBackoff).To(Equal(500 * time.Millisecond))
 			Expect(config.BackoffFactor).To(Equal(2.0))
 			Expect(config.MaxBackoff).To(Equal(8 * time.Second))
@@ -319,7 +322,7 @@ var _ = Describe("JSON Deserialization", func() {
 			Expect(server.ExcludeTools).To(Equal([]string{"github_delete_repo"}))
 			Expect(server.SessionReconnect).To(Equal(3))
 			Expect(server.Retry).NotTo(BeNil())
-			Expect(server.Retry.MaxRetries).To(Equal(5))
+			Expect(*server.Retry.MaxRetries).To(Equal(5))
 			Expect(server.Retry.InitialBackoff).To(Equal(1 * time.Second))
 			Expect(server.Retry.BackoffFactor).To(Equal(3.0))
 			Expect(server.Retry.MaxBackoff).To(Equal(16 * time.Second))
@@ -351,7 +354,7 @@ var _ = Describe("JSON Deserialization", func() {
 
 			// Verify defaults were applied to the empty retry config
 			retry := config.Servers[0].Retry
-			Expect(retry.MaxRetries).To(Equal(2))
+			Expect(*retry.MaxRetries).To(Equal(2))
 			Expect(retry.InitialBackoff).To(Equal(500 * time.Millisecond))
 			Expect(retry.BackoffFactor).To(Equal(2.0))
 			Expect(retry.MaxBackoff).To(Equal(8 * time.Second))
@@ -453,7 +456,7 @@ var _ = Describe("JSON Deserialization", func() {
 						ExcludeTools:     []string{"tool_b"},
 						SessionReconnect: 5,
 						Retry: &mcp.RetryConfig{
-							MaxRetries:     4,
+							MaxRetries:     intPtr(4),
 							InitialBackoff: 1 * time.Second,
 							BackoffFactor:  3.5,
 							MaxBackoff:     30 * time.Second,
@@ -479,7 +482,7 @@ var _ = Describe("JSON Deserialization", func() {
 			Expect(s.IncludeTools).To(Equal([]string{"tool_a"}))
 			Expect(s.ExcludeTools).To(Equal([]string{"tool_b"}))
 			Expect(s.SessionReconnect).To(Equal(5))
-			Expect(s.Retry.MaxRetries).To(Equal(4))
+			Expect(*s.Retry.MaxRetries).To(Equal(4))
 			Expect(s.Retry.InitialBackoff).To(Equal(1 * time.Second))
 			Expect(s.Retry.BackoffFactor).To(Equal(3.5))
 			Expect(s.Retry.MaxBackoff).To(Equal(30 * time.Second))
@@ -518,7 +521,7 @@ var _ = Describe("SetDefaults Before Validate Integration", func() {
 				Command:   "node",
 				Timeout:   30 * time.Second,
 				Retry: &mcp.RetryConfig{
-					MaxRetries:     5,
+					MaxRetries:     intPtr(5),
 					InitialBackoff: 1 * time.Second,
 					BackoffFactor:  3.0,
 					MaxBackoff:     16 * time.Second,
@@ -529,7 +532,7 @@ var _ = Describe("SetDefaults Before Validate Integration", func() {
 
 			// Custom values must be preserved
 			Expect(config.Timeout).To(Equal(30 * time.Second))
-			Expect(config.Retry.MaxRetries).To(Equal(5))
+			Expect(*config.Retry.MaxRetries).To(Equal(5))
 			Expect(config.Retry.InitialBackoff).To(Equal(1 * time.Second))
 			Expect(config.Retry.BackoffFactor).To(Equal(3.0))
 			Expect(config.Retry.MaxBackoff).To(Equal(16 * time.Second))
@@ -578,13 +581,13 @@ var _ = Describe("Additional Validation Edge Cases", func() {
 	Context("when validating boundary values", func() {
 		It("should accept max retries at boundaries (0 and 10)", func() {
 			configZero := mcp.RetryConfig{
-				MaxRetries:    0,
+				MaxRetries:    intPtr(0),
 				BackoffFactor: 1.0,
 			}
 			Expect(configZero.Validate()).To(Succeed())
 
 			configTen := mcp.RetryConfig{
-				MaxRetries:    10,
+				MaxRetries:    intPtr(10),
 				BackoffFactor: 1.0,
 			}
 			Expect(configTen.Validate()).To(Succeed())
@@ -632,7 +635,7 @@ var _ = Describe("Additional Validation Edge Cases", func() {
 						Transport: "stdio",
 						Command:   "go",
 						Retry: &mcp.RetryConfig{
-							MaxRetries:    15,
+							MaxRetries:    intPtr(15),
 							BackoffFactor: 2.0,
 						},
 					},

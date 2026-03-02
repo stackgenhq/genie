@@ -62,8 +62,10 @@ type MCPServerConfig struct {
 // RetryConfig represents retry configuration for MCP operations.
 // This matches the retry configuration pattern from trpc-agent-go.
 type RetryConfig struct {
-	// MaxRetries is the maximum number of retry attempts (range: 0-10, default: 2)
-	MaxRetries int `json:"max_retries" yaml:"max_retries" toml:"max_retries"`
+	// MaxRetries is the maximum number of retry attempts (range: 0-10, default: 2).
+	// A nil value means unset; SetDefaults() will set it to 2.
+	// An explicit 0 disables retries.
+	MaxRetries *int `json:"max_retries,omitempty" yaml:"max_retries,omitempty" toml:"max_retries,omitempty"`
 
 	// InitialBackoff is the initial delay before first retry (range: 0-30s, default: 500ms).
 	// A value of 0 means unset; SetDefaults() will replace it with 500ms.
@@ -135,8 +137,8 @@ func (s *MCPServerConfig) Validate() error {
 // Validate validates retry configuration.
 // It ensures that retry parameters are within acceptable ranges.
 func (r *RetryConfig) Validate() error {
-	if r.MaxRetries < 0 || r.MaxRetries > 10 {
-		return fmt.Errorf("max_retries must be between 0 and 10, got %d", r.MaxRetries)
+	if r.MaxRetries != nil && (*r.MaxRetries < 0 || *r.MaxRetries > 10) {
+		return fmt.Errorf("max_retries must be between 0 and 10, got %d", *r.MaxRetries)
 	}
 
 	if r.InitialBackoff < 0 || r.InitialBackoff > 30*time.Second {
@@ -169,8 +171,9 @@ func (s *MCPServerConfig) SetDefaults() {
 // SetDefaults sets default values for retry configuration.
 // This matches the default retry behavior from trpc-agent-go.
 func (r *RetryConfig) SetDefaults() {
-	if r.MaxRetries == 0 {
-		r.MaxRetries = 2
+	if r.MaxRetries == nil {
+		defaultRetries := 2
+		r.MaxRetries = &defaultRetries
 	}
 
 	if r.InitialBackoff == 0 {
