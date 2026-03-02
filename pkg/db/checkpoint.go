@@ -63,21 +63,6 @@ func NewGormCheckpointSaver(db *gorm.DB) (*GormCheckpointSaver, error) {
 	if db == nil {
 		return nil, errors.New("db is nil")
 	}
-	// Fix pre-existing NULL checkpoint_ns values (from earlier schema versions)
-	// so that AutoMigrate's NOT NULL constraint is satisfied during the
-	// temp-table copy that SQLite performs.
-	migrator := db.Migrator()
-	if migrator.HasTable(&checkpointRow{}) {
-		if err := db.Exec("UPDATE checkpoints SET checkpoint_ns = '' WHERE checkpoint_ns IS NULL").Error; err != nil {
-			return nil, fmt.Errorf("fixup checkpoints.checkpoint_ns NULLs: %w", err)
-		}
-	}
-	if migrator.HasTable(&checkpointWriteRow{}) {
-		if err := db.Exec("UPDATE checkpoint_writes SET checkpoint_ns = '' WHERE checkpoint_ns IS NULL").Error; err != nil {
-			return nil, fmt.Errorf("fixup checkpoint_writes.checkpoint_ns NULLs: %w", err)
-		}
-	}
-
 	if err := db.AutoMigrate(&checkpointRow{}, &checkpointWriteRow{}); err != nil {
 		return nil, fmt.Errorf("auto-migrate checkpoint tables: %w", err)
 	}
