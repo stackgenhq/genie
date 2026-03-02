@@ -66,7 +66,6 @@ func NewClient(ctx context.Context, config MCPConfig, opts ...ClientOption) (*Cl
 	}
 
 	for i := range config.Servers {
-		config.Servers[i].SetDefaults()
 		serverConfig := config.Servers[i]
 
 		tools, err := mcpClient.initializeServer(ctx, serverConfig)

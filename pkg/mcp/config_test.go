@@ -1,6 +1,7 @@
 package mcp_test
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -278,5 +279,463 @@ var _ = Describe("RetryConfig Defaults", func() {
 			Expect(config.BackoffFactor).To(Equal(2.0))
 			Expect(config.MaxBackoff).To(Equal(8 * time.Second))
 		})
+	})
+})
+
+var _ = Describe("JSON Deserialization", func() {
+	Context("when unmarshaling MCPConfig from JSON with snake_case keys", func() {
+		It("should correctly map all fields from JSONB/PostgreSQL format", func() {
+			jsonData := `{
+				"servers": [
+					{
+						"name": "github-mcp",
+						"transport": "sse",
+						"server_url": "http://localhost:8080/sse",
+						"timeout": 30000000000,
+						"include_tools": ["github_list_prs", "github_create_issue"],
+						"exclude_tools": ["github_delete_repo"],
+						"session_reconnect": 3,
+						"retry": {
+							"max_retries": 5,
+							"initial_backoff": 1000000000,
+							"backoff_factor": 3.0,
+							"max_backoff": 16000000000
+						}
+					}
+				]
+			}`
+
+			var config mcp.MCPConfig
+			err := json.Unmarshal([]byte(jsonData), &config)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(config.Servers).To(HaveLen(1))
+			server := config.Servers[0]
+			Expect(server.Name).To(Equal("github-mcp"))
+			Expect(server.Transport).To(Equal("sse"))
+			Expect(server.ServerURL).To(Equal("http://localhost:8080/sse"))
+			Expect(server.Timeout).To(Equal(30 * time.Second))
+			Expect(server.IncludeTools).To(Equal([]string{"github_list_prs", "github_create_issue"}))
+			Expect(server.ExcludeTools).To(Equal([]string{"github_delete_repo"}))
+			Expect(server.SessionReconnect).To(Equal(3))
+			Expect(server.Retry).NotTo(BeNil())
+			Expect(server.Retry.MaxRetries).To(Equal(5))
+			Expect(server.Retry.InitialBackoff).To(Equal(1 * time.Second))
+			Expect(server.Retry.BackoffFactor).To(Equal(3.0))
+			Expect(server.Retry.MaxBackoff).To(Equal(16 * time.Second))
+		})
+
+		It("should handle empty retry object from JSONB and pass SetDefaults+Validate", func() {
+			jsonData := `{
+				"servers": [
+					{
+						"name": "test-server",
+						"transport": "stdio",
+						"command": "npx",
+						"args": ["-y", "@anthropic/github-mcp-server"],
+						"retry": {}
+					}
+				]
+			}`
+
+			var config mcp.MCPConfig
+			err := json.Unmarshal([]byte(jsonData), &config)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Apply defaults before validation (mirrors NewClient behavior)
+			for i := range config.Servers {
+				config.Servers[i].SetDefaults()
+			}
+
+			Expect(config.Validate()).To(Succeed())
+
+			// Verify defaults were applied to the empty retry config
+			retry := config.Servers[0].Retry
+			Expect(retry.MaxRetries).To(Equal(2))
+			Expect(retry.InitialBackoff).To(Equal(500 * time.Millisecond))
+			Expect(retry.BackoffFactor).To(Equal(2.0))
+			Expect(retry.MaxBackoff).To(Equal(8 * time.Second))
+		})
+
+		It("should handle stdio config with env from JSON", func() {
+			jsonData := `{
+				"servers": [
+					{
+						"name": "github",
+						"transport": "stdio",
+						"command": "npx",
+						"args": ["-y", "@anthropic/github-mcp-server"],
+						"env": {
+							"GITHUB_PERSONAL_ACCESS_TOKEN": "${GH_TOKEN}"
+						}
+					}
+				]
+			}`
+
+			var config mcp.MCPConfig
+			err := json.Unmarshal([]byte(jsonData), &config)
+			Expect(err).NotTo(HaveOccurred())
+
+			server := config.Servers[0]
+			Expect(server.Env).To(HaveKeyWithValue("GITHUB_PERSONAL_ACCESS_TOKEN", "${GH_TOKEN}"))
+		})
+
+		It("should handle config with headers from JSON", func() {
+			jsonData := `{
+				"servers": [
+					{
+						"name": "my-server",
+						"transport": "sse",
+						"server_url": "http://localhost:3000/mcp",
+						"headers": {
+							"Authorization": "Bearer token123",
+							"X-Custom": "value"
+						}
+					}
+				]
+			}`
+
+			var config mcp.MCPConfig
+			err := json.Unmarshal([]byte(jsonData), &config)
+			Expect(err).NotTo(HaveOccurred())
+
+			server := config.Servers[0]
+			Expect(server.Headers).To(HaveKeyWithValue("Authorization", "Bearer token123"))
+			Expect(server.Headers).To(HaveKeyWithValue("X-Custom", "value"))
+		})
+	})
+
+	Context("when unmarshaling minimal JSON configs", func() {
+		It("should handle empty servers array", func() {
+			jsonData := `{"servers": []}`
+
+			var config mcp.MCPConfig
+			err := json.Unmarshal([]byte(jsonData), &config)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(config.Validate()).To(Succeed())
+		})
+
+		It("should handle JSON with no retry field", func() {
+			jsonData := `{
+				"servers": [
+					{
+						"name": "simple",
+						"transport": "stdio",
+						"command": "echo"
+					}
+				]
+			}`
+
+			var config mcp.MCPConfig
+			err := json.Unmarshal([]byte(jsonData), &config)
+			Expect(err).NotTo(HaveOccurred())
+
+			for i := range config.Servers {
+				config.Servers[i].SetDefaults()
+			}
+			Expect(config.Validate()).To(Succeed())
+			Expect(config.Servers[0].Retry).To(BeNil())
+			Expect(config.Servers[0].Timeout).To(Equal(60 * time.Second))
+		})
+	})
+
+	Context("JSON round-trip", func() {
+		It("should marshal and unmarshal MCPConfig without losing data", func() {
+			original := mcp.MCPConfig{
+				Servers: []mcp.MCPServerConfig{
+					{
+						Name:             "roundtrip-server",
+						Transport:        "sse",
+						ServerURL:        "http://example.com/sse",
+						Timeout:          45 * time.Second,
+						Headers:          map[string]string{"X-Key": "val"},
+						IncludeTools:     []string{"tool_a"},
+						ExcludeTools:     []string{"tool_b"},
+						SessionReconnect: 5,
+						Retry: &mcp.RetryConfig{
+							MaxRetries:     4,
+							InitialBackoff: 1 * time.Second,
+							BackoffFactor:  3.5,
+							MaxBackoff:     30 * time.Second,
+						},
+					},
+				},
+			}
+
+			data, err := json.Marshal(original)
+			Expect(err).NotTo(HaveOccurred())
+
+			var restored mcp.MCPConfig
+			err = json.Unmarshal(data, &restored)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(restored.Servers).To(HaveLen(1))
+			s := restored.Servers[0]
+			Expect(s.Name).To(Equal("roundtrip-server"))
+			Expect(s.Transport).To(Equal("sse"))
+			Expect(s.ServerURL).To(Equal("http://example.com/sse"))
+			Expect(s.Timeout).To(Equal(45 * time.Second))
+			Expect(s.Headers).To(HaveKeyWithValue("X-Key", "val"))
+			Expect(s.IncludeTools).To(Equal([]string{"tool_a"}))
+			Expect(s.ExcludeTools).To(Equal([]string{"tool_b"}))
+			Expect(s.SessionReconnect).To(Equal(5))
+			Expect(s.Retry.MaxRetries).To(Equal(4))
+			Expect(s.Retry.InitialBackoff).To(Equal(1 * time.Second))
+			Expect(s.Retry.BackoffFactor).To(Equal(3.5))
+			Expect(s.Retry.MaxBackoff).To(Equal(30 * time.Second))
+		})
+	})
+})
+
+var _ = Describe("SetDefaults Before Validate Integration", func() {
+	Context("when an empty retry sub-config is provided", func() {
+		It("should pass validation after SetDefaults", func() {
+			config := mcp.MCPServerConfig{
+				Name:      "defaults-test",
+				Transport: "stdio",
+				Command:   "go",
+				Retry:     &mcp.RetryConfig{},
+			}
+
+			// Without SetDefaults, empty RetryConfig has BackoffFactor=0
+			// which fails Validate (must be >= 1.0).
+			err := config.Retry.Validate()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("backoff_factor"))
+
+			// After SetDefaults, all fields get sensible values
+			config.SetDefaults()
+			Expect(config.Retry.Validate()).To(Succeed())
+			Expect(config.Timeout).To(Equal(60 * time.Second))
+		})
+	})
+
+	Context("when custom values are already set", func() {
+		It("should not override existing non-zero values", func() {
+			config := mcp.MCPServerConfig{
+				Name:      "custom-test",
+				Transport: "stdio",
+				Command:   "node",
+				Timeout:   30 * time.Second,
+				Retry: &mcp.RetryConfig{
+					MaxRetries:     5,
+					InitialBackoff: 1 * time.Second,
+					BackoffFactor:  3.0,
+					MaxBackoff:     16 * time.Second,
+				},
+			}
+
+			config.SetDefaults()
+
+			// Custom values must be preserved
+			Expect(config.Timeout).To(Equal(30 * time.Second))
+			Expect(config.Retry.MaxRetries).To(Equal(5))
+			Expect(config.Retry.InitialBackoff).To(Equal(1 * time.Second))
+			Expect(config.Retry.BackoffFactor).To(Equal(3.0))
+			Expect(config.Retry.MaxBackoff).To(Equal(16 * time.Second))
+		})
+	})
+
+	Context("when retry config is nil", func() {
+		It("should not panic and should leave retry nil", func() {
+			config := mcp.MCPServerConfig{
+				Name:      "nil-retry-test",
+				Transport: "stdio",
+				Command:   "go",
+			}
+
+			Expect(func() { config.SetDefaults() }).NotTo(Panic())
+			Expect(config.Retry).To(BeNil())
+			Expect(config.Timeout).To(Equal(60 * time.Second))
+		})
+	})
+})
+
+var _ = Describe("Additional Validation Edge Cases", func() {
+	Context("when validating negative initial backoff", func() {
+		It("should reject negative initial backoff", func() {
+			config := mcp.RetryConfig{
+				InitialBackoff: -1 * time.Second,
+			}
+			err := config.Validate()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("initial_backoff must be between 0 and 30s"))
+		})
+	})
+
+	Context("when validating negative max backoff", func() {
+		It("should reject negative max backoff", func() {
+			config := mcp.RetryConfig{
+				BackoffFactor: 2.0,
+				MaxBackoff:    -1 * time.Second,
+			}
+			err := config.Validate()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("max_backoff must be between 0 and 5m"))
+		})
+	})
+
+	Context("when validating boundary values", func() {
+		It("should accept max retries at boundaries (0 and 10)", func() {
+			configZero := mcp.RetryConfig{
+				MaxRetries:    0,
+				BackoffFactor: 1.0,
+			}
+			Expect(configZero.Validate()).To(Succeed())
+
+			configTen := mcp.RetryConfig{
+				MaxRetries:    10,
+				BackoffFactor: 1.0,
+			}
+			Expect(configTen.Validate()).To(Succeed())
+		})
+
+		It("should accept initial backoff at 0 (unset/default)", func() {
+			config := mcp.RetryConfig{
+				InitialBackoff: 0,
+				BackoffFactor:  1.0,
+			}
+			Expect(config.Validate()).To(Succeed())
+		})
+
+		It("should accept initial backoff at 30s boundary", func() {
+			config := mcp.RetryConfig{
+				InitialBackoff: 30 * time.Second,
+				BackoffFactor:  1.0,
+			}
+			Expect(config.Validate()).To(Succeed())
+		})
+
+		It("should accept backoff factor at boundaries (1.0 and 10.0)", func() {
+			configMin := mcp.RetryConfig{BackoffFactor: 1.0}
+			Expect(configMin.Validate()).To(Succeed())
+
+			configMax := mcp.RetryConfig{BackoffFactor: 10.0}
+			Expect(configMax.Validate()).To(Succeed())
+		})
+
+		It("should accept max backoff at 5m boundary", func() {
+			config := mcp.RetryConfig{
+				BackoffFactor: 1.0,
+				MaxBackoff:    5 * time.Minute,
+			}
+			Expect(config.Validate()).To(Succeed())
+		})
+	})
+
+	Context("when validating server config with retry errors", func() {
+		It("should propagate retry validation errors", func() {
+			config := mcp.MCPConfig{
+				Servers: []mcp.MCPServerConfig{
+					{
+						Name:      "test",
+						Transport: "stdio",
+						Command:   "go",
+						Retry: &mcp.RetryConfig{
+							MaxRetries:    15,
+							BackoffFactor: 2.0,
+						},
+					},
+				},
+			}
+			err := config.Validate()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("retry config validation failed"))
+			Expect(err.Error()).To(ContainSubstring("max_retries must be between 0 and 10"))
+		})
+	})
+
+	Context("when validating multiple servers", func() {
+		It("should accept multiple valid servers with unique names", func() {
+			config := mcp.MCPConfig{
+				Servers: []mcp.MCPServerConfig{
+					{
+						Name:      "server-1",
+						Transport: "stdio",
+						Command:   "go",
+					},
+					{
+						Name:      "server-2",
+						Transport: "sse",
+						ServerURL: "http://localhost:8080/sse",
+					},
+					{
+						Name:      "server-3",
+						Transport: "streamable_http",
+						ServerURL: "http://localhost:3000/mcp",
+					},
+				},
+			}
+			Expect(config.Validate()).To(Succeed())
+		})
+	})
+
+	Context("when SSE config is missing server_url", func() {
+		It("should reject sse config without server_url", func() {
+			config := mcp.MCPConfig{
+				Servers: []mcp.MCPServerConfig{
+					{
+						Name:      "sse-no-url",
+						Transport: "sse",
+					},
+				},
+			}
+			err := config.Validate()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("server_url is required for sse transport"))
+		})
+	})
+})
+
+var _ = Describe("MCPConfig JSON round-trip", func() {
+	It("should correctly unmarshal server_url from JSON", func() {
+		input := `{"servers":[{"name":"gh","transport":"sse","server_url":"http://localhost:8082/mcp/sse"}]}`
+		var cfg mcp.MCPConfig
+		Expect(json.Unmarshal([]byte(input), &cfg)).To(Succeed())
+		Expect(cfg.Servers).To(HaveLen(1))
+		Expect(cfg.Servers[0].Name).To(Equal("gh"))
+		Expect(cfg.Servers[0].Transport).To(Equal("sse"))
+		Expect(cfg.Servers[0].ServerURL).To(Equal("http://localhost:8082/mcp/sse"))
+	})
+
+	It("should correctly unmarshal include_tools and headers from JSON", func() {
+		input := `{"servers":[{"name":"s","transport":"sse","server_url":"http://x","include_tools":["a","b"],"headers":{"Authorization":"Bearer tok"}}]}`
+		var cfg mcp.MCPConfig
+		Expect(json.Unmarshal([]byte(input), &cfg)).To(Succeed())
+		Expect(cfg.Servers[0].IncludeTools).To(ConsistOf("a", "b"))
+		Expect(cfg.Servers[0].Headers).To(HaveKeyWithValue("Authorization", "Bearer tok"))
+	})
+
+	It("should correctly unmarshal empty retry sub-config from JSON", func() {
+		input := `{"servers":[{"name":"r","transport":"stdio","command":"go","retry":{}}]}`
+		var cfg mcp.MCPConfig
+		Expect(json.Unmarshal([]byte(input), &cfg)).To(Succeed())
+		Expect(cfg.Servers[0].Retry).NotTo(BeNil())
+		// Empty retry config should validate after SetDefaults.
+		cfg.Servers[0].SetDefaults()
+		Expect(cfg.Servers[0].Retry.Validate()).To(Succeed())
+		Expect(cfg.Servers[0].Retry.BackoffFactor).To(Equal(2.0))
+	})
+
+	It("should marshal and unmarshal symmetrically", func() {
+		original := mcp.MCPConfig{
+			Servers: []mcp.MCPServerConfig{
+				{
+					Name:         "test",
+					Transport:    "sse",
+					ServerURL:    "http://localhost:8082/sse",
+					IncludeTools: []string{"tool_a"},
+					Headers:      map[string]string{"X-Key": "val"},
+				},
+			},
+		}
+		data, err := json.Marshal(original)
+		Expect(err).NotTo(HaveOccurred())
+
+		var roundTripped mcp.MCPConfig
+		Expect(json.Unmarshal(data, &roundTripped)).To(Succeed())
+		Expect(roundTripped.Servers[0].ServerURL).To(Equal(original.Servers[0].ServerURL))
+		Expect(roundTripped.Servers[0].IncludeTools).To(Equal(original.Servers[0].IncludeTools))
+		Expect(roundTripped.Servers[0].Headers).To(Equal(original.Servers[0].Headers))
 	})
 })

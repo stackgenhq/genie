@@ -32,7 +32,7 @@ type MCPServerConfig struct {
 	// Args are the command arguments (optional for stdio transport)
 	Args []string `json:"args,omitempty" yaml:"args,omitempty" toml:"args,omitempty"`
 
-	// Timeout is the connection timeout duration (default: 10s)
+	// Timeout is the connection timeout duration (default: 60s)
 	Timeout time.Duration `json:"timeout,omitempty" yaml:"timeout,omitempty" toml:"timeout,omitempty"`
 
 	// Headers are custom HTTP headers (optional for HTTP/SSE transports)
@@ -65,7 +65,8 @@ type RetryConfig struct {
 	// MaxRetries is the maximum number of retry attempts (range: 0-10, default: 2)
 	MaxRetries int `json:"max_retries,omitempty" yaml:"max_retries,omitempty" toml:"max_retries,omitempty,omitzero"`
 
-	// InitialBackoff is the initial delay before first retry (range: 1ms-30s, default: 500ms)
+	// InitialBackoff is the initial delay before first retry (range: 0-30s, default: 500ms).
+	// A value of 0 means unset; SetDefaults() will replace it with 500ms.
 	InitialBackoff time.Duration `json:"initial_backoff,omitempty" yaml:"initial_backoff,omitempty" toml:"initial_backoff,omitempty"`
 
 	// BackoffFactor is the exponential backoff multiplier (range: 1.0-10.0, default: 2.0)
