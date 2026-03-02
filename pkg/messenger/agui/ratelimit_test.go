@@ -53,7 +53,7 @@ var _ = Describe("DDoS Protection Middleware", func() {
 		return agui.NewServer(cfg,
 			&mockExpert{handler: handler},
 			&hitlfakes.FakeApprovalStore{},
-			nil, nil, nil, nil)
+			nil, nil, nil, nil, "")
 	}
 
 	validBody := `{"messages":[{"role":"user","content":"hi"}]}`

@@ -324,7 +324,7 @@ var _ = Describe("AG-UI Server", func() {
 				}
 			}
 			bgw := agui.NewBackgroundWorker(handler, 2)
-			server = agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, bgw, nil, nil)
+			server = agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, bgw, nil, nil, "")
 		})
 
 		It("should stream SSE events for a valid POST", func() {
@@ -421,7 +421,7 @@ var _ = Describe("AG-UI Server", func() {
 				AlwaysAllowed: []string{"tool_a"},
 				DeniedTools:   []string{"tool_b"},
 			}
-			server := agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, nil, cap, nil)
+			server := agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, nil, cap, nil, "")
 
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/capabilities", nil)
 			recorder := httptest.NewRecorder()
@@ -438,7 +438,7 @@ var _ = Describe("AG-UI Server", func() {
 
 		It("should return 404 when capabilities is nil", func() {
 			handler := &aguifakes.FakeExpert{}
-			server := agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, nil, nil, nil)
+			server := agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, nil, nil, nil, "")
 
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/capabilities", nil)
 			recorder := httptest.NewRecorder()
@@ -462,7 +462,7 @@ var _ = Describe("AG-UI Server", func() {
 
 			approveList := toolwrap.NewApproveList()
 			handler := &aguifakes.FakeExpert{}
-			server := agui.NewServer(messenger.AGUIConfig{}, handler, fakeStore, nil, nil, nil, approveList)
+			server := agui.NewServer(messenger.AGUIConfig{}, handler, fakeStore, nil, nil, nil, approveList, "")
 
 			body := map[string]interface{}{
 				"approvalId":   approvalID,
@@ -494,7 +494,7 @@ var _ = Describe("AG-UI Server", func() {
 
 			approveList := toolwrap.NewApproveList()
 			handler := &aguifakes.FakeExpert{}
-			server := agui.NewServer(messenger.AGUIConfig{}, handler, fakeStore, nil, nil, nil, approveList)
+			server := agui.NewServer(messenger.AGUIConfig{}, handler, fakeStore, nil, nil, nil, approveList, "")
 
 			body := map[string]interface{}{
 				"approvalId":           approvalID,
@@ -519,7 +519,7 @@ var _ = Describe("AG-UI Server", func() {
 		It("should add CORS headers when origin matches", func() {
 			handler := &aguifakes.FakeExpert{}
 			server := agui.NewServer(messenger.AGUIConfig{CORSOrigins: []string{"http://localhost:3000"}},
-				handler, nil, nil, nil, nil, nil,
+				handler, nil, nil, nil, nil, nil, "",
 			)
 
 			req := httptest.NewRequest(http.MethodOptions, "/", nil)
@@ -534,7 +534,7 @@ var _ = Describe("AG-UI Server", func() {
 		It("should not add CORS headers when no origins configured", func() {
 			handler := &aguifakes.FakeExpert{}
 			server := agui.NewServer(messenger.AGUIConfig{},
-				handler, nil, nil, nil, nil, nil,
+				handler, nil, nil, nil, nil, nil, "",
 			)
 
 			reqBody := `{"messages":[{"role":"user","content":"hello"}]}`
@@ -550,7 +550,7 @@ var _ = Describe("AG-UI Server", func() {
 		It("should allow requests with no Origin from non-browser clients when cors_origins contains *", func() {
 			handler := &aguifakes.FakeExpert{}
 			server := agui.NewServer(messenger.AGUIConfig{CORSOrigins: []string{"*"}},
-				handler, nil, nil, nil, nil, nil,
+				handler, nil, nil, nil, nil, nil, "",
 			)
 
 			req := httptest.NewRequest(http.MethodOptions, "/", nil)
@@ -563,7 +563,7 @@ var _ = Describe("AG-UI Server", func() {
 		It("should echo Origin null when cors_origins contains * and request has Origin: null", func() {
 			handler := &aguifakes.FakeExpert{}
 			server := agui.NewServer(messenger.AGUIConfig{CORSOrigins: []string{"*"}},
-				handler, nil, nil, nil, nil, nil,
+				handler, nil, nil, nil, nil, nil, "",
 			)
 
 			req := httptest.NewRequest(http.MethodOptions, "/", nil)
@@ -604,7 +604,7 @@ var _ = Describe("AG-UI Server", func() {
 
 			It("returns 401 when X-AGUI-Password header is missing", func(ctx context.Context) {
 				handler := &aguifakes.FakeExpert{}
-				server := agui.NewServer(messenger.AGUIConfig{PasswordProtected: true}, handler, nil, nil, nil, nil, nil)
+				server := agui.NewServer(messenger.AGUIConfig{PasswordProtected: true}, handler, nil, nil, nil, nil, nil, "")
 				req := httptest.NewRequest(http.MethodGet, "/health", nil).WithContext(ctx)
 				recorder := httptest.NewRecorder()
 				server.Handler().ServeHTTP(recorder, req)
@@ -616,7 +616,7 @@ var _ = Describe("AG-UI Server", func() {
 
 			It("returns 401 when X-AGUI-Password is wrong", func(ctx context.Context) {
 				handler := &aguifakes.FakeExpert{}
-				server := agui.NewServer(messenger.AGUIConfig{PasswordProtected: true}, handler, nil, nil, nil, nil, nil)
+				server := agui.NewServer(messenger.AGUIConfig{PasswordProtected: true}, handler, nil, nil, nil, nil, nil, "")
 				req := httptest.NewRequest(http.MethodGet, "/health", nil).WithContext(ctx)
 				req.Header.Set("X-AGUI-Password", "wrong-password")
 				recorder := httptest.NewRecorder()
@@ -629,7 +629,7 @@ var _ = Describe("AG-UI Server", func() {
 
 			It("returns 200 when X-AGUI-Password matches keyring value", func(ctx context.Context) {
 				handler := &aguifakes.FakeExpert{}
-				server := agui.NewServer(messenger.AGUIConfig{PasswordProtected: true}, handler, nil, nil, nil, nil, nil)
+				server := agui.NewServer(messenger.AGUIConfig{PasswordProtected: true}, handler, nil, nil, nil, nil, nil, "")
 				req := httptest.NewRequest(http.MethodGet, "/health", nil).WithContext(ctx)
 				req.Header.Set("X-AGUI-Password", testPassword)
 				recorder := httptest.NewRecorder()
@@ -648,7 +648,7 @@ var _ = Describe("AG-UI Server", func() {
 
 			It("returns 401 with password_not_configured when password_protected is true", func(ctx context.Context) {
 				handler := &aguifakes.FakeExpert{}
-				server := agui.NewServer(messenger.AGUIConfig{PasswordProtected: true}, handler, nil, nil, nil, nil, nil)
+				server := agui.NewServer(messenger.AGUIConfig{PasswordProtected: true}, handler, nil, nil, nil, nil, nil, "")
 				req := httptest.NewRequest(http.MethodGet, "/health", nil).WithContext(ctx)
 				req.Header.Set("X-AGUI-Password", "any")
 				recorder := httptest.NewRecorder()
@@ -674,7 +674,7 @@ var _ = Describe("AG-UI Server", func() {
 				}
 				<-ctx.Done()
 			}
-			server := agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, nil, nil, nil)
+			server := agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, nil, nil, nil, "")
 
 			reqBody := `{"messages":[{"role":"user","content":"hello"}]}`
 			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -712,7 +712,7 @@ var _ = Describe("AG-UI Server", func() {
 					Delta:     true,
 				}
 			}
-			server := agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, nil, nil, nil)
+			server := agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, nil, nil, nil, "")
 
 			reqBody := `{"threadId":"t1","runId":"r1","messages":[{"role":"user","content":"test"}]}`
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(reqBody))

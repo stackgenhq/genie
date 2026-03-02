@@ -30,6 +30,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 	"github.com/stackgenhq/genie/pkg/pii"
 	"github.com/stackgenhq/genie/pkg/reactree"
 	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
@@ -149,6 +150,10 @@ func WithToolwrapOptions(opts ...toolwrap.ServiceOption) OrchestratorOption {
 	}
 }
 
+// agentNamePlaceholder is replaced in embedded prompt templates with the
+// configured agent name so the LLM persona matches the deployment identity.
+const agentNamePlaceholder = "{{AGENT_NAME}}"
+
 func NewOrchestrator(
 	ctx context.Context,
 	modelProvider modelprovider.ModelProvider,
@@ -165,18 +170,22 @@ func NewOrchestrator(
 	for _, fn := range extraOpts {
 		fn(&oo)
 	}
-	// Build the persona prompt. When agentPersona is provided (GUILD agents),
-	// use it instead of the default Genie persona. This enables per-agent
-	// identity customisation.
-	fullPersona := persona
+	// Resolve agent name from context (set by app.Bootstrap via
+	// orchestratorcontext.WithAgent).
+	agentName := orchestratorcontext.AgentFromContext(ctx).Name
+
+	// Build the persona prompt. Replace the {{AGENT_NAME}} placeholder in
+	// the embedded prompts with the configured agent name so the LLM
+	// identifies itself correctly.
+	fullPersona := strings.ReplaceAll(persona, agentNamePlaceholder, agentName)
 	if agentPersona != "" {
 		fullPersona += "\n\n" + agentPersona
 	}
 
 	expertBio := expert.ExpertBio{
 		Personality: fullPersona,
-		Name:        "genie",
-		Description: "Genie — strategic AI planner that decomposes requests into structured plans and orchestrates sub-agents",
+		Name:        strings.ToLower(agentName),
+		Description: agentName + " — strategic AI planner that decomposes requests into structured plans and orchestrates sub-agents",
 	}
 
 	var expertOpts []expert.ExpertOption
@@ -211,7 +220,7 @@ func NewOrchestrator(
 	// Create a lightweight front desk expert for request classification.
 	// Uses TaskFrontDesk which maps to a fast, cheap model (e.g. gemini-3-flash).
 	frontDeskBio := expert.ExpertBio{
-		Personality: classifyPrompt,
+		Personality: strings.ReplaceAll(classifyPrompt, agentNamePlaceholder, agentName),
 		Name:        "front-desk",
 		Description: "Classifies incoming requests to determine routing. Validate against the agents personality and make the judgement accordingly",
 	}
@@ -497,8 +506,7 @@ func (c *orchestrator) classifyAndMaybeShortCircuit(ctx context.Context, req Cod
 				"Simply greet them and briefly mention what you can help with.\n\n%s",
 			req.Question,
 		)
-		salutationCtx := agui.WithSuppressEmit(ctx)
-		resp, doErr := c.expert.Do(salutationCtx, expert.Request{
+		resp, doErr := c.expert.Do(ctx, expert.Request{
 			Message:  salutationMsg,
 			TaskType: modelprovider.TaskEfficiency,
 			Mode: expert.ExpertConfig{

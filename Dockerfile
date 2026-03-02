@@ -36,7 +36,7 @@ VOLUME ["/home/genie/.config"]
 WORKDIR /workspace
 
 # AG-UI server port
-EXPOSE 8080
+EXPOSE 9876
 
 ENTRYPOINT ["genie"]
 

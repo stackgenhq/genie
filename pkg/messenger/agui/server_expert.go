@@ -5,6 +5,7 @@ import (
 
 	aguitypes "github.com/stackgenhq/genie/pkg/agui"
 	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 )
 
 // NewChatHandler creates a ChatHandler that bridges the AG-UI
@@ -44,7 +45,7 @@ func (e serverExpert) Handle(ctx context.Context, req ChatRequest) {
 	// Emit RUN_STARTED
 	req.EventChan <- aguitypes.AgentThinkingMsg{
 		Type:      aguitypes.EventRunStarted,
-		AgentName: "Genie",
+		AgentName: orchestratorcontext.AgentFromContext(ctx).Name,
 		Message:   "Processing your request...",
 	}
 

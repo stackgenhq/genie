@@ -116,6 +116,8 @@
     // ── State ──
     let serverUrl = '';
     let isConnected = false;
+    // Agent display name from /health (defaults to "Genie" until connected).
+    let agentDisplayName = 'Genie';
     // When the server requires AG-UI password, this is set after successful connect and sent with every request.
     let aguiPasswordForSession = '';
 
@@ -208,7 +210,7 @@
         const granted = await requestNotificationPermission();
         hideNotificationPrompt();
         if (granted) {
-            showNotification('Notifications enabled', 'You\'ll be notified when Genie needs your approval or has a reply.', 'genie-setup');
+            showNotification('Notifications enabled', 'You\'ll be notified when ' + agentDisplayName + ' needs your approval or has a reply.', 'genie-setup');
         }
     }
 
@@ -386,6 +388,11 @@
 
     function onHealthSuccess(data) {
         const userName = data.user || '';
+        // Read agent name from /health and update all UI labels.
+        if (data.agent_name) {
+            agentDisplayName = data.agent_name;
+            updateAgentLabels(agentDisplayName);
+        }
         setConnected(true, userName);
         emptyState.style.display = 'none';
         closePasswordModal();
@@ -397,8 +404,8 @@
         }
         inputEl.focus();
         addSystemMessage(userName
-            ? 'Hello, ' + escapeHtml(userName) + '!  Genie is ready at ' + serverUrl
-            : 'Genie is ready at ' + serverUrl);
+            ? 'Hello, ' + escapeHtml(userName) + '!  ' + escapeHtml(agentDisplayName) + ' is ready at ' + serverUrl
+            : escapeHtml(agentDisplayName) + ' is ready at ' + serverUrl);
         fetchAndShowResume();
         fetchAndShowCapabilities();
         showNotificationPrompt();
@@ -412,6 +419,23 @@
             updatedAt: Date.now(),
         };
         refreshSidebar();
+    }
+
+    // Updates all UI labels that reference the agent name.
+    function updateAgentLabels(name) {
+        const safeN = escapeHtml(name);
+        document.title = 'Chat — ' + name + ' by Stackgen';
+        const headerEl = document.getElementById('header-title');
+        if (headerEl) headerEl.textContent = name + ' Chat';
+        if (inputEl) inputEl.placeholder = 'Ask ' + name + ' anything...';
+        const welcomeEl = document.getElementById('welcome-title');
+        if (welcomeEl) welcomeEl.textContent = 'Welcome to ' + name;
+        const notifText = document.getElementById('notification-text');
+        if (notifText) notifText.textContent = 'Get notified when ' + name + ' needs your approval or has a reply.';
+        const resumeLabel = document.getElementById('resume-label');
+        if (resumeLabel) resumeLabel.textContent = '\ud83e\uddde ' + name + ' Resume';
+        const capLabel = document.getElementById('capabilities-label');
+        if (capLabel) capLabel.textContent = '\ud83d\udccb What ' + name + ' can do';
     }
 
     function isAllowedServerUrl(url) {
@@ -948,7 +972,7 @@
             case 'CLARIFICATION_REQUEST':
                 hideThinking();
                 addClarificationCard(event.approvalId, event.content, event.message);
-                showNotification('Genie needs your input', (event.content || 'Please answer in the chat').substring(0, 80), 'clarify-' + (event.approvalId || ''));
+                showNotification(agentDisplayName + ' needs your input', (event.content || 'Please answer in the chat').substring(0, 80), 'clarify-' + (event.approvalId || ''));
                 vibrateBrief();
                 break;
         }
@@ -1548,7 +1572,7 @@
             : '';
         div.innerHTML = `
 <div class="clarify-card" id="clarify-${escapeAttr(requestId)}">
-  <div class="clarify-header">❓ Genie needs your input</div>
+  <div class="clarify-header">❓ ${escapeHtml(agentDisplayName)} needs your input</div>
   <div class="clarify-question">${escapeHtml(question || 'Please provide more information.')}</div>
   ${contextHtml}
   <textarea class="clarify-input" id="clarify-input-${escapeAttr(requestId)}" placeholder="Type your answer…" rows="2"

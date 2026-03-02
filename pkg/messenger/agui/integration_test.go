@@ -64,7 +64,7 @@ var _ = Describe("AGUI Messenger Integration", func() {
 			}
 
 			bgw := agui.NewBackgroundWorker(handler, 2)
-			server = agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, bgw, nil, nil)
+			server = agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, bgw, nil, nil, "")
 			server.SetMessengerBridge(adapter)
 
 			// POST a message
@@ -115,7 +115,7 @@ var _ = Describe("AGUI Messenger Integration", func() {
 			}
 
 			bgw := agui.NewBackgroundWorker(handler, 2)
-			server = agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, bgw, nil, nil)
+			server = agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, bgw, nil, nil, "")
 			server.SetMessengerBridge(adapter)
 
 			reqBody := `{"threadId":"send-thread","runId":"send-run","messages":[{"role":"user","content":"test send"}]}`
@@ -166,7 +166,7 @@ var _ = Describe("AGUI Messenger Integration", func() {
 			}
 
 			bgw := agui.NewBackgroundWorker(handler, 2)
-			server = agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, bgw, nil, nil)
+			server = agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, bgw, nil, nil, "")
 			server.SetMessengerBridge(adapter)
 
 			reqBody := `{"threadId":"done-thread","runId":"done-run","messages":[{"role":"user","content":"quick"}]}`
@@ -210,7 +210,7 @@ var _ = Describe("AGUI Messenger Integration", func() {
 			}
 
 			bgw := agui.NewBackgroundWorker(handler, 4)
-			server = agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, bgw, nil, nil)
+			server = agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, bgw, nil, nil, "")
 			server.SetMessengerBridge(adapter)
 
 			var wg sync.WaitGroup
@@ -271,7 +271,7 @@ var _ = Describe("AGUI Messenger Integration", func() {
 			}
 
 			bgw := agui.NewBackgroundWorker(handler, 2)
-			server := agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, bgw, nil, nil)
+			server := agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, bgw, nil, nil, "")
 			// No SetMessengerBridge call — bridge is nil
 
 			reqBody := `{"messages":[{"role":"user","content":"hello"}]}`

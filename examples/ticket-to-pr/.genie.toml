@@ -84,7 +84,7 @@ persistence_dir = "${PWD}/.genie/vector_store"
 # ── AG-UI Server ────────────────────────────────────────────────────
 # Web interface for browser-based interaction alongside Slack.
 [messenger.agui]
-port = 8080
+port = 9876
 cors_origins = ["*"]
 
 # ── Human-in-the-Loop ──────────────────────────────────────────────

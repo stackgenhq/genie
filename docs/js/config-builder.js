@@ -38,7 +38,7 @@
             teams: { app_id: 'TEAMS_APP_ID', app_password: 'TEAMS_APP_PASSWORD', listen_addr: ':3978' },
             googlechat: {},
             whatsapp: {},
-            agui: { port: 8080, cors_origins: ['https://stackgenhq.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576 }
+            agui: { port: 9876, cors_origins: ['https://stackgenhq.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576 }
         },
         scm: { provider: '', token: 'SCM_TOKEN', base_url: '' },
         pm: { provider: '', api_token: 'PM_API_TOKEN', base_url: '', email: '' },
@@ -351,7 +351,7 @@
             fieldText('Name', srv.name, function (v) { srv.name = v; renderOutput(); }, 'my-server', 'A friendly name to identify this tool server'),
             fieldSelect('Transport', srv.transport, MCP_TRANSPORTS, function (v) { srv.transport = v; renderAll(); }, 'How to connect — stdio runs a local program, HTTP/SSE connects to a remote server'),
             connectionField,
-            fieldText('Args (comma-separated)', (srv.args || []).join(', '), function (v) { srv.args = splitCSV(v); renderOutput(); }, '--port 8080', 'Extra arguments passed to the command (stdio only)'),
+            fieldText('Args (comma-separated)', (srv.args || []).join(', '), function (v) { srv.args = splitCSV(v); renderOutput(); }, '--port 9876', 'Extra arguments passed to the command (stdio only)'),
             fieldText('Include Tools (comma-sep)', (srv.include_tools || []).join(', '), function (v) { srv.include_tools = splitCSV(v); renderOutput(); }, null, 'Only use these specific tools from the server (leave empty for all)'),
             fieldText('Exclude Tools (comma-sep)', (srv.exclude_tools || []).join(', '), function (v) { srv.exclude_tools = splitCSV(v); renderOutput(); }, null, 'Block these tools from being used — useful for restricting dangerous operations')
         ];

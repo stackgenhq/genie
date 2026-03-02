@@ -47,6 +47,7 @@ import (
 	_ "github.com/stackgenhq/genie/pkg/messenger/telegram" // register adapter
 	_ "github.com/stackgenhq/genie/pkg/messenger/whatsapp" // register adapter
 	"github.com/stackgenhq/genie/pkg/orchestrator"
+	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 	"github.com/stackgenhq/genie/pkg/osutils"
 	"github.com/stackgenhq/genie/pkg/report/activityreport"
 
@@ -157,10 +158,24 @@ func NewApplication(
 	}, nil
 }
 
+// displayName returns the agent's display name for UI-facing messages.
+// Falls back to "Genie" when agent_name is not configured.
+func (a *Application) displayName() string {
+	if a.cfg.AgentName != "" {
+		return a.cfg.AgentName
+	}
+	return orchestratorcontext.DefaultAgentName
+}
+
 // Bootstrap initialises all dependencies: database, tools, vector memory,
 // audit logger, HITL approval store, cron store, messenger, and the
 // CodeOwner agent. Call exactly once after NewApplication.
 func (a *Application) Bootstrap(ctx context.Context) error {
+	// Inject agent identity into the context so every downstream call
+	// (orchestrator, AGUI server, audit, etc.) can access it.
+	ctx = orchestratorcontext.WithAgent(ctx, orchestratorcontext.Agent{
+		Name: a.displayName(),
+	})
 	log := logger.GetLogger(ctx).With("fn", "app.Bootstrap")
 
 	// --- Crypto / TLS (NIST 2030 defaults: TLS 1.2+, optional cipher restriction) ---
@@ -407,6 +422,7 @@ func (a *Application) Start(ctx context.Context) error {
 				DeniedTools:   a.cfg.HITL.DeniedTools,
 			},
 			ApproveList: a.approveList,
+			AgentName:   a.displayName(),
 		})
 		log.Info("AG-UI server configured on AGUI messenger")
 	}
@@ -661,7 +677,7 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 		skipEmitFullOutput := origin.Platform == messenger.PlatformAGUI
 		for output := range outputChan {
 			if output != "" && !skipEmitFullOutput {
-				agui.EmitAgentMessage(ctx, "genie", output)
+				agui.EmitAgentMessage(ctx, orchestratorcontext.AgentFromContext(ctx).Name, output)
 			}
 		}
 		<-chatDone

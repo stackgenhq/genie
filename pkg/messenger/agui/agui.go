@@ -152,6 +152,10 @@ type ServerConfig struct {
 	// ApproveList is the in-memory temporary allowlist for "approve for X mins".
 	// When set, the /approve endpoint accepts allowForMins and allowWhenArgsContain.
 	ApproveList *toolwrap.ApproveList
+
+	// AgentName is the configured agent name (e.g. "qa_agent", "my-bot").
+	// Exposed via /health so the chat UI can display it. Defaults to "Genie".
+	AgentName string
 }
 
 // ConfigureServer injects the dependencies needed to run the AG-UI HTTP
@@ -169,6 +173,7 @@ func (m *Messenger) ConfigureServer(cfg ServerConfig) {
 		cfg.BGWorker,
 		cfg.Capabilities,
 		cfg.ApproveList,
+		cfg.AgentName,
 		cfg.Workers...,
 	)
 	m.server.SetMessengerBridge(m)
