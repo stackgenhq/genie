@@ -1190,14 +1190,15 @@
         const div = document.createElement('div');
         div.className = 'flex justify-start mb-3';
         const friendly = friendlyToolName(toolName);
+        const safeId = escapeAttr(toolCallId);
         div.innerHTML = `
-<details class="tool-card" id="tool-${toolCallId}">
+<details class="tool-card" id="tool-${safeId}">
   <summary>
-    <span class="tool-label">${friendly}</span>
-    <span class="tool-status running" id="tool-status-${toolCallId}">Running…</span>
+    <span class="tool-label">${escapeHtml(friendly)}</span>
+    <span class="tool-status running" id="tool-status-${safeId}">Running…</span>
     <span class="tool-chevron">▶</span>
   </summary>
-  <div class="tool-body" id="tool-body-${toolCallId}"></div>
+  <div class="tool-body" id="tool-body-${safeId}"></div>
 </details>
       `;
         messagesEl.appendChild(div);
