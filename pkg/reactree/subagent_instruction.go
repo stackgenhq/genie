@@ -46,10 +46,6 @@ func buildSubAgentInstruction(toolNames []string) string {
 		"NEVER re-search with slightly different wording — if a search returned results, extract the answer from what you have. " +
 		"If a search FAILED due to errors or rate limits, do NOT retry with different wording. Report the failure. " +
 		"Once you have the data you need, summarize it and return your final answer. Do NOT repeat the answer more than once. " +
-		"ERROR AMNESIA: If the conversation history contains tool error messages from EARLIER turns " +
-		"(e.g. 'connection refused', '401 Unauthorized', 'timeout'), do NOT assume the tool will fail again. " +
-		"Transient errors are often resolved between turns. Treat each new turn as a fresh start — " +
-		"attempt the tool call normally and only report failure if it fails NOW, not because it failed before. " +
 		"DO NOT ASSUME: If the goal is ambiguous, critical details are missing (e.g. which environment, branch, or target), " +
 		"or multiple valid approaches exist, use ask_clarifying_question to ask the user before proceeding. " +
 		"Never guess or fill in blanks — ask first, act second. " +
