@@ -1085,5 +1085,5 @@ trpc.group/trpc-go/trpc-agent-go/model/ollama v1.6.0 h1:4llFtCdgGBcSFYNZ906uhTc+
 trpc.group/trpc-go/trpc-agent-go/model/ollama v1.6.0/go.mod h1:yS6NY5TLv4m2+qKzOcJR2vbM5Ci+bziTYJ7VlzWBUWY=
 trpc.group/trpc-go/trpc-agent-go/storage/milvus v0.0.0-20251216100013-73147c973dde h1:8znSwvlpHPxm4y4JEqY+bs8+249pD4Bgg83X0TrcrqQ=
 trpc.group/trpc-go/trpc-agent-go/storage/milvus v0.0.0-20251216100013-73147c973dde/go.mod h1:neDTwGDUAwFQbZvk1yHpcdfMgqbl+UOR2US90DSaF5s=
-trpc.group/trpc-go/trpc-agent-go/tool/google v1.5.1-0.20260213075829-fd2e4a85e54f h1:61Ju64vbJZgYtMPcwUoOgkcUVs/JtScPpGIt5oHwl3c=
-trpc.group/trpc-go/trpc-agent-go/tool/google v1.5.1-0.20260213075829-fd2e4a85e54f/go.mod h1:tBxeIdB/dULyPnyekZ+c99rYzaUP0NffQ19rzxIzoDY=
+trpc.group/trpc-go/trpc-agent-go/tool/google v1.6.0 h1:1LhLPpKCEhzRETITLBS2U7ZgrvSLJx3Wir+x+RjM3FA=
+trpc.group/trpc-go/trpc-agent-go/tool/google v1.6.0/go.mod h1:tBxeIdB/dULyPnyekZ+c99rYzaUP0NffQ19rzxIzoDY=
