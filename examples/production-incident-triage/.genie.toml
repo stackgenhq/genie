@@ -1,8 +1,7 @@
 # Example Configuration with Remote Skills
 
 # Using skills roots (supports single or multiple paths)
-skills_roots = [
-]
+skills_roots = ["${PWD}/runbooks/"]
 
 [db_config]
 db_file = "./.genie.db"
@@ -144,8 +143,6 @@ cors_origins = ["https://stackgenhq.github.io", "http://localhost:8123"]
 [hitl]
 always_allowed = ["run_shell"]
 
-[runbook]
-runbook_paths = ["${PWD}/runbooks/"]
 
 [pii]
 entropy_threshold = 4.2

@@ -3,7 +3,7 @@
 // appropriate expert(s), and coordinates ReAcTree multi-step workflows.
 //
 // It solves the problem of connecting the messenger layer to the agent layer:
-// the orchestrator owns the conversation loop, injects runbooks/skills/memory,
+// the orchestrator owns the conversation loop, injects skills/memory,
 // applies HITL and clarification flows, and streams AG-UI events to the client.
 // Without this package, there would be no single place that ties config, tools,
 // experts, and execution together.
@@ -33,7 +33,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/pii"
 	"github.com/stackgenhq/genie/pkg/reactree"
 	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
-	"github.com/stackgenhq/genie/pkg/runbook"
+
 	"github.com/stackgenhq/genie/pkg/tools"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
 	"github.com/stackgenhq/genie/pkg/ttlcache"
@@ -133,8 +133,6 @@ func (c *orchestrator) Resume(ctx context.Context) string {
 // hierarchical task decomposition for complex queries when activated.
 // The approvalStore enables HITL approval gating for sub-agent tool calls;
 // when nil, sub-agents execute tools without requiring human approval.
-// The runbookCfg enables loading customer-provided instructional runbooks
-// that get injected into the agent's system prompt.
 // OrchestratorOption configures optional behaviour on the orchestrator.
 type OrchestratorOption func(*orchestratorOpts)
 
@@ -155,12 +153,10 @@ func NewOrchestrator(
 	ctx context.Context,
 	modelProvider modelprovider.ModelProvider,
 	availableTools *tools.Registry,
-	runbook runbook.Runbook,
 	vectorStore vector.IStore,
 	auditor audit.Auditor,
 	approvalStore hitl.ApprovalStore,
 	memorySvc memory.Service,
-	runbookCfg runbook.Config,
 	sessionSvc session.Service,
 	agentPersona string,
 	extraOpts ...OrchestratorOption,
@@ -175,17 +171,6 @@ func NewOrchestrator(
 	fullPersona := persona
 	if agentPersona != "" {
 		fullPersona += "\n\n" + agentPersona
-	}
-	// Load customer runbooks into the vector store for semantic search.
-	// Instead of bloating the persona prompt, runbook content is indexed
-	// individually and made available via the search_runbook tool.
-	if count, err := runbook.Load(ctx); err != nil {
-		logger.GetLogger(ctx).Warn("failed to load runbooks", "error", err)
-	} else if count > 0 {
-		fullPersona += "\n\n## Runbooks\n\nCustomer-provided runbooks are available. " +
-			"Use the `search_runbook` tool to find relevant deployment procedures, " +
-			"troubleshooting playbooks, coding standards, and other operational instructions " +
-			"before taking action."
 	}
 
 	expertBio := expert.ExpertBio{

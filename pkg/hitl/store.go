@@ -201,7 +201,6 @@ var defaultReadOnlyTools = []string{
 	"read_notes",
 	"search_content",
 	"search_file",
-	"search_runbook",
 	"skill_load",
 	"util_json",
 	"web_fetch",

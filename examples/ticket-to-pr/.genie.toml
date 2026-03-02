@@ -95,7 +95,6 @@ always_allowed = [
     "send_message",
     "memory_store",
     "memory_search",
-    "search_runbook",
     "web_search",
     "duckduckgo_search",
     "read_file",

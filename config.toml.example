@@ -180,10 +180,7 @@ always_allowed = ["read_file", "list_file"]
 # secret_key = "${LANGFUSE_SECRET_KEY}"
 # host = "https://cloud.langfuse.com"
 
-# ── Runbooks ───────────────────────────────────────────────
-# [runbook]
-# runbook_paths = ["./docs/runbooks", "./CODING_STANDARDS.md"]
-# Or just create .genie/runbooks/ — auto-discovered, no config needed.
+
 
 # ── Cron (Scheduled Tasks) ─────────────────────────────────
 # [cron]

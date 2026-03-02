@@ -21,7 +21,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/pii"
-	"github.com/stackgenhq/genie/pkg/runbook"
+
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/tools/email"
 	"github.com/stackgenhq/genie/pkg/tools/google/gdrive"
@@ -58,8 +58,8 @@ type GenieConfig struct {
 	HITL     hitl.Config     `yaml:"hitl,omitempty" toml:"hitl,omitempty"`
 	DBConfig db.Config       `yaml:"db_config,omitempty" toml:"db_config,omitempty"`
 	Langfuse langfuse.Config `yaml:"langfuse,omitempty" toml:"langfuse,omitempty"`
-	Runbook  runbook.Config  `yaml:"runbook,omitempty" toml:"runbook,omitempty"`
-	Cron     cron.Config     `yaml:"cron,omitempty" toml:"cron,omitempty"`
+
+	Cron cron.Config `yaml:"cron,omitempty" toml:"cron,omitempty"`
 	// Unified data sources configuration
 	DataSources datasource.Config `yaml:"data_sources,omitempty" toml:"data_sources,omitempty"`
 

@@ -49,7 +49,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/orchestrator"
 	"github.com/stackgenhq/genie/pkg/osutils"
 	"github.com/stackgenhq/genie/pkg/report/activityreport"
-	"github.com/stackgenhq/genie/pkg/runbook"
+
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/skills"
 	"github.com/stackgenhq/genie/pkg/tools"
@@ -279,9 +279,6 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 	sessionStore := geniedb.NewSessionStore(ctx, a.db)
 	log.Info("GORM-backed session store initialized for persistent chat history")
 
-	// --- Runbook loader ---
-	runbookLoader := runbook.NewLoader(a.workingDir, a.cfg.Runbook, vectorStore)
-	runbookLoader.KeepWatching(ctx)
 	personaFromAgentsMD := loadAgentsGuide(a.workingDir)
 
 	// In-memory approve list so users can "approve for X mins" from the chat UI.
@@ -292,12 +289,10 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 		ctx,
 		a.cfg.ModelConfig.NewEnvBasedModelProvider(),
 		a.toolRegistry,
-		runbookLoader,
 		vectorStore,
 		a.auditor,
 		a.approvalStore,
 		memorySvc,
-		a.cfg.Runbook,
 		sessionStore,
 		personaFromAgentsMD,
 		orchestrator.WithToolwrapOptions(
@@ -868,11 +863,10 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 	// Note: Summarizer is not injected at the app level — sub-agents create
 	// their own summarizers. This keeps the tool registry self-contained.
 
-	// --- Vector memory + Runbook tools ---
+	// --- Vector memory tools ---
 	if vectorStore != nil {
 		providers = append(providers, vector.NewToolProvider(vectorStore, &a.cfg.VectorMemory))
-		providers = append(providers, runbook.NewToolProvider(vectorStore))
-		log.Debug("Vector memory and runbook tool providers added")
+		log.Debug("Vector memory tool provider added")
 	}
 
 	// --- Graph memory tools (interface-driven; only when graph store is enabled) ---

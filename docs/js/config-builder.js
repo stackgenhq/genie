@@ -60,7 +60,7 @@
         db_config: { db_file: '' },
 
         langfuse: { public_key: 'LANGFUSE_PUBLIC_KEY', secret_key: 'LANGFUSE_SECRET_KEY', host: 'https://cloud.langfuse.com', enable_prompts: false },
-        runbook: { runbook_paths: [] },
+
         cron: { enabled: false, tasks: [] },
         security: { secrets: [] },
         pii: { salt: '', entropy_threshold: 4.2, min_secret_length: 12, sensitive_keys: [] },
@@ -205,7 +205,7 @@
         renderProviders();
 
         renderSkills();
-        renderRunbook();
+
         renderMCP();
         renderWebSearch();
         renderVectorMemory();
@@ -752,26 +752,6 @@
         ]));
     }
 
-    // ── Runbooks ──
-    function renderRunbook() {
-        var c = $('runbook-body');
-        if (!c) return;
-        c.innerHTML = '';
-        var rb = state.runbook;
-        var paths = rb.runbook_paths || [];
-        paths.forEach(function (p, i) {
-            var inp = el('input', { className: 'form-input', type: 'text', value: p, placeholder: './runbooks/deploy.md or /abs/path' });
-            inp.addEventListener('input', function () { rb.runbook_paths[i] = this.value; renderOutput(); });
-            c.appendChild(el('div', { className: 'flex items-center gap-2 mb-2' }, [
-                inp,
-                el('button', { className: 'btn-remove', onClick: function () { rb.runbook_paths.splice(i, 1); renderAll(); } }, '✕')
-            ]));
-        });
-        c.appendChild(
-            el('button', { className: 'btn-add mt-1', onClick: function () { rb.runbook_paths.push(''); renderAll(); } }, '+ Add Path')
-        );
-        c.appendChild(el('p', { className: 'text-xs text-gray-400 mt-2' }, 'Tip: files in <code>.genie/runbooks/</code> are auto-discovered without config'));
-    }
 
     // ── AGUI ──
     function renderAGUI() {
@@ -859,13 +839,7 @@
         lines.push('');
     }
 
-    function runbookToToml(lines) {
-        var rb = state.runbook;
-        if (!hasItems(rb.runbook_paths)) return;
-        lines.push('[runbook]');
-        if (hasItems(rb.runbook_paths)) lines.push('runbook_paths = [' + rb.runbook_paths.filter(Boolean).map(q).join(', ') + ']');
-        lines.push('');
-    }
+
 
     function mcpToToml(lines) {
         state.mcp_servers.forEach(function (srv) {
@@ -1044,7 +1018,7 @@
         langfuseToToml(lines);
         securityToToml(lines);
         piiToToml(lines);
-        runbookToToml(lines);
+
         cronToToml(lines);
         return lines.join('\n');
     }
@@ -1327,16 +1301,7 @@
         lines.push('');
     }
 
-    function runbookToYaml(lines) {
-        var rb = state.runbook;
-        if (!hasItems(rb.runbook_paths)) return;
-        lines.push('runbook:');
-        if (hasItems(rb.runbook_paths)) {
-            lines.push('  runbook_paths:');
-            rb.runbook_paths.filter(Boolean).forEach(function (p) { lines.push('    - ' + yq(p)); });
-        }
-        lines.push('');
-    }
+
 
     function mcpToYaml(lines) {
         if (state.mcp_servers.length === 0) return;
@@ -1524,7 +1489,7 @@
 
         securityToYaml(lines);
         piiToYaml(lines);
-        runbookToYaml(lines);
+
         cronToYaml(lines);
         return lines.join('\n');
     }
