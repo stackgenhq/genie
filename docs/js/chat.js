@@ -5,1376 +5,1379 @@
 
     // ── IndexedDB Persistence Layer ──
     class GenieDB {
-    constructor() {
-        this.dbName = 'genie-chat';
-        this.version = 1;
-        this.db = null;
-    }
-
-    open() {
-        return new Promise((resolve, reject) => {
-            const req = indexedDB.open(this.dbName, this.version);
-            req.onupgradeneeded = (e) => {
-                const db = e.target.result;
-                if (!db.objectStoreNames.contains('conversations')) {
-                    const store = db.createObjectStore('conversations', { keyPath: 'threadId' });
-                    store.createIndex('serverUrl', 'serverUrl', { unique: false });
-                    store.createIndex('updatedAt', 'updatedAt', { unique: false });
-                }
-            };
-            req.onsuccess = (e) => { this.db = e.target.result; resolve(this.db); };
-            req.onerror = (e) => reject(e.target.error);
-        });
-    }
-
-    async saveConversation(conv) {
-        if (!this.db) await this.open();
-        return new Promise((resolve, reject) => {
-            const tx = this.db.transaction('conversations', 'readwrite');
-            tx.objectStore('conversations').put(conv);
-            tx.oncomplete = () => resolve();
-            tx.onerror = (e) => reject(e.target.error);
-        });
-    }
-
-    async getConversations(serverUrlFilter) {
-        if (!this.db) await this.open();
-        return new Promise((resolve, reject) => {
-            const tx = this.db.transaction('conversations', 'readonly');
-            const store = tx.objectStore('conversations');
-            const req = store.getAll();
-            req.onsuccess = () => {
-                let results = req.result || [];
-                if (serverUrlFilter) {
-                    results = results.filter(c => c.serverUrl === serverUrlFilter);
-                }
-                results.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-                resolve(results);
-            };
-            req.onerror = (e) => reject(e.target.error);
-        });
-    }
-
-    async getAllConversations() {
-        if (!this.db) await this.open();
-        return new Promise((resolve, reject) => {
-            const tx = this.db.transaction('conversations', 'readonly');
-            const req = tx.objectStore('conversations').getAll();
-            req.onsuccess = () => {
-                const results = req.result || [];
-                results.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-                resolve(results);
-            };
-            req.onerror = (e) => reject(e.target.error);
-        });
-    }
-
-    async getConversation(threadId) {
-        if (!this.db) await this.open();
-        return new Promise((resolve, reject) => {
-            const tx = this.db.transaction('conversations', 'readonly');
-            const req = tx.objectStore('conversations').get(threadId);
-            req.onsuccess = () => resolve(req.result || null);
-            req.onerror = (e) => reject(e.target.error);
-        });
-    }
-
-    async deleteConversation(threadId) {
-        if (!this.db) await this.open();
-        return new Promise((resolve, reject) => {
-            const tx = this.db.transaction('conversations', 'readwrite');
-            tx.objectStore('conversations').delete(threadId);
-            tx.oncomplete = () => resolve();
-            tx.onerror = (e) => reject(e.target.error);
-        });
-    }
-}
-
-const genieDB = new GenieDB();
-genieDB.open().catch(err => console.warn('IndexedDB init failed:', err));
-
-// Current conversation being built
-let currentConversation = null;
-
-// ── Segmentation: platform + userId + chatId (threadId) ──
-// Platform identifier for this UI channel.
-const PLATFORM_ID = 'agui:http';
-
-// Stable user ID persisted across sessions so the backend can
-// correlate the same human across multiple chats.
-function getOrCreateUserId() {
-    const KEY = 'genie-user-id';
-    let uid = localStorage.getItem(KEY);
-    if (!uid) {
-        uid = crypto.randomUUID();
-        localStorage.setItem(KEY, uid);
-    }
-    return uid;
-}
-const userId = getOrCreateUserId();
-
-// ── State ──
-let serverUrl = '';
-let isConnected = false;
-// When the server requires AG-UI password, this is set after successful connect and sent with every request.
-let aguiPasswordForSession = '';
-
-function aguiAuthHeaders() {
-    const h = {};
-    if (aguiPasswordForSession) {
-        h['X-AGUI-Password'] = aguiPasswordForSession;
-    }
-    return h;
-}
-
-let isStreaming = false;
-// Reconnection state: when stream drops we try to reconnect with backoff.
-let isReconnecting = false;
-let reconnectAttempts = 0;
-const RECONNECT_MAX_ATTEMPTS = 5;
-const RECONNECT_BASE_MS = 1000;
-// Every chat session gets a fresh threadId so the LLM never
-// sees memory/context from a previous chat.
-let threadId = crypto.randomUUID();
-let runCounter = 0;
-let currentAssistantBubble = null;
-let currentAssistantContent = '';
-let currentMessageId = null;  // track active message ID
-let abortController = null;   // AbortController for cancelling streaming
-
-// Typing effect state
-let typingInterval = null;
-let displayedContentLength = 0;
-const TYPING_CHUNK_SIZE = 3;
-const TYPING_TICK_RATE = 10;
-
-// HITL nudge: show hint after several approvals in this run
-let hitlApprovalCount = 0;
-let hitlNudgeShown = false;
-
-// ── DOM Refs ──
-const messagesEl = document.getElementById('chat-messages');
-const approvalsColumnEl = document.getElementById('approvals-column');
-const approvalsColumnListEl = document.getElementById('approvals-column-list');
-const inputEl = document.getElementById('chat-input');
-const sendBtn = document.getElementById('send-btn');
-const micBtn = document.getElementById('mic-btn');
-const connectionBadge = document.getElementById('connection-badge');
-const connectionLabel = document.getElementById('connection-label');
-const emptyState = document.getElementById('empty-state');
-const notificationPromptEl = document.getElementById('notification-prompt');
-
-// ── Browser notifications (approval + updates) ──
-const NOTIFICATION_PROMPT_DISMISSED_KEY = 'genie-notification-prompt-dismissed';
-
-function notificationsSupported() {
-    return typeof Notification !== 'undefined';
-}
-
-function showNotification(title, body, tag) {
-    if (!notificationsSupported() || Notification.permission !== 'granted') return;
-    try {
-        const n = new Notification(title, {
-            body: body || '',
-            tag: tag || 'genie',
-            icon: '/favicon.ico'
-        });
-        n.onclick = () => { window.focus(); n.close(); };
-    } catch (e) {
-        console.warn('Notification failed:', e);
-    }
-}
-
-async function requestNotificationPermission() {
-    if (!notificationsSupported()) return false;
-    if (Notification.permission === 'granted') return true;
-    if (Notification.permission === 'denied') return false;
-    const perm = await Notification.requestPermission();
-    return perm === 'granted';
-}
-
-function showNotificationPrompt() {
-    if (!notificationPromptEl || !notificationsSupported()) return;
-    if (Notification.permission !== 'default') return;
-    if (localStorage.getItem(NOTIFICATION_PROMPT_DISMISSED_KEY) === '1') return;
-    notificationPromptEl.style.display = 'flex';
-}
-
-function hideNotificationPrompt() {
-    if (notificationPromptEl) notificationPromptEl.style.display = 'none';
-}
-
-async function enableNotifications() {
-    const granted = await requestNotificationPermission();
-    hideNotificationPrompt();
-    if (granted) {
-        showNotification('Notifications enabled', 'You\'ll be notified when Genie needs your approval or has a reply.', 'genie-setup');
-    }
-}
-
-function dismissNotificationPrompt() {
-    localStorage.setItem(NOTIFICATION_PROMPT_DISMISSED_KEY, '1');
-    hideNotificationPrompt();
-}
-
-document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible') {
-        if (typeof navigator.clearAppBadge === 'function') {
-            try { navigator.clearAppBadge(); } catch (e) { /* ignore */ }
+        constructor() {
+            this.dbName = 'genie-chat';
+            this.version = 1;
+            this.db = null;
         }
-        if (isConnected && serverUrl && !isReconnecting) {
-            tryReconnectOnce().then(function (ok) {
-                if (!ok) {
-                    setConnected(false);
-                    tryReconnectWithBackoff();
-                }
+
+        open() {
+            return new Promise((resolve, reject) => {
+                const req = indexedDB.open(this.dbName, this.version);
+                req.onupgradeneeded = (e) => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains('conversations')) {
+                        const store = db.createObjectStore('conversations', { keyPath: 'threadId' });
+                        store.createIndex('serverUrl', 'serverUrl', { unique: false });
+                        store.createIndex('updatedAt', 'updatedAt', { unique: false });
+                    }
+                };
+                req.onsuccess = (e) => { this.db = e.target.result; resolve(this.db); };
+                req.onerror = (e) => reject(e.target.error);
+            });
+        }
+
+        async saveConversation(conv) {
+            if (!this.db) await this.open();
+            return new Promise((resolve, reject) => {
+                const tx = this.db.transaction('conversations', 'readwrite');
+                tx.objectStore('conversations').put(conv);
+                tx.oncomplete = () => resolve();
+                tx.onerror = (e) => reject(e.target.error);
+            });
+        }
+
+        async getConversations(serverUrlFilter) {
+            if (!this.db) await this.open();
+            return new Promise((resolve, reject) => {
+                const tx = this.db.transaction('conversations', 'readonly');
+                const store = tx.objectStore('conversations');
+                const req = store.getAll();
+                req.onsuccess = () => {
+                    let results = req.result || [];
+                    if (serverUrlFilter) {
+                        results = results.filter(c => c.serverUrl === serverUrlFilter);
+                    }
+                    results.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+                    resolve(results);
+                };
+                req.onerror = (e) => reject(e.target.error);
+            });
+        }
+
+        async getAllConversations() {
+            if (!this.db) await this.open();
+            return new Promise((resolve, reject) => {
+                const tx = this.db.transaction('conversations', 'readonly');
+                const req = tx.objectStore('conversations').getAll();
+                req.onsuccess = () => {
+                    const results = req.result || [];
+                    results.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+                    resolve(results);
+                };
+                req.onerror = (e) => reject(e.target.error);
+            });
+        }
+
+        async getConversation(threadId) {
+            if (!this.db) await this.open();
+            return new Promise((resolve, reject) => {
+                const tx = this.db.transaction('conversations', 'readonly');
+                const req = tx.objectStore('conversations').get(threadId);
+                req.onsuccess = () => resolve(req.result || null);
+                req.onerror = (e) => reject(e.target.error);
+            });
+        }
+
+        async deleteConversation(threadId) {
+            if (!this.db) await this.open();
+            return new Promise((resolve, reject) => {
+                const tx = this.db.transaction('conversations', 'readwrite');
+                tx.objectStore('conversations').delete(threadId);
+                tx.oncomplete = () => resolve();
+                tx.onerror = (e) => reject(e.target.error);
             });
         }
     }
-});
 
-function vibrateBrief() {
-    if (localStorage.getItem('genie-vibrate') === '0') return;
-    if (typeof navigator.vibrate !== 'function') return;
-    try { navigator.vibrate(50); } catch (e) { /* ignore */ }
-}
+    const genieDB = new GenieDB();
+    genieDB.open().catch(err => console.warn('IndexedDB init failed:', err));
 
-function toggleVibratePreference() {
-    const current = localStorage.getItem('genie-vibrate');
-    const next = current === '0' ? '1' : '0';
-    localStorage.setItem('genie-vibrate', next);
-    updateVibrateToggleLabel();
-}
+    // Current conversation being built
+    let currentConversation = null;
 
-function updateVibrateToggleLabel() {
-    const btn = document.getElementById('vibrate-toggle');
-    if (!btn) return;
-    const parent = btn.closest('p');
-    if (typeof navigator.vibrate !== 'function' && parent) {
-        parent.style.display = 'none';
-        return;
+    // ── Segmentation: platform + userId + chatId (threadId) ──
+    // Platform identifier for this UI channel.
+    const PLATFORM_ID = 'agui:http';
+
+    // Stable user ID persisted across sessions so the backend can
+    // correlate the same human across multiple chats.
+    function getOrCreateUserId() {
+        const KEY = 'genie-user-id';
+        let uid = localStorage.getItem(KEY);
+        if (!uid) {
+            uid = crypto.randomUUID();
+            localStorage.setItem(KEY, uid);
+        }
+        return uid;
     }
-    if (parent) parent.style.display = '';
-    const off = localStorage.getItem('genie-vibrate') === '0';
-    btn.textContent = 'Vibrate on alerts: ' + (off ? 'Off' : 'On');
-    btn.setAttribute('aria-label', off ? 'Vibrate on alerts is off; click to turn on' : 'Vibrate on alerts is on; click to turn off');
-}
+    const userId = getOrCreateUserId();
 
-// ── Microphone / Speech Recognition ──
-const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
-let speechRecognition = null;
-let isListening = false;
-let speechPrefix = '';
-let speechFinal = '';
+    // ── State ──
+    let serverUrl = '';
+    let isConnected = false;
+    // When the server requires AG-UI password, this is set after successful connect and sent with every request.
+    let aguiPasswordForSession = '';
 
-function toggleMic() {
-    if (!micBtn || !SpeechRecognitionAPI || isStreaming || !isConnected) return;
-
-    if (isListening) {
-        stopListening();
-        return;
+    function aguiAuthHeaders() {
+        const h = {};
+        if (aguiPasswordForSession) {
+            h['X-AGUI-Password'] = aguiPasswordForSession;
+        }
+        return h;
     }
 
-    try {
-        speechPrefix = (inputEl.value || '').replace(/\s*\[listening…\]\s*$/, '').trim();
-        speechFinal = '';
-        speechRecognition = new SpeechRecognitionAPI();
-        speechRecognition.continuous = true;
-        speechRecognition.interimResults = true;
-        speechRecognition.lang = document.documentElement.lang || 'en-US';
+    let isStreaming = false;
+    // Reconnection state: when stream drops we try to reconnect with backoff.
+    let isReconnecting = false;
+    let reconnectAttempts = 0;
+    const RECONNECT_MAX_ATTEMPTS = 5;
+    const RECONNECT_BASE_MS = 1000;
+    // Every chat session gets a fresh threadId so the LLM never
+    // sees memory/context from a previous chat.
+    let threadId = crypto.randomUUID();
+    let runCounter = 0;
+    let currentAssistantBubble = null;
+    let currentAssistantContent = '';
+    let currentMessageId = null;  // track active message ID
+    let abortController = null;   // AbortController for cancelling streaming
 
-        speechRecognition.onresult = function (event) {
-            let interim = '';
-            for (let i = event.resultIndex; i < event.results.length; i++) {
-                const transcript = event.results[i][0].transcript;
-                if (event.results[i].isFinal) {
-                    speechFinal += transcript;
-                } else {
-                    interim = transcript;
-                }
-            }
-            const combined = [speechPrefix, speechFinal, interim].filter(Boolean).join(' ');
-            inputEl.value = combined + (interim ? ' [listening…]' : '');
-            autoResize(inputEl);
-        };
+    // Typing effect state
+    let typingInterval = null;
+    let displayedContentLength = 0;
+    const TYPING_CHUNK_SIZE = 3;
+    const TYPING_TICK_RATE = 10;
 
-        speechRecognition.onerror = function (event) {
-            if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-                addErrorMessage('Microphone access denied. Allow microphone in your browser to use voice input.');
-            } else if (event.error !== 'aborted') {
-                console.warn('Speech recognition error:', event.error);
-            }
-            stopListening();
-        };
+    // HITL nudge: show hint after several approvals in this run
+    let hitlApprovalCount = 0;
+    let hitlNudgeShown = false;
 
-        speechRecognition.onend = function () {
-            if (isListening) {
-                inputEl.value = (inputEl.value || '').replace(/\s*\[listening…\]\s*$/, '').trim();
-                autoResize(inputEl);
-            }
-            stopListening();
-        };
+    // ── DOM Refs ──
+    const messagesEl = document.getElementById('chat-messages');
+    const approvalsColumnEl = document.getElementById('approvals-column');
+    const approvalsColumnListEl = document.getElementById('approvals-column-list');
+    const inputEl = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('send-btn');
+    const micBtn = document.getElementById('mic-btn');
+    const connectionBadge = document.getElementById('connection-badge');
+    const connectionLabel = document.getElementById('connection-label');
+    const emptyState = document.getElementById('empty-state');
+    const notificationPromptEl = document.getElementById('notification-prompt');
 
-        speechRecognition.start();
-        isListening = true;
-        micBtn.classList.add('recording');
-        micBtn.title = 'Stop listening';
-    } catch (err) {
-        console.warn('Speech recognition not available:', err);
-        addErrorMessage('Voice input is not supported in this browser. Try Chrome or Edge.');
+    // ── Browser notifications (approval + updates) ──
+    const NOTIFICATION_PROMPT_DISMISSED_KEY = 'genie-notification-prompt-dismissed';
+
+    function notificationsSupported() {
+        return typeof Notification !== 'undefined';
     }
-}
 
-function stopListening() {
-    if (speechRecognition && isListening) {
+    function showNotification(title, body, tag) {
+        if (!notificationsSupported() || Notification.permission !== 'granted') return;
         try {
-            speechRecognition.stop();
-        } catch (e) { /* ignore */ }
-        speechRecognition = null;
-    }
-    isListening = false;
-    if (micBtn) {
-        micBtn.classList.remove('recording');
-        micBtn.title = 'Use microphone to speak';
-    }
-}
-
-function isMicSupported() {
-    return !!SpeechRecognitionAPI;
-}
-
-// ── Connect ──
-function showPasswordModal() {
-    const overlay = document.getElementById('password-modal-overlay');
-    const input = document.getElementById('agui-password-input');
-    const errEl = document.getElementById('agui-password-error');
-    if (overlay) overlay.style.display = 'flex';
-    if (errEl) {
-        errEl.textContent = '';
-        errEl.style.display = 'none';
-    }
-    if (input) {
-        input.value = '';
-        input.focus();
-    }
-    const onEscape = function (e) {
-        if (e.key === 'Escape') {
-            closePasswordModal();
+            const n = new Notification(title, {
+                body: body || '',
+                tag: tag || 'genie',
+                icon: '/favicon.ico'
+            });
+            n.onclick = () => { window.focus(); n.close(); };
+        } catch (e) {
+            console.warn('Notification failed:', e);
         }
-    };
-    document.addEventListener('keydown', onEscape);
-    if (overlay) overlay._passwordEscapeHandler = onEscape;
-}
+    }
 
-function closePasswordModal() {
-    const overlay = document.getElementById('password-modal-overlay');
-    const input = document.getElementById('agui-password-input');
-    const errEl = document.getElementById('agui-password-error');
-    if (overlay) {
-        if (overlay._passwordEscapeHandler) {
-            document.removeEventListener('keydown', overlay._passwordEscapeHandler);
-            overlay._passwordEscapeHandler = null;
+    async function requestNotificationPermission() {
+        if (!notificationsSupported()) return false;
+        if (Notification.permission === 'granted') return true;
+        if (Notification.permission === 'denied') return false;
+        const perm = await Notification.requestPermission();
+        return perm === 'granted';
+    }
+
+    function showNotificationPrompt() {
+        if (!notificationPromptEl || !notificationsSupported()) return;
+        if (Notification.permission !== 'default') return;
+        if (localStorage.getItem(NOTIFICATION_PROMPT_DISMISSED_KEY) === '1') return;
+        notificationPromptEl.style.display = 'flex';
+    }
+
+    function hideNotificationPrompt() {
+        if (notificationPromptEl) notificationPromptEl.style.display = 'none';
+    }
+
+    async function enableNotifications() {
+        const granted = await requestNotificationPermission();
+        hideNotificationPrompt();
+        if (granted) {
+            showNotification('Notifications enabled', 'You\'ll be notified when Genie needs your approval or has a reply.', 'genie-setup');
         }
-        overlay.style.display = 'none';
     }
-    if (errEl) {
-        errEl.textContent = '';
-        errEl.style.display = 'none';
+
+    function dismissNotificationPrompt() {
+        localStorage.setItem(NOTIFICATION_PROMPT_DISMISSED_KEY, '1');
+        hideNotificationPrompt();
     }
-    if (input) input.value = '';
-}
 
-function onHealthSuccess(data) {
-    const userName = data.user || '';
-    setConnected(true, userName);
-    emptyState.style.display = 'none';
-    closePasswordModal();
-    inputEl.disabled = false;
-    sendBtn.disabled = false;
-    if (micBtn) {
-        micBtn.disabled = !isMicSupported();
-        micBtn.title = isMicSupported() ? 'Use microphone to speak' : 'Voice input not supported in this browser';
+    document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible') {
+            if (typeof navigator.clearAppBadge === 'function') {
+                try { navigator.clearAppBadge(); } catch (e) { /* ignore */ }
+            }
+            if (isConnected && serverUrl && !isReconnecting) {
+                tryReconnectOnce().then(function (ok) {
+                    if (!ok) {
+                        setConnected(false);
+                        tryReconnectWithBackoff();
+                    }
+                });
+            }
+        }
+    });
+
+    function vibrateBrief() {
+        if (localStorage.getItem('genie-vibrate') === '0') return;
+        if (typeof navigator.vibrate !== 'function') return;
+        try { navigator.vibrate(50); } catch (e) { /* ignore */ }
     }
-    inputEl.focus();
-    addSystemMessage(userName
-        ? 'Hello, ' + escapeHtml(userName) + '!  Genie is ready at ' + serverUrl
-        : 'Genie is ready at ' + serverUrl);
-    fetchAndShowResume();
-    fetchAndShowCapabilities();
-    showNotificationPrompt();
-    currentConversation = {
-        threadId: threadId,
-        serverUrl: serverUrl,
-        userId: userId,
-        platform: PLATFORM_ID,
-        title: 'New conversation',
-        messages: [],
-        updatedAt: Date.now(),
-    };
-    refreshSidebar();
-}
 
-function isAllowedServerUrl(url) {
-    try {
-        if (!/^https?:\/\//i.test(url)) return false;
-        const u = new URL(url);
-        return (u.protocol === 'http:' || u.protocol === 'https:') && u.host && u.host.length > 0;
-    } catch (_) {
-        return false;
+    function toggleVibratePreference() {
+        const current = localStorage.getItem('genie-vibrate');
+        const next = current === '0' ? '1' : '0';
+        localStorage.setItem('genie-vibrate', next);
+        updateVibrateToggleLabel();
     }
-}
 
-async function connectToServer() {
-    const endpoint = document.getElementById('endpoint-input').value.trim();
-    if (!endpoint) return;
-
-    const normalized = endpoint.replace(/\/+$/, '');
-    if (!isAllowedServerUrl(normalized)) {
-        addConnectionFailureMessage(new Error('URL must use http or https'), false);
-        return;
-    }
-    serverUrl = normalized;
-    aguiPasswordForSession = '';
-    closePasswordModal();
-
-    try {
-        const res = await fetch(serverUrl + '/health', { mode: 'cors', headers: aguiAuthHeaders() });
-        if (res.status === 401) {
-            showPasswordModal();
+    function updateVibrateToggleLabel() {
+        const btn = document.getElementById('vibrate-toggle');
+        if (!btn) return;
+        const parent = btn.closest('p');
+        if (typeof navigator.vibrate !== 'function' && parent) {
+            parent.style.display = 'none';
             return;
         }
-        if (!res.ok) throw new Error('Health check failed');
-        const data = await res.json();
-        if (data.status === 'ok') {
-            onHealthSuccess(data);
-            await refreshSidebar();
-        }
-    } catch (err) {
-        const isLikelyCors = (err.name === 'TypeError' && err.message === 'Failed to fetch') ||
-            (err.message && String(err.message).toLowerCase().indexOf('cors') !== -1);
-        addConnectionFailureMessage(err, isLikelyCors);
+        if (parent) parent.style.display = '';
+        const off = localStorage.getItem('genie-vibrate') === '0';
+        btn.textContent = 'Vibrate on alerts: ' + (off ? 'Off' : 'On');
+        btn.setAttribute('aria-label', off ? 'Vibrate on alerts is off; click to turn on' : 'Vibrate on alerts is on; click to turn off');
     }
-}
 
-// isPasswordSafeUrl returns true if the URL is HTTPS or localhost (safe to send password).
-function isPasswordSafeUrl(urlStr) {
-    try {
-        const u = new URL(urlStr);
-        if (u.protocol === 'https:') return true;
-        if (u.protocol === 'http:' && (u.hostname === 'localhost' || u.hostname === '127.0.0.1')) return true;
-        return false;
-    } catch (_) { return false; }
-}
+    // ── Microphone / Speech Recognition ──
+    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let speechRecognition = null;
+    let isListening = false;
+    let speechPrefix = '';
+    let speechFinal = '';
 
-async function connectWithPassword() {
-    const passwordInput = document.getElementById('agui-password-input');
-    const pwd = (passwordInput && passwordInput.value) ? String(passwordInput.value) : '';
-    const errEl = document.getElementById('agui-password-error');
-    if (!pwd) {
-        if (errEl) {
-            errEl.textContent = 'Enter the password.';
-            errEl.style.display = 'block';
+    function toggleMic() {
+        if (!micBtn || !SpeechRecognitionAPI || isStreaming || !isConnected) return;
+
+        if (isListening) {
+            stopListening();
+            return;
         }
-        return;
-    }
-    if (!isPasswordSafeUrl(serverUrl)) {
-        if (errEl) {
-            errEl.textContent = 'Password cannot be sent over an insecure connection. Use HTTPS or connect to localhost.';
-            errEl.style.display = 'block';
+
+        try {
+            speechPrefix = (inputEl.value || '').replace(/\s*\[listening…\]\s*$/, '').trim();
+            speechFinal = '';
+            speechRecognition = new SpeechRecognitionAPI();
+            speechRecognition.continuous = true;
+            speechRecognition.interimResults = true;
+            speechRecognition.lang = document.documentElement.lang || 'en-US';
+
+            speechRecognition.onresult = function (event) {
+                let interim = '';
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const transcript = event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        speechFinal += transcript;
+                    } else {
+                        interim = transcript;
+                    }
+                }
+                const combined = [speechPrefix, speechFinal, interim].filter(Boolean).join(' ');
+                inputEl.value = combined + (interim ? ' [listening…]' : '');
+                autoResize(inputEl);
+            };
+
+            speechRecognition.onerror = function (event) {
+                if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                    addErrorMessage('Microphone access denied. Allow microphone in your browser to use voice input.');
+                } else if (event.error !== 'aborted') {
+                    console.warn('Speech recognition error:', event.error);
+                }
+                stopListening();
+            };
+
+            speechRecognition.onend = function () {
+                if (isListening) {
+                    inputEl.value = (inputEl.value || '').replace(/\s*\[listening…\]\s*$/, '').trim();
+                    autoResize(inputEl);
+                }
+                stopListening();
+            };
+
+            speechRecognition.start();
+            isListening = true;
+            micBtn.classList.add('recording');
+            micBtn.title = 'Stop listening';
+        } catch (err) {
+            console.warn('Speech recognition not available:', err);
+            addErrorMessage('Voice input is not supported in this browser. Try Chrome or Edge.');
         }
-        return;
     }
-    if (errEl) errEl.style.display = 'none';
-    try {
-        const res = await fetch(serverUrl + '/health', {
-            mode: 'cors',
-            headers: { 'X-AGUI-Password': pwd }
-        });
-        if (res.status === 401) {
+
+    function stopListening() {
+        if (speechRecognition && isListening) {
+            try {
+                speechRecognition.stop();
+            } catch (e) { /* ignore */ }
+            speechRecognition = null;
+        }
+        isListening = false;
+        if (micBtn) {
+            micBtn.classList.remove('recording');
+            micBtn.title = 'Use microphone to speak';
+        }
+    }
+
+    function isMicSupported() {
+        return !!SpeechRecognitionAPI;
+    }
+
+    // ── Connect ──
+    function showPasswordModal() {
+        const overlay = document.getElementById('password-modal-overlay');
+        const input = document.getElementById('agui-password-input');
+        const errEl = document.getElementById('agui-password-error');
+        if (overlay) overlay.style.display = 'flex';
+        if (errEl) {
+            errEl.textContent = '';
+            errEl.style.display = 'none';
+        }
+        if (input) {
+            input.value = '';
+            input.focus();
+        }
+        const onEscape = function (e) {
+            if (e.key === 'Escape') {
+                closePasswordModal();
+            }
+        };
+        document.addEventListener('keydown', onEscape);
+        if (overlay) overlay._passwordEscapeHandler = onEscape;
+    }
+
+    function closePasswordModal() {
+        const overlay = document.getElementById('password-modal-overlay');
+        const input = document.getElementById('agui-password-input');
+        const errEl = document.getElementById('agui-password-error');
+        if (overlay) {
+            if (overlay._passwordEscapeHandler) {
+                document.removeEventListener('keydown', overlay._passwordEscapeHandler);
+                overlay._passwordEscapeHandler = null;
+            }
+            overlay.style.display = 'none';
+        }
+        if (errEl) {
+            errEl.textContent = '';
+            errEl.style.display = 'none';
+        }
+        if (input) input.value = '';
+    }
+
+    function onHealthSuccess(data) {
+        const userName = data.user || '';
+        setConnected(true, userName);
+        emptyState.style.display = 'none';
+        closePasswordModal();
+        inputEl.disabled = false;
+        sendBtn.disabled = false;
+        if (micBtn) {
+            micBtn.disabled = !isMicSupported();
+            micBtn.title = isMicSupported() ? 'Use microphone to speak' : 'Voice input not supported in this browser';
+        }
+        inputEl.focus();
+        addSystemMessage(userName
+            ? 'Hello, ' + escapeHtml(userName) + '!  Genie is ready at ' + serverUrl
+            : 'Genie is ready at ' + serverUrl);
+        fetchAndShowResume();
+        fetchAndShowCapabilities();
+        showNotificationPrompt();
+        currentConversation = {
+            threadId: threadId,
+            serverUrl: serverUrl,
+            userId: userId,
+            platform: PLATFORM_ID,
+            title: 'New conversation',
+            messages: [],
+            updatedAt: Date.now(),
+        };
+        refreshSidebar();
+    }
+
+    function isAllowedServerUrl(url) {
+        try {
+            if (!/^https?:\/\//i.test(url)) return false;
+            const u = new URL(url);
+            return (u.protocol === 'http:' || u.protocol === 'https:') && u.host && u.host.length > 0;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    async function connectToServer() {
+        const endpoint = document.getElementById('endpoint-input').value.trim();
+        if (!endpoint) return;
+
+        const normalized = endpoint.replace(/\/+$/, '');
+        if (!isAllowedServerUrl(normalized)) {
+            addConnectionFailureMessage(new Error('URL must use http or https'), false);
+            return;
+        }
+        serverUrl = normalized;
+        aguiPasswordForSession = '';
+        closePasswordModal();
+
+        try {
+            const res = await fetch(serverUrl + '/health', { mode: 'cors', headers: aguiAuthHeaders() });
+            if (res.status === 401) {
+                showPasswordModal();
+                return;
+            }
+            if (!res.ok) throw new Error('Health check failed');
+            const data = await res.json();
+            if (data.status === 'ok') {
+                onHealthSuccess(data);
+                await refreshSidebar();
+            }
+        } catch (err) {
+            const isLikelyCors = (err.name === 'TypeError' && err.message === 'Failed to fetch') ||
+                (err.message && String(err.message).toLowerCase().indexOf('cors') !== -1);
+            addConnectionFailureMessage(err, isLikelyCors);
+        }
+    }
+
+    // isPasswordSafeUrl returns true if the URL is HTTPS or localhost (safe to send password).
+    function isPasswordSafeUrl(urlStr) {
+        try {
+            const u = new URL(urlStr);
+            if (u.protocol === 'https:') return true;
+            if (u.protocol === 'http:' && (u.hostname === 'localhost' || u.hostname === '127.0.0.1')) return true;
+            return false;
+        } catch (_) { return false; }
+    }
+
+    async function connectWithPassword() {
+        const passwordInput = document.getElementById('agui-password-input');
+        const pwd = (passwordInput && passwordInput.value) ? String(passwordInput.value) : '';
+        const errEl = document.getElementById('agui-password-error');
+        if (!pwd) {
             if (errEl) {
-                errEl.textContent = 'Wrong password. Try again.';
+                errEl.textContent = 'Enter the password.';
                 errEl.style.display = 'block';
             }
             return;
         }
-        if (!res.ok) throw new Error('Health check failed');
-        const data = await res.json();
-        if (data.status === 'ok') {
-            aguiPasswordForSession = pwd;
-            closePasswordModal();
-            onHealthSuccess(data);
-            await refreshSidebar();
+        if (!isPasswordSafeUrl(serverUrl)) {
+            if (errEl) {
+                errEl.textContent = 'Password cannot be sent over an insecure connection. Use HTTPS or connect to localhost.';
+                errEl.style.display = 'block';
+            }
+            return;
         }
-    } catch (err) {
-        addConnectionFailureMessage(err, false);
-    }
-}
-
-// Connection failure UI: error + optional CORS hint, auto-removed after 30 seconds.
-function addConnectionFailureMessage(err, isLikelyCors) {
-    const corsUrl = 'https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS';
-    const wrapper = document.createElement('div');
-    wrapper.className = 'connection-failure-dismissible';
-
-    const errorDiv = document.createElement('div');
-    errorDiv.className = 'flex justify-center mb-4';
-    errorDiv.innerHTML = isLikelyCors
-        ? '<div class="chat-bubble error">⚠️ Connection blocked by CORS. The browser blocked the request because the server did not allow your origin.</div>'
-        : '<div class="chat-bubble error">⚠️ Failed to connect: ' + escapeHtml(err.message) + '. Ensure genie is running and accessible.</div>';
-    wrapper.appendChild(errorDiv);
-
-    if (isLikelyCors) {
-        const hintDiv = document.createElement('div');
-        hintDiv.className = 'flex justify-center mb-4';
-        hintDiv.innerHTML = '<div class="chat-bubble system">' +
-            'To allow this page to connect, add your origin to Genie\'s CORS settings: ' +
-            '<strong>Config → Messenger → AGUI → CORS Origins</strong> (comma-separated list). ' +
-            'If you opened this page as a file (<code>file://</code>), the origin is <code>null</code>; ' +
-            'serve the chat from a local HTTP server instead so you get a real origin (e.g. <code>http://localhost:…</code>) to add. ' +
-            'Learn more: <a href="' + escapeHtml(corsUrl) + '" target="_blank" rel="noopener noreferrer">CORS (MDN)</a>.' +
-            '</div>';
-        wrapper.appendChild(hintDiv);
-    }
-
-    messagesEl.appendChild(wrapper);
-    scrollToBottom();
-    setTimeout(function () { wrapper.remove(); }, 30000);
-}
-
-function setConnected(connected, userName) {
-    isConnected = connected;
-    connectionBadge.className = 'connection-badge ' + (connected ? 'connected' : (isReconnecting ? 'reconnecting' : 'disconnected'));
-    if (isReconnecting) {
-        connectionLabel.textContent = 'Reconnecting…';
-        connectionBadge.title = 'Reconnecting…';
-    } else if (connected && userName) {
-        connectionLabel.textContent = 'Connected · ' + userName;
-        connectionBadge.title = 'Connected';
-    } else if (connected) {
-        connectionLabel.textContent = 'Connected';
-        connectionBadge.title = 'Connected';
-    } else {
-        connectionLabel.textContent = 'Not connected';
-        connectionBadge.title = serverUrl ? 'Click to reconnect' : 'Not connected';
-    }
-    updateButtonState();
-    // Hide resume section when disconnected
-    if (!connected) {
-        document.getElementById('resume-container').classList.remove('visible');
-        const capEl = document.getElementById('capabilities-container');
-        if (capEl) capEl.classList.remove('visible');
-    }
-}
-
-// User- or UI-triggered reconnect (resets attempt count and starts backoff).
-function triggerReconnect() {
-    if (isReconnecting || !serverUrl) return;
-    reconnectAttempts = 0;
-    tryReconnectWithBackoff();
-}
-
-// Attempts a single reconnection (health check) using stored serverUrl and session password.
-async function tryReconnectOnce() {
-    if (!serverUrl) return false;
-    try {
-        const res = await fetch(serverUrl + '/health', { mode: 'cors', headers: aguiAuthHeaders() });
-        if (res.status === 401) return false; // would need password again
-        if (!res.ok) return false;
-        const data = await res.json();
-        return data.status === 'ok';
-    } catch (_) {
-        return false;
-    }
-}
-
-// Called after a successful reconnection (stream was lost, we re-established).
-function onReconnectSuccess(data) {
-    const userName = data.user || '';
-    isReconnecting = false;
-    reconnectAttempts = 0;
-    setConnected(true, userName);
-    inputEl.disabled = false;
-    sendBtn.disabled = false;
-    if (micBtn) {
-        micBtn.disabled = !isMicSupported();
-    }
-    addSystemMessage('Reconnected. You can continue the conversation.');
-    fetchAndShowResume();
-    fetchAndShowCapabilities();
-    updateButtonState();
-}
-
-function addReconnectPrompt() {
-    const div = document.createElement('div');
-    div.className = 'flex justify-center mb-4';
-    div.innerHTML = '<div class="chat-bubble system">Connection lost. <button type="button" class="reconnect-inline-btn" onclick="genie.triggerReconnect()">Reconnect</button></div>';
-    messagesEl.appendChild(div);
-    scrollToBottom();
-}
-
-// Tries to reconnect with exponential backoff; on success resumes the chat (same thread/conversation).
-function tryReconnectWithBackoff() {
-    if (isReconnecting || !serverUrl) return;
-    isReconnecting = true;
-    connectionLabel.textContent = 'Reconnecting…';
-    connectionBadge.className = 'connection-badge reconnecting';
-
-    function attempt() {
-        tryReconnectOnce().then(function (ok) {
-            if (!ok) {
-                reconnectAttempts += 1;
-                if (reconnectAttempts < RECONNECT_MAX_ATTEMPTS) {
-                    const delay = RECONNECT_BASE_MS * Math.pow(2, reconnectAttempts - 1);
-                    setTimeout(attempt, delay);
-                    return;
+        if (errEl) errEl.style.display = 'none';
+        try {
+            const res = await fetch(serverUrl + '/health', {
+                mode: 'cors',
+                headers: { 'X-AGUI-Password': pwd }
+            });
+            if (res.status === 401) {
+                if (errEl) {
+                    errEl.textContent = 'Wrong password. Try again.';
+                    errEl.style.display = 'block';
                 }
-                isReconnecting = false;
-                setConnected(false);
-                addReconnectPrompt();
                 return;
             }
-            fetch(serverUrl + '/health', { mode: 'cors', headers: aguiAuthHeaders() })
-                .then(function (r) { return r.ok ? r.json() : null; })
-                .then(function (data) {
-                    if (data && data.status === 'ok') {
-                        onReconnectSuccess(data);
-                    } else {
-                        isReconnecting = false;
-                        setConnected(false);
-                    }
-                })
-                .catch(function () {
-                    isReconnecting = false;
-                    setConnected(false);
-                });
-        });
-    }
-    attempt();
-}
-
-// ── Fetch & Display Genie Resume ──
-async function fetchAndShowResume() {
-    try {
-        const res = await fetch(serverUrl + '/api/v1/resume', {
-            method: 'GET',
-            mode: 'cors',
-            headers: aguiAuthHeaders(),
-        });
-        if (!res.ok) return; // silently skip if not available
-        const text = await res.text();
-        if (!text || !text.trim()) return;
-        document.getElementById('resume-body').textContent = text;
-        document.getElementById('resume-container').classList.add('visible');
-    } catch (err) {
-        console.warn('Resume fetch failed:', err);
-    }
-}
-
-// ── Fetch & Display Capabilities (AI stance: tools, always_allowed, denied_tools) ──
-async function fetchAndShowCapabilities() {
-    const container = document.getElementById('capabilities-container');
-    const body = document.getElementById('capabilities-body');
-    if (!container || !body) return;
-    try {
-        const res = await fetch(serverUrl + '/api/v1/capabilities', {
-            method: 'GET',
-            mode: 'cors',
-            headers: aguiAuthHeaders(),
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!data || (!data.tool_names && !data.always_allowed && !data.denied_tools)) return;
-
-        const tools = data.tool_names || [];
-        const allowed = data.always_allowed || [];
-        const denied = data.denied_tools || [];
-
-        let html = '';
-        html += '<p class="text-sm text-gray-700 mb-3"><strong>' + tools.length + ' tools</strong> available. ';
-        if (allowed.length > 0) {
-            html += '<span class="text-green-700">' + allowed.length + ' auto-approved</span> (no prompt). ';
-        }
-        if (denied.length > 0) {
-            html += '<span class="text-amber-700">' + denied.length + ' blocked</span>.</p>';
-        } else {
-            html += '</p>';
-        }
-
-        if (tools.length > 0) {
-            html += '<p class="text-xs font-semibold text-gray-600 mt-2 mb-1">Available tools</p>';
-            html += '<ul class="text-xs text-gray-600 list-disc pl-4 mb-2 max-h-32 overflow-y-auto">';
-            tools.slice(0, 50).forEach(function (name) {
-                html += '<li><code class="bg-gray-100 px-1 rounded">' + escapeHtml(name) + '</code></li>';
-            });
-            if (tools.length > 50) {
-                html += '<li class="text-gray-400">… and ' + (tools.length - 50) + ' more</li>';
+            if (!res.ok) throw new Error('Health check failed');
+            const data = await res.json();
+            if (data.status === 'ok') {
+                aguiPasswordForSession = pwd;
+                closePasswordModal();
+                onHealthSuccess(data);
+                await refreshSidebar();
             }
-            html += '</ul>';
+        } catch (err) {
+            addConnectionFailureMessage(err, false);
         }
-        if (allowed.length > 0) {
-            html += '<p class="text-xs font-semibold text-green-800 mt-2 mb-1">Auto-approved (no prompt)</p>';
-            html += '<p class="text-xs text-gray-600">' + allowed.map(function (a) { return '<code class="bg-green-50 px-1 rounded">' + escapeHtml(a) + '</code>'; }).join(', ') + '</p>';
-        }
-        if (denied.length > 0) {
-            html += '<p class="text-xs font-semibold text-amber-800 mt-2 mb-1">Blocked</p>';
-            html += '<p class="text-xs text-gray-600">' + denied.map(function (d) { return '<code class="bg-amber-50 px-1 rounded">' + escapeHtml(d) + '</code>'; }).join(', ') + '</p>';
-        }
-
-        body.innerHTML = html;
-        container.classList.add('visible');
-    } catch (err) {
-        console.warn('Capabilities fetch failed:', err);
     }
-}
 
-// ── Send Message ──
-async function sendMessage() {
-    const message = inputEl.value.replace(/\s*\[listening…\]\s*$/, '').trim();
-    if (!message || isStreaming || !isConnected) return;
+    // Connection failure UI: error + optional CORS hint, auto-removed after 30 seconds.
+    function addConnectionFailureMessage(err, isLikelyCors) {
+        const corsUrl = 'https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS';
+        const wrapper = document.createElement('div');
+        wrapper.className = 'connection-failure-dismissible';
 
-    if (isListening) stopListening();
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'flex justify-center mb-4';
+        errorDiv.innerHTML = isLikelyCors
+            ? '<div class="chat-bubble error">⚠️ Connection blocked by CORS. The browser blocked the request because the server did not allow your origin.</div>'
+            : '<div class="chat-bubble error">⚠️ Failed to connect: ' + escapeHtml(err.message) + '. Ensure genie is running and accessible.</div>';
+        wrapper.appendChild(errorDiv);
 
-    // Add user bubble
-    addUserBubble(message);
-    inputEl.value = '';
-    autoResize(inputEl);
-
-    // Persist user message
-    if (currentConversation) {
-        if (currentConversation.messages.length === 0) {
-            currentConversation.title = message.length > 60 ? message.substring(0, 60) + '…' : message;
+        if (isLikelyCors) {
+            const hintDiv = document.createElement('div');
+            hintDiv.className = 'flex justify-center mb-4';
+            hintDiv.innerHTML = '<div class="chat-bubble system">' +
+                'To allow this page to connect, add your origin to Genie\'s CORS settings: ' +
+                '<strong>Config → Messenger → AGUI → CORS Origins</strong> (comma-separated list). ' +
+                'If you opened this page as a file (<code>file://</code>), the origin is <code>null</code>; ' +
+                'serve the chat from a local HTTP server instead so you get a real origin (e.g. <code>http://localhost:…</code>) to add. ' +
+                'Learn more: <a href="' + escapeHtml(corsUrl) + '" target="_blank" rel="noopener noreferrer">CORS (MDN)</a>.' +
+                '</div>';
+            wrapper.appendChild(hintDiv);
         }
-        currentConversation.messages.push({ role: 'user', content: message, timestamp: Date.now() });
-        currentConversation.updatedAt = Date.now();
-        genieDB.saveConversation(currentConversation).then(() => refreshSidebar()).catch(console.warn);
+
+        messagesEl.appendChild(wrapper);
+        scrollToBottom();
+        setTimeout(function () { wrapper.remove(); }, 30000);
+    }
+
+    function setConnected(connected, userName) {
+        isConnected = connected;
+        connectionBadge.className = 'connection-badge ' + (connected ? 'connected' : (isReconnecting ? 'reconnecting' : 'disconnected'));
+        if (isReconnecting) {
+            connectionLabel.textContent = 'Reconnecting…';
+            connectionBadge.title = 'Reconnecting…';
+        } else if (connected && userName) {
+            connectionLabel.textContent = 'Connected · ' + userName;
+            connectionBadge.title = 'Connected';
+        } else if (connected) {
+            connectionLabel.textContent = 'Connected';
+            connectionBadge.title = 'Connected';
+        } else {
+            connectionLabel.textContent = 'Not connected';
+            connectionBadge.title = serverUrl ? 'Click to reconnect' : 'Not connected';
+        }
+        updateButtonState();
+        // Hide resume section when disconnected
+        if (!connected) {
+            document.getElementById('resume-container').classList.remove('visible');
+            const capEl = document.getElementById('capabilities-container');
+            if (capEl) capEl.classList.remove('visible');
+        }
+    }
+
+    // User- or UI-triggered reconnect (resets attempt count and starts backoff).
+    function triggerReconnect() {
+        if (isReconnecting || !serverUrl) return;
+        reconnectAttempts = 0;
+        tryReconnectWithBackoff();
+    }
+
+    // Attempts a single reconnection (health check) using stored serverUrl and session password.
+    async function tryReconnectOnce() {
+        if (!serverUrl) return false;
+        try {
+            const res = await fetch(serverUrl + '/health', { mode: 'cors', headers: aguiAuthHeaders() });
+            if (res.status === 401) return false; // would need password again
+            if (!res.ok) return false;
+            const data = await res.json();
+            return data.status === 'ok';
+        } catch (_) {
+            return false;
+        }
+    }
+
+    // Called after a successful reconnection (stream was lost, we re-established).
+    function onReconnectSuccess(data) {
+        const userName = data.user || '';
+        isReconnecting = false;
+        reconnectAttempts = 0;
+        setConnected(true, userName);
+        inputEl.disabled = false;
+        sendBtn.disabled = false;
+        if (micBtn) {
+            micBtn.disabled = !isMicSupported();
+        }
+        addSystemMessage('Reconnected. You can continue the conversation.');
+        fetchAndShowResume();
+        fetchAndShowCapabilities();
         updateButtonState();
     }
 
-    // Prepare request
-    runCounter++;
-    const runId = 'run-' + runCounter;
-    isStreaming = true;
-    sendBtn.disabled = true;
-    sendBtn.style.display = 'none';
-    if (micBtn) micBtn.disabled = true;
-    document.getElementById('stop-btn').classList.add('visible');
-    inputEl.disabled = true;
-    abortController = new AbortController();
+    function addReconnectPrompt() {
+        const div = document.createElement('div');
+        div.className = 'flex justify-center mb-4';
+        div.innerHTML = '<div class="chat-bubble system">Connection lost. <button type="button" class="reconnect-inline-btn" onclick="genie.triggerReconnect()">Reconnect</button></div>';
+        messagesEl.appendChild(div);
+        scrollToBottom();
+    }
 
-    // Start SSE stream
-    try {
-        const response = await fetch(serverUrl + '/', {
-            method: 'POST',
-            signal: abortController.signal,
-            headers: Object.assign({ 'Content-Type': 'application/json' }, aguiAuthHeaders()),
-            body: JSON.stringify({
-                threadId: threadId,
-                runId: runId,
-                // Segmentation fields: the backend uses these to
-                // scope context/memory per platform+user+chat.
-                userId: userId,
-                platform: PLATFORM_ID,
-                messages: [{ role: 'user', content: message }]
-            })
-        });
+    // Tries to reconnect with exponential backoff; on success resumes the chat (same thread/conversation).
+    function tryReconnectWithBackoff() {
+        if (isReconnecting || !serverUrl) return;
+        isReconnecting = true;
+        connectionLabel.textContent = 'Reconnecting…';
+        connectionBadge.className = 'connection-badge reconnecting';
 
-        if (!response.ok) {
-            throw new Error('Server returned ' + response.status);
-        }
-
-        // Parse SSE stream
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-
-            // SSE events are delimited by blank lines (\n\n).
-            // Process all complete events, keep any partial trailing data.
-            let delimIdx;
-            while ((delimIdx = buffer.indexOf('\n\n')) !== -1) {
-                const frame = buffer.substring(0, delimIdx);
-                buffer = buffer.substring(delimIdx + 2);
-
-                let eventType = '';
-                let dataLines = [];
-                for (const line of frame.split('\n')) {
-                    if (line.startsWith('event:')) {
-                        eventType = line.slice(6).trim();
-                    } else if (line.startsWith('data:')) {
-                        dataLines.push(line.slice(5).trimStart());
+        function attempt() {
+            tryReconnectOnce().then(function (ok) {
+                if (!ok) {
+                    reconnectAttempts += 1;
+                    if (reconnectAttempts < RECONNECT_MAX_ATTEMPTS) {
+                        const delay = RECONNECT_BASE_MS * Math.pow(2, reconnectAttempts - 1);
+                        setTimeout(attempt, delay);
+                        return;
                     }
-                    // Skip comments (: lines)
+                    isReconnecting = false;
+                    setConnected(false);
+                    addReconnectPrompt();
+                    return;
                 }
-                if (dataLines.length > 0) {
-                    const raw = dataLines.join('\n');
-                    try {
-                        const event = JSON.parse(raw);
-                        handleSSEEvent(event, eventType);
-                    } catch (e) {
-                        console.warn('[SSE] bad JSON:', raw);
-                    }
-                }
-            }
+                fetch(serverUrl + '/health', { mode: 'cors', headers: aguiAuthHeaders() })
+                    .then(function (r) { return r.ok ? r.json() : null; })
+                    .then(function (data) {
+                        if (data && data.status === 'ok') {
+                            onReconnectSuccess(data);
+                        } else {
+                            isReconnecting = false;
+                            setConnected(false);
+                        }
+                    })
+                    .catch(function () {
+                        isReconnecting = false;
+                        setConnected(false);
+                    });
+            });
         }
-    } catch (err) {
-        if (err.name === 'AbortError') {
-            addErrorMessage('Stopped by user');
-        } else {
-            addErrorMessage('Stream error: ' + err.message);
-            setConnected(false);
-            tryReconnectWithBackoff();
-        }
-    } finally {
-        finishStreaming();
-    }
-}
-
-// ── SSE Event Handler ──
-function handleSSEEvent(event, eventType) {
-    const type = event.type || eventType;
-
-    switch (type) {
-        case 'RUN_STARTED':
-            hitlApprovalCount = 0;
-            hitlNudgeShown = false;
-            showThinking();
-            break;
-
-        case 'TEXT_MESSAGE_START':
-            hideThinking();
-            // If a new message starts for a different messageId, finalize the old one.
-            if (currentMessageId && event.messageId && event.messageId !== currentMessageId) {
-                finalizeAssistantBubble();
-            }
-            currentMessageId = event.messageId || null;
-            // Only start a new bubble if we don't already have one
-            if (!currentAssistantBubble) {
-                startAssistantBubble();
-            }
-            break;
-
-        case 'TEXT_MESSAGE_CONTENT':
-            hideThinking();
-            // If messageId changed, finalize old bubble & start new one.
-            if (event.messageId && currentMessageId && event.messageId !== currentMessageId) {
-                finalizeAssistantBubble();
-                currentMessageId = event.messageId;
-            }
-            if (!currentAssistantBubble) {
-                currentMessageId = event.messageId || null;
-                startAssistantBubble();
-            }
-            appendToAssistantBubble(event.delta || '');
-            break;
-
-        case 'TEXT_MESSAGE_END':
-            finalizeAssistantBubble();
-            currentMessageId = null;
-            break;
-
-        case 'REASONING_MESSAGE_CONTENT':
-            // Show reasoning as a dimmer text
-            if (!currentAssistantBubble) startAssistantBubble();
-            appendToAssistantBubble(event.delta || '', true);
-            break;
-
-        case 'TOOL_CALL_START':
-            hideThinking();
-            // Skip rendering generic tool card for ask_clarifying_question —
-            // CLARIFICATION_REQUEST event renders a dedicated input form instead.
-            if (event.toolCallName !== 'ask_clarifying_question') {
-                addToolCard(event.toolCallId, event.toolCallName, 'running');
-            }
-            break;
-
-        case 'TOOL_CALL_ARGS':
-            // Accumulate tool arguments for later display
-            if (event.toolCallId && toolCallMeta[event.toolCallId]) {
-                toolCallMeta[event.toolCallId].args += (event.delta || '');
-            }
-            break;
-
-        case 'TOOL_CALL_END':
-            updateToolCard(event.toolCallId, 'completed');
-            populateAgentDetails(event.toolCallId);
-            break;
-
-        case 'TOOL_CALL_RESULT': {
-            const isError = event.content && (
-                event.content.startsWith('tool execution error:') ||
-                event.content.startsWith('Error:')
-            );
-            updateToolCard(event.toolCallId, isError ? 'error' : 'done', event.content);
-            break;
-        }
-
-        case 'RUN_FINISHED':
-            hideThinking();
-            finalizeAssistantBubble();
-            break;
-
-        case 'RUN_ERROR':
-            hideThinking();
-            finalizeAssistantBubble();
-            addErrorMessage(event.message || 'An error occurred');
-            break;
-
-        case 'STEP_STARTED':
-            showThinking(event.stepName);
-            break;
-
-        case 'CUSTOM':
-            // Log events — just show as subtle system messages
-            if (event.name === 'log' && event.value) {
-                // Skip debug logs
-                if (event.value.level !== 'DEBUG') {
-                    console.log('[Genie]', event.value.level, event.value.message);
-                }
-            }
-            break;
-
-        case 'TOOL_APPROVAL_REQUEST':
-            hideThinking();
-            addApprovalCard(event.approvalId, event.toolCallName, event.content, event.justification);
-            showNotification('Approval required', (event.toolCallName || 'A tool') + ' needs your approval', 'approval-' + (event.approvalId || ''));
-            vibrateBrief();
-            break;
-
-        case 'CLARIFICATION_REQUEST':
-            hideThinking();
-            addClarificationCard(event.approvalId, event.content, event.message);
-            showNotification('Genie needs your input', (event.content || 'Please answer in the chat').substring(0, 80), 'clarify-' + (event.approvalId || ''));
-            vibrateBrief();
-            break;
-    }
-}
-
-// ── UI Helpers ──
-function addUserBubble(text) {
-    const div = document.createElement('div');
-    div.className = 'flex justify-end mb-4';
-    div.innerHTML = `<div class="chat-bubble user">${escapeHtml(text)}</div>`;
-    messagesEl.appendChild(div);
-    scrollToBottom();
-}
-
-function startAssistantBubble() {
-    if (currentAssistantBubble) return;
-    currentAssistantContent = '';
-    displayedContentLength = 0;
-
-    const wrapper = document.createElement('div');
-    wrapper.className = 'flex justify-start mb-4';
-
-    const bubbleWrap = document.createElement('div');
-    bubbleWrap.className = 'bubble-wrapper';
-
-    const bubble = document.createElement('div');
-    bubble.className = 'chat-bubble assistant typing-effect';
-    bubble.innerHTML = '';
-
-    bubbleWrap.appendChild(bubble);
-    wrapper.appendChild(bubbleWrap);
-    messagesEl.appendChild(wrapper);
-    currentAssistantBubble = bubble;
-    scrollToBottom();
-}
-
-function appendToAssistantBubble(text, isReasoning) {
-    if (!currentAssistantBubble) return;
-    currentAssistantContent += text;
-    ensureTyping();
-}
-
-function finalizeAssistantBubble() {
-    if (typingInterval) {
-        clearInterval(typingInterval);
-        typingInterval = null;
+        attempt();
     }
 
-    if (currentAssistantBubble && currentAssistantContent) {
-        currentAssistantBubble.classList.remove('typing-effect');
-        currentAssistantBubble.innerHTML = renderMarkdown(currentAssistantContent);
-        displayedContentLength = currentAssistantContent.length;
+    // ── Fetch & Display Genie Resume ──
+    async function fetchAndShowResume() {
+        try {
+            const res = await fetch(serverUrl + '/api/v1/resume', {
+                method: 'GET',
+                mode: 'cors',
+                headers: aguiAuthHeaders(),
+            });
+            if (!res.ok) return; // silently skip if not available
+            const text = await res.text();
+            if (!text || !text.trim()) return;
+            document.getElementById('resume-body').textContent = text;
+            document.getElementById('resume-container').classList.add('visible');
+        } catch (err) {
+            console.warn('Resume fetch failed:', err);
+        }
+    }
 
-        addCopyButton(currentAssistantBubble, currentAssistantContent);
-        addSpeakButton(currentAssistantBubble, currentAssistantContent);
+    // ── Fetch & Display Capabilities (AI stance: tools, always_allowed, denied_tools) ──
+    async function fetchAndShowCapabilities() {
+        const container = document.getElementById('capabilities-container');
+        const body = document.getElementById('capabilities-body');
+        if (!container || !body) return;
+        try {
+            const res = await fetch(serverUrl + '/api/v1/capabilities', {
+                method: 'GET',
+                mode: 'cors',
+                headers: aguiAuthHeaders(),
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            if (!data || (!data.tool_names && !data.always_allowed && !data.denied_tools)) return;
 
-        // Persist assistant response
-        if (currentConversation && currentAssistantContent.trim()) {
-            currentConversation.messages.push({ role: 'assistant', content: currentAssistantContent, timestamp: Date.now() });
+            const tools = data.tool_names || [];
+            const allowed = data.always_allowed || [];
+            const denied = data.denied_tools || [];
+
+            let html = '';
+            html += '<p class="text-sm text-gray-700 mb-3"><strong>' + tools.length + ' tools</strong> available. ';
+            if (allowed.length > 0) {
+                html += '<span class="text-green-700">' + allowed.length + ' auto-approved</span> (no prompt). ';
+            }
+            if (denied.length > 0) {
+                html += '<span class="text-amber-700">' + denied.length + ' blocked</span>.</p>';
+            } else {
+                html += '</p>';
+            }
+
+            if (tools.length > 0) {
+                html += '<p class="text-xs font-semibold text-gray-600 mt-2 mb-1">Available tools</p>';
+                html += '<ul class="text-xs text-gray-600 list-disc pl-4 mb-2 max-h-32 overflow-y-auto">';
+                tools.slice(0, 50).forEach(function (name) {
+                    html += '<li><code class="bg-gray-100 px-1 rounded">' + escapeHtml(name) + '</code></li>';
+                });
+                if (tools.length > 50) {
+                    html += '<li class="text-gray-400">… and ' + (tools.length - 50) + ' more</li>';
+                }
+                html += '</ul>';
+            }
+            if (allowed.length > 0) {
+                html += '<p class="text-xs font-semibold text-green-800 mt-2 mb-1">Auto-approved (no prompt)</p>';
+                html += '<p class="text-xs text-gray-600">' + allowed.map(function (a) { return '<code class="bg-green-50 px-1 rounded">' + escapeHtml(a) + '</code>'; }).join(', ') + '</p>';
+            }
+            if (denied.length > 0) {
+                html += '<p class="text-xs font-semibold text-amber-800 mt-2 mb-1">Blocked</p>';
+                html += '<p class="text-xs text-gray-600">' + denied.map(function (d) { return '<code class="bg-amber-50 px-1 rounded">' + escapeHtml(d) + '</code>'; }).join(', ') + '</p>';
+            }
+
+            body.innerHTML = html;
+            container.classList.add('visible');
+        } catch (err) {
+            console.warn('Capabilities fetch failed:', err);
+        }
+    }
+
+    // ── Send Message ──
+    async function sendMessage() {
+        const message = inputEl.value.replace(/\s*\[listening…\]\s*$/, '').trim();
+        if (!message || isStreaming || !isConnected) return;
+
+        if (isListening) stopListening();
+
+        // Add user bubble
+        addUserBubble(message);
+        inputEl.value = '';
+        autoResize(inputEl);
+
+        // Persist user message
+        if (currentConversation) {
+            if (currentConversation.messages.length === 0) {
+                currentConversation.title = message.length > 60 ? message.substring(0, 60) + '…' : message;
+            }
+            currentConversation.messages.push({ role: 'user', content: message, timestamp: Date.now() });
             currentConversation.updatedAt = Date.now();
             genieDB.saveConversation(currentConversation).then(() => refreshSidebar()).catch(console.warn);
             updateButtonState();
         }
 
-        if (document.hidden && notificationsSupported() && Notification.permission === 'granted') {
-            const snippet = currentAssistantContent.trim().replace(/\s+/g, ' ').substring(0, 60);
-            showNotification('Genie replied', (snippet.length === 60 ? snippet + '…' : snippet) || 'New message', 'genie-reply');
-            vibrateBrief();
+        // Prepare request
+        runCounter++;
+        const runId = 'run-' + runCounter;
+        isStreaming = true;
+        sendBtn.disabled = true;
+        sendBtn.style.display = 'none';
+        if (micBtn) micBtn.disabled = true;
+        document.getElementById('stop-btn').classList.add('visible');
+        inputEl.disabled = true;
+        abortController = new AbortController();
+
+        // Start SSE stream
+        try {
+            const response = await fetch(serverUrl + '/', {
+                method: 'POST',
+                signal: abortController.signal,
+                headers: Object.assign({ 'Content-Type': 'application/json' }, aguiAuthHeaders()),
+                body: JSON.stringify({
+                    threadId: threadId,
+                    runId: runId,
+                    // Segmentation fields: the backend uses these to
+                    // scope context/memory per platform+user+chat.
+                    userId: userId,
+                    platform: PLATFORM_ID,
+                    messages: [{ role: 'user', content: message }]
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('Server returned ' + response.status);
+            }
+
+            // Parse SSE stream
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+
+                // SSE events are delimited by blank lines (\n\n).
+                // Process all complete events, keep any partial trailing data.
+                let delimIdx;
+                while ((delimIdx = buffer.indexOf('\n\n')) !== -1) {
+                    const frame = buffer.substring(0, delimIdx);
+                    buffer = buffer.substring(delimIdx + 2);
+
+                    let eventType = '';
+                    let dataLines = [];
+                    for (const line of frame.split('\n')) {
+                        if (line.startsWith('event:')) {
+                            eventType = line.slice(6).trim();
+                        } else if (line.startsWith('data:')) {
+                            dataLines.push(line.slice(5).trimStart());
+                        }
+                        // Skip comments (: lines)
+                    }
+                    if (dataLines.length > 0) {
+                        const raw = dataLines.join('\n');
+                        try {
+                            const event = JSON.parse(raw);
+                            handleSSEEvent(event, eventType);
+                        } catch (e) {
+                            console.warn('[SSE] bad JSON:', raw);
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                addErrorMessage('Stopped by user');
+            } else {
+                addErrorMessage('Stream error: ' + err.message);
+                setConnected(false);
+                tryReconnectWithBackoff();
+            }
+        } finally {
+            finishStreaming();
         }
     }
-    currentAssistantBubble = null;
-    currentAssistantContent = '';
-    displayedContentLength = 0;
-}
 
-function ensureTyping() {
-    if (typingInterval) return;
-    typingInterval = setInterval(() => {
-        if (!currentAssistantBubble) {
+    // ── SSE Event Handler ──
+    function handleSSEEvent(event, eventType) {
+        const type = event.type || eventType;
+
+        switch (type) {
+            case 'RUN_STARTED':
+                hitlApprovalCount = 0;
+                hitlNudgeShown = false;
+                showThinking();
+                break;
+
+            case 'TEXT_MESSAGE_START':
+                hideThinking();
+                // If a new message starts for a different messageId, finalize the old one.
+                if (currentMessageId && event.messageId && event.messageId !== currentMessageId) {
+                    finalizeAssistantBubble();
+                }
+                currentMessageId = event.messageId || null;
+                // Only start a new bubble if we don't already have one
+                if (!currentAssistantBubble) {
+                    startAssistantBubble();
+                }
+                break;
+
+            case 'TEXT_MESSAGE_CONTENT':
+                hideThinking();
+                // If messageId changed, finalize old bubble & start new one.
+                if (event.messageId && currentMessageId && event.messageId !== currentMessageId) {
+                    finalizeAssistantBubble();
+                    currentMessageId = event.messageId;
+                }
+                if (!currentAssistantBubble) {
+                    currentMessageId = event.messageId || null;
+                    startAssistantBubble();
+                }
+                appendToAssistantBubble(event.delta || '');
+                break;
+
+            case 'TEXT_MESSAGE_END':
+                finalizeAssistantBubble();
+                currentMessageId = null;
+                break;
+
+            case 'REASONING_MESSAGE_CONTENT':
+                // Show reasoning as a dimmer text
+                if (!currentAssistantBubble) startAssistantBubble();
+                appendToAssistantBubble(event.delta || '');
+                break;
+
+            case 'TOOL_CALL_START':
+                hideThinking();
+                // Skip rendering generic tool card for ask_clarifying_question —
+                // CLARIFICATION_REQUEST event renders a dedicated input form instead.
+                if (event.toolCallName !== 'ask_clarifying_question') {
+                    addToolCard(event.toolCallId, event.toolCallName, 'running');
+                }
+                break;
+
+            case 'TOOL_CALL_ARGS':
+                // Accumulate tool arguments for later display
+                if (event.toolCallId && toolCallMeta[event.toolCallId]) {
+                    toolCallMeta[event.toolCallId].args += (event.delta || '');
+                }
+                break;
+
+            case 'TOOL_CALL_END':
+                updateToolCard(event.toolCallId, 'completed');
+                populateAgentDetails(event.toolCallId);
+                break;
+
+            case 'TOOL_CALL_RESULT': {
+                const isError = event.content && (
+                    event.content.startsWith('tool execution error:') ||
+                    event.content.startsWith('Error:')
+                );
+                updateToolCard(event.toolCallId, isError ? 'error' : 'done', event.content);
+                break;
+            }
+
+            case 'RUN_FINISHED':
+                hideThinking();
+                finalizeAssistantBubble();
+                break;
+
+            case 'RUN_ERROR':
+                hideThinking();
+                finalizeAssistantBubble();
+                addErrorMessage(event.message || 'An error occurred');
+                break;
+
+            case 'STEP_STARTED':
+                showThinking(event.stepName);
+                break;
+
+            case 'CUSTOM':
+                // Log events — just show as subtle system messages
+                if (event.name === 'log' && event.value) {
+                    // Skip debug logs
+                    if (event.value.level !== 'DEBUG') {
+                        console.log('[Genie]', event.value.level, event.value.message);
+                    }
+                }
+                break;
+
+            case 'TOOL_APPROVAL_REQUEST':
+                hideThinking();
+                addApprovalCard(event.approvalId, event.toolCallName, event.content, event.justification);
+                showNotification('Approval required', (event.toolCallName || 'A tool') + ' needs your approval', 'approval-' + (event.approvalId || ''));
+                vibrateBrief();
+                break;
+
+            case 'CLARIFICATION_REQUEST':
+                hideThinking();
+                addClarificationCard(event.approvalId, event.content, event.message);
+                showNotification('Genie needs your input', (event.content || 'Please answer in the chat').substring(0, 80), 'clarify-' + (event.approvalId || ''));
+                vibrateBrief();
+                break;
+        }
+    }
+
+    // ── UI Helpers ──
+    function addUserBubble(text) {
+        const div = document.createElement('div');
+        div.className = 'flex justify-end mb-4';
+        div.innerHTML = `<div class="chat-bubble user">${escapeHtml(text)}</div>`;
+        messagesEl.appendChild(div);
+        scrollToBottom();
+    }
+
+    function startAssistantBubble() {
+        if (currentAssistantBubble) return;
+        currentAssistantContent = '';
+        displayedContentLength = 0;
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'flex justify-start mb-4';
+
+        const bubbleWrap = document.createElement('div');
+        bubbleWrap.className = 'bubble-wrapper';
+
+        const bubble = document.createElement('div');
+        bubble.className = 'chat-bubble assistant typing-effect';
+        bubble.innerHTML = '';
+
+        bubbleWrap.appendChild(bubble);
+        wrapper.appendChild(bubbleWrap);
+        messagesEl.appendChild(wrapper);
+        currentAssistantBubble = bubble;
+        scrollToBottom();
+    }
+
+    function appendToAssistantBubble(text) {
+        if (!currentAssistantBubble) return;
+        currentAssistantContent += text;
+        ensureTyping();
+    }
+
+    function finalizeAssistantBubble() {
+        if (typingInterval) {
             clearInterval(typingInterval);
             typingInterval = null;
-            return;
         }
 
-        if (displayedContentLength < currentAssistantContent.length) {
-            displayedContentLength = Math.min(displayedContentLength + TYPING_CHUNK_SIZE, currentAssistantContent.length);
-            const visibleText = currentAssistantContent.substring(0, displayedContentLength);
-            currentAssistantBubble.innerHTML = renderMarkdown(visibleText);
-            scrollToBottom();
-        } else {
-            clearInterval(typingInterval);
-            typingInterval = null;
-            if (currentAssistantBubble) currentAssistantBubble.classList.remove('typing-effect');
-        }
-    }, TYPING_TICK_RATE);
-}
+        if (currentAssistantBubble && currentAssistantContent) {
+            currentAssistantBubble.classList.remove('typing-effect');
+            currentAssistantBubble.innerHTML = renderMarkdown(currentAssistantContent);
+            displayedContentLength = currentAssistantContent.length;
 
-function showThinking(label) {
-    hideThinking(); // Remove existing
-    const div = document.createElement('div');
-    div.id = 'thinking-indicator';
-    div.className = 'thinking-indicator';
-    div.innerHTML = `
+            addCopyButton(currentAssistantBubble, currentAssistantContent);
+            addSpeakButton(currentAssistantBubble, currentAssistantContent);
+
+            // Persist assistant response
+            if (currentConversation && currentAssistantContent.trim()) {
+                currentConversation.messages.push({ role: 'assistant', content: currentAssistantContent, timestamp: Date.now() });
+                currentConversation.updatedAt = Date.now();
+                genieDB.saveConversation(currentConversation).then(() => refreshSidebar()).catch(console.warn);
+                updateButtonState();
+            }
+
+            if (document.hidden && notificationsSupported() && Notification.permission === 'granted') {
+                const snippet = currentAssistantContent.trim().replace(/\s+/g, ' ').substring(0, 60);
+                showNotification('Genie replied', (snippet.length === 60 ? snippet + '…' : snippet) || 'New message', 'genie-reply');
+                vibrateBrief();
+            }
+        }
+        currentAssistantBubble = null;
+        currentAssistantContent = '';
+        displayedContentLength = 0;
+    }
+
+    function ensureTyping() {
+        if (typingInterval) return;
+        typingInterval = setInterval(() => {
+            if (!currentAssistantBubble) {
+                clearInterval(typingInterval);
+                typingInterval = null;
+                return;
+            }
+
+            if (displayedContentLength < currentAssistantContent.length) {
+                displayedContentLength = Math.min(displayedContentLength + TYPING_CHUNK_SIZE, currentAssistantContent.length);
+                const visibleText = currentAssistantContent.substring(0, displayedContentLength);
+                currentAssistantBubble.innerHTML = renderMarkdown(visibleText);
+                scrollToBottom();
+            } else {
+                clearInterval(typingInterval);
+                typingInterval = null;
+                if (currentAssistantBubble) currentAssistantBubble.classList.remove('typing-effect');
+            }
+        }, TYPING_TICK_RATE);
+    }
+
+    function showThinking(label) {
+        hideThinking(); // Remove existing
+        const div = document.createElement('div');
+        div.id = 'thinking-indicator';
+        div.className = 'thinking-indicator';
+        div.innerHTML = `
 <div class="thinking-dots"><span></span><span></span><span></span></div>
 <span>${label ? escapeHtml(label) + '...' : 'Thinking...'}</span>
       `;
-    messagesEl.appendChild(div);
-    scrollToBottom();
-}
+        messagesEl.appendChild(div);
+        scrollToBottom();
+    }
 
-function hideThinking() {
-    const el = document.getElementById('thinking-indicator');
-    if (el) el.remove();
-}
+    function hideThinking() {
+        const el = document.getElementById('thinking-indicator');
+        if (el) el.remove();
+    }
 
-// Track tool metadata per call for smart result formatting
-const toolCallMeta = {};
+    // Track tool metadata per call for smart result formatting
+    const toolCallMeta = {};
 
-function friendlyToolName(rawName) {
-    const map = {
-        'web_search': '🔍 Searching the web',
-        'create_agent': '🤖 Delegating to specialist',
-        'read_file': '📄 Reading a file',
-        'read_multiple_files': '📄 Reading files',
-        'save_file': '💾 Saving a file',
-        'run_shell': '⚙️ Running a command',
-        'list_file': '📂 Listing files',
-        'search_file': '🔍 Searching files',
-        'search_content': '🔍 Searching content',
-        'replace_content': '✏️ Editing file',
-        'summarize_content': '📝 Summarizing',
-        'memory_search': '🧠 Searching memory',
-        'memory_store': '🧠 Storing to memory',
-        'browser_navigate': '🌐 Opening page',
-        'browser_read_text': '🌐 Reading page',
-        'browser_read_html': '🌐 Reading page HTML',
-        'browser_click': '🖱️ Clicking element',
-        'browser_type': '⌨️ Typing text',
-        'browser_screenshot': '📸 Taking screenshot',
-        'browser_eval_js': '🌐 Running browser script',
-        'browser_wait': '⏳ Waiting for page',
-        'email_send': '📧 Sending email',
-        'email_read': '📧 Reading email',
-    };
-    return map[rawName] || ('🔧 Using ' + (rawName || 'tool'));
-}
+    function friendlyToolName(rawName) {
+        const map = {
+            'web_search': '🔍 Searching the web',
+            'create_agent': '🤖 Delegating to specialist',
+            'read_file': '📄 Reading a file',
+            'read_multiple_files': '📄 Reading files',
+            'save_file': '💾 Saving a file',
+            'run_shell': '⚙️ Running a command',
+            'list_file': '📂 Listing files',
+            'search_file': '🔍 Searching files',
+            'search_content': '🔍 Searching content',
+            'replace_content': '✏️ Editing file',
+            'summarize_content': '📝 Summarizing',
+            'memory_search': '🧠 Searching memory',
+            'memory_store': '🧠 Storing to memory',
+            'browser_navigate': '🌐 Opening page',
+            'browser_read_text': '🌐 Reading page',
+            'browser_read_html': '🌐 Reading page HTML',
+            'browser_click': '🖱️ Clicking element',
+            'browser_type': '⌨️ Typing text',
+            'browser_screenshot': '📸 Taking screenshot',
+            'browser_eval_js': '🌐 Running browser script',
+            'browser_wait': '⏳ Waiting for page',
+            'email_send': '📧 Sending email',
+            'email_read': '📧 Reading email',
+        };
+        return map[rawName] || ('🔧 Using ' + (rawName || 'tool'));
+    }
 
-/**
- * Format a tool result into a human-friendly summary.
- * Avoids showing raw JSON — instead extracts meaningful info
- * based on the tool name and the shape of the response.
- */
-function formatToolResult(toolName, rawContent, toolCallId) {
-    if (!rawContent) return null;
-    const text = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent);
+    /**
+     * Format a tool result into a human-friendly summary.
+     * Avoids showing raw JSON — instead extracts meaningful info
+     * based on the tool name and the shape of the response.
+     */
+    function formatToolResult(toolName, rawContent, toolCallId) {
+        if (!rawContent) return null;
+        const text = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent);
 
-    // Try parsing as JSON for structured extraction
-    let parsed = null;
-    try { parsed = JSON.parse(text); } catch (_) { /* not JSON */ }
+        // Try parsing as JSON for structured extraction
+        let parsed = null;
+        try { parsed = JSON.parse(text); } catch (_) { /* not JSON */ }
 
-    switch (toolName) {
-        case 'web_search': {
-            if (parsed && Array.isArray(parsed.results)) {
-                const items = parsed.results.slice(0, 3);
-                return items.map(r => `• ${r.title || r.url || 'Result'}`).join('\n') +
-                    (parsed.results.length > 3 ? `\n  … and ${parsed.results.length - 3} more` : '');
+        switch (toolName) {
+            case 'web_search': {
+                if (parsed && Array.isArray(parsed.results)) {
+                    const items = parsed.results.slice(0, 3);
+                    return items.map(r => `• ${r.title || r.url || 'Result'}`).join('\n') +
+                        (parsed.results.length > 3 ? `\n  … and ${parsed.results.length - 3} more` : '');
+                }
+                if (parsed && parsed.snippet) return parsed.snippet;
+                return _truncText(text, 200);
             }
-            if (parsed && parsed.snippet) return parsed.snippet;
-            return _truncText(text, 200);
-        }
-        case 'create_agent': {
-            if (parsed && parsed.result) return _truncText(parsed.result, 300);
-            if (parsed && parsed.output) return _truncText(parsed.output, 300);
-            return _truncText(text, 300);
-        }
-        case 'read_file':
-        case 'read_multiple_files': {
-            const meta = toolCallMeta[toolCallId];
-            const fname = _extractArg(meta, 'file_name');
-            const preview = _truncText(text, 200);
-            return fname ? `📄 ${fname}\n${preview}` : preview;
-        }
-        case 'save_file': {
-            const meta2 = toolCallMeta[toolCallId];
-            const fname2 = _extractArg(meta2, 'file_name');
-            if (fname2) return `Saved ${fname2}`;
-            if (parsed && parsed.message) return parsed.message;
-            return _truncText(text, 150);
-        }
-        case 'list_file':
-        case 'search_file':
-        case 'search_content': {
-            // Often returns a list of file paths
-            if (parsed && Array.isArray(parsed)) {
-                const shown = parsed.slice(0, 5).map(f => typeof f === 'string' ? f : (f.path || f.name || JSON.stringify(f)));
-                return shown.map(f => `  ${f}`).join('\n') +
-                    (parsed.length > 5 ? `\n  … and ${parsed.length - 5} more` : '');
+            case 'create_agent': {
+                if (parsed && parsed.result) return _truncText(parsed.result, 300);
+                if (parsed && parsed.output) return _truncText(parsed.output, 300);
+                return _truncText(text, 300);
             }
-            return _truncText(text, 200);
-        }
-        case 'run_shell': {
-            if (parsed && parsed.stdout != null) {
-                const out = parsed.stdout || parsed.stderr || '';
-                return _truncText(out, 250);
+            case 'read_file':
+            case 'read_multiple_files': {
+                const meta = toolCallMeta[toolCallId];
+                const fname = _extractArg(meta, 'file_name');
+                const preview = _truncText(text, 200);
+                return fname ? `📄 ${fname}\n${preview}` : preview;
             }
-            return _truncText(text, 250);
-        }
-        case 'summarize_content':
-            return _truncText(text, 300);
-        default: {
-            // Generic: if it's a JSON object, try to find a 'message', 'result', or 'output' key
-            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                const useful = parsed.message || parsed.result || parsed.output || parsed.summary || parsed.content;
-                if (useful) return _truncText(String(useful), 250);
+            case 'save_file': {
+                const meta2 = toolCallMeta[toolCallId];
+                const fname2 = _extractArg(meta2, 'file_name');
+                if (fname2) return `Saved ${fname2}`;
+                if (parsed && parsed.message) return parsed.message;
+                return _truncText(text, 150);
             }
-            return _truncText(text, 200);
+            case 'list_file':
+            case 'search_file':
+            case 'search_content': {
+                // Often returns a list of file paths
+                if (parsed && Array.isArray(parsed)) {
+                    const shown = parsed.slice(0, 5).map(f => typeof f === 'string' ? f : (f.path || f.name || JSON.stringify(f)));
+                    return shown.map(f => `  ${f}`).join('\n') +
+                        (parsed.length > 5 ? `\n  … and ${parsed.length - 5} more` : '');
+                }
+                return _truncText(text, 200);
+            }
+            case 'run_shell': {
+                if (parsed && parsed.stdout != null) {
+                    const out = parsed.stdout || parsed.stderr || '';
+                    return _truncText(out, 250);
+                }
+                return _truncText(text, 250);
+            }
+            case 'summarize_content':
+                return _truncText(text, 300);
+            default: {
+                // Generic: if it's a JSON object, try to find a 'message', 'result', or 'output' key
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                    const useful = parsed.message || parsed.result || parsed.output || parsed.summary || parsed.content;
+                    if (useful) return _truncText(String(useful), 250);
+                }
+                return _truncText(text, 200);
+            }
         }
     }
-}
 
-function _truncText(s, max) {
-    if (!s) return '';
-    if (s.length <= max) return s;
-    return s.substring(0, max) + '…';
-}
+    function _truncText(s, max) {
+        if (!s) return '';
+        if (s.length <= max) return s;
+        return s.substring(0, max) + '…';
+    }
 
-function _extractArg(meta, key) {
-    if (!meta || !meta.args) return null;
-    try {
-        const a = JSON.parse(meta.args);
-        return a[key] || null;
-    } catch (_) { return null; }
-}
+    function _extractArg(meta, key) {
+        if (!meta || !meta.args) return null;
+        try {
+            const a = JSON.parse(meta.args);
+            return a[key] || null;
+        } catch (_) { return null; }
+    }
 
-function addToolCard(toolCallId, toolName, status) {
-    // Track metadata for this tool call
-    toolCallMeta[toolCallId] = { name: toolName, args: '' };
+    function addToolCard(toolCallId, toolName, status) {
+        // Track metadata for this tool call
+        toolCallMeta[toolCallId] = { name: toolName, args: '' };
 
-    const div = document.createElement('div');
-    div.className = 'flex justify-start mb-3';
-    const friendly = friendlyToolName(toolName);
-    div.innerHTML = `
-<details class="tool-card" id="tool-${toolCallId}">
+        const div = document.createElement('div');
+        div.className = 'flex justify-start mb-3';
+        const friendly = friendlyToolName(toolName);
+        const domId = safeDomId(toolCallId);
+        div.innerHTML = `
+<details class="tool-card" id="tool-${domId}">
   <summary>
-    <span class="tool-label">${friendly}</span>
-    <span class="tool-status running" id="tool-status-${toolCallId}">Running…</span>
+    <span class="tool-label">${escapeHtml(friendly)}</span>
+    <span class="tool-status running" id="tool-status-${domId}">Running…</span>
     <span class="tool-chevron">▶</span>
   </summary>
-  <div class="tool-body" id="tool-body-${toolCallId}"></div>
+  <div class="tool-body" id="tool-body-${domId}"></div>
 </details>
       `;
-    messagesEl.appendChild(div);
-    scrollToBottom();
-}
+        messagesEl.appendChild(div);
+        scrollToBottom();
+    }
 
-function updateToolCard(toolCallId, status, result) {
-    const statusEl = document.getElementById('tool-status-' + toolCallId);
-    if (statusEl) {
-        if (status === 'error') {
-            statusEl.textContent = 'Error ✗';
-            statusEl.className = 'tool-status error';
-        } else if (status === 'completed' || status === 'done') {
-            statusEl.textContent = 'Done ✓';
-            statusEl.className = 'tool-status done';
-        } else {
-            statusEl.textContent = status;
+    function updateToolCard(toolCallId, status, result) {
+        const domId = safeDomId(toolCallId);
+        const statusEl = document.getElementById('tool-status-' + domId);
+        if (statusEl) {
+            if (status === 'error') {
+                statusEl.textContent = 'Error ✗';
+                statusEl.className = 'tool-status error';
+            } else if (status === 'completed' || status === 'done') {
+                statusEl.textContent = 'Done ✓';
+                statusEl.className = 'tool-status done';
+            } else {
+                statusEl.textContent = status;
+            }
+        }
+
+        // Append human-friendly tool result if provided
+        if (result) {
+            const bodyEl = document.getElementById('tool-body-' + domId);
+            const meta = toolCallMeta[toolCallId];
+            const toolName = meta ? meta.name : '';
+            const friendly = formatToolResult(toolName, result, toolCallId);
+
+            if (bodyEl && friendly) {
+                const resultDiv = document.createElement('div');
+                resultDiv.className = 'tool-result';
+                resultDiv.textContent = friendly;
+                bodyEl.appendChild(resultDiv);
+            }
+
+            // Persist tool result to conversation
+            if (currentConversation && friendly) {
+                currentConversation.messages.push({
+                    role: 'tool',
+                    content: friendly,
+                    toolName: toolName,
+                    timestamp: Date.now(),
+                });
+                currentConversation.updatedAt = Date.now();
+                genieDB.saveConversation(currentConversation).catch(console.warn);
+            }
         }
     }
 
-    // Append human-friendly tool result if provided
-    if (result) {
-        const bodyEl = document.getElementById('tool-body-' + toolCallId);
+    function prettyPrintArgs(raw) {
+        if (!raw) return '';
+        try {
+            const parsed = JSON.parse(raw);
+            return JSON.stringify(parsed, null, 2);
+        } catch (_) {
+            return raw;
+        }
+    }
+
+    function populateAgentDetails(toolCallId) {
         const meta = toolCallMeta[toolCallId];
-        const toolName = meta ? meta.name : '';
-        const friendly = formatToolResult(toolName, result, toolCallId);
+        if (!meta || meta.name !== 'create_agent') return;
+        let args;
+        try { args = JSON.parse(meta.args); } catch (_) { return; }
 
-        if (bodyEl && friendly) {
-            const resultDiv = document.createElement('div');
-            resultDiv.className = 'tool-result';
-            resultDiv.textContent = friendly;
-            bodyEl.appendChild(resultDiv);
+        const domId = safeDomId(toolCallId);
+        const bodyEl = document.getElementById('tool-body-' + domId);
+        if (!bodyEl) return;
+
+        const labelEl = document.getElementById('tool-' + domId)
+            ?.querySelector('.tool-label');
+        if (labelEl && args.agent_name) {
+            labelEl.textContent = '🤖 Delegating to ' + args.agent_name;
         }
 
-        // Persist tool result to conversation
-        if (currentConversation && friendly) {
-            currentConversation.messages.push({
-                role: 'tool',
-                content: friendly,
-                toolName: toolName,
-                timestamp: Date.now(),
-            });
-            currentConversation.updatedAt = Date.now();
-            genieDB.saveConversation(currentConversation).catch(console.warn);
+        const toolTags = (args.tool_names || [])
+            .map(t => `<span class="agent-tool-tag">${escapeHtml(t)}</span>`)
+            .join('');
+
+        const goalText = args.goal
+            ? (args.goal.length > 300 ? args.goal.slice(0, 300) + '…' : args.goal)
+            : '';
+
+        let html = '<div class="agent-details">';
+        if (args.task_type) {
+            html += `<div class="agent-detail-row"><span class="agent-detail-label">Type</span><span class="agent-detail-value">${escapeHtml(args.task_type)}</span></div>`;
+        }
+        if (toolTags) {
+            html += `<div class="agent-detail-row"><span class="agent-detail-label">Tools</span><div class="agent-tools">${toolTags}</div></div>`;
+        }
+        if (Array.isArray(args.steps) && args.steps.length) {
+            const stepItems = args.steps.map((s, i) =>
+                `<span class="agent-tool-tag">${i + 1}. ${escapeHtml(s.name || s.goal || 'step')}</span>`
+            ).join('');
+            html += `<div class="agent-detail-row"><span class="agent-detail-label">Steps</span><div class="agent-tools">${stepItems}</div></div>`;
+            if (args.flow_type) {
+                html += `<div class="agent-detail-row"><span class="agent-detail-label">Flow</span><span class="agent-detail-value">${escapeHtml(args.flow_type)}</span></div>`;
+            }
+        }
+        if (goalText) {
+            html += `<div class="agent-detail-row" style="flex-direction:column;gap:0.15rem"><span class="agent-detail-label">Goal</span><div class="agent-goal-text">${escapeHtml(goalText)}</div></div>`;
+        }
+        html += '</div>';
+        bodyEl.innerHTML = html;
+    }
+
+    function updateApprovalsColumnVisibility() {
+        if (!approvalsColumnEl || !approvalsColumnListEl) return;
+        const hasItems = approvalsColumnListEl.children.length > 0;
+        approvalsColumnEl.classList.toggle('visible', hasItems);
+        updateAppBadge();
+    }
+
+    function updateAppBadge() {
+        if (typeof navigator.setAppBadge !== 'function' && typeof navigator.clearAppBadge !== 'function') return;
+        const count = approvalsColumnListEl ? approvalsColumnListEl.querySelectorAll('.approvals-column-item').length : 0;
+        try {
+            if (count > 0) navigator.setAppBadge(count);
+            else navigator.clearAppBadge();
+        } catch (e) { /* ignore */ }
+    }
+
+    function toggleFullscreen() {
+        const container = document.getElementById('chat-container');
+        if (!container) return;
+        if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+            const req = container.requestFullscreen || container.webkitRequestFullscreen;
+            if (req) {
+                const p = req.call(container);
+                if (p && typeof p.catch === 'function') p.catch(function () { /* fullscreen denied or unsupported */ });
+            }
+        } else {
+            const exit = document.exitFullscreen || document.webkitExitFullscreen;
+            if (exit) {
+                const p = exit.call(document);
+                if (p && typeof p.catch === 'function') p.catch(function () { /* ignore */ });
+            }
         }
     }
-}
 
-function prettyPrintArgs(raw) {
-    if (!raw) return '';
-    try {
-        const parsed = JSON.parse(raw);
-        return JSON.stringify(parsed, null, 2);
-    } catch (_) {
-        return raw;
+    document.addEventListener('fullscreenchange', updateFullscreenButton);
+    document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
+    function updateFullscreenButton() {
+        const btn = document.getElementById('fullscreen-btn');
+        if (!btn) return;
+        const isFs = !!document.fullscreenElement || !!document.webkitFullscreenElement;
+        btn.textContent = isFs ? '⛶ Exit fullscreen' : '⛶ Fullscreen';
+        btn.title = isFs ? 'Exit fullscreen' : 'Fullscreen';
+        btn.setAttribute('aria-label', isFs ? 'Exit fullscreen' : 'Toggle fullscreen');
     }
-}
+    (function initFullscreenButton() {
+        const container = document.getElementById('chat-container');
+        const btn = document.getElementById('fullscreen-btn');
+        if (!btn || !container) return;
+        var supported = (container.requestFullscreen || container.webkitRequestFullscreen) && (document.exitFullscreen || document.webkitExitFullscreen);
+        if (!supported) btn.style.display = 'none';
+        else updateFullscreenButton();
+    })();
 
-function populateAgentDetails(toolCallId) {
-    const meta = toolCallMeta[toolCallId];
-    if (!meta || meta.name !== 'create_agent') return;
-    let args;
-    try { args = JSON.parse(meta.args); } catch (_) { return; }
+    const POOF_DURATION_MS = 650;
 
-    const bodyEl = document.getElementById('tool-body-' + toolCallId);
-    if (!bodyEl) return;
-
-    const labelEl = document.getElementById('tool-' + toolCallId)
-        ?.querySelector('.tool-label');
-    if (labelEl && args.agent_name) {
-        labelEl.textContent = '🤖 Delegating to ' + args.agent_name;
+    function dismissWithPoof(itemEl) {
+        if (!itemEl || !itemEl.classList) return;
+        itemEl.classList.add('poof');
+        setTimeout(() => {
+            itemEl.remove();
+            updateApprovalsColumnVisibility();
+        }, POOF_DURATION_MS);
     }
 
-    const toolTags = (args.tool_names || [])
-        .map(t => `<span class="agent-tool-tag">${escapeHtml(t)}</span>`)
-        .join('');
-
-    const goalText = args.goal
-        ? (args.goal.length > 300 ? args.goal.slice(0, 300) + '…' : args.goal)
-        : '';
-
-    let html = '<div class="agent-details">';
-    if (args.task_type) {
-        html += `<div class="agent-detail-row"><span class="agent-detail-label">Type</span><span class="agent-detail-value">${escapeHtml(args.task_type)}</span></div>`;
-    }
-    if (toolTags) {
-        html += `<div class="agent-detail-row"><span class="agent-detail-label">Tools</span><div class="agent-tools">${toolTags}</div></div>`;
-    }
-    if (Array.isArray(args.steps) && args.steps.length) {
-        const stepItems = args.steps.map((s, i) =>
-            `<span class="agent-tool-tag">${i + 1}. ${escapeHtml(s.name || s.goal || 'step')}</span>`
-        ).join('');
-        html += `<div class="agent-detail-row"><span class="agent-detail-label">Steps</span><div class="agent-tools">${stepItems}</div></div>`;
-        if (args.flow_type) {
-            html += `<div class="agent-detail-row"><span class="agent-detail-label">Flow</span><span class="agent-detail-value">${escapeHtml(args.flow_type)}</span></div>`;
-        }
-    }
-    if (goalText) {
-        html += `<div class="agent-detail-row" style="flex-direction:column;gap:0.15rem"><span class="agent-detail-label">Goal</span><div class="agent-goal-text">${escapeHtml(goalText)}</div></div>`;
-    }
-    html += '</div>';
-    bodyEl.innerHTML = html;
-}
-
-function updateApprovalsColumnVisibility() {
-    if (!approvalsColumnEl || !approvalsColumnListEl) return;
-    const hasItems = approvalsColumnListEl.children.length > 0;
-    approvalsColumnEl.classList.toggle('visible', hasItems);
-    updateAppBadge();
-}
-
-function updateAppBadge() {
-    if (typeof navigator.setAppBadge !== 'function' && typeof navigator.clearAppBadge !== 'function') return;
-    const count = approvalsColumnListEl ? approvalsColumnListEl.querySelectorAll('.approvals-column-item').length : 0;
-    try {
-        if (count > 0) navigator.setAppBadge(count);
-        else navigator.clearAppBadge();
-    } catch (e) { /* ignore */ }
-}
-
-function toggleFullscreen() {
-    const container = document.getElementById('chat-container');
-    if (!container) return;
-    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-        const req = container.requestFullscreen || container.webkitRequestFullscreen;
-        if (req) {
-            const p = req.call(container);
-            if (p && typeof p.catch === 'function') p.catch(function () { /* fullscreen denied or unsupported */ });
-        }
-    } else {
-        const exit = document.exitFullscreen || document.webkitExitFullscreen;
-        if (exit) {
-            const p = exit.call(document);
-            if (p && typeof p.catch === 'function') p.catch(function () { /* ignore */ });
-        }
-    }
-}
-
-document.addEventListener('fullscreenchange', updateFullscreenButton);
-document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
-function updateFullscreenButton() {
-    const btn = document.getElementById('fullscreen-btn');
-    if (!btn) return;
-    const isFs = !!document.fullscreenElement || !!document.webkitFullscreenElement;
-    btn.textContent = isFs ? '⛶ Exit fullscreen' : '⛶ Fullscreen';
-    btn.title = isFs ? 'Exit fullscreen' : 'Fullscreen';
-    btn.setAttribute('aria-label', isFs ? 'Exit fullscreen' : 'Toggle fullscreen');
-}
-(function initFullscreenButton() {
-    const container = document.getElementById('chat-container');
-    const btn = document.getElementById('fullscreen-btn');
-    if (!btn || !container) return;
-    var supported = (container.requestFullscreen || container.webkitRequestFullscreen) && (document.exitFullscreen || document.webkitExitFullscreen);
-    if (!supported) btn.style.display = 'none';
-    else updateFullscreenButton();
-})();
-
-const POOF_DURATION_MS = 650;
-
-function dismissWithPoof(itemEl) {
-    if (!itemEl || !itemEl.classList) return;
-    itemEl.classList.add('poof');
-    setTimeout(() => {
-        itemEl.remove();
-        updateApprovalsColumnVisibility();
-    }, POOF_DURATION_MS);
-}
-
-function addApprovalCard(approvalId, toolName, args, justification) {
-    hitlApprovalCount += 1;
-    const div = document.createElement('div');
-    div.className = 'flex justify-start approvals-column-item';
-    const justificationHtml = justification
-        ? `<div style="font-size:0.75rem;color:#a5b4fc;background:rgba(99,102,241,0.1);border-left:3px solid rgba(99,102,241,0.4);padding:0.35rem 0.5rem;margin-bottom:0.5rem;border-radius:0 0.25rem 0.25rem 0;">💡 ${escapeHtml(justification)}</div>`
-        : '';
-    const prettyArgs = prettyPrintArgs(args);
-    div.innerHTML = `
+    function addApprovalCard(approvalId, toolName, args, justification) {
+        hitlApprovalCount += 1;
+        const div = document.createElement('div');
+        div.className = 'flex justify-start approvals-column-item';
+        const justificationHtml = justification
+            ? `<div style="font-size:0.75rem;color:#a5b4fc;background:rgba(99,102,241,0.1);border-left:3px solid rgba(99,102,241,0.4);padding:0.35rem 0.5rem;margin-bottom:0.5rem;border-radius:0 0.25rem 0.25rem 0;">💡 ${escapeHtml(justification)}</div>`
+            : '';
+        const prettyArgs = prettyPrintArgs(args);
+        div.innerHTML = `
 <div class="approval-card" id="approval-${escapeAttr(approvalId)}">
   <div class="approval-header">⚠️ Approval Required — ${escapeHtml(toolName || 'tool')}</div>
   ${justificationHtml}
@@ -1385,163 +1388,165 @@ function addApprovalCard(approvalId, toolName, args, justification) {
   <div class="feedback-area">
     <textarea id="feedback-${escapeAttr(approvalId)}" placeholder="Optional feedback — guide the agent on what to change…" rows="1"></textarea>
   </div>
-  <div class="approval-allow-row" style="margin-top:0.5rem;font-size:0.8rem;">
-    <label for="allow-for-${escapeAttr(approvalId)}" style="color:rgba(255,255,255,0.7);">Allow future calls for:</label>
-    <select id="allow-for-${escapeAttr(approvalId)}" style="margin-left:0.35rem;padding:0.2rem 0.4rem;border-radius:0.25rem;background:var(--card-bg, #1e293b);color:inherit;">
-      <option value="0">One-time only</option>
-      <option value="5">5 min</option>
-      <option value="10">10 min</option>
-      <option value="30">30 min</option>
-      <option value="60">60 min</option>
-    </select>
-    <div style="margin-top:0.35rem;">
-      <label for="allow-args-${escapeAttr(approvalId)}" style="color:rgba(255,255,255,0.6);font-size:0.75rem;">Only when args contain (comma-separated, optional):</label>
-      <input type="text" id="allow-args-${escapeAttr(approvalId)}" placeholder="e.g. /docs, /tmp" style="width:100%;margin-top:0.2rem;padding:0.25rem 0.4rem;border-radius:0.25rem;background:var(--card-bg, #1e293b);color:inherit;font-size:0.8rem;" />
+  <div class="approval-allow-row">
+    <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+      <label for="allow-for-${escapeAttr(approvalId)}">Allow future calls for:</label>
+      <select id="allow-for-${escapeAttr(approvalId)}">
+        <option value="0">One-time only</option>
+        <option value="5">5 min</option>
+        <option value="10">10 min</option>
+        <option value="30">30 min</option>
+        <option value="60">60 min</option>
+      </select>
+    </div>
+    <div style="margin-top:0.4rem;">
+      <label for="allow-args-${escapeAttr(approvalId)}">Only when args contain (comma-separated, optional):</label>
+      <input type="text" id="allow-args-${escapeAttr(approvalId)}" placeholder="e.g. /docs, /tmp" style="width:100%;margin-top:0.25rem;" />
     </div>
   </div>
-  <div class="approval-actions" id="approval-actions-${escapeAttr(approvalId)}">
-<button class="btn-approve" onclick="genie.resolveApproval('${escapeJsQuoted(approvalId)}', 'approved')">✅ Approve</button>
-  <button class="btn-revisit" onclick="genie.revisitApproval('${escapeJsQuoted(approvalId)}')" title="Send back with feedback for the agent to rethink">🔄 Revisit</button>
-  <button class="btn-reject" onclick="genie.resolveApproval('${escapeJsQuoted(approvalId)}', 'rejected')">❌ Reject</button>
+  <div class="approval-actions" id="approval-actions-${escapeAttr(approvalId)}" style="margin-top:0.75rem;">
+    <button class="btn-approve" onclick="genie.resolveApproval('${escapeJsQuoted(approvalId)}', 'approved')">✅ Approve</button>
+    <button class="btn-revisit" onclick="genie.revisitApproval('${escapeJsQuoted(approvalId)}')" title="Send back with feedback for the agent to rethink">🔄 Revisit</button>
+    <button class="btn-reject" onclick="genie.resolveApproval('${escapeJsQuoted(approvalId)}', 'rejected')">❌ Reject</button>
   </div>
 </div>
       `;
-    approvalsColumnListEl.appendChild(div);
-    updateApprovalsColumnVisibility();
+        approvalsColumnListEl.appendChild(div);
+        updateApprovalsColumnVisibility();
 
-    if (hitlApprovalCount >= 3 && !hitlNudgeShown) {
-        hitlNudgeShown = true;
-        const nudgeEl = document.createElement('div');
-        nudgeEl.className = 'flex justify-start mb-3';
-        const safeTool = (toolName && toolName.trim()) ? toolName.trim() : 'tool_name';
-        nudgeEl.innerHTML = `
+        if (hitlApprovalCount >= 3 && !hitlNudgeShown) {
+            hitlNudgeShown = true;
+            const nudgeEl = document.createElement('div');
+            nudgeEl.className = 'flex justify-start mb-3';
+            const safeTool = (toolName && toolName.trim()) ? toolName.trim() : 'tool_name';
+            nudgeEl.innerHTML = `
 <div class="approval-card" style="border-color:rgba(34,197,94,0.4);background:rgba(163,230,53,0.15);">
   <div style="font-size:0.8rem;color:#166534;">
     💡 <strong>Tip:</strong> To skip approval for this tool in the future, add it to <code style="background:rgba(0,0,0,0.08);color:#14532d;padding:0.1rem 0.3rem;border-radius:0.2rem;">[hitl]</code> <code style="background:rgba(0,0,0,0.08);color:#14532d;padding:0.1rem 0.3rem;border-radius:0.2rem;">always_allowed</code> in your config. Example: <code style="background:rgba(0,0,0,0.08);color:#14532d;padding:0.1rem 0.3rem;border-radius:0.2rem;font-size:0.75rem;">always_allowed = [\"${escapeHtml(safeTool)}\"]</code> — or use the <a href="https://stackgenhq.github.io/genie/config-builder.html" target="_blank" rel="noopener" style="color:#15803d;font-weight:600;">Config Builder</a>.
   </div>
 </div>
       `;
-        messagesEl.appendChild(nudgeEl);
-    }
-    scrollToBottom();
-}
-
-async function resolveApproval(approvalId, decision) {
-    const actionsEl = document.getElementById('approval-actions-' + approvalId);
-    if (!actionsEl) return;
-
-    // Grab optional feedback
-    const feedbackEl = document.getElementById('feedback-' + approvalId);
-    const feedback = feedbackEl ? feedbackEl.value.trim() : '';
-
-    // Allow-for duration and args filter (only when approving)
-    let allowForMins = 0;
-    let allowWhenArgsContain = [];
-    if (decision === 'approved') {
-        const allowForEl = document.getElementById('allow-for-' + approvalId);
-        if (allowForEl) allowForMins = parseInt(allowForEl.value, 10) || 0;
-        const allowArgsEl = document.getElementById('allow-args-' + approvalId);
-        if (allowArgsEl && allowArgsEl.value.trim()) {
-            allowWhenArgsContain = allowArgsEl.value.split(',').map(s => s.trim()).filter(Boolean);
+            messagesEl.appendChild(nudgeEl);
         }
+        scrollToBottom();
     }
 
-    // Disable buttons immediately
-    actionsEl.querySelectorAll('button').forEach(btn => btn.disabled = true);
-    if (feedbackEl) feedbackEl.disabled = true;
+    async function resolveApproval(approvalId, decision) {
+        const actionsEl = document.getElementById('approval-actions-' + approvalId);
+        if (!actionsEl) return;
 
-    try {
-        const body = { approvalId, decision, feedback };
-        if (decision === 'approved' && (allowForMins > 0 || allowWhenArgsContain.length > 0)) {
-            body.allowForMins = allowForMins;
-            if (allowWhenArgsContain.length > 0) body.allowWhenArgsContain = allowWhenArgsContain;
-        }
-        const resp = await fetch(serverUrl + '/approve', {
-            method: 'POST',
-            headers: Object.assign({ 'Content-Type': 'application/json' }, aguiAuthHeaders()),
-            body: JSON.stringify(body),
-        });
+        // Grab optional feedback
+        const feedbackEl = document.getElementById('feedback-' + approvalId);
+        const feedback = feedbackEl ? feedbackEl.value.trim() : '';
 
-        if (!resp.ok) {
-            const err = await resp.text();
-            throw new Error(err);
+        // Allow-for duration and args filter (only when approving)
+        let allowForMins = 0;
+        let allowWhenArgsContain = [];
+        if (decision === 'approved') {
+            const allowForEl = document.getElementById('allow-for-' + approvalId);
+            if (allowForEl) allowForMins = parseInt(allowForEl.value, 10) || 0;
+            const allowArgsEl = document.getElementById('allow-args-' + approvalId);
+            if (allowArgsEl && allowArgsEl.value.trim()) {
+                allowWhenArgsContain = allowArgsEl.value.split(',').map(s => s.trim()).filter(Boolean);
+            }
         }
 
-        // Replace buttons with resolved status
-        let statusHtml;
-        if (decision === 'revisit') {
-            statusHtml = '<span class="approval-resolved" style="color:#a78bfa">🔄 Sent back for revision</span>';
-        } else if (decision === 'approved' && feedback) {
-            statusHtml = '<span class="approval-resolved" style="color:#f59e0b">✏️ Approved with feedback</span>';
-        } else if (decision === 'approved') {
-            statusHtml = '<span class="approval-resolved" style="color:#16a34a">✅ Approved</span>';
-        } else {
-            statusHtml = '<span class="approval-resolved" style="color:#dc2626">❌ Rejected</span>';
+        // Disable buttons immediately
+        actionsEl.querySelectorAll('button').forEach(btn => btn.disabled = true);
+        if (feedbackEl) feedbackEl.disabled = true;
+
+        try {
+            const body = { approvalId, decision, feedback };
+            if (decision === 'approved' && (allowForMins > 0 || allowWhenArgsContain.length > 0)) {
+                body.allowForMins = allowForMins;
+                if (allowWhenArgsContain.length > 0) body.allowWhenArgsContain = allowWhenArgsContain;
+            }
+            const resp = await fetch(serverUrl + '/approve', {
+                method: 'POST',
+                headers: Object.assign({ 'Content-Type': 'application/json' }, aguiAuthHeaders()),
+                body: JSON.stringify(body),
+            });
+
+            if (!resp.ok) {
+                const err = await resp.text();
+                throw new Error(err);
+            }
+
+            // Replace buttons with resolved status
+            let statusHtml;
+            if (decision === 'revisit') {
+                statusHtml = '<span class="approval-resolved" style="color:#a78bfa">🔄 Sent back for revision</span>';
+            } else if (decision === 'approved' && feedback) {
+                statusHtml = '<span class="approval-resolved" style="color:#f59e0b">✏️ Approved with feedback</span>';
+            } else if (decision === 'approved') {
+                statusHtml = '<span class="approval-resolved" style="color:#16a34a">✅ Approved</span>';
+            } else {
+                statusHtml = '<span class="approval-resolved" style="color:#dc2626">❌ Rejected</span>';
+            }
+            if (feedback) {
+                statusHtml += `<div style="font-size:0.7rem;color:rgba(255,255,255,0.5);margin-top:0.25rem">${escapeHtml(feedback)}</div>`;
+            }
+            actionsEl.innerHTML = statusHtml;
+            // Hide the feedback textarea after resolution
+            if (feedbackEl) feedbackEl.parentElement.style.display = 'none';
+            // Poof-dismiss from right column after 5 seconds
+            setTimeout(() => {
+                dismissWithPoof(document.getElementById('approval-' + approvalId)?.closest('.approvals-column-item'));
+            }, 5000);
+        } catch (err) {
+            actionsEl.innerHTML = '<span class="approval-resolved" style="color:#dc2626">⚠️ Error: ' + escapeHtml(err.message) + '</span>';
         }
-        if (feedback) {
+    }
+
+    async function revisitApproval(approvalId) {
+        const feedbackEl = document.getElementById('feedback-' + approvalId);
+        let feedback = feedbackEl ? feedbackEl.value.trim() : '';
+
+        if (!feedback) {
+            feedback = prompt('What should the agent do differently?');
+            if (!feedback) return; // User cancelled
+        }
+
+        // Use the existing resolveApproval with 'rejected' + feedback
+        // so the LLM receives the error and re-plans
+        const actionsEl = document.getElementById('approval-actions-' + approvalId);
+        if (!actionsEl) return;
+
+        actionsEl.querySelectorAll('button').forEach(btn => btn.disabled = true);
+        if (feedbackEl) feedbackEl.disabled = true;
+
+        try {
+            const resp = await fetch(serverUrl + '/approve', {
+                method: 'POST',
+                headers: Object.assign({ 'Content-Type': 'application/json' }, aguiAuthHeaders()),
+                body: JSON.stringify({ approvalId, decision: 'rejected', feedback }),
+            });
+
+            if (!resp.ok) {
+                const err = await resp.text();
+                throw new Error(err);
+            }
+
+            let statusHtml = '<span class="approval-resolved" style="color:#a78bfa">🔄 Sent back for revision</span>';
             statusHtml += `<div style="font-size:0.7rem;color:rgba(255,255,255,0.5);margin-top:0.25rem">${escapeHtml(feedback)}</div>`;
+            actionsEl.innerHTML = statusHtml;
+            if (feedbackEl) feedbackEl.parentElement.style.display = 'none';
+            setTimeout(() => {
+                dismissWithPoof(document.getElementById('approval-' + approvalId)?.closest('.approvals-column-item'));
+            }, 5000);
+        } catch (err) {
+            actionsEl.innerHTML = '<span class="approval-resolved" style="color:#dc2626">⚠️ Error: ' + escapeHtml(err.message) + '</span>';
         }
-        actionsEl.innerHTML = statusHtml;
-        // Hide the feedback textarea after resolution
-        if (feedbackEl) feedbackEl.parentElement.style.display = 'none';
-        // Poof-dismiss from right column after 5 seconds
-        setTimeout(() => {
-            dismissWithPoof(document.getElementById('approval-' + approvalId)?.closest('.approvals-column-item'));
-        }, 5000);
-    } catch (err) {
-        actionsEl.innerHTML = '<span class="approval-resolved" style="color:#dc2626">⚠️ Error: ' + escapeHtml(err.message) + '</span>';
-    }
-}
-
-async function revisitApproval(approvalId) {
-    const feedbackEl = document.getElementById('feedback-' + approvalId);
-    let feedback = feedbackEl ? feedbackEl.value.trim() : '';
-
-    if (!feedback) {
-        feedback = prompt('What should the agent do differently?');
-        if (!feedback) return; // User cancelled
     }
 
-    // Use the existing resolveApproval with 'rejected' + feedback
-    // so the LLM receives the error and re-plans
-    const actionsEl = document.getElementById('approval-actions-' + approvalId);
-    if (!actionsEl) return;
-
-    actionsEl.querySelectorAll('button').forEach(btn => btn.disabled = true);
-    if (feedbackEl) feedbackEl.disabled = true;
-
-    try {
-        const resp = await fetch(serverUrl + '/approve', {
-            method: 'POST',
-            headers: Object.assign({ 'Content-Type': 'application/json' }, aguiAuthHeaders()),
-            body: JSON.stringify({ approvalId, decision: 'rejected', feedback }),
-        });
-
-        if (!resp.ok) {
-            const err = await resp.text();
-            throw new Error(err);
-        }
-
-        let statusHtml = '<span class="approval-resolved" style="color:#a78bfa">🔄 Sent back for revision</span>';
-        statusHtml += `<div style="font-size:0.7rem;color:rgba(255,255,255,0.5);margin-top:0.25rem">${escapeHtml(feedback)}</div>`;
-        actionsEl.innerHTML = statusHtml;
-        if (feedbackEl) feedbackEl.parentElement.style.display = 'none';
-        setTimeout(() => {
-            dismissWithPoof(document.getElementById('approval-' + approvalId)?.closest('.approvals-column-item'));
-        }, 5000);
-    } catch (err) {
-        actionsEl.innerHTML = '<span class="approval-resolved" style="color:#dc2626">⚠️ Error: ' + escapeHtml(err.message) + '</span>';
-    }
-}
-
-// ── Clarification Card ──
-function addClarificationCard(requestId, question, context) {
-    const div = document.createElement('div');
-    div.className = 'flex justify-start approvals-column-item';
-    const contextHtml = context
-        ? `<div class="clarify-context">💡 ${escapeHtml(context)}</div>`
-        : '';
-    div.innerHTML = `
+    // ── Clarification Card ──
+    function addClarificationCard(requestId, question, context) {
+        const div = document.createElement('div');
+        div.className = 'flex justify-start approvals-column-item';
+        const contextHtml = context
+            ? `<div class="clarify-context">💡 ${escapeHtml(context)}</div>`
+            : '';
+        div.innerHTML = `
 <div class="clarify-card" id="clarify-${escapeAttr(requestId)}">
   <div class="clarify-header">❓ Genie needs your input</div>
   <div class="clarify-question">${escapeHtml(question || 'Please provide more information.')}</div>
@@ -1555,415 +1560,427 @@ function addClarificationCard(requestId, question, context) {
   </div>
 </div>
       `;
-    approvalsColumnListEl.appendChild(div);
-    updateApprovalsColumnVisibility();
-    scrollToBottom();
-    // Auto-focus the input
-    setTimeout(() => {
-        const inp = document.getElementById('clarify-input-' + requestId);
-        if (inp) inp.focus();
-    }, 100);
-}
+        approvalsColumnListEl.appendChild(div);
+        updateApprovalsColumnVisibility();
+        scrollToBottom();
+        // Auto-focus the input
+        setTimeout(() => {
+            const inp = document.getElementById('clarify-input-' + requestId);
+            if (inp) inp.focus();
+        }, 100);
+    }
 
-async function submitClarificationWithAnswer(requestId, answer) {
-    const inputEl = document.getElementById('clarify-input-' + requestId);
-    const actionsEl = document.getElementById('clarify-actions-' + requestId);
-    if (!actionsEl) return;
+    async function submitClarificationWithAnswer(requestId, answer) {
+        const inputEl = document.getElementById('clarify-input-' + requestId);
+        const actionsEl = document.getElementById('clarify-actions-' + requestId);
+        if (!actionsEl) return;
 
-    inputEl && (inputEl.disabled = true);
-    actionsEl.querySelectorAll('button').forEach(btn => btn.disabled = true);
+        inputEl && (inputEl.disabled = true);
+        actionsEl.querySelectorAll('button').forEach(btn => btn.disabled = true);
 
-    try {
-        const resp = await fetch(serverUrl + '/api/v1/clarify', {
-            method: 'POST',
-            headers: Object.assign({ 'Content-Type': 'application/json' }, aguiAuthHeaders()),
-            body: JSON.stringify({ requestId, answer }),
-        });
+        try {
+            const resp = await fetch(serverUrl + '/api/v1/clarify', {
+                method: 'POST',
+                headers: Object.assign({ 'Content-Type': 'application/json' }, aguiAuthHeaders()),
+                body: JSON.stringify({ requestId, answer }),
+            });
 
-        if (!resp.ok) {
-            const err = await resp.text();
-            throw new Error(err);
+            if (!resp.ok) {
+                const err = await resp.text();
+                throw new Error(err);
+            }
+
+            actionsEl.innerHTML = '<span class="clarify-resolved">✅ Answer submitted</span>';
+            if (inputEl) inputEl.style.display = 'none';
+            setTimeout(() => {
+                dismissWithPoof(document.getElementById('clarify-' + requestId)?.closest('.approvals-column-item'));
+            }, 5000);
+        } catch (err) {
+            actionsEl.innerHTML = '<span style="color:#dc2626;font-size:0.75rem;font-weight:600">⚠️ Error: ' + escapeHtml(err.message) + '</span>';
+            if (inputEl) inputEl.disabled = false;
+            actionsEl.querySelectorAll('button').forEach(btn => btn.disabled = false);
         }
-
-        actionsEl.innerHTML = '<span class="clarify-resolved">✅ Answer submitted</span>';
-        if (inputEl) inputEl.style.display = 'none';
-        setTimeout(() => {
-            dismissWithPoof(document.getElementById('clarify-' + requestId)?.closest('.approvals-column-item'));
-        }, 5000);
-    } catch (err) {
-        actionsEl.innerHTML = '<span style="color:#dc2626;font-size:0.75rem;font-weight:600">⚠️ Error: ' + escapeHtml(err.message) + '</span>';
-        if (inputEl) inputEl.disabled = false;
-        actionsEl.querySelectorAll('button').forEach(btn => btn.disabled = false);
-    }
-}
-
-async function submitClarification(requestId) {
-    const inputEl = document.getElementById('clarify-input-' + requestId);
-    const actionsEl = document.getElementById('clarify-actions-' + requestId);
-    if (!inputEl || !actionsEl) return;
-
-    const answer = inputEl.value.trim();
-    if (!answer) {
-        inputEl.style.borderColor = '#ef4444';
-        inputEl.placeholder = 'Please type an answer before submitting…';
-        return;
     }
 
-    await submitClarificationWithAnswer(requestId, answer);
-}
+    async function submitClarification(requestId) {
+        const inputEl = document.getElementById('clarify-input-' + requestId);
+        const actionsEl = document.getElementById('clarify-actions-' + requestId);
+        if (!inputEl || !actionsEl) return;
 
-function addSystemMessage(text) {
-    const div = document.createElement('div');
-    div.className = 'flex justify-center mb-4';
-    div.innerHTML = `<div class="chat-bubble system">${escapeHtml(text)}</div>`;
-    messagesEl.appendChild(div);
-    scrollToBottom();
-}
-
-function addErrorMessage(text) {
-    const div = document.createElement('div');
-    div.className = 'flex justify-center mb-4';
-    div.innerHTML = `<div class="chat-bubble error">⚠️ ${escapeHtml(text)}</div>`;
-    messagesEl.appendChild(div);
-    scrollToBottom();
-}
-
-function finishStreaming() {
-    isStreaming = false;
-    abortController = null;
-    sendBtn.disabled = false;
-    sendBtn.style.display = '';
-    if (micBtn) micBtn.disabled = false;
-    document.getElementById('stop-btn').classList.remove('visible');
-    inputEl.disabled = false;
-    inputEl.focus();
-    hideThinking();
-    finalizeAssistantBubble();
-    updateButtonState();
-}
-
-function stopStreaming() {
-    if (abortController) {
-        abortController.abort();
-    }
-}
-
-function scrollToBottom() {
-    requestAnimationFrame(() => {
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-    });
-}
-
-if (typeof ResizeObserver !== 'undefined' && messagesEl) {
-    let lastHeight = messagesEl.clientHeight;
-    const ro = new ResizeObserver(function () {
-        const h = messagesEl.clientHeight;
-        if (h < lastHeight) scrollToBottom();
-        lastHeight = h;
-    });
-    ro.observe(messagesEl);
-}
-
-// ── Markdown Rendering (lightweight) ──
-// Renders markdown from assistant/user content. Escapes HTML first to prevent XSS, then applies safe substitutions.
-function renderMarkdown(text) {
-    if (text == null || typeof text !== 'string') return '';
-    // Escape entire string first so no raw < > & can become HTML/script; then apply markdown.
-    text = escapeHtml(text);
-    // Code blocks (content already escaped above)
-    text = text.replace(/```(\w*)\n([\s\S]*?)```/g, function (_, lang, code) {
-        return '<pre><code>' + code.trim() + '</code></pre>';
-    });
-    // Inline code
-    text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
-    // Bold
-    text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    // Italic
-    text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-    // Line breaks
-    text = text.replace(/\n/g, '<br>');
-    return text;
-}
-
-function escapeHtml(text) {
-    if (text == null) return '';
-    if (typeof text !== 'string') text = String(text);
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-// For use inside HTML attribute values (id, etc.). Escapes quotes and entities so the value cannot break out.
-function escapeAttr(text) {
-    if (text == null) return '';
-    if (typeof text !== 'string') text = String(text);
-    return text
-        .replace(/&/g, '&amp;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-}
-
-// For embedding in a single-quoted JS string inside an HTML attribute (e.g. onclick="genie.foo('${id}')").
-// Ensures the passed value is the raw string so getElementById(id) matches the decoded DOM id.
-function escapeJsQuoted(text) {
-    if (text == null) return '';
-    if (typeof text !== 'string') text = String(text);
-    return text
-        .replace(/\\/g, '\\\\')
-        .replace(/'/g, "\\'")
-        .replace(/\r/g, '\\r')
-        .replace(/\n/g, '\\n');
-}
-
-// ── Copy Message ──
-function addCopyButton(bubbleEl, rawContent) {
-    const parent = bubbleEl.parentElement;
-    if (!parent || !parent.classList.contains('bubble-wrapper')) return;
-    // Avoid adding duplicate buttons
-    if (parent.querySelector('.copy-msg-btn')) return;
-
-    const btn = document.createElement('button');
-    btn.className = 'copy-msg-btn';
-    btn.title = 'Copy message';
-    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>`;
-    btn.addEventListener('click', () => copyMessageContent(btn, rawContent));
-    parent.appendChild(btn);
-}
-
-function copyMessageContent(btn, text) {
-    navigator.clipboard.writeText(text).then(() => {
-        btn.classList.add('copied');
-        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
-        setTimeout(() => {
-            btn.classList.remove('copied');
-            btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>`;
-        }, 1500);
-    }).catch(() => {
-        // Fallback for older browsers
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        btn.classList.add('copied');
-        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
-        setTimeout(() => {
-            btn.classList.remove('copied');
-            btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>`;
-        }, 1500);
-    });
-}
-
-function addSpeakButton(bubbleEl, rawContent) {
-    const parent = bubbleEl.parentElement;
-    if (!parent || !parent.classList.contains('bubble-wrapper')) return;
-    if (parent.querySelector('.speak-msg-btn')) return;
-    if (!window.speechSynthesis) return;
-    if (!rawContent || !String(rawContent).trim()) return;
-    const btn = document.createElement('button');
-    btn.className = 'speak-msg-btn';
-    btn.title = 'Read aloud';
-    btn.setAttribute('aria-label', 'Read this message aloud');
-    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/><path d="M19.07 4.93a10 10 0 010 14.14"/></svg>`;
-    btn.addEventListener('click', () => toggleSpeakMessage(btn, rawContent));
-    parent.appendChild(btn);
-}
-
-// Strip markdown to plain text for TTS. Inline implementation to avoid a build step;
-// CDN libs (remove-markdown, markdown-to-txt) are CommonJS/ESM and need bundling.
-function stripMarkdownForSpeech(text) {
-    if (!text || !text.trim()) return '';
-    var t = text.trim()
-        .replace(/```[\s\S]*?```/g, ' ')
-        .replace(/`[^`]+`/g, ' ')
-        .replace(/\*\*([^*]+)\*\*/g, '$1')
-        .replace(/\*([^*]+)\*/g, '$1')
-        .replace(/__([^_]+)__/g, '$1')
-        .replace(/_([^_]+)_/g, '$1')
-        .replace(/#{1,6}\s*/g, '')
-        .replace(/^[\s\t]*[\*\-+]|\d+\.\s+/gm, ' ')
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-        .replace(/!\[([^\]]*)\][^\s]*/g, '$1')
-        .replace(/\n+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-    return t;
-}
-
-function toggleSpeakMessage(btn, text) {
-    if (!text || !text.trim()) return;
-    if (btn.classList.contains('speaking')) {
-        window.speechSynthesis.cancel();
-        btn.classList.remove('speaking');
-        btn.title = 'Read aloud';
-        return;
-    }
-    document.querySelectorAll('.speak-msg-btn.speaking').forEach(b => { b.classList.remove('speaking'); b.title = 'Read aloud'; });
-    window.speechSynthesis.cancel();
-    var plainText = stripMarkdownForSpeech(text);
-    if (!plainText) return;
-    const utterance = new SpeechSynthesisUtterance(plainText);
-    utterance.lang = document.documentElement.lang || 'en-US';
-    utterance.onend = () => { btn.classList.remove('speaking'); btn.title = 'Read aloud'; };
-    utterance.onerror = () => { btn.classList.remove('speaking'); btn.title = 'Read aloud'; };
-    btn.classList.add('speaking');
-    btn.title = 'Stop reading';
-    window.speechSynthesis.speak(utterance);
-}
-
-// ── Input Handling ──
-function handleKeyDown(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendMessage();
-    }
-}
-
-document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') {
-        if (document.fullscreenElement || document.webkitFullscreenElement) return;
-        if (isStreaming) { e.preventDefault(); stopStreaming(); }
-        if (window.speechSynthesis && window.speechSynthesis.speaking) {
-            window.speechSynthesis.cancel();
-            document.querySelectorAll('.speak-msg-btn.speaking').forEach(b => { b.classList.remove('speaking'); b.title = 'Read aloud'; });
-        }
-        return;
-    }
-    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        if (inputEl && !inputEl.disabled) inputEl.focus();
-    }
-});
-
-function autoResize(el) {
-    el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
-}
-
-function usePrompt(text) {
-    const input = document.getElementById('chat-input');
-    // Fill the input with the selected prompt text. If the input is disabled
-    // (e.g., when disconnected), we still populate it but only focus when enabled.
-    input.value = text;
-    autoResize(input);
-    if (!input.disabled) {
-        input.focus();
-    }
-}
-
-// ── Sidebar & History ──
-function toggleSidebar() {
-    document.getElementById('history-sidebar').classList.toggle('open');
-    document.getElementById('sidebar-overlay').classList.toggle('open');
-}
-
-async function refreshSidebar() {
-    try {
-        const all = await genieDB.getAllConversations();
-        const listEl = document.getElementById('sidebar-list');
-
-        if (all.length === 0) {
-            listEl.innerHTML = '<div class="sidebar-empty">No conversations yet</div>';
+        const answer = inputEl.value.trim();
+        if (!answer) {
+            inputEl.style.borderColor = '#ef4444';
+            inputEl.placeholder = 'Please type an answer before submitting…';
             return;
         }
 
-        // Group by serverUrl
-        const groups = {};
-        for (const c of all) {
-            const key = c.serverUrl || 'Unknown';
-            if (!groups[key]) groups[key] = [];
-            groups[key].push(c);
-        }
+        await submitClarificationWithAnswer(requestId, answer);
+    }
 
-        let html = '';
-        for (const [url, convs] of Object.entries(groups)) {
-            const label = url.replace(/^https?:\/\//, '');
-            html += `<div class="sidebar-server-group">`;
-            html += `<div class="sidebar-server-label">${escapeHtml(label)}</div>`;
-            for (const c of convs) {
-                const active = c.threadId === threadId ? ' active' : '';
-                const timeStr = formatTimeAgo(c.updatedAt);
-                html += `<div class="sidebar-conv${active}" onclick="genie.loadConversation('${escapeJsQuoted(c.threadId)}')">`;
-                html += `<div class="sidebar-conv-info">`;
-                html += `<div class="sidebar-conv-title">${escapeHtml(c.title || 'Untitled')}</div>`;
-                html += `<div class="sidebar-conv-time">${timeStr}</div>`;
-                html += `</div>`;
-                html += `<button class="sidebar-conv-delete" onclick="event.stopPropagation(); genie.deleteConversation('${escapeJsQuoted(c.threadId)}')" title="Delete">🗑️</button>`;
+    function addSystemMessage(text) {
+        const div = document.createElement('div');
+        div.className = 'flex justify-center mb-4';
+        div.innerHTML = `<div class="chat-bubble system">${escapeHtml(text)}</div>`;
+        messagesEl.appendChild(div);
+        scrollToBottom();
+    }
+
+    function addErrorMessage(text) {
+        const div = document.createElement('div');
+        div.className = 'flex justify-center mb-4';
+        div.innerHTML = `<div class="chat-bubble error">⚠️ ${escapeHtml(text)}</div>`;
+        messagesEl.appendChild(div);
+        scrollToBottom();
+    }
+
+    function finishStreaming() {
+        isStreaming = false;
+        abortController = null;
+        sendBtn.disabled = false;
+        sendBtn.style.display = '';
+        if (micBtn) micBtn.disabled = false;
+        document.getElementById('stop-btn').classList.remove('visible');
+        inputEl.disabled = false;
+        inputEl.focus();
+        hideThinking();
+        finalizeAssistantBubble();
+        updateButtonState();
+    }
+
+    function stopStreaming() {
+        if (abortController) {
+            abortController.abort();
+        }
+    }
+
+    function scrollToBottom() {
+        requestAnimationFrame(() => {
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        });
+    }
+
+    if (typeof ResizeObserver !== 'undefined' && messagesEl) {
+        let lastHeight = messagesEl.clientHeight;
+        const ro = new ResizeObserver(function () {
+            const h = messagesEl.clientHeight;
+            if (h < lastHeight) scrollToBottom();
+            lastHeight = h;
+        });
+        ro.observe(messagesEl);
+    }
+
+    // ── Markdown Rendering (lightweight) ──
+    // Renders markdown from assistant/user content. Escapes HTML first to prevent XSS, then applies safe substitutions.
+    function renderMarkdown(text) {
+        if (text == null || typeof text !== 'string') return '';
+        // Escape entire string first so no raw < > & can become HTML/script; then apply markdown.
+        text = escapeHtml(text);
+        // Code blocks (content already escaped above)
+        text = text.replace(/```(\w*)\n([\s\S]*?)```/g, function (_, lang, code) {
+            return '<pre><code>' + code.trim() + '</code></pre>';
+        });
+        // Inline code
+        text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+        // Bold
+        text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        // Italic
+        text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+        // Line breaks
+        text = text.replace(/\n/g, '<br>');
+        return text;
+    }
+
+    function escapeHtml(text) {
+        if (text == null) return '';
+        if (typeof text !== 'string') text = String(text);
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // For use inside HTML attribute values (id, etc.). Escapes quotes and entities so the value cannot break out.
+    function escapeAttr(text) {
+        if (text == null) return '';
+        if (typeof text !== 'string') text = String(text);
+        return text
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    // Produces a DOM-safe id fragment from an arbitrary string.
+    // Unlike escapeAttr (which HTML-entity-encodes), this replaces characters
+    // that are unsafe for DOM ids so the same canonical id can be used
+    // consistently in both innerHTML templates and getElementById lookups.
+    function safeDomId(text) {
+        if (text == null) return '';
+        if (typeof text !== 'string') text = String(text);
+        return text.replace(/[^a-zA-Z0-9_-]/g, function (ch) {
+            return '_' + ch.charCodeAt(0).toString(16) + '_';
+        });
+    }
+
+    // For embedding in a single-quoted JS string inside an HTML attribute (e.g. onclick="genie.foo('${id}')").
+    // Ensures the passed value is the raw string so getElementById(id) matches the decoded DOM id.
+    function escapeJsQuoted(text) {
+        if (text == null) return '';
+        if (typeof text !== 'string') text = String(text);
+        return text
+            .replace(/\\/g, '\\\\')
+            .replace(/'/g, "\\'")
+            .replace(/\r/g, '\\r')
+            .replace(/\n/g, '\\n');
+    }
+
+    // ── Copy Message ──
+    function addCopyButton(bubbleEl, rawContent) {
+        const parent = bubbleEl.parentElement;
+        if (!parent || !parent.classList.contains('bubble-wrapper')) return;
+        // Avoid adding duplicate buttons
+        if (parent.querySelector('.copy-msg-btn')) return;
+
+        const btn = document.createElement('button');
+        btn.className = 'copy-msg-btn';
+        btn.title = 'Copy message';
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>`;
+        btn.addEventListener('click', () => copyMessageContent(btn, rawContent));
+        parent.appendChild(btn);
+    }
+
+    function copyMessageContent(btn, text) {
+        navigator.clipboard.writeText(text).then(() => {
+            btn.classList.add('copied');
+            btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+            setTimeout(() => {
+                btn.classList.remove('copied');
+                btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>`;
+            }, 1500);
+        }).catch(() => {
+            // Fallback for older browsers
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            btn.classList.add('copied');
+            btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+            setTimeout(() => {
+                btn.classList.remove('copied');
+                btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>`;
+            }, 1500);
+        });
+    }
+
+    function addSpeakButton(bubbleEl, rawContent) {
+        const parent = bubbleEl.parentElement;
+        if (!parent || !parent.classList.contains('bubble-wrapper')) return;
+        if (parent.querySelector('.speak-msg-btn')) return;
+        if (!window.speechSynthesis) return;
+        if (!rawContent || !String(rawContent).trim()) return;
+        const btn = document.createElement('button');
+        btn.className = 'speak-msg-btn';
+        btn.title = 'Read aloud';
+        btn.setAttribute('aria-label', 'Read this message aloud');
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/><path d="M19.07 4.93a10 10 0 010 14.14"/></svg>`;
+        btn.addEventListener('click', () => toggleSpeakMessage(btn, rawContent));
+        parent.appendChild(btn);
+    }
+
+    // Strip markdown to plain text for TTS. Inline implementation to avoid a build step;
+    // CDN libs (remove-markdown, markdown-to-txt) are CommonJS/ESM and need bundling.
+    function stripMarkdownForSpeech(text) {
+        if (!text || !text.trim()) return '';
+        var t = text.trim()
+            .replace(/```[\s\S]*?```/g, ' ')
+            .replace(/`[^`]+`/g, ' ')
+            .replace(/\*\*([^*]+)\*\*/g, '$1')
+            .replace(/\*([^*]+)\*/g, '$1')
+            .replace(/__([^_]+)__/g, '$1')
+            .replace(/_([^_]+)_/g, '$1')
+            .replace(/#{1,6}\s*/g, '')
+            .replace(/^[\s\t]*[\*\-+]|\d+\.\s+/gm, ' ')
+            .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+            .replace(/!\[([^\]]*)\][^\s]*/g, '$1')
+            .replace(/\n+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        return t;
+    }
+
+    function toggleSpeakMessage(btn, text) {
+        if (!text || !text.trim()) return;
+        if (btn.classList.contains('speaking')) {
+            window.speechSynthesis.cancel();
+            btn.classList.remove('speaking');
+            btn.title = 'Read aloud';
+            return;
+        }
+        document.querySelectorAll('.speak-msg-btn.speaking').forEach(b => { b.classList.remove('speaking'); b.title = 'Read aloud'; });
+        window.speechSynthesis.cancel();
+        var plainText = stripMarkdownForSpeech(text);
+        if (!plainText) return;
+        const utterance = new SpeechSynthesisUtterance(plainText);
+        utterance.lang = document.documentElement.lang || 'en-US';
+        utterance.onend = () => { btn.classList.remove('speaking'); btn.title = 'Read aloud'; };
+        utterance.onerror = () => { btn.classList.remove('speaking'); btn.title = 'Read aloud'; };
+        btn.classList.add('speaking');
+        btn.title = 'Stop reading';
+        window.speechSynthesis.speak(utterance);
+    }
+
+    // ── Input Handling ──
+    function handleKeyDown(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    }
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') {
+            if (document.fullscreenElement || document.webkitFullscreenElement) return;
+            if (isStreaming) { e.preventDefault(); stopStreaming(); }
+            if (window.speechSynthesis && window.speechSynthesis.speaking) {
+                window.speechSynthesis.cancel();
+                document.querySelectorAll('.speak-msg-btn.speaking').forEach(b => { b.classList.remove('speaking'); b.title = 'Read aloud'; });
+            }
+            return;
+        }
+        if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+            e.preventDefault();
+            if (inputEl && !inputEl.disabled) inputEl.focus();
+        }
+    });
+
+    function autoResize(el) {
+        el.style.height = 'auto';
+        el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+    }
+
+    function usePrompt(text) {
+        const input = document.getElementById('chat-input');
+        // Fill the input with the selected prompt text. If the input is disabled
+        // (e.g., when disconnected), we still populate it but only focus when enabled.
+        input.value = text;
+        autoResize(input);
+        if (!input.disabled) {
+            input.focus();
+        }
+    }
+
+    // ── Sidebar & History ──
+    function toggleSidebar() {
+        document.getElementById('history-sidebar').classList.toggle('open');
+        document.getElementById('sidebar-overlay').classList.toggle('open');
+    }
+
+    async function refreshSidebar() {
+        try {
+            const all = await genieDB.getAllConversations();
+            const listEl = document.getElementById('sidebar-list');
+
+            if (all.length === 0) {
+                listEl.innerHTML = '<div class="sidebar-empty">No conversations yet</div>';
+                return;
+            }
+
+            // Group by serverUrl
+            const groups = {};
+            for (const c of all) {
+                const key = c.serverUrl || 'Unknown';
+                if (!groups[key]) groups[key] = [];
+                groups[key].push(c);
+            }
+
+            let html = '';
+            for (const [url, convs] of Object.entries(groups)) {
+                const label = url.replace(/^https?:\/\//, '');
+                html += `<div class="sidebar-server-group">`;
+                html += `<div class="sidebar-server-label">${escapeHtml(label)}</div>`;
+                for (const c of convs) {
+                    const active = c.threadId === threadId ? ' active' : '';
+                    const timeStr = formatTimeAgo(c.updatedAt);
+                    html += `<div class="sidebar-conv${active}" onclick="genie.loadConversation('${escapeJsQuoted(c.threadId)}')">`;
+                    html += `<div class="sidebar-conv-info">`;
+                    html += `<div class="sidebar-conv-title">${escapeHtml(c.title || 'Untitled')}</div>`;
+                    html += `<div class="sidebar-conv-time">${timeStr}</div>`;
+                    html += `</div>`;
+                    html += `<button class="sidebar-conv-delete" onclick="event.stopPropagation(); genie.deleteConversation('${escapeJsQuoted(c.threadId)}')" title="Delete">🗑️</button>`;
+                    html += `</div>`;
+                }
                 html += `</div>`;
             }
-            html += `</div>`;
+            listEl.innerHTML = html;
+        } catch (err) {
+            console.warn('Failed to refresh sidebar:', err);
         }
-        listEl.innerHTML = html;
-    } catch (err) {
-        console.warn('Failed to refresh sidebar:', err);
     }
-}
 
-function formatTimeAgo(ts) {
-    if (!ts) return '';
-    const diff = Date.now() - ts;
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return 'Just now';
-    if (mins < 60) return mins + 'm ago';
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return hours + 'h ago';
-    const days = Math.floor(hours / 24);
-    if (days < 7) return days + 'd ago';
-    return new Date(ts).toLocaleDateString();
-}
+    function formatTimeAgo(ts) {
+        if (!ts) return '';
+        const diff = Date.now() - ts;
+        const mins = Math.floor(diff / 60000);
+        if (mins < 1) return 'Just now';
+        if (mins < 60) return mins + 'm ago';
+        const hours = Math.floor(mins / 60);
+        if (hours < 24) return hours + 'h ago';
+        const days = Math.floor(hours / 24);
+        if (days < 7) return days + 'd ago';
+        return new Date(ts).toLocaleDateString();
+    }
 
-async function loadConversation(convThreadId) {
-    try {
-        const conv = await genieDB.getConversation(convThreadId);
-        if (!conv) return;
+    async function loadConversation(convThreadId) {
+        try {
+            const conv = await genieDB.getConversation(convThreadId);
+            if (!conv) return;
 
-        // Switch to this conversation
-        threadId = conv.threadId;
-        currentConversation = conv;
-        const prevServerUrl = serverUrl;
-        serverUrl = conv.serverUrl || serverUrl;
-        if (conv.serverUrl && conv.serverUrl !== prevServerUrl && aguiPasswordForSession) {
-            aguiPasswordForSession = '';
-            addSystemMessage('Switched to a different server. Re-enter the password in the connect area if this server requires one.');
-        }
+            // Switch to this conversation
+            threadId = conv.threadId;
+            currentConversation = conv;
+            const prevServerUrl = serverUrl;
+            serverUrl = conv.serverUrl || serverUrl;
+            if (conv.serverUrl && conv.serverUrl !== prevServerUrl && aguiPasswordForSession) {
+                aguiPasswordForSession = '';
+                addSystemMessage('Switched to a different server. Re-enter the password in the connect area if this server requires one.');
+            }
 
-        // Clear messages area and pending approvals column
-        messagesEl.innerHTML = '';
-        if (approvalsColumnListEl) {
-            approvalsColumnListEl.innerHTML = '';
-            updateApprovalsColumnVisibility();
-        }
-        emptyState.style.display = 'none';
-        currentAssistantBubble = null;
-        currentAssistantContent = '';
+            // Clear messages area and pending approvals column
+            messagesEl.innerHTML = '';
+            if (approvalsColumnListEl) {
+                approvalsColumnListEl.innerHTML = '';
+                updateApprovalsColumnVisibility();
+            }
+            emptyState.style.display = 'none';
+            currentAssistantBubble = null;
+            currentAssistantContent = '';
 
-        // Replay messages
-        for (const msg of conv.messages) {
-            if (msg.role === 'user') {
-                addUserBubble(msg.content);
-            } else if (msg.role === 'assistant') {
-                const wrapper = document.createElement('div');
-                wrapper.className = 'flex justify-start mb-4';
-                const bubbleWrap = document.createElement('div');
-                bubbleWrap.className = 'bubble-wrapper';
-                const bubble = document.createElement('div');
-                bubble.className = 'chat-bubble assistant';
-                bubble.innerHTML = renderMarkdown(msg.content);
-                bubbleWrap.appendChild(bubble);
-                addCopyButton(bubble, msg.content);
-                addSpeakButton(bubble, msg.content);
-                wrapper.appendChild(bubbleWrap);
-                messagesEl.appendChild(wrapper);
-            } else if (msg.role === 'tool') {
-                const div = document.createElement('div');
-                div.className = 'flex justify-start mb-3';
-                const friendly = friendlyToolName(msg.toolName || '');
-                div.innerHTML = `
+            // Replay messages
+            for (const msg of conv.messages) {
+                if (msg.role === 'user') {
+                    addUserBubble(msg.content);
+                } else if (msg.role === 'assistant') {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'flex justify-start mb-4';
+                    const bubbleWrap = document.createElement('div');
+                    bubbleWrap.className = 'bubble-wrapper';
+                    const bubble = document.createElement('div');
+                    bubble.className = 'chat-bubble assistant';
+                    bubble.innerHTML = renderMarkdown(msg.content);
+                    bubbleWrap.appendChild(bubble);
+                    addCopyButton(bubble, msg.content);
+                    addSpeakButton(bubble, msg.content);
+                    wrapper.appendChild(bubbleWrap);
+                    messagesEl.appendChild(wrapper);
+                } else if (msg.role === 'tool') {
+                    const div = document.createElement('div');
+                    div.className = 'flex justify-start mb-3';
+                    const friendly = friendlyToolName(msg.toolName || '');
+                    div.innerHTML = `
                     <details class="tool-card">
                         <summary>
                             <span class="tool-label">${friendly}</span>
@@ -1974,149 +1991,149 @@ async function loadConversation(convThreadId) {
                             <div class="tool-result">${escapeHtml(msg.content || '')}</div>
                         </div>
                     </details>`;
-                messagesEl.appendChild(div);
-            } else if (msg.role === 'system') {
-                addSystemMessage(msg.content);
+                    messagesEl.appendChild(div);
+                } else if (msg.role === 'system') {
+                    addSystemMessage(msg.content);
+                }
             }
-        }
 
-        scrollToBottom();
-        toggleSidebar();
-        await refreshSidebar();
-        updateButtonState();
-    } catch (err) {
-        console.warn('Failed to load conversation:', err);
-    }
-}
-
-async function deleteConversation(convThreadId) {
-    try {
-        await genieDB.deleteConversation(convThreadId);
-        if (convThreadId === threadId) {
-            startNewChat();
-        }
-        await refreshSidebar();
-    } catch (err) {
-        console.warn('Failed to delete conversation:', err);
-    }
-}
-
-function exportChat() {
-    if (!currentConversation || !currentConversation.messages.length) {
-        alert('No conversation to export');
-        return;
-    }
-
-    const history = currentConversation.messages.map(m => {
-        const role = m.role.toUpperCase();
-        const content = m.content || '';
-        return `### ${role}\n\n${content}\n`;
-    }).join('\n---\n\n');
-
-    const blob = new Blob([history], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `genie-chat-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-}
-
-function summarizeChat() {
-    if (!isConnected) {
-        alert('Please connect to Genie first');
-        return;
-    }
-    if (isStreaming) return;
-
-    // Visual feedback
-    addSystemMessage('📝 Summarizing conversation…');
-    const btn = document.getElementById('btn-summarize');
-    const origLabel = btn.textContent;
-    btn.textContent = '⏳ Summarizing…';
-    btn.disabled = true;
-
-    const input = document.getElementById('chat-input');
-    input.value = "Please summarize our conversation so far in a concise manner, highlighting key decisions and next steps.";
-    sendMessage();
-
-    // Restore button label after streaming ends (poll for completion)
-    const restore = setInterval(() => {
-        if (!isStreaming) {
-            btn.textContent = origLabel;
+            scrollToBottom();
+            toggleSidebar();
+            await refreshSidebar();
             updateButtonState();
-            clearInterval(restore);
+        } catch (err) {
+            console.warn('Failed to load conversation:', err);
         }
-    }, 500);
-}
-
-function startNewChat() {
-    // Cancel any active SSE stream from the previous run
-    stopStreaming();
-    finishStreaming();
-
-    // Every new chat gets a completely fresh threadId so the
-    // backend never carries over memory/context from a prior chat.
-    threadId = crypto.randomUUID();
-    runCounter = 0;
-    currentAssistantBubble = null;
-    currentAssistantContent = '';
-    currentMessageId = null;
-
-    // Clear messages and pending approvals column
-    messagesEl.innerHTML = '';
-    if (approvalsColumnListEl) {
-        approvalsColumnListEl.innerHTML = '';
-        updateApprovalsColumnVisibility();
     }
 
-    // Start a new conversation record with segmentation metadata
-    if (isConnected && serverUrl) {
-        currentConversation = {
-            threadId: threadId,
-            serverUrl: serverUrl,
-            userId: userId,
-            platform: PLATFORM_ID,
-            title: 'New conversation',
-            messages: [],
-            updatedAt: Date.now(),
-        };
-        emptyState.style.display = 'none';
-    } else {
-        currentConversation = null;
-        messagesEl.appendChild(emptyState);
-        emptyState.style.display = '';
+    async function deleteConversation(convThreadId) {
+        try {
+            await genieDB.deleteConversation(convThreadId);
+            if (convThreadId === threadId) {
+                startNewChat();
+            }
+            await refreshSidebar();
+        } catch (err) {
+            console.warn('Failed to delete conversation:', err);
+        }
     }
 
-    // Close sidebar if open
-    document.getElementById('history-sidebar').classList.remove('open');
-    document.getElementById('sidebar-overlay').classList.remove('open');
+    function exportChat() {
+        if (!currentConversation || !currentConversation.messages.length) {
+            alert('No conversation to export');
+            return;
+        }
 
-    refreshSidebar().catch(console.warn);
-    updateButtonState();
-    inputEl.focus();
-}
+        const history = currentConversation.messages.map(m => {
+            const role = m.role.toUpperCase();
+            const content = m.content || '';
+            return `### ${role}\n\n${content}\n`;
+        }).join('\n---\n\n');
 
-function updateButtonState() {
-    const hasMessages = currentConversation && currentConversation.messages && currentConversation.messages.length > 0;
-    const canSummarize = isConnected && !isStreaming && hasMessages;
+        const blob = new Blob([history], { type: 'text/markdown' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `genie-chat-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.md`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
 
-    const btnSummarize = document.getElementById('btn-summarize');
-    const btnExport = document.getElementById('btn-export');
-    const btnNewChat = document.getElementById('btn-new-chat');
+    function summarizeChat() {
+        if (!isConnected) {
+            alert('Please connect to Genie first');
+            return;
+        }
+        if (isStreaming) return;
 
-    if (btnSummarize) btnSummarize.disabled = !canSummarize;
-    if (btnExport) btnExport.disabled = !hasMessages;
-    // New chat is enabled if we have a conversation object (even emptiness is a state) 
-    // but effectively we might only want it if there's messages to clear or if we want to confirm a fresh start.
-    // Let's enable it if isConnected so user can reset an empty chat if they really want, 
-    // but mostly it makes sense when there's history. 
-    // User request: "disable the buttons if there are no conversation yet".
-    // Since "New Chat" on an empty chat is a no-op visually, disabling it is fine.
-    if (btnNewChat) btnNewChat.disabled = !hasMessages && !currentConversation;
-}
+        // Visual feedback
+        addSystemMessage('📝 Summarizing conversation…');
+        const btn = document.getElementById('btn-summarize');
+        const origLabel = btn.textContent;
+        btn.textContent = '⏳ Summarizing…';
+        btn.disabled = true;
+
+        const input = document.getElementById('chat-input');
+        input.value = "Please summarize our conversation so far in a concise manner, highlighting key decisions and next steps.";
+        sendMessage();
+
+        // Restore button label after streaming ends (poll for completion)
+        const restore = setInterval(() => {
+            if (!isStreaming) {
+                btn.textContent = origLabel;
+                updateButtonState();
+                clearInterval(restore);
+            }
+        }, 500);
+    }
+
+    function startNewChat() {
+        // Cancel any active SSE stream from the previous run
+        stopStreaming();
+        finishStreaming();
+
+        // Every new chat gets a completely fresh threadId so the
+        // backend never carries over memory/context from a prior chat.
+        threadId = crypto.randomUUID();
+        runCounter = 0;
+        currentAssistantBubble = null;
+        currentAssistantContent = '';
+        currentMessageId = null;
+
+        // Clear messages and pending approvals column
+        messagesEl.innerHTML = '';
+        if (approvalsColumnListEl) {
+            approvalsColumnListEl.innerHTML = '';
+            updateApprovalsColumnVisibility();
+        }
+
+        // Start a new conversation record with segmentation metadata
+        if (isConnected && serverUrl) {
+            currentConversation = {
+                threadId: threadId,
+                serverUrl: serverUrl,
+                userId: userId,
+                platform: PLATFORM_ID,
+                title: 'New conversation',
+                messages: [],
+                updatedAt: Date.now(),
+            };
+            emptyState.style.display = 'none';
+        } else {
+            currentConversation = null;
+            messagesEl.appendChild(emptyState);
+            emptyState.style.display = '';
+        }
+
+        // Close sidebar if open
+        document.getElementById('history-sidebar').classList.remove('open');
+        document.getElementById('sidebar-overlay').classList.remove('open');
+
+        refreshSidebar().catch(console.warn);
+        updateButtonState();
+        inputEl.focus();
+    }
+
+    function updateButtonState() {
+        const hasMessages = currentConversation && currentConversation.messages && currentConversation.messages.length > 0;
+        const canSummarize = isConnected && !isStreaming && hasMessages;
+
+        const btnSummarize = document.getElementById('btn-summarize');
+        const btnExport = document.getElementById('btn-export');
+        const btnNewChat = document.getElementById('btn-new-chat');
+
+        if (btnSummarize) btnSummarize.disabled = !canSummarize;
+        if (btnExport) btnExport.disabled = !hasMessages;
+        // New chat is enabled if we have a conversation object (even emptiness is a state) 
+        // but effectively we might only want it if there's messages to clear or if we want to confirm a fresh start.
+        // Let's enable it if isConnected so user can reset an empty chat if they really want, 
+        // but mostly it makes sense when there's history. 
+        // User request: "disable the buttons if there are no conversation yet".
+        // Since "New Chat" on an empty chat is a no-op visually, disabling it is fine.
+        if (btnNewChat) btnNewChat.disabled = !hasMessages && !currentConversation;
+    }
 
     // Initialize vibrate toggle label from localStorage on load
     updateVibrateToggleLabel();

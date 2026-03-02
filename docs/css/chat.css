@@ -37,7 +37,7 @@
     right: 0;
     top: 0;
     bottom: 0;
-    width: 340px;
+    width: 380px;
     border-left: 1px solid #e5e7eb;
     background: #fafafa;
     box-shadow: -4px 0 12px rgba(0, 0, 0, 0.06);
@@ -569,26 +569,26 @@
     background: #fffbeb;
     border: 1px solid #f59e0b;
     border-radius: 0.75rem;
-    padding: 0.75rem 1rem;
+    padding: 1rem 1.125rem;
     margin: 0.5rem 0;
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
 }
 
 .approval-card .approval-header {
-    font-weight: 600;
-    color: #b45309;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.75rem;
-    margin-bottom: 0.25rem;
+    font-weight: 700;
+    color: #92400e;
+    font-size: 0.875rem;
+    margin-bottom: 0.5rem;
+    line-height: 1.4;
 }
 
 .approval-card .approval-args-toggle {
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.625rem;
 }
 
 .approval-card .approval-args-toggle summary {
     cursor: pointer;
-    font-size: 0.6875rem;
+    font-size: 0.8125rem;
     font-weight: 600;
     color: #92400e;
     user-select: none;
@@ -612,11 +612,11 @@
 .approval-card .approval-args {
     background: #1e293b;
     color: #e2e8f0;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-family: 'JetBrains Mono', monospace;
-    padding: 0.5rem 0.75rem;
-    border-radius: 0.375rem;
-    margin-top: 0.35rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: 0.5rem;
+    margin-top: 0.4rem;
     max-height: 16rem;
     overflow: auto;
     white-space: pre-wrap;
@@ -629,18 +629,22 @@
 }
 
 .approval-card .approval-actions button {
-    padding: 0.25rem 0.75rem;
-    border-radius: 0.375rem;
-    font-size: 0.75rem;
+    padding: 0.4rem 0.875rem;
+    border-radius: 0.5rem;
+    font-size: 0.8125rem;
     font-weight: 600;
     cursor: pointer;
     border: 1px solid;
     transition: all 0.15s ease;
 }
 
+.approval-card .approval-actions button:active {
+    transform: scale(0.97);
+}
+
 .approval-card .btn-approve {
     background: #dcfce7;
-    color: #16a34a;
+    color: #15803d;
     border-color: #86efac;
 }
 
@@ -670,36 +674,65 @@
 
 .approval-card .feedback-area {
     width: 100%;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.625rem;
 }
 
 .approval-card .feedback-area textarea {
     width: 100%;
     min-height: 2.5rem;
     max-height: 6rem;
-    padding: 0.4rem 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 0.375rem;
-    background: rgba(0, 0, 0, 0.2);
-    color: inherit;
-    font-size: 0.75rem;
+    padding: 0.5rem 0.625rem;
+    border: 1px solid #e5c07b;
+    border-radius: 0.5rem;
+    background: #fff8e1;
+    color: #78350f;
+    font-size: 0.8125rem;
     font-family: inherit;
     resize: vertical;
     outline: none;
-    transition: border-color 0.15s;
+    transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .approval-card .feedback-area textarea::placeholder {
-    color: rgba(255, 255, 255, 0.4);
+    color: #b45309;
+    opacity: 0.5;
 }
 
 .approval-card .feedback-area textarea:focus {
-    border-color: rgba(99, 102, 241, 0.6);
+    border-color: #f59e0b;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
 }
 
 .approval-card .approval-resolved {
     font-weight: 600;
-    font-size: 0.75rem;
+    font-size: 0.8125rem;
+}
+
+.approval-card .approval-allow-row {
+    margin-top: 0.625rem;
+    font-size: 0.8125rem;
+}
+
+.approval-card .approval-allow-row label {
+    color: #78350f;
+    font-weight: 500;
+}
+
+.approval-card .approval-allow-row select,
+.approval-card .approval-allow-row input[type="text"] {
+    padding: 0.35rem 0.5rem;
+    border-radius: 0.375rem;
+    border: 1px solid #e5c07b;
+    background: #fff8e1;
+    color: #78350f;
+    font-size: 0.8125rem;
+}
+
+.approval-card .approval-allow-row select:focus,
+.approval-card .approval-allow-row input[type="text"]:focus {
+    border-color: #f59e0b;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.15);
 }
 
 /* Clarification card (LLM asking user a question) */
