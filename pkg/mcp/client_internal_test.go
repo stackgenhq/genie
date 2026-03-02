@@ -2,29 +2,30 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stackgenhq/genie/pkg/security"
+	"github.com/stackgenhq/genie/pkg/security/securityfakes"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
-// fakeSecretProvider is a test double that implements security.SecretProvider
-// for verifying buildStdioEnv and expandEnvValue behavior without a real vault.
-type fakeSecretProvider struct {
-	secrets map[string]string
-}
-
-// GetSecret returns a pre-configured secret value by name from the fake store.
-// It returns an error if the secret name is not found.
-func (f *fakeSecretProvider) GetSecret(_ context.Context, req security.GetSecretRequest) (string, error) {
-	val, ok := f.secrets[req.Name]
-	if !ok {
-		return "", context.DeadlineExceeded // simulate failure
-	}
-	return val, nil
+// newFakeSecretProvider creates a FakeSecretProvider backed by a map of secret
+// name → value. GetSecret calls return the matching value or an error when the
+// name is not present in the map.
+func newFakeSecretProvider(secrets map[string]string) *securityfakes.FakeSecretProvider {
+	sp := &securityfakes.FakeSecretProvider{}
+	sp.GetSecretCalls(func(_ context.Context, req security.GetSecretRequest) (string, error) {
+		val, ok := secrets[req.Name]
+		if !ok {
+			return "", fmt.Errorf("secret %q not found", req.Name)
+		}
+		return val, nil
+	})
+	return sp
 }
 
 var _ = Describe("Client Internal Tests", func() {
@@ -99,7 +100,7 @@ var _ = Describe("Client Internal Tests", func() {
 
 	Describe("WithSecretProvider", func() {
 		It("should set the secret provider on the client", func() {
-			sp := &fakeSecretProvider{}
+			sp := &securityfakes.FakeSecretProvider{}
 			c := &Client{}
 			opt := WithSecretProvider(sp)
 			opt(c)
@@ -173,11 +174,9 @@ var _ = Describe("Client Internal Tests", func() {
 
 		Context("when secret provider is set and env has ${VAR} reference", func() {
 			It("should expand secrets via the provider", func() {
-				sp := &fakeSecretProvider{
-					secrets: map[string]string{
-						"GH_TOKEN": "ghp_secret123",
-					},
-				}
+				sp := newFakeSecretProvider(map[string]string{
+					"GH_TOKEN": "ghp_secret123",
+				})
 				c = &Client{secretProvider: sp}
 				config := MCPServerConfig{
 					Env: map[string]string{
@@ -198,9 +197,7 @@ var _ = Describe("Client Internal Tests", func() {
 
 		Context("when secret provider fails to resolve", func() {
 			It("should use empty string for missing secrets", func() {
-				sp := &fakeSecretProvider{
-					secrets: map[string]string{},
-				}
+				sp := newFakeSecretProvider(map[string]string{})
 				c = &Client{secretProvider: sp}
 				config := MCPServerConfig{
 					Env: map[string]string{
@@ -221,9 +218,7 @@ var _ = Describe("Client Internal Tests", func() {
 
 		Context("when env value does not contain ${ but provider is set", func() {
 			It("should use the value as-is without secret expansion", func() {
-				sp := &fakeSecretProvider{
-					secrets: map[string]string{},
-				}
+				sp := newFakeSecretProvider(map[string]string{})
 				c = &Client{secretProvider: sp}
 				config := MCPServerConfig{
 					Env: map[string]string{
@@ -245,43 +240,28 @@ var _ = Describe("Client Internal Tests", func() {
 
 	Describe("expandEnvValue", func() {
 		It("should expand ${VAR} using the secret provider", func() {
-			sp := &fakeSecretProvider{
-				secrets: map[string]string{
-					"TOKEN": "secret_val",
-				},
-			}
+			sp := newFakeSecretProvider(map[string]string{"TOKEN": "secret_val"})
 			c := &Client{secretProvider: sp}
 			result := c.expandEnvValue(context.Background(), "Bearer ${TOKEN}")
 			Expect(result).To(Equal("Bearer secret_val"))
 		})
 
 		It("should expand $VAR without braces", func() {
-			sp := &fakeSecretProvider{
-				secrets: map[string]string{
-					"TOKEN": "abc",
-				},
-			}
+			sp := newFakeSecretProvider(map[string]string{"TOKEN": "abc"})
 			c := &Client{secretProvider: sp}
 			result := c.expandEnvValue(context.Background(), "$TOKEN")
 			Expect(result).To(Equal("abc"))
 		})
 
 		It("should return empty for unresolvable secrets", func() {
-			sp := &fakeSecretProvider{
-				secrets: map[string]string{},
-			}
+			sp := newFakeSecretProvider(map[string]string{})
 			c := &Client{secretProvider: sp}
 			result := c.expandEnvValue(context.Background(), "${NONEXISTENT}")
 			Expect(result).To(Equal(""))
 		})
 
 		It("should handle multiple variables in one value", func() {
-			sp := &fakeSecretProvider{
-				secrets: map[string]string{
-					"USER": "admin",
-					"PASS": "p@ss",
-				},
-			}
+			sp := newFakeSecretProvider(map[string]string{"USER": "admin", "PASS": "p@ss"})
 			c := &Client{secretProvider: sp}
 			result := c.expandEnvValue(context.Background(), "${USER}:${PASS}")
 			Expect(result).To(Equal("admin:p@ss"))
