@@ -57,7 +57,7 @@ require (
 	trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/gemini v1.5.1-0.20260217140857-7458387542dc
 	trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/huggingface v1.5.1-0.20260217140857-7458387542dc
 	trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/milvus v1.5.1-0.20260224093107-42ba37309edf
-	trpc.group/trpc-go/trpc-agent-go/model/anthropic v1.5.1-0.20260213075829-fd2e4a85e54f
+	trpc.group/trpc-go/trpc-agent-go/model/anthropic v1.6.0
 	trpc.group/trpc-go/trpc-agent-go/model/gemini v1.5.1-0.20260213075829-fd2e4a85e54f
 	trpc.group/trpc-go/trpc-agent-go/model/ollama v1.5.0
 	trpc.group/trpc-go/trpc-agent-go/tool/google v1.5.1-0.20260213075829-fd2e4a85e54f
