@@ -7,12 +7,17 @@
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12058/badge)](https://www.bestpractices.dev/projects/12058)
 [![Release](https://img.shields.io/github/v/release/stackgenhq/genie)](https://img.shields.io/github/v/release/stackgenhq/genie)
 [![Scorecard](https://api.scorecard.dev/projects/github.com/stackgenhq/genie/badge)](https://scorecard.dev/viewer/?uri=github.com/stackgenhq/genie)
+[![codecov](https://codecov.io/gh/stackgenhq/genie/graph/badge.svg)](https://app.codecov.io/gh/stackgenhq/genie)
 
 Generative Engine for Natural Intent Execution
 
 > **"Your intent is my command."**
 
 `genie` is an **Enterprise Agentic Platform** powered by [Stackgen](https://stackgen.com). Describe what you need — across code, operations, security, and beyond — and let `genie` plan and execute it.
+
+> **🚧 Early Stage — API Surface Evolving**
+>
+> Genie is under active development and not yet at v1.0. Library interfaces, method signatures, and configuration schemas may change between minor releases as we refine the platform based on real-world usage and community feedback. We follow [Semantic Versioning](https://semver.org/) — breaking changes are always documented in the [CHANGELOG](./CHANGELOG.md). If you're building on top of Genie, we recommend pinning to a specific release and watching the changelog for migration notes.
 
 ---
 

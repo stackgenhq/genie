@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Justification propagation via `toolcontext.WithJustification`/`GetJustification` context helpers
 - `justification.go` — extracts `_justification` from tool call JSON args and threads it through context
 - `toolcontext` package for cross-package context value access (justification, tool name)
+- `MCPCaller` interface with counterfeiter fake for unit-testing `ClientTool.Call` without a real MCP server
+- Comprehensive unit tests for MCP package: `ClientTool.Call`, `shouldIncludeTool`, `buildStdioEnv`, `expandEnvValue`
+- Arrange-Act-Assert (AAA) mandatory testing rule in `Agents.md`
 
 ### Changed
 
@@ -24,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `extractJustification` now handles `sjson.DeleteBytes` errors (falls back to original args) and returns a `found` bool so callers distinguish missing vs empty `_justification`
+- Secret audit logging gated on non-empty resolved values — no longer fires audit events for missing/unconfigured secrets
+- `chunkText` now splits on word boundaries when a sentence exceeds `targetSize`, matching its documented behaviour
+- `scoreChunks` precomputes lowercase chunks to avoid redundant `strings.ToLower` calls in BM25 scoring loops
+- Google web search `GetSecretRequest.Reason` populated for CredentialsFile lookup
+- `MiddlewareConfig` comment updated to mention `Disabled` flag alongside `Enabled`
 - `parseSecretName` slice-bounds panic in `configbased_provider.go` when query string is present
 
 ## [0.1.3] - 2026-02-27
