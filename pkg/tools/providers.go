@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor"
@@ -99,7 +100,7 @@ type SkillToolProvider struct {
 func NewSkillToolProvider(workingDir string, skillRoots ...string) (*SkillToolProvider, error) {
 	repo, err := skill.NewFSRepository(skillRoots...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error creating skill repository: %w", err)
 	}
 	exec := local.New(
 		local.WithWorkDir(workingDir),
