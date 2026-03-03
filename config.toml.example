@@ -11,6 +11,9 @@
 # Name of your agent. Set during `genie setup`; gives the agent a personality
 # and controls the default audit log path: ~/.genie/{agent_name}.<yyyy_mm_dd>.ndjson
 # agent_name = "Genie"
+# Optional: load persona/coding-standards from a custom file instead of Agents.md.
+# Supports absolute paths or paths relative to the working directory.
+# persona_file = "./STANDARDS.md"
 
 # ── Model Providers ────────────────────────────────────────
 # Configure one or more LLM providers. Genie routes each task

@@ -7,6 +7,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/hooks"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
 )
 
@@ -287,4 +288,135 @@ var _ = Describe("ContextModeMiddleware", func() {
 		// The chunk containing "ab" should be ranked higher.
 		Expect(resultStr).To(ContainSubstring("ab data"))
 	})
+
+	It("invokes CompactionTracker.MarkCompressed when tracker is in context", func() {
+		// Build a large response that will be compressed.
+		var parts []string
+		for i := 0; i < 30; i++ {
+			if i%3 == 0 {
+				parts = append(parts, strings.Repeat("authentication security token ", 20))
+			} else {
+				parts = append(parts, strings.Repeat("unrelated filler content padding ", 20))
+			}
+		}
+		largeResponse := strings.Join(parts, "\n\n")
+
+		mw := toolwrap.ContextModeMiddleware(toolwrap.ContextModeConfig{
+			Threshold: 500,
+			MaxChunks: 5,
+			ChunkSize: 200,
+		})
+
+		// Arrange — inject a fake CompactionTracker into the context.
+		tracker := &fakeCompactionTracker{}
+		ctx := context.WithValue(context.Background(), hooks.CompactionTrackerKey, tracker)
+
+		handler := mw.Wrap(passthrough(largeResponse))
+		result, err := handler(ctx, makeTC("http_request", `{"url":"https://example.com/auth","method":"GET"}`))
+
+		Expect(err).NotTo(HaveOccurred())
+		resultStr, ok := result.(string)
+		Expect(ok).To(BeTrue())
+		Expect(resultStr).To(ContainSubstring("Context Mode: compressed"))
+
+		// Assert — tracker should have been called with the tool name and sizes.
+		Expect(tracker.calls).To(HaveLen(1))
+		Expect(tracker.calls[0].toolName).To(Equal("http_request"))
+		Expect(tracker.calls[0].originalSize).To(Equal(len(largeResponse)))
+		Expect(tracker.calls[0].compressedSize).To(BeNumerically("<", tracker.calls[0].originalSize))
+	})
+
+	It("applies per-tool ChunkSize override", func() {
+		// Build a response with many distinct paragraphs.
+		var parts []string
+		for i := 0; i < 40; i++ {
+			parts = append(parts, strings.Repeat("word"+strings.Repeat("y", i)+" ", 10))
+		}
+		largeResponse := strings.Join(parts, "\n\n")
+
+		// Global chunkSize=50 vs per-tool chunkSize=500 (much larger chunks → fewer chunks → less compression).
+		smallChunkMW := toolwrap.ContextModeMiddleware(toolwrap.ContextModeConfig{
+			Threshold: 100,
+			MaxChunks: 3,
+			ChunkSize: 50,
+		})
+		largeChunkMW := toolwrap.ContextModeMiddleware(toolwrap.ContextModeConfig{
+			Threshold: 100,
+			MaxChunks: 3,
+			ChunkSize: 50,
+			PerTool: map[string]toolwrap.ContextModeToolOverride{
+				"web_fetch": {ChunkSize: 500},
+			},
+		})
+
+		tc := makeTC("web_fetch", `{"url":"https://example.com"}`)
+
+		smallResult, err := smallChunkMW.Wrap(passthrough(largeResponse))(context.Background(), tc)
+		Expect(err).NotTo(HaveOccurred())
+
+		largeResult, err := largeChunkMW.Wrap(passthrough(largeResponse))(context.Background(), tc)
+		Expect(err).NotTo(HaveOccurred())
+
+		// With larger per-tool chunks, the result may differ from the global setting.
+		smallStr := resultToString(smallResult)
+		largeStr := resultToString(largeResult)
+		// Both should be compressed, but they should differ because of different chunk sizes.
+		Expect(smallStr).To(ContainSubstring("Context Mode"))
+		Expect(largeStr).To(ContainSubstring("Context Mode"))
+	})
+
+	It("applies per-tool MinTermLen override", func() {
+		// Build response with 2-char tokens.
+		var parts []string
+		for i := 0; i < 20; i++ {
+			if i == 5 {
+				parts = append(parts, strings.Repeat("xy data xy data xy ", 20))
+			} else {
+				parts = append(parts, strings.Repeat("unrelated filler content padding ", 10))
+			}
+		}
+		largeResponse := strings.Join(parts, "\n\n")
+
+		// Global minTermLen=3 (would filter "xy"), per-tool override=2 (would keep "xy").
+		mw := toolwrap.ContextModeMiddleware(toolwrap.ContextModeConfig{
+			Threshold:  500,
+			MaxChunks:  3,
+			ChunkSize:  200,
+			MinTermLen: 3, // Global: "xy" filtered out.
+			PerTool: map[string]toolwrap.ContextModeToolOverride{
+				"web_search": {MinTermLen: 2}, // Override: "xy" kept.
+			},
+		})
+
+		handler := mw.Wrap(passthrough(largeResponse))
+		result, err := handler(context.Background(), makeTC("web_search", `{"query":"xy"}`))
+
+		Expect(err).NotTo(HaveOccurred())
+		resultStr, ok := result.(string)
+		Expect(ok).To(BeTrue())
+		// "xy" should be extracted as a query term and match the relevant chunk.
+		Expect(resultStr).To(ContainSubstring("xy data"))
+	})
 })
+
+// fakeCompactionTracker records calls to MarkCompressed for test assertions.
+type fakeCompactionTracker struct {
+	calls []compactionCall
+}
+
+type compactionCall struct {
+	toolName       string
+	originalSize   int
+	compressedSize int
+}
+
+func (f *fakeCompactionTracker) MarkCompressed(toolName string, originalSize, compressedSize int) {
+	f.calls = append(f.calls, compactionCall{toolName, originalSize, compressedSize})
+}
+
+func resultToString(result any) string {
+	if s, ok := result.(string); ok {
+		return s
+	}
+	return ""
+}

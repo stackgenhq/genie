@@ -170,6 +170,27 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 
 		Expect(ctx.Err()).NotTo(HaveOccurred())
 	})
+
+	It("should trim history after more than 10 distinct calls", func() {
+		// Arrange — push 12 distinct calls to trigger the maxHistory=10 trim.
+		mw := toolwrap.LoopDetectionMiddleware()
+		handler := mw.Wrap(passthrough("ok"))
+
+		for i := 0; i < 12; i++ {
+			tc := &toolwrap.ToolCallContext{
+				ToolName: "run_shell",
+				Args:     []byte(fmt.Sprintf(`{"i":%d}`, i)),
+			}
+			_, err := handler(context.Background(), tc)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		// After 12 distinct calls, the middleware should still work correctly.
+		// Calling a new distinct tool should succeed.
+		tc := &toolwrap.ToolCallContext{ToolName: "run_shell", Args: []byte(`{"i":99}`)}
+		_, err := handler(context.Background(), tc)
+		Expect(err).NotTo(HaveOccurred())
+	})
 })
 
 var _ = Describe("FailureLimitMiddleware", func() {
@@ -206,4 +227,19 @@ var _ = Describe("FailureLimitMiddleware", func() {
 		Expect(result).To(Equal("ok"))
 		Expect(callNum).To(Equal(3))
 	})
+})
+
+var _ = Describe("IsRetrievalTool", func() {
+	DescribeTable("classifies tools correctly",
+		func(name string, expected bool) {
+			Expect(toolwrap.IsRetrievalTool(name)).To(Equal(expected))
+		},
+		Entry("memory_search is retrieval", "memory_search", true),
+		Entry("graph_query is retrieval", "graph_query", true),
+		Entry("graph_get_entity is retrieval", "graph_get_entity", true),
+		Entry("graph_shortest_path is retrieval", "graph_shortest_path", true),
+		Entry("run_shell is NOT retrieval", "run_shell", false),
+		Entry("read_file is NOT retrieval", "read_file", false),
+		Entry("empty string is NOT retrieval", "", false),
+	)
 })
