@@ -45,6 +45,7 @@ type ChatRequest struct {
 type Expert interface {
 	Handle(ctx context.Context, req ChatRequest)
 	Resume(ctx context.Context) string
+	InjectFeedback(ctx context.Context, threadID, message string) error
 }
 
 // RunAgentInput is the request body for the AG-UI run endpoint.
@@ -454,6 +455,7 @@ func (s *Server) Handler() http.Handler {
 
 	// Event Gateway endpoint
 	r.Post("/api/v1/events", s.handleEventsEndpoint)
+	r.Post("/api/v1/inject", s.handleInjectFeedback)
 	r.Get("/api/v1/resume", s.handleResumeEndpoint)
 	r.Post("/api/v1/clarify", s.handleClarify)
 
@@ -783,6 +785,55 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	)
 }
 
+// InjectFeedbackRequest is the payload for the /api/v1/inject endpoint.
+type InjectFeedbackRequest struct {
+	ThreadID string `json:"threadId"`
+	Message  string `json:"message"`
+}
+
+// handleInjectFeedback processes mid-run user feedback for an ongoing chat thread.
+// It reconstructs the AGUI message origin and calls the Expert's InjectFeedback method.
+func (s *Server) handleInjectFeedback(w http.ResponseWriter, r *http.Request) {
+	logr := logger.GetLogger(r.Context()).With("fn", "agui.Server.handleInjectFeedback")
+
+	var req InjectFeedbackRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"invalid request body: %s"}`, err), http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if req.ThreadID == "" || req.Message == "" {
+		http.Error(w, `{"error":"threadId and message are required"}`, http.StatusBadRequest)
+		return
+	}
+
+	logr.Info("Received mid-run feedback", "threadId", req.ThreadID, "messageLen", len(req.Message))
+
+	// Reconstruct context identically to handleRun
+	ctx := r.Context()
+	ctx = messenger.WithMessageOrigin(ctx, messenger.MessageOrigin{
+		Platform: messenger.PlatformAGUI,
+		Channel:  messenger.Channel{ID: req.ThreadID},
+		Sender:   messenger.Sender{ID: "agui-user"},
+	})
+
+	if s.agentName != "" {
+		ctx = orchestratorcontext.WithAgent(ctx, orchestratorcontext.Agent{Name: s.agentName})
+	}
+
+	// Try injecting using the regular Expert pipeline if it natively supports it
+	if err := s.chatHandler.InjectFeedback(ctx, req.ThreadID, req.Message); err != nil {
+		logr.Error("Failed to inject feedback via chatHandler", "error", err)
+		http.Error(w, fmt.Sprintf(`{"error":"failed to inject feedback: %v"}`, err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"success"}`))
+}
+
 // corsMiddleware adds CORS headers for browser access.
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -865,10 +916,10 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 				duration := time.Duration(req.AllowForMins) * time.Minute
 				if len(req.AllowWhenArgsContain) > 0 {
 					s.approveList.AddWithArgsFilter(approval.ToolName, req.AllowWhenArgsContain, duration)
-					logr.Info("added to approve list (with args filter)", "tool", approval.ToolName, "duration", duration, "substrings", req.AllowWhenArgsContain)
+					logr.Info("added to approve list (with args filter)", "tool", approval.ToolName, "duration", duration.String(), "substrings", req.AllowWhenArgsContain)
 				} else {
 					s.approveList.AddBlind(approval.ToolName, duration)
-					logr.Info("added to approve list (blind)", "tool", approval.ToolName, "duration", duration)
+					logr.Info("added to approve list (blind)", "tool", approval.ToolName, "duration", duration.String())
 				}
 			}
 		}

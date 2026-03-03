@@ -25,6 +25,7 @@ var _ = Describe("serverExpert", func() {
 			expert := agui.NewChatHandler(
 				func(ctx context.Context) string { return "resume" },
 				func(ctx context.Context, msg string, ch chan<- interface{}) error { return nil },
+				nil,
 			)
 			Expect(expert).NotTo(BeNil())
 		})
@@ -33,6 +34,7 @@ var _ = Describe("serverExpert", func() {
 			expert := agui.NewChatHandler(
 				nil,
 				func(ctx context.Context, msg string, ch chan<- interface{}) error { return nil },
+				nil,
 			)
 			Expect(expert).NotTo(BeNil())
 		})
@@ -43,6 +45,7 @@ var _ = Describe("serverExpert", func() {
 			expert := agui.NewChatHandler(
 				func(ctx context.Context) string { return "my capabilities" },
 				func(ctx context.Context, msg string, ch chan<- interface{}) error { return nil },
+				nil,
 			)
 			Expect(expert.Resume(context.Background())).To(Equal("my capabilities"))
 		})
@@ -51,6 +54,7 @@ var _ = Describe("serverExpert", func() {
 			expert := agui.NewChatHandler(
 				nil,
 				func(ctx context.Context, msg string, ch chan<- interface{}) error { return nil },
+				nil,
 			)
 			Expect(expert.Resume(context.Background())).To(Equal(""))
 		})
@@ -64,6 +68,7 @@ var _ = Describe("serverExpert", func() {
 					// chatFunc that does nothing — just returns
 					return nil
 				},
+				nil,
 			)
 
 			eventChan := make(chan interface{}, 100)
@@ -115,6 +120,7 @@ var _ = Describe("serverExpert", func() {
 					receivedMessage = msg
 					return nil
 				},
+				nil,
 			)
 
 			eventChan := make(chan interface{}, 100)
@@ -136,6 +142,7 @@ var _ = Describe("serverExpert", func() {
 					capturedCtx = ctx
 					return nil
 				},
+				nil,
 			)
 
 			eventChan := make(chan interface{}, 100)
@@ -157,6 +164,7 @@ var _ = Describe("serverExpert", func() {
 				func(ctx context.Context, msg string, ch chan<- interface{}) error {
 					return chatErr
 				},
+				nil,
 			)
 
 			eventChan := make(chan interface{}, 100)
@@ -224,6 +232,7 @@ var _ = Describe("serverExpert", func() {
 					}
 					return nil
 				},
+				nil,
 			)
 
 			eventChan := make(chan interface{}, 100)
@@ -281,6 +290,7 @@ var _ = Describe("serverExpert", func() {
 					<-ctx.Done()
 					return ctx.Err()
 				},
+				nil,
 			)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -329,6 +339,7 @@ var _ = Describe("serverExpert", func() {
 					receivedMsg = msg
 					return nil
 				},
+				nil,
 			)
 
 			eventChan := make(chan interface{}, 100)

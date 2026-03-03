@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
@@ -48,11 +49,9 @@ import (
 	_ "github.com/stackgenhq/genie/pkg/messenger/whatsapp" // register adapter
 	"github.com/stackgenhq/genie/pkg/orchestrator"
 	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
-	"github.com/stackgenhq/genie/pkg/osutils"
 	"github.com/stackgenhq/genie/pkg/report/activityreport"
 
 	"github.com/stackgenhq/genie/pkg/security"
-	"github.com/stackgenhq/genie/pkg/skills"
 	"github.com/stackgenhq/genie/pkg/tools"
 	"github.com/stackgenhq/genie/pkg/tools/codeskim"
 	"github.com/stackgenhq/genie/pkg/tools/datetime"
@@ -80,7 +79,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"gorm.io/gorm"
-	"trpc.group/trpc-go/trpc-agent-go/skill"
 )
 
 // Application orchestrates the Genie lifecycle. Create one with
@@ -165,6 +163,26 @@ func (a *Application) displayName() string {
 		return a.cfg.AgentName
 	}
 	return orchestratorcontext.DefaultAgentName
+}
+
+// loadAgentsGuide reads persona/coding-standards content for the agent.
+// When personaFile is non-empty, that path is used directly (resolved
+// relative to dir if not absolute).
+// Returns an empty string if the file does not exist or cannot be read
+// (best-effort, non-fatal).
+func (a *Application) persona() string {
+	if a.cfg.PersonaFile == "" {
+		return ""
+	}
+
+	if !filepath.IsAbs(a.cfg.PersonaFile) && a.workingDir != "" {
+		a.cfg.PersonaFile = filepath.Join(a.workingDir, a.cfg.PersonaFile)
+	}
+	data, err := os.ReadFile(a.cfg.PersonaFile)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // Bootstrap initialises all dependencies: database, tools, vector memory,
@@ -294,8 +312,6 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 	sessionStore := geniedb.NewSessionStore(ctx, a.db)
 	log.Info("GORM-backed session store initialized for persistent chat history")
 
-	personaFromAgentsMD := loadAgentsGuide(a.workingDir)
-
 	// In-memory approve list so users can "approve for X mins" from the chat UI.
 	a.approveList = toolwrap.NewApproveList()
 
@@ -309,7 +325,7 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 		a.approvalStore,
 		memorySvc,
 		sessionStore,
-		personaFromAgentsMD,
+		a.persona(),
 		orchestrator.WithToolwrapOptions(
 			toolwrap.WithApprovalCacheTTL(a.cfg.HITL.CacheTTL),
 			toolwrap.WithApproveList(a.approveList),
@@ -326,27 +342,6 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 	return nil
 }
 
-// loadAgentsGuide reads the Agents.md file from the given directory.
-// If the file exists, its contents are returned so they can be appended
-// to the agent's persona prompt, ensuring the agent honors project-level
-// coding standards. Returns an empty string if the file does not exist
-// or cannot be read (best-effort, non-fatal).
-func loadAgentsGuide(dir string) string {
-	if dir == "" {
-		return ""
-	}
-	// case insensitive search for agents.mds
-	agentsFile, err := osutils.FindFileCaseInsensitive(dir, "agents.md")
-	if err != nil {
-		return ""
-	}
-	data, err := os.ReadFile(agentsFile)
-	if err != nil {
-		return ""
-	}
-	return string(data)
-}
-
 // Start creates the BackgroundWorker, wires the cron dispatcher through it,
 // creates the AG-UI HTTP server, starts the cron scheduler, sets up the
 // messenger receive loop, and blocks until the context is cancelled.
@@ -358,7 +353,7 @@ func (a *Application) Start(ctx context.Context) error {
 
 	// The BackgroundWorker needs an Expert (Handle + Resume). For all
 	// platforms we use a lightweight wrapper that just calls codeOwner.
-	bgExpert := messengeragui.NewChatHandler(a.codeOwner.Resume, chatHandler)
+	bgExpert := messengeragui.NewChatHandler(a.codeOwner.Resume, chatHandler, a.codeOwner.InjectFeedback)
 	bgWorker := messengeragui.NewBackgroundWorker(bgExpert, runtime.NumCPU())
 
 	// Spawn replay goroutines for recoverable pending approvals.
@@ -731,13 +726,11 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 
 	// --- Skills ---
 	if len(a.cfg.SkillsRoots) != 0 {
-		repo, err := skill.NewFSRepository(a.cfg.SkillsRoots...)
+		stp, err := tools.NewSkillToolProvider(a.workingDir, a.cfg.SkillsRoots...)
 		if err != nil {
 			log.Warn("failed to initialize skills repository", "error", err)
-		}
-		if repo != nil {
-			executor := skills.NewLocalExecutor(a.workingDir)
-			providers = append(providers, skills.NewToolProvider(repo, executor))
+		} else {
+			providers = append(providers, stp)
 			log.Info("Skills tool provider added")
 		}
 	}

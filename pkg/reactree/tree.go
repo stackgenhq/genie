@@ -259,6 +259,7 @@ func (t *tree) runSingleNode(ctx context.Context, req TreeRequest) (TreeResult, 
 		MaxDecisions:  t.config.MaxDecisionsPerNode,
 		Tools:         toolsToUse,
 		Attachments:   req.Attachments,
+		Hooks:         t.hooks,
 	})
 
 	wrappedFunc := func(ctx context.Context, state graph.State) (any, error) {
@@ -379,6 +380,7 @@ func (t *tree) runMultiStage(ctx context.Context, req TreeRequest) (TreeResult, 
 			Tools:         toolsToUse,
 			TaskType:      stage.TaskType,
 			Attachments:   req.Attachments,
+			Hooks:         t.hooks,
 		})
 
 		// Wrap the node func to emit stage events and capture the last output

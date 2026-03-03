@@ -50,7 +50,10 @@ func (t *tree) runAdaptiveLoop_v2(ctx context.Context, req TreeRequest) (TreeRes
 		})
 
 		// 1. Execute the iteration logic
-		err := t.executeIteration(ctx, req, ls)
+		// Inject CompactionTracker so child runners (mw_contextmode) can signal compression.
+		ctxWithTracker := context.WithValue(ctx, hooks.CompactionTrackerKey, ls)
+
+		err := t.executeIteration(ctxWithTracker, req, ls)
 		if err != nil {
 			parentSpan.RecordError(err)
 			parentSpan.SetStatus(codes.Error, err.Error())
@@ -115,6 +118,17 @@ func (t *tree) runAdaptiveLoop_v2(ctx context.Context, req TreeRequest) (TreeRes
 				"iteration", ls.iteration,
 				"repeated_count", ls.repetitionCount,
 			)
+
+			// If the loop was likely caused by context compression, fire a hook.
+			if ls.lastCompressedTool != "" {
+				logr.Warn("possible compaction miss — agent re-invoked tool identically after compressed output", "tool", ls.lastCompressedTool)
+				t.hooks.OnCompactionMiss(ctx, hooks.CompactionMissEvent{
+					ToolName:       ls.lastCompressedTool,
+					OriginalSize:   ls.lastOriginalSize,
+					CompressedSize: ls.lastCompressedSize,
+				})
+			}
+
 			ls.lastStatus = Failure
 			ls.lastOutput = "I got stuck repeating the same approach. Please try rephrasing your request."
 			break
@@ -149,6 +163,18 @@ type loopState struct {
 	// stuck loops where the LLM repeats the same failing action.
 	lastOutputHash  uint64
 	repetitionCount int
+
+	// Compaction tracking: remembers if the last tool call in the iteration
+	// returned a compressed result, to diagnose loops caused by compaction misses.
+	lastCompressedTool string
+	lastOriginalSize   int
+	lastCompressedSize int
+}
+
+func (ls *loopState) MarkCompressed(toolName string, originalSize, compressedSize int) {
+	ls.lastCompressedTool = toolName
+	ls.lastOriginalSize = originalSize
+	ls.lastCompressedSize = compressedSize
 }
 
 // toolsForIteration returns the tool list with budget-exceeded tools removed.
@@ -192,6 +218,11 @@ func (ls *loopState) budgetExhaustedTools() []string {
 
 // executeIteration builds, compiles, and runs the graph for a single cycle.
 func (t *tree) executeIteration(ctx context.Context, req TreeRequest, ls *loopState) error {
+	// Clear per-iteration compaction tracking
+	ls.lastCompressedTool = ""
+	ls.lastOriginalSize = 0
+	ls.lastCompressedSize = 0
+
 	compiled, err := t.prepareGraph(req, ls)
 	if err != nil {
 		return fmt.Errorf("failed to compile graph at iteration %d: %w", ls.iteration, err)
@@ -255,6 +286,7 @@ func (t *tree) prepareGraph(req TreeRequest, ls *loopState) (*graph.Graph, error
 		TaskType:             req.TaskType,
 		Attachments:          req.Attachments,
 		BudgetExhaustedTools: ls.budgetExhaustedTools(),
+		Hooks:                t.hooks,
 	})
 
 	wrappedFunc := func(ctx context.Context, state graph.State) (any, error) {
