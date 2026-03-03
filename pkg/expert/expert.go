@@ -172,7 +172,7 @@ func (e *expert) getRunner(ctx context.Context, req Request) (runner.Runner, err
 		threshold = 2000
 	}
 	if personaTokens > threshold {
-		logr.Warn(fmt.Sprintf("persona exceeds %d tokens — consider moving domain knowledge to skills", threshold), "persona_tokens", personaTokens, "threshold", threshold)
+		logr.Warn("persona exceeds threshold tokens — consider moving domain knowledge to skills", "threshold", threshold)
 	}
 
 	modelInstance, err := e.modelProvider.GetModel(ctx, req.TaskType)
