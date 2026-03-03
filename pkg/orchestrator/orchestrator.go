@@ -34,7 +34,6 @@ import (
 	"github.com/stackgenhq/genie/pkg/pii"
 	"github.com/stackgenhq/genie/pkg/reactree"
 	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
-
 	"github.com/stackgenhq/genie/pkg/tools"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
 	"github.com/stackgenhq/genie/pkg/ttlcache"
@@ -76,6 +75,7 @@ type CodeQuestion struct {
 //counterfeiter:generate . Orchestrator
 type Orchestrator interface {
 	Chat(ctx context.Context, req CodeQuestion, outputChan chan<- string) error
+	InjectFeedback(ctx context.Context, message string) error
 	Close() error
 	Resume(ctx context.Context) string
 }
@@ -266,6 +266,7 @@ func NewOrchestrator(
 		modelProvider, exp, summarizer, availableTools,
 		wm, episodicMem,
 		toolWrapSvc,
+		vectorStore,
 	)
 	// Log tool counts so operators can verify email, gmail, etc. are wired for sub-agents.
 	n := len(availableTools.ToolNames())
@@ -582,6 +583,7 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	res, err := c.treeExecutor.Run(runCtx, reactree.TreeRequest{
 		Goal:           message,
 		Tools:          c.toolRegistry.GetTools(),
+		ToolGetter:     c.toolRegistry.GetTools,
 		TaskType:       taskType,
 		Attachments:    req.Attachments,
 		WorkingMemory:  c.workingMemoryForSender(ctx),
@@ -613,6 +615,23 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 		},
 	})
 
+	return nil
+}
+
+// InjectFeedback injects a user message into the working memory of the current sender
+// so the agent can naturally adapt to "mid-stream" instructions during an ongoing ReAcTree execution.
+func (c *orchestrator) InjectFeedback(ctx context.Context, message string) error {
+	wm := c.workingMemoryForSender(ctx)
+
+	// Format as a clear directive
+	feedback := fmt.Sprintf("INTERRUPT: New User Instruction Received: %s", message)
+
+	// Add a Unix nanosecond timestamp to ensure the key is unique even for rapid injections
+	key := fmt.Sprintf("user_feedback_%d", time.Now().UnixNano())
+
+	wm.Store(key, feedback)
+
+	logger.GetLogger(ctx).Info("injected user feedback into working memory", "key", key)
 	return nil
 }
 
@@ -875,9 +894,8 @@ func (c *orchestrator) memoryKeyForSender(senderID string) memory.UserKey {
 // instance for the given sender. This prevents User A's observations from
 // leaking into User B's context.
 func (c *orchestrator) workingMemoryForSender(ctx context.Context) *rtmemory.WorkingMemory {
-	origin := messenger.MessageOriginFrom(ctx)
-	sender := origin.DeriveVisibility()
-	if sender == "" {
+	sender := c.conversationKeyFromContext(ctx)
+	if sender == "global" || sender == "" {
 		sender = "default"
 	}
 	if existing, ok := c.workingMemories.Load(sender); ok {

@@ -392,6 +392,7 @@ var _ = Describe("AG-UI Server", func() {
 			handler := agui.NewChatHandler(
 				func(_ context.Context) string { return "" },
 				func(_ context.Context, _ string, _ chan<- interface{}) error { return nil },
+				nil,
 			)
 			bgw := agui.NewBackgroundWorker(handler, 2)
 			customServer := agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, bgw, nil, nil, "qa_agent")
@@ -430,6 +431,70 @@ var _ = Describe("AG-UI Server", func() {
 
 			server.Handler().ServeHTTP(recorder, req)
 			Expect(recorder.Code).To(Equal(http.StatusBadRequest))
+		})
+	})
+
+	Describe("POST /api/v1/inject", func() {
+		var server *agui.Server
+		var fakeExpert *aguifakes.FakeExpert
+
+		BeforeEach(func() {
+			fakeExpert = &aguifakes.FakeExpert{}
+			server = agui.NewServer(messenger.AGUIConfig{}, fakeExpert, nil, nil, nil, nil, nil, "")
+		})
+
+		It("should return 400 when missing threadId or messages", func() {
+			reqBody := `{"threadId":""}`
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/inject", strings.NewReader(reqBody))
+			req.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+
+			server.Handler().ServeHTTP(recorder, req)
+			Expect(recorder.Code).To(Equal(http.StatusBadRequest))
+		})
+
+		It("should return 400 for malformed JSON", func() {
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/inject", strings.NewReader(`{malformed`))
+			req.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+
+			server.Handler().ServeHTTP(recorder, req)
+			Expect(recorder.Code).To(Equal(http.StatusBadRequest))
+		})
+
+		It("should return 200 and call InjectFeedback on success", func() {
+			reqBody := `{"threadId":"thread-123","message":"stop looking at logs"}`
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/inject", strings.NewReader(reqBody))
+			req.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+
+			fakeExpert.InjectFeedbackReturns(nil)
+
+			server.Handler().ServeHTTP(recorder, req)
+
+			Expect(recorder.Code).To(Equal(http.StatusOK))
+			Expect(fakeExpert.InjectFeedbackCallCount()).To(Equal(1))
+
+			_, threadID, message := fakeExpert.InjectFeedbackArgsForCall(0)
+			Expect(threadID).To(Equal("thread-123"))
+			Expect(message).To(Equal("stop looking at logs"))
+
+			var result map[string]string
+			Expect(json.NewDecoder(recorder.Body).Decode(&result)).To(Succeed())
+			Expect(result["status"]).To(Equal("success"))
+		})
+
+		It("should return 500 when InjectFeedback fails", func() {
+			reqBody := `{"threadId":"thread-123","message":"stop looking at logs"}`
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/inject", strings.NewReader(reqBody))
+			req.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+
+			fakeExpert.InjectFeedbackReturns(fmt.Errorf("expert error"))
+
+			server.Handler().ServeHTTP(recorder, req)
+
+			Expect(recorder.Code).To(Equal(http.StatusInternalServerError))
 		})
 	})
 

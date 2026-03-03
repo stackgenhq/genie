@@ -11,6 +11,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stackgenhq/genie/pkg/clarify"
+	"github.com/stackgenhq/genie/pkg/config"
 	geniedb "github.com/stackgenhq/genie/pkg/db"
 	"github.com/stackgenhq/genie/pkg/hitl"
 	"github.com/stackgenhq/genie/pkg/hitl/hitlfakes"
@@ -278,25 +279,42 @@ var _ = Describe("truncateForLog", func() {
 	})
 })
 
-var _ = Describe("loadAgentsGuide", func() {
-	It("should return contents when Agents.md exists", func() {
+var _ = Describe("persona", func() {
+	It("should load from custom persona file (relative path)", func(ctx context.Context) {
 		tmpDir := GinkgoT().TempDir()
-		content := "# Coding Standards\n\nFollow these rules."
-		err := os.WriteFile(filepath.Join(tmpDir, "Agents.md"), []byte(content), 0644)
+		content := "# Custom Standards"
+		err := os.WriteFile(filepath.Join(tmpDir, "STANDARDS.md"), []byte(content), 0644)
 		Expect(err).NotTo(HaveOccurred())
+		a := &Application{
+			cfg: config.GenieConfig{
+				PersonaFile: "STANDARDS.md",
+			},
+			workingDir: tmpDir,
+		}
 
-		result := loadAgentsGuide(tmpDir)
+		result := a.persona(ctx)
 		Expect(result).To(Equal(content))
 	})
 
-	It("should return empty string when Agents.md does not exist", func() {
+	It("should load from custom persona file (absolute path)", func(ctx context.Context) {
 		tmpDir := GinkgoT().TempDir()
-		result := loadAgentsGuide(tmpDir)
-		Expect(result).To(BeEmpty())
+		content := "# Absolute Custom Standards"
+		absPath := filepath.Join(tmpDir, "custom.md")
+		err := os.WriteFile(absPath, []byte(content), 0644)
+		Expect(err).NotTo(HaveOccurred())
+		a := &Application{
+			cfg: config.GenieConfig{
+				PersonaFile: absPath,
+			},
+		}
+
+		result := a.persona(ctx)
+		Expect(result).To(Equal(content))
 	})
 
-	It("should return empty string when directory is empty", func() {
-		result := loadAgentsGuide("")
+	It("should return empty string when custom persona file does not exist", func(ctx context.Context) {
+		a := &Application{}
+		result := a.persona(ctx)
 		Expect(result).To(BeEmpty())
 	})
 })

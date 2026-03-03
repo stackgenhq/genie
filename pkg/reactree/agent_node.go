@@ -9,6 +9,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/clarify"
 	"github.com/stackgenhq/genie/pkg/expert"
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
+	"github.com/stackgenhq/genie/pkg/hooks"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/reactree/memory"
@@ -55,6 +56,9 @@ type AgentNodeConfig struct {
 	// ModelProvider is used to resolve the model when SystemInstruction
 	// is set (lightweight mode). Ignored when using Expert.
 	ModelProvider modelprovider.ModelProvider
+
+	// Hooks provides access to the execution lifecycle events
+	Hooks hooks.ExecutionHook
 }
 
 // NewAgentNodeFunc creates a graph.NodeFunc that wraps an expert.Expert call.
@@ -206,12 +210,37 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 			"task_completed", taskCompleted,
 		)
 
-		return graph.State{
+		// Forward usage from the response when available.
+		newState := graph.State{
 			StateKeyNodeStatus:     Success,
 			StateKeyOutput:         output,
 			StateKeyTaskCompleted:  taskCompleted,
 			StateKeyToolCallCounts: toolCallCounts,
-		}, nil
+		}
+
+		if resp.Usage != nil {
+			usage := resp.Usage
+			budgetEvt := hooks.ContextBudgetEvent{
+				PersonaTokens:    0,
+				ToolSchemaTokens: 0,
+				HistoryTokens:    usage.PromptTokens,
+				TotalTokens:      usage.TotalTokens,
+				// maxTokens is harder to get here but we can default
+				MaxTokens:      128000,
+				UtilizationPct: float64(usage.TotalTokens) / 128000.0,
+			}
+			newState[StateKeyContextBudget] = budgetEvt
+
+			// Emit ContextBudget telemetry for the full-expert path as well.
+			if cfg.Hooks != nil {
+				cfg.Hooks.OnContextBudget(ctx, budgetEvt)
+			}
+		} else if existingBudget, ok := state[StateKeyContextBudget]; ok {
+			// Preserve any previously recorded context budget when no new usage is available.
+			newState[StateKeyContextBudget] = existingBudget
+		}
+
+		return newState, nil
 	}
 }
 
@@ -388,18 +417,54 @@ func runLightweightAgent(ctx context.Context, prompt string, cfg AgentNodeConfig
 
 	// Collect response content from events.
 	var choices []model.Choice
+	var lastUsage *model.Usage
 	for ev := range evCh {
 		if ev.Error != nil {
 			return expert.Response{}, fmt.Errorf("lightweight agent error: %s", ev.Error.Message)
 		}
 		if ev.Response != nil {
 			choices = append(choices, ev.Choices...)
+			if ev.Usage != nil {
+				lastUsage = ev.Usage
+			}
+		}
+	}
+
+	if lastUsage != nil {
+		maxTokens := 128_000 // Fallback assuming a typical context window sizes
+		pct := float64(lastUsage.TotalTokens) / float64(maxTokens)
+
+		if cfg.Hooks != nil {
+			cfg.Hooks.OnContextBudget(ctx, hooks.ContextBudgetEvent{
+				PersonaTokens:    0,
+				ToolSchemaTokens: 0,
+				HistoryTokens:    lastUsage.PromptTokens, // we don't have the exact breakdown from trpc so map it all to history
+				TotalTokens:      lastUsage.TotalTokens,
+				MaxTokens:        maxTokens,
+				UtilizationPct:   pct,
+			})
+		}
+
+		if pct > 0.85 {
+			logr.Warn(fmt.Sprintf("context budget at %d%%, consider reducing persona or compacting history", int(pct*100)),
+				"prompt_tokens", lastUsage.PromptTokens,
+				"total_tokens", lastUsage.TotalTokens,
+			)
+		} else {
+			logr.Info("context budget update",
+				"prompt_tokens", lastUsage.PromptTokens,
+				"total_tokens", lastUsage.TotalTokens,
+				"pct", int(pct*100),
+			)
 		}
 	}
 
 	logr.Info("lightweight agent completed", "choices", len(choices))
 
-	return expert.Response{Choices: choices}, nil
+	return expert.Response{
+		Choices: choices,
+		Usage:   lastUsage,
+	}, nil
 }
 
 // terminalTools are tools that represent the agent's final action — delivering

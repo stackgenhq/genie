@@ -16,11 +16,14 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
-// stubExpert is a test helper that implements expert.Expert for controlled tests.
 type stubExpert struct {
 	response expert.Response
 	err      error
 	lastReq  expert.Request
+}
+
+func (s *stubExpert) GetBio() expert.ExpertBio {
+	return expert.ExpertBio{}
 }
 
 func (s *stubExpert) Do(_ context.Context, req expert.Request) (expert.Response, error) {

@@ -91,9 +91,10 @@ func DefaultTreeConfig() TreeConfig {
 
 // TreeResult captures the outcome of a complete ReAcTree execution run.
 type TreeResult struct {
-	Status    NodeStatus
-	Output    string
-	NodeCount int
+	Status        NodeStatus
+	Output        string
+	NodeCount     int
+	ContextBudget hooks.ContextBudgetEvent
 }
 
 //go:generate go tool counterfeiter -generate
@@ -110,9 +111,10 @@ type TreeExecutor interface {
 
 // TreeRequest contains all inputs for a single tree execution.
 type TreeRequest struct {
-	Goal     string
-	Tools    []tool.Tool
-	TaskType modelprovider.TaskType
+	Goal       string
+	Tools      []tool.Tool
+	ToolGetter func() []tool.Tool
+	TaskType   modelprovider.TaskType
 	// Attachments are file/media attachments from the incoming message.
 	// Image attachments are passed as multimodal content to the LLM.
 	Attachments []messenger.Attachment
@@ -259,6 +261,7 @@ func (t *tree) runSingleNode(ctx context.Context, req TreeRequest) (TreeResult, 
 		MaxDecisions:  t.config.MaxDecisionsPerNode,
 		Tools:         toolsToUse,
 		Attachments:   req.Attachments,
+		Hooks:         t.hooks,
 	})
 
 	wrappedFunc := func(ctx context.Context, state graph.State) (any, error) {
@@ -353,6 +356,9 @@ func (t *tree) runMultiStage(ctx context.Context, req TreeRequest) (TreeResult, 
 		stageName := stage.Name
 
 		toolsToUse := req.Tools
+		if req.ToolGetter != nil {
+			toolsToUse = req.ToolGetter()
+		}
 
 		// Enterprise: wrap tools with critic middleware if enabled.
 		if t.config.Toggles.EnableCriticMiddleware {
@@ -379,6 +385,7 @@ func (t *tree) runMultiStage(ctx context.Context, req TreeRequest) (TreeResult, 
 			Tools:         toolsToUse,
 			TaskType:      stage.TaskType,
 			Attachments:   req.Attachments,
+			Hooks:         t.hooks,
 		})
 
 		// Wrap the node func to emit stage events and capture the last output

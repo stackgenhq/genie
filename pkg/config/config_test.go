@@ -77,7 +77,7 @@ var _ = Describe("LoadGenieConfig", func() {
 		}
 		cfg, err := config.LoadGenieConfig(ctx, fakeSP, "")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(cfg.SkillsRoots).To(ContainElement("/tmp/my-skills"))
+		Expect(cfg.SkillLoadConfig.SkillsRoots).To(ContainElement("/tmp/my-skills"))
 	})
 
 	It("should set SKILLS_ROOT from env when config file has empty skills_roots", func() {
@@ -96,7 +96,7 @@ var _ = Describe("LoadGenieConfig", func() {
 		}
 		cfg, err := config.LoadGenieConfig(ctx, fakeSP, cfgFile)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(cfg.SkillsRoots).To(ContainElement("/tmp/fallback-skills"))
+		Expect(cfg.SkillLoadConfig.SkillsRoots).To(ContainElement("/tmp/fallback-skills"))
 	})
 
 	It("should set VectorMemory embedding provider to gemini when gemini key is set", func() {

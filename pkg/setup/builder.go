@@ -26,6 +26,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/pii"
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/security/keyring"
+	"github.com/stackgenhq/genie/pkg/tools"
 )
 
 // WizardInputs holds the raw answers from the setup wizard (env var names,
@@ -115,9 +116,9 @@ func BuildGenieConfig(in WizardInputs, securitySecrets map[string]string, toolAn
 				},
 			},
 		},
-		SkillsRoots: in.SkillsRoots,
-		Messenger:   buildMessengerConfig(in, securitySecrets),
-		PII:         pii.DefaultConfig(),
+		SkillLoadConfig: tools.SkillLoadConfig{SkillsRoots: in.SkillsRoots},
+		Messenger:       buildMessengerConfig(in, securitySecrets),
+		PII:             pii.DefaultConfig(),
 	}
 	if len(securitySecrets) > 0 {
 		cfg.Security = security.Config{Secrets: securitySecrets}

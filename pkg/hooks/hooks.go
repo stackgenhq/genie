@@ -172,6 +172,12 @@ type ExecutionHook interface {
 
 	// OnPlanExecution is called when the orchestrator starts executing a plan.
 	OnPlanExecution(ctx context.Context, event PlanExecutionEvent)
+
+	// OnContextBudget is called before each model execution to report token utilization.
+	OnContextBudget(ctx context.Context, event ContextBudgetEvent)
+
+	// OnCompactionMiss is called when the runner detects a likely infinite loop caused by output compaction.
+	OnCompactionMiss(ctx context.Context, event CompactionMissEvent)
 }
 
 // NoOpHook is a default implementation that does nothing.
@@ -184,6 +190,8 @@ func (NoOpHook) OnReflection(_ context.Context, _ ReflectionEvent)         {}
 func (NoOpHook) OnToolValidation(_ context.Context, _ ToolValidationEvent) {}
 func (NoOpHook) OnDryRun(_ context.Context, _ DryRunEvent)                 {}
 func (NoOpHook) OnPlanExecution(_ context.Context, _ PlanExecutionEvent)   {}
+func (NoOpHook) OnContextBudget(_ context.Context, _ ContextBudgetEvent)   {}
+func (NoOpHook) OnCompactionMiss(_ context.Context, _ CompactionMissEvent) {}
 
 // Ensure NoOpHook satisfies the interface at compile time.
 var _ ExecutionHook = NoOpHook{}

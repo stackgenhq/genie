@@ -7,16 +7,16 @@ package toolwrap
 // with an Enabled or Disabled flag. Where applicable, per-tool overrides are
 // supported via map[string] fields on the individual configs.
 type MiddlewareConfig struct {
-	ContextMode    ContextModeConfig        `yaml:"context_mode,omitempty" toml:"context_mode,omitempty"`
-	Timeout        TimeoutConfig            `yaml:"timeout,omitempty" toml:"timeout,omitempty"`
-	RateLimit      RateLimitConfig          `yaml:"rate_limit,omitempty" toml:"rate_limit,omitempty"`
-	Retry          RetryConfig              `yaml:"retry,omitempty" toml:"retry,omitempty"`
-	CircuitBreaker CircuitBreakerConfig     `yaml:"circuit_breaker,omitempty" toml:"circuit_breaker,omitempty"`
-	Concurrency    ConcurrencyConfig        `yaml:"concurrency,omitempty" toml:"concurrency,omitempty"`
-	Metrics        MetricsConfig            `yaml:"metrics,omitempty" toml:"metrics,omitempty"`
-	Tracing        TracingConfig            `yaml:"tracing,omitempty" toml:"tracing,omitempty"`
-	Validation     ValidationConfig         `yaml:"validation,omitempty" toml:"validation,omitempty"`
-	Sanitize       SanitizeMiddlewareConfig `yaml:"sanitize,omitempty" toml:"sanitize,omitempty"`
+	ContextModeConfig ContextModeConfig        `yaml:"context_mode,omitempty" toml:"context_mode,omitempty"`
+	Timeout           TimeoutConfig            `yaml:"timeout,omitempty" toml:"timeout,omitempty"`
+	RateLimit         RateLimitConfig          `yaml:"rate_limit,omitempty" toml:"rate_limit,omitempty"`
+	Retry             RetryConfig              `yaml:"retry,omitempty" toml:"retry,omitempty"`
+	CircuitBreaker    CircuitBreakerConfig     `yaml:"circuit_breaker,omitempty" toml:"circuit_breaker,omitempty"`
+	Concurrency       ConcurrencyConfig        `yaml:"concurrency,omitempty" toml:"concurrency,omitempty"`
+	Metrics           MetricsConfig            `yaml:"metrics,omitempty" toml:"metrics,omitempty"`
+	Tracing           TracingConfig            `yaml:"tracing,omitempty" toml:"tracing,omitempty"`
+	Validation        ValidationConfig         `yaml:"validation,omitempty" toml:"validation,omitempty"`
+	Sanitize          SanitizeMiddlewareConfig `yaml:"sanitize,omitempty" toml:"sanitize,omitempty"`
 }
 
 // DefaultMiddlewareConfig returns sensible defaults.

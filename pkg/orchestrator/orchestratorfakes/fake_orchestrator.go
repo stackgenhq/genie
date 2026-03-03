@@ -32,6 +32,18 @@ type FakeOrchestrator struct {
 	closeReturnsOnCall map[int]struct {
 		result1 error
 	}
+	InjectFeedbackStub        func(context.Context, string) error
+	injectFeedbackMutex       sync.RWMutex
+	injectFeedbackArgsForCall []struct {
+		arg1 context.Context
+		arg2 string
+	}
+	injectFeedbackReturns struct {
+		result1 error
+	}
+	injectFeedbackReturnsOnCall map[int]struct {
+		result1 error
+	}
 	ResumeStub        func(context.Context) string
 	resumeMutex       sync.RWMutex
 	resumeArgsForCall []struct {
@@ -159,6 +171,68 @@ func (fake *FakeOrchestrator) CloseReturnsOnCall(i int, result1 error) {
 		})
 	}
 	fake.closeReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeOrchestrator) InjectFeedback(arg1 context.Context, arg2 string) error {
+	fake.injectFeedbackMutex.Lock()
+	ret, specificReturn := fake.injectFeedbackReturnsOnCall[len(fake.injectFeedbackArgsForCall)]
+	fake.injectFeedbackArgsForCall = append(fake.injectFeedbackArgsForCall, struct {
+		arg1 context.Context
+		arg2 string
+	}{arg1, arg2})
+	stub := fake.InjectFeedbackStub
+	fakeReturns := fake.injectFeedbackReturns
+	fake.recordInvocation("InjectFeedback", []interface{}{arg1, arg2})
+	fake.injectFeedbackMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeOrchestrator) InjectFeedbackCallCount() int {
+	fake.injectFeedbackMutex.RLock()
+	defer fake.injectFeedbackMutex.RUnlock()
+	return len(fake.injectFeedbackArgsForCall)
+}
+
+func (fake *FakeOrchestrator) InjectFeedbackCalls(stub func(context.Context, string) error) {
+	fake.injectFeedbackMutex.Lock()
+	defer fake.injectFeedbackMutex.Unlock()
+	fake.InjectFeedbackStub = stub
+}
+
+func (fake *FakeOrchestrator) InjectFeedbackArgsForCall(i int) (context.Context, string) {
+	fake.injectFeedbackMutex.RLock()
+	defer fake.injectFeedbackMutex.RUnlock()
+	argsForCall := fake.injectFeedbackArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeOrchestrator) InjectFeedbackReturns(result1 error) {
+	fake.injectFeedbackMutex.Lock()
+	defer fake.injectFeedbackMutex.Unlock()
+	fake.InjectFeedbackStub = nil
+	fake.injectFeedbackReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeOrchestrator) InjectFeedbackReturnsOnCall(i int, result1 error) {
+	fake.injectFeedbackMutex.Lock()
+	defer fake.injectFeedbackMutex.Unlock()
+	fake.InjectFeedbackStub = nil
+	if fake.injectFeedbackReturnsOnCall == nil {
+		fake.injectFeedbackReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.injectFeedbackReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }

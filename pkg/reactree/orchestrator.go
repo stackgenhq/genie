@@ -60,6 +60,11 @@ type PlanStep struct {
 	// and logical errors by keeping each agent focused on its local context.
 	Goal string `json:"goal"`
 
+	// Context is injected into the subgoal instruction.
+	// Primarily used when a parent agent delegates a comparison task
+	// and needs to provide historical states.
+	Context string `json:"context,omitempty"`
+
 	// Tools define the executable skill set A_t^n available to this node.
 	// send_message is always stripped (framework invariant).
 	Tools []string `json:"tools,omitempty"`
@@ -203,8 +208,13 @@ func ExecutePlan(ctx context.Context, plan Plan, cfg OrchestratorConfig) (Orches
 		}
 		subAgentInstruction := buildSubAgentInstruction(toolNames)
 
+		prompt := stepCopy.Goal
+		if stepCopy.Context != "" {
+			prompt = fmt.Sprintf("Context:\n%s\n\nGoal:\n%s", stepCopy.Context, stepCopy.Goal)
+		}
+
 		agentFunc := NewAgentNodeFunc(AgentNodeConfig{
-			Goal:              stepCopy.Goal,
+			Goal:              prompt,
 			Expert:            cfg.Expert,
 			WorkingMemory:     cfg.WorkingMemory,
 			Episodic:          cfg.Episodic,
@@ -378,8 +388,13 @@ func executeSingleStep(ctx context.Context, step PlanStep, cfg OrchestratorConfi
 	}
 	subAgentInstruction := buildSubAgentInstruction(toolNames)
 
+	prompt := step.Goal
+	if step.Context != "" {
+		prompt = fmt.Sprintf("Context:\n%s\n\nGoal:\n%s", step.Context, step.Goal)
+	}
+
 	agentFunc := NewAgentNodeFunc(AgentNodeConfig{
-		Goal:              step.Goal,
+		Goal:              prompt,
 		Expert:            cfg.Expert,
 		WorkingMemory:     cfg.WorkingMemory,
 		Episodic:          cfg.Episodic,
