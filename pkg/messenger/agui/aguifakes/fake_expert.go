@@ -15,6 +15,19 @@ type FakeExpert struct {
 		arg1 context.Context
 		arg2 agui.ChatRequest
 	}
+	InjectFeedbackStub        func(context.Context, string, string) error
+	injectFeedbackMutex       sync.RWMutex
+	injectFeedbackArgsForCall []struct {
+		arg1 context.Context
+		arg2 string
+		arg3 string
+	}
+	injectFeedbackReturns struct {
+		result1 error
+	}
+	injectFeedbackReturnsOnCall map[int]struct {
+		result1 error
+	}
 	ResumeStub        func(context.Context) string
 	resumeMutex       sync.RWMutex
 	resumeArgsForCall []struct {
@@ -61,6 +74,69 @@ func (fake *FakeExpert) HandleArgsForCall(i int) (context.Context, agui.ChatRequ
 	defer fake.handleMutex.RUnlock()
 	argsForCall := fake.handleArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeExpert) InjectFeedback(arg1 context.Context, arg2 string, arg3 string) error {
+	fake.injectFeedbackMutex.Lock()
+	ret, specificReturn := fake.injectFeedbackReturnsOnCall[len(fake.injectFeedbackArgsForCall)]
+	fake.injectFeedbackArgsForCall = append(fake.injectFeedbackArgsForCall, struct {
+		arg1 context.Context
+		arg2 string
+		arg3 string
+	}{arg1, arg2, arg3})
+	stub := fake.InjectFeedbackStub
+	fakeReturns := fake.injectFeedbackReturns
+	fake.recordInvocation("InjectFeedback", []interface{}{arg1, arg2, arg3})
+	fake.injectFeedbackMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeExpert) InjectFeedbackCallCount() int {
+	fake.injectFeedbackMutex.RLock()
+	defer fake.injectFeedbackMutex.RUnlock()
+	return len(fake.injectFeedbackArgsForCall)
+}
+
+func (fake *FakeExpert) InjectFeedbackCalls(stub func(context.Context, string, string) error) {
+	fake.injectFeedbackMutex.Lock()
+	defer fake.injectFeedbackMutex.Unlock()
+	fake.InjectFeedbackStub = stub
+}
+
+func (fake *FakeExpert) InjectFeedbackArgsForCall(i int) (context.Context, string, string) {
+	fake.injectFeedbackMutex.RLock()
+	defer fake.injectFeedbackMutex.RUnlock()
+	argsForCall := fake.injectFeedbackArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeExpert) InjectFeedbackReturns(result1 error) {
+	fake.injectFeedbackMutex.Lock()
+	defer fake.injectFeedbackMutex.Unlock()
+	fake.InjectFeedbackStub = nil
+	fake.injectFeedbackReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeExpert) InjectFeedbackReturnsOnCall(i int, result1 error) {
+	fake.injectFeedbackMutex.Lock()
+	defer fake.injectFeedbackMutex.Unlock()
+	fake.InjectFeedbackStub = nil
+	if fake.injectFeedbackReturnsOnCall == nil {
+		fake.injectFeedbackReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.injectFeedbackReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
 }
 
 func (fake *FakeExpert) Resume(arg1 context.Context) string {

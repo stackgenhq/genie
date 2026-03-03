@@ -753,7 +753,7 @@
     // ── Send Message ──
     async function sendMessage() {
         const message = inputEl.value.replace(/\s*\[listening…\]\s*$/, '').trim();
-        if (!message || isStreaming || !isConnected) return;
+        if (!message || !isConnected) return;
 
         if (isListening) stopListening();
 
@@ -770,18 +770,36 @@
             currentConversation.messages.push({ role: 'user', content: message, timestamp: Date.now() });
             currentConversation.updatedAt = Date.now();
             genieDB.saveConversation(currentConversation).then(() => refreshSidebar()).catch(console.warn);
-            updateButtonState();
         }
 
-        // Prepare request
+        // Mid-run feedback injection if agent is already thinking
+        if (isStreaming) {
+            try {
+                const response = await fetch(serverUrl + '/api/v1/inject', {
+                    method: 'POST',
+                    headers: Object.assign({ 'Content-Type': 'application/json' }, aguiAuthHeaders()),
+                    body: JSON.stringify({
+                        threadId: threadId,
+                        message: message
+                    })
+                });
+                if (!response.ok) {
+                    addErrorMessage('Failed to inject feedback: ' + response.statusText);
+                }
+            } catch (err) {
+                console.error('Inject error:', err);
+                addErrorMessage('Failed to send feedback mid-run.');
+            }
+            return;
+        }
+
+        // Prepare request for normal run
         runCounter++;
         const runId = 'run-' + runCounter;
         isStreaming = true;
-        sendBtn.disabled = true;
-        sendBtn.style.display = 'none';
-        if (micBtn) micBtn.disabled = true;
+
+        // We do NOT disable the input or send button anymore so users can type mid-run feedback.
         document.getElementById('stop-btn').classList.add('visible');
-        inputEl.disabled = true;
         abortController = new AbortController();
 
         // Start SSE stream
@@ -1659,11 +1677,7 @@
     function finishStreaming() {
         isStreaming = false;
         abortController = null;
-        sendBtn.disabled = false;
-        sendBtn.style.display = '';
-        if (micBtn) micBtn.disabled = false;
         document.getElementById('stop-btn').classList.remove('visible');
-        inputEl.disabled = false;
         inputEl.focus();
         hideThinking();
         finalizeAssistantBubble();

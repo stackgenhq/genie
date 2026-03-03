@@ -314,4 +314,5 @@ type mockExpert struct {
 func (m *mockExpert) Handle(ctx context.Context, req agui.ChatRequest) {
 	m.handler(ctx, req)
 }
-func (m *mockExpert) Resume(ctx context.Context) string { return "" }
+func (m *mockExpert) Resume(ctx context.Context) string                                  { return "" }
+func (m *mockExpert) InjectFeedback(ctx context.Context, threadID, message string) error { return nil }

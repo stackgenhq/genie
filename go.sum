@@ -634,10 +634,12 @@ github.com/sirupsen/logrus v1.9.3 h1:dueUQJ1C2q9oE3F7wvmSGAaVtTmUizReu6fjN8uqzbQ
 github.com/sirupsen/logrus v1.9.3/go.mod h1:naHLuLoDiP4jHNo9R0sCBMtWGeIprob74mVsIT4qYEQ=
 github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e h1:MRM5ITcdelLK2j1vwZ3Je0FKVCfqOLp5zO6trqMLYs0=
 github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e/go.mod h1:XV66xRDqSt+GTGFMVlhk3ULuV0y9ZmzeVGR4mloJI3M=
-github.com/sks/trpc-agent-go v0.0.0-20260302165014-95f02aa70ac5 h1:zpU5bViiUwJjoCDiBRt8Z/9ckApfu1DcLlunGY+ARFA=
-github.com/sks/trpc-agent-go v0.0.0-20260302165014-95f02aa70ac5/go.mod h1:fkzxTI1tpMGyWawjK6PbyW7+SgM1iAs9C7sNyDXHRVw=
-github.com/sks/trpc-agent-go/model/gemini v0.0.0-20260222042814-5a8ec2571a6f h1:fV7ZK4uBOVfSYgtWOyVuEbEQlB3o0es5kjydAMU9nEk=
-github.com/sks/trpc-agent-go/model/gemini v0.0.0-20260222042814-5a8ec2571a6f/go.mod h1:AKe0sobDAgFfnpdOU0sFm1B8tBrKk/PP1a8QDiqPNeg=
+github.com/sks/trpc-agent-go v0.0.0-20260303072839-55da17b54180 h1:Ij/IsMuCskK7ob6H4PXZqucAs5wgATL03GTYCi9yNxg=
+github.com/sks/trpc-agent-go v0.0.0-20260303072839-55da17b54180/go.mod h1:fkzxTI1tpMGyWawjK6PbyW7+SgM1iAs9C7sNyDXHRVw=
+github.com/sks/trpc-agent-go/model/gemini v0.0.0-20260303072839-55da17b54180 h1:s72wDTBXyHCvoUfL7/5y6ZllbvdrkM/mk7JcmZ6k62s=
+github.com/sks/trpc-agent-go/model/gemini v0.0.0-20260303072839-55da17b54180/go.mod h1:AKe0sobDAgFfnpdOU0sFm1B8tBrKk/PP1a8QDiqPNeg=
+github.com/sks/trpc-agent-go/model/ollama v0.0.0-20260303072839-55da17b54180 h1:mjYZgkuasAMhRpXFI3trLEElwipdhP3HlSr/EqRDhHs=
+github.com/sks/trpc-agent-go/model/ollama v0.0.0-20260303072839-55da17b54180/go.mod h1:yS6NY5TLv4m2+qKzOcJR2vbM5Ci+bziTYJ7VlzWBUWY=
 github.com/slack-go/slack v0.18.0 h1:PM3IWgAoaPTnitOyfy8Unq/rk8OZLAxlBUhNLv8sbyg=
 github.com/slack-go/slack v0.18.0/go.mod h1:K81UmCivcYd/5Jmz8vLBfuyoZ3B4rQC2GHVXHteXiAE=
 github.com/smartystreets/assertions v0.0.0-20180927180507-b2de0cb4f26d/go.mod h1:OnSkiWE9lh6wB0YB77sQom3nweQdgAjqCqsofrRNTgc=
@@ -1083,8 +1085,6 @@ trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/milvus v1.6.0 h1:pFYOQi5K
 trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/milvus v1.6.0/go.mod h1:uoRtEj7kuMICYuvBXwKo5+t52g3zr1gGw8jYXD2SXBU=
 trpc.group/trpc-go/trpc-agent-go/model/anthropic v1.6.0 h1:7xsYRpj3xJt82neJfawyMijH0RTsxLyn80NxNgAbIH0=
 trpc.group/trpc-go/trpc-agent-go/model/anthropic v1.6.0/go.mod h1:BlAyN49KQKfVrw3W8azAIOisLy0pzkIVZOj4uTjpW7Q=
-trpc.group/trpc-go/trpc-agent-go/model/ollama v1.6.0 h1:4llFtCdgGBcSFYNZ906uhTc+ZYP/vMfrS0MM5Gi4uSk=
-trpc.group/trpc-go/trpc-agent-go/model/ollama v1.6.0/go.mod h1:yS6NY5TLv4m2+qKzOcJR2vbM5Ci+bziTYJ7VlzWBUWY=
 trpc.group/trpc-go/trpc-agent-go/storage/milvus v0.0.0-20251216100013-73147c973dde h1:8znSwvlpHPxm4y4JEqY+bs8+249pD4Bgg83X0TrcrqQ=
 trpc.group/trpc-go/trpc-agent-go/storage/milvus v0.0.0-20251216100013-73147c973dde/go.mod h1:neDTwGDUAwFQbZvk1yHpcdfMgqbl+UOR2US90DSaF5s=
 trpc.group/trpc-go/trpc-agent-go/tool/google v1.6.0 h1:1LhLPpKCEhzRETITLBS2U7ZgrvSLJx3Wir+x+RjM3FA=

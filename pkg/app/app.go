@@ -353,7 +353,7 @@ func (a *Application) Start(ctx context.Context) error {
 
 	// The BackgroundWorker needs an Expert (Handle + Resume). For all
 	// platforms we use a lightweight wrapper that just calls codeOwner.
-	bgExpert := messengeragui.NewChatHandler(a.codeOwner.Resume, chatHandler)
+	bgExpert := messengeragui.NewChatHandler(a.codeOwner.Resume, chatHandler, a.codeOwner.InjectFeedback)
 	bgWorker := messengeragui.NewBackgroundWorker(bgExpert, runtime.NumCPU())
 
 	// Spawn replay goroutines for recoverable pending approvals.

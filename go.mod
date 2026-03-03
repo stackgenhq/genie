@@ -289,6 +289,8 @@ tool (
 
 replace github.com/drone/go-scm => github.com/appcd-dev/go-scm v0.0.0-20251204195827-1d9c5431af88
 
-replace trpc.group/trpc-go/trpc-agent-go => github.com/sks/trpc-agent-go v0.0.0-20260302165014-95f02aa70ac5
+replace trpc.group/trpc-go/trpc-agent-go => github.com/sks/trpc-agent-go v0.0.0-20260303072839-55da17b54180
 
-replace trpc.group/trpc-go/trpc-agent-go/model/gemini => github.com/sks/trpc-agent-go/model/gemini v0.0.0-20260222042814-5a8ec2571a6f
+replace trpc.group/trpc-go/trpc-agent-go/model/gemini => github.com/sks/trpc-agent-go/model/gemini v0.0.0-20260303072839-55da17b54180
+
+replace trpc.group/trpc-go/trpc-agent-go/model/ollama => github.com/sks/trpc-agent-go/model/ollama v0.0.0-20260303072839-55da17b54180

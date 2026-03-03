@@ -3,7 +3,13 @@ package toolwrap
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/stackgenhq/genie/pkg/htmlutils"
 	"github.com/stackgenhq/genie/pkg/logger"
@@ -41,16 +47,33 @@ type SummarizeConfig struct {
 	Threshold int
 }
 
+// defaultSummarizeCacheTTL is how long a cached summary remains valid. Matches the
+// typical lifetime of a multi-step plan execution so that identical tool
+// outputs within the same plan are served from cache.
+const defaultSummarizeCacheTTL = 10 * time.Minute
+
+// cachedSummary holds a previously computed summary and its expiry time.
+type cachedSummary struct {
+	summary   string
+	expiresAt time.Time
+}
+
 // summarizeMiddleware compresses oversized tool results using an LLM
 // summarizer (typically backed by a fast, large-context model like Flash).
+// It includes a content-hash cache to avoid re-summarizing identical content
+// across sub-agent steps.
 type summarizeMiddleware struct {
 	summarize SummarizeFunc
 	threshold int
+	cache     sync.Map // SHA-256 hex → cachedSummary
+	cacheTTL  time.Duration
 }
 
 // AutoSummarizeMiddleware returns a Middleware that detects tool responses
 // exceeding the configured character threshold and summarises them via the
 // provided SummarizeFunc.  If summarize is nil the middleware is a no-op.
+// Identical content is served from a short-lived cache to avoid redundant
+// LLM calls when multiple sub-agent steps produce the same tool output.
 func AutoSummarizeMiddleware(summarize SummarizeFunc, threshold int) Middleware {
 	if threshold <= 0 {
 		threshold = defaultSummarizeThreshold
@@ -58,6 +81,7 @@ func AutoSummarizeMiddleware(summarize SummarizeFunc, threshold int) Middleware 
 	return &summarizeMiddleware{
 		summarize: summarize,
 		threshold: threshold,
+		cacheTTL:  defaultSummarizeCacheTTL,
 	}
 }
 
@@ -85,10 +109,15 @@ func (m *summarizeMiddleware) Wrap(next Handler) Handler {
 		)
 		logr.Info("tool response exceeds threshold, summarizing")
 
-		// Step 1: Parse HTML and extract text content using the proper
-		// HTML parser. Handles truncated responses, unclosed tags,
-		// embedded JSON blobs, and malformed HTML gracefully.
-		inputForSummary := htmlutils.ExtractText(responseStr)
+		// Step 1: Pre-process content. Use HTML extraction for HTML
+		// content and ANSI/whitespace stripping for everything else
+		// (shell output, JSON blobs, etc.).
+		var inputForSummary string
+		if looksLikeHTML(responseStr) {
+			inputForSummary = htmlutils.ExtractText(responseStr)
+		} else {
+			inputForSummary = preProcessNonHTML(responseStr)
+		}
 		logr.Info("pre-processed summarizer input",
 			"stripped_chars", len(inputForSummary),
 			"reduction", fmt.Sprintf("%.0f%%", (1-float64(len(inputForSummary))/float64(len(responseStr)))*100),
@@ -111,7 +140,7 @@ func (m *summarizeMiddleware) Wrap(next Handler) Handler {
 			), nil
 		}
 
-		// Step 2: Safety-net cap. After HTML stripping this should rarely
+		// Step 2: Safety-net cap. After stripping this should rarely
 		// be hit, but protects against non-HTML mega-responses (e.g. huge
 		// JSON blobs from an API).
 		if len(inputForSummary) > maxSummarizeInput {
@@ -122,6 +151,26 @@ func (m *summarizeMiddleware) Wrap(next Handler) Handler {
 				"capped_chars", maxSummarizeInput)
 		}
 
+		// Step 3: Check content-hash cache. Identical tool outputs
+		// (e.g. sequential sub-agents running the same kubectl command)
+		// return the cached summary instead of re-invoking the LLM.
+		cacheKey := contentHash(inputForSummary)
+		if cached, ok := m.cache.Load(cacheKey); ok {
+			entry := cached.(cachedSummary)
+			if time.Now().Before(entry.expiresAt) {
+				logr.Info("returning cached summary",
+					"cache_key", cacheKey[:12],
+					"summary_chars", len(entry.summary),
+				)
+				return fmt.Sprintf(
+					"[Auto-summarized from %d chars — cached]\n\n%s",
+					len(responseStr), entry.summary,
+				), nil
+			}
+			// Expired — delete and re-summarize.
+			m.cache.Delete(cacheKey)
+		}
+
 		summary, sErr := m.summarize(ctx, inputForSummary)
 		if sErr != nil {
 			logr.Warn("summarization failed, returning truncated response", "error", sErr)
@@ -130,9 +179,16 @@ func (m *summarizeMiddleware) Wrap(next Handler) Handler {
 			return truncated, nil
 		}
 
+		// Store in cache for future identical content.
+		m.cache.Store(cacheKey, cachedSummary{
+			summary:   summary,
+			expiresAt: time.Now().Add(m.cacheTTL),
+		})
+
 		logr.Info("tool response summarized",
 			"summary_chars", len(summary),
 			"compression_ratio", fmt.Sprintf("%.1f%%", float64(len(summary))/float64(len(responseStr))*100),
+			"cache_key", cacheKey[:12],
 		)
 
 		// Annotate the summary so downstream consumers know it was compressed.
@@ -142,4 +198,58 @@ func (m *summarizeMiddleware) Wrap(next Handler) Handler {
 		)
 		return annotated, nil
 	}
+}
+
+// ansiEscapeRe matches ANSI escape sequences (colors, cursor movement, etc.)
+// commonly found in terminal/shell output.
+var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
+// preProcessNonHTML strips ANSI escape codes and collapses runs of whitespace
+// from non-HTML content (shell output, JSON blobs, log files). This reduces
+// the token count sent to the summarizer without losing semantic content.
+// Without this, raw kubectl JSON or colored terminal output wastes tokens
+// on escape sequences and repetitive whitespace.
+func preProcessNonHTML(content string) string {
+	// Strip ANSI escape codes.
+	cleaned := ansiEscapeRe.ReplaceAllString(content, "")
+	// Collapse runs of whitespace (spaces, tabs) into single spaces.
+	// Preserve newlines for structure.
+	var sb strings.Builder
+	sb.Grow(len(cleaned))
+	prevSpace := false
+	for _, r := range cleaned {
+		if r == ' ' || r == '\t' {
+			if !prevSpace {
+				sb.WriteRune(' ')
+			}
+			prevSpace = true
+			continue
+		}
+		prevSpace = false
+		sb.WriteRune(r)
+	}
+	return sb.String()
+}
+
+// looksLikeHTML checks the first portion of content for common HTML tags.
+// Returns true if the content appears to be HTML, false for plain text,
+// JSON, or shell output.
+func looksLikeHTML(content string) bool {
+	// Check the first 500 chars for HTML indicators.
+	prefix := content
+	if len(prefix) > 500 {
+		prefix = prefix[:500]
+	}
+	lower := strings.ToLower(prefix)
+	return strings.Contains(lower, "<html") ||
+		strings.Contains(lower, "<body") ||
+		strings.Contains(lower, "<div") ||
+		strings.Contains(lower, "<!doctype")
+}
+
+// contentHash returns a hex-encoded SHA-256 hash of the given content.
+// Used as a cache key for content-based deduplication of summarization.
+func contentHash(content string) string {
+	h := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(h[:])
 }

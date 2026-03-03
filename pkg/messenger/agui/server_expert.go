@@ -5,6 +5,7 @@ import (
 
 	aguitypes "github.com/stackgenhq/genie/pkg/agui"
 	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 )
 
@@ -22,16 +23,19 @@ import (
 func NewChatHandler(
 	resumeFunc func(ctx context.Context) string,
 	chatFunc func(ctx context.Context, message string, agentsMessage chan<- interface{}) error,
+	injectFunc func(ctx context.Context, message string) error,
 ) Expert {
 	return serverExpert{
 		resumeFunc: resumeFunc,
 		chatFunc:   chatFunc,
+		injectFunc: injectFunc,
 	}
 }
 
 type serverExpert struct {
 	resumeFunc func(ctx context.Context) string
 	chatFunc   func(ctx context.Context, message string, agentsMessage chan<- interface{}) error
+	injectFunc func(ctx context.Context, message string) error
 }
 
 func (e serverExpert) Resume(ctx context.Context) string {
@@ -71,4 +75,19 @@ func (e serverExpert) Handle(ctx context.Context, req ChatRequest) {
 		Success: true,
 		Message: "Request completed",
 	}
+}
+
+func (e serverExpert) InjectFeedback(ctx context.Context, threadID, message string) error {
+	if e.injectFunc == nil {
+		return nil
+	}
+
+	// Reconstruct the MessageOrigin context so the orchestrator can find the right WorkingMemory
+	ctx = messenger.WithMessageOrigin(ctx, messenger.MessageOrigin{
+		Platform: messenger.PlatformAGUI,
+		Channel:  messenger.Channel{ID: threadID},
+		Sender:   messenger.Sender{ID: "agui-user"},
+	})
+
+	return e.injectFunc(ctx, message)
 }

@@ -392,6 +392,7 @@ var _ = Describe("AG-UI Server", func() {
 			handler := agui.NewChatHandler(
 				func(_ context.Context) string { return "" },
 				func(_ context.Context, _ string, _ chan<- interface{}) error { return nil },
+				nil,
 			)
 			bgw := agui.NewBackgroundWorker(handler, 2)
 			customServer := agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, bgw, nil, nil, "qa_agent")

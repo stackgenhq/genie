@@ -347,6 +347,10 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 		llmagent.WithAddCurrentTime(true),
 		llmagent.WithTimeFormat(time.RFC3339),
 		llmagent.WithMaxToolIterations(req.MaxToolIterations),
+		// Default to streaming: newer model APIs (e.g. Anthropic claude-sonnet-4-5)
+		// reject non-streaming requests with "streaming is required for operations
+		// that may take longer than 10 minutes".
+		llmagent.WithGenerationConfig(model.GenerationConfig{Stream: true}),
 		// Token optimization: Only include current request context, not full
 		// history, preventing unbounded context growth (50-70% savings).
 		llmagent.WithMessageFilterMode(llmagent.RequestContext),
@@ -429,6 +433,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 			continue
 		}
 		if ev.Response != nil {
+			logr.Debug("sub-agent event", "event", ev)
 			for _, choice := range ev.Choices {
 				if choice.Message.Role == model.RoleAssistant && choice.Message.Content != "" {
 					sb.WriteString(choice.Message.Content)
