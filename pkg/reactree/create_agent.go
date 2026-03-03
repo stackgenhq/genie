@@ -13,6 +13,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/expert"
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
 	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/reactree/memory"
 	"github.com/stackgenhq/genie/pkg/retrier"
@@ -98,16 +99,22 @@ func (req CreateAgentRequest) clampedMaxLLMCalls() int {
 
 // resolveStatus determines the final status and output string for a
 // sub-agent run based on whether it timed out, produced errors, or
-// returned results. Without this, every caller of executeInner would
-// duplicate the same branching logic for timeout/error annotation.
-func (req CreateAgentRequest) resolveStatus(timedOut bool, lastErr, result string) (status, output string) {
+// returned results. The partialToolResults parameter carries content
+// captured from tool result events during the run — when the sub-agent
+// errors without producing a final response, these partial findings are
+// included so the parent agent can still use what was learned.
+// Without this, every caller of executeInner would duplicate the same
+// branching logic for timeout/error annotation.
+func (req CreateAgentRequest) resolveStatus(timedOut bool, lastErr, result, partialToolResults string) (status, output string) {
 	output = result
 	status = "success"
 
 	if timedOut {
 		status = "partial"
 		prefix := fmt.Sprintf("[TIME LIMIT REACHED] The sub-agent %q ran out of time. Here is what was found before the deadline:\n\n", req.AgentName)
-		if output == "" {
+		if output == "" && partialToolResults != "" {
+			output = prefix + partialToolResults
+		} else if output == "" {
 			output = prefix + "No output was captured before the deadline. The sub-agent may have been waiting for external calls (web_search, http_request) to complete."
 		} else {
 			output = prefix + output
@@ -116,8 +123,15 @@ func (req CreateAgentRequest) resolveStatus(timedOut bool, lastErr, result strin
 	}
 
 	if lastErr != "" && output == "" {
-		status = "error"
-		output = fmt.Sprintf("sub-agent error: %s", lastErr)
+		if partialToolResults != "" {
+			status = "partial"
+			output = fmt.Sprintf("[BUDGET EXCEEDED] The sub-agent %q ran out of LLM calls. "+
+				"Here is what it learned before the limit:\n\n%s\n\nError: %s",
+				req.AgentName, partialToolResults, lastErr)
+		} else {
+			status = "error"
+			output = fmt.Sprintf("sub-agent error: %s", lastErr)
+		}
 	}
 	return status, output
 }
@@ -145,7 +159,11 @@ type createAgentTool struct {
 	toolWrapSvc   *toolwrap.Service
 	workingMemory *memory.WorkingMemory
 	episodic      memory.EpisodicMemory
-	description   string
+	// vectorStore is the vector memory store. Used to probe for emptiness
+	// so retrieval-only sub-agents (memory_search, graph_*) can be skipped
+	// when the store has no documents, avoiding futile LLM calls.
+	vectorStore vector.IStore
+	description string
 
 	// inflight deduplicates identical parallel create_agent calls
 	// from the LLM (same agent_name + goal). Backed by singleflight.
@@ -171,6 +189,7 @@ func NewCreateAgentTool(
 	workingMemory *memory.WorkingMemory,
 	episodic memory.EpisodicMemory,
 	toolWrapSvc *toolwrap.Service,
+	vectorStore vector.IStore,
 ) *createAgentTool {
 	// Build a sub-agent registry that excludes orchestration-only tools.
 	// Sub-agents must not call create_agent (no recursive spawning) or
@@ -189,6 +208,7 @@ func NewCreateAgentTool(
 		toolWrapSvc:      toolWrapSvc,
 		workingMemory:    workingMemory,
 		episodic:         episodic,
+		vectorStore:      vectorStore,
 	}
 
 	t.description = fmt.Sprintf(
@@ -263,6 +283,25 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	if len(req.ToolNames) > 0 {
 		scopedRegistry = scopedRegistry.Include(req.ToolNames...)
 	}
+
+	// Empty-memory guard: if all requested tools are retrieval-only AND
+	// at least one is vector-backed (memory_search), probe the vector
+	// store — if it's empty, skip this sub-agent entirely. Prevents
+	// burning LLM budget searching a store that has no documents.
+	// Graph-only agents are NOT guarded because we can't probe graph
+	// emptiness from the vector store.
+	if t.isRetrievalOnly(scopedRegistry) && t.hasVectorBackedTools(scopedRegistry) && t.isMemoryEmpty(ctx) {
+		logr.Info("skipping retrieval-only sub-agent: memory store is empty",
+			"agent_name", req.AgentName,
+			"tools", scopedRegistry.ToolNames())
+		return CreateAgentResponse{
+			Status: "success",
+			Output: "No relevant data found — the memory store is empty. " +
+				"No knowledge base entries exist to search. " +
+				"Consider using other tools to gather information.",
+		}, nil
+	}
+
 	selectedTools := t.toolWrapSvc.Wrap(scopedRegistry.AllTools(), toolwrap.WrapRequest{
 		AgentName: req.AgentName,
 	})
@@ -308,6 +347,10 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 		llmagent.WithAddCurrentTime(true),
 		llmagent.WithTimeFormat(time.RFC3339),
 		llmagent.WithMaxToolIterations(req.MaxToolIterations),
+		// Default to streaming: newer model APIs (e.g. Anthropic claude-sonnet-4-5)
+		// reject non-streaming requests with "streaming is required for operations
+		// that may take longer than 10 minutes".
+		llmagent.WithGenerationConfig(model.GenerationConfig{Stream: true}),
 		// Token optimization: Only include current request context, not full
 		// history, preventing unbounded context growth (50-70% savings).
 		llmagent.WithMessageFilterMode(llmagent.RequestContext),
@@ -337,8 +380,15 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	defer cancelTimeout()
 	logr.Info("sub-agent timeout set", "timeout", req.timeout().String())
 
+	// Wrap with CancelCause so loop-detection and empty-results middlewares
+	// can terminate the sub-agent run immediately when they detect futile
+	// loops or fruitless search calls.
+	cancelCtx, cancelCause := context.WithCancelCause(timeoutCtx)
+	defer cancelCause(nil)
+	runCtx := toolwrap.WithCancelCause(cancelCtx, cancelCause)
+
 	tracer := otel.Tracer("genie")
-	runCtx, span := tracer.Start(timeoutCtx, req.AgentName+" execution")
+	runCtx, span := tracer.Start(runCtx, req.AgentName+" execution")
 	defer span.End()
 
 	// Retry transient upstream LLM errors (503 / rate-limit / overloaded)
@@ -366,7 +416,12 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 
 	// Collect response — accumulate partial output even if errors occur.
 	// On context deadline, we keep whatever was gathered instead of losing it.
+	// Additionally capture tool result content so that if the sub-agent
+	// errors (e.g. budget exceeded) without a final LLM response, the
+	// parent agent still receives the knowledge gathered by tool calls.
 	var sb strings.Builder
+	var toolResultsSB strings.Builder
+	const maxToolResultsLen = 4000
 	var lastErr string
 	timedOut := false
 	for ev := range evCh {
@@ -378,20 +433,41 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 			continue
 		}
 		if ev.Response != nil {
+			logr.Debug("sub-agent event", "event", ev)
 			for _, choice := range ev.Choices {
 				if choice.Message.Role == model.RoleAssistant && choice.Message.Content != "" {
 					sb.WriteString(choice.Message.Content)
+				}
+				// Capture tool result content as partial findings.
+				// Tool results carry the actual data (file contents, search
+				// results, etc.) that the sub-agent gathered. When the sub-agent
+				// exhausts its budget before producing a final summary, these
+				// results are the only record of what was learned.
+				if choice.Message.ToolID != "" && choice.Message.Content != "" && toolResultsSB.Len() < maxToolResultsLen {
+					toolResultsSB.WriteString(choice.Message.Content)
+					toolResultsSB.WriteString("\n---\n")
 				}
 			}
 		}
 	}
 
-	// Check if the context deadline caused the sub-agent to stop.
+	// Check if the context was cancelled. Distinguish timeouts from
+	// middleware-triggered cancellations (loop detection, empty results)
+	// so the output message is accurate.
 	if runCtx.Err() != nil {
-		timedOut = true
-		logr.Warn("sub-agent context expired, returning partial results",
-			"error", runCtx.Err().Error(),
-			"partial_output_length", sb.Len())
+		cause := context.Cause(runCtx)
+		if cause != nil && cause != runCtx.Err() {
+			// Middleware-triggered cancel (loop detection or empty results).
+			// Not a timeout — the sub-agent was deliberately stopped.
+			logr.Warn("sub-agent cancelled by middleware",
+				"cause", cause.Error(),
+				"partial_output_length", sb.Len())
+		} else {
+			timedOut = true
+			logr.Warn("sub-agent context expired, returning partial results",
+				"error", runCtx.Err().Error(),
+				"partial_output_length", sb.Len())
+		}
 	}
 
 	result := sb.String()
@@ -410,7 +486,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	logr.Info("sub-agent execution completed",
 		"output_length", len(result), "timed_out", timedOut, "had_error", lastErr != "")
 
-	status, result := req.resolveStatus(timedOut, lastErr, result)
+	status, result := req.resolveStatus(timedOut, lastErr, result, toolResultsSB.String())
 
 	// Store sub-agent result in working memory so the parent can retrieve
 	// it via memory_search and compose a single user-facing message.
@@ -572,4 +648,63 @@ func (t *createAgentTool) executePlan(ctx context.Context, req CreateAgentReques
 		Output: output,
 		Status: status,
 	}, nil
+}
+
+// vectorBackedTools is the subset of retrieval tools backed by the vector
+// store. The isMemoryEmpty guard only applies when the sub-agent uses
+// these tools. Graph-only agents are not guarded because the vector store
+// probe cannot determine graph store emptiness.
+var vectorBackedTools = map[string]bool{
+	"memory_search": true,
+}
+
+// isRetrievalOnly returns true when every tool in the registry is a
+// retrieval-only tool (per toolwrap.IsRetrievalTool). Sub-agents with only
+// these tools are candidates for the empty-memory guard.
+func (t *createAgentTool) isRetrievalOnly(registry *tools.Registry) bool {
+	names := registry.ToolNames()
+	if len(names) == 0 {
+		return false
+	}
+	for _, name := range names {
+		if !toolwrap.IsRetrievalTool(name) {
+			return false
+		}
+	}
+	return true
+}
+
+// hasVectorBackedTools returns true if any tool in the registry is backed
+// by the vector store. Only these tools can be short-circuited by the
+// isMemoryEmpty probe.
+func (t *createAgentTool) hasVectorBackedTools(registry *tools.Registry) bool {
+	for _, name := range registry.ToolNames() {
+		if vectorBackedTools[name] {
+			return true
+		}
+	}
+	return false
+}
+
+// isMemoryEmpty probes the vector store with a lightweight search to check
+// whether it likely contains any documents. Returns true if the store is
+// nil or if a best-effort probe returns zero results. Uses Search("", 1)
+// as a cheap heuristic: the empty query is still embedded and run through
+// vector similarity search, so it does not semantically "match any"
+// document, but in practice a non-empty store should usually return at
+// least one nearest neighbor. Without this check, retrieval-only
+// sub-agents would burn their entire LLM call budget rephrasing
+// fruitless queries when the store appears empty.
+func (t *createAgentTool) isMemoryEmpty(ctx context.Context) bool {
+	if t.vectorStore == nil {
+		return true
+	}
+	results, err := t.vectorStore.Search(ctx, "", 1)
+	if err != nil {
+		// If the probe fails, assume memory is non-empty to avoid
+		// false positives — better to run a possibly-futile sub-agent
+		// than to silently skip a sub-agent that might succeed.
+		return false
+	}
+	return len(results) == 0
 }

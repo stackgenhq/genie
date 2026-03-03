@@ -2,7 +2,9 @@ package toolwrap_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"sync/atomic"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -56,6 +58,139 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 			Expect(err).NotTo(HaveOccurred())
 		}
 	})
+
+	It("should cancel context when CancelCauseFunc is set", func() {
+		mw := toolwrap.LoopDetectionMiddleware()
+		handler := mw.Wrap(passthrough("ok"))
+
+		ctx, cancel := context.WithCancelCause(context.Background())
+		defer cancel(nil)
+		ctx = toolwrap.WithCancelCause(ctx, cancel)
+
+		tc := &toolwrap.ToolCallContext{ToolName: "run_shell", Args: []byte(`{"cmd":"kubectl get pods"}`)}
+
+		_, err := handler(ctx, tc)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = handler(ctx, tc)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("loop detected"))
+
+		// Context should be cancelled by the middleware.
+		Expect(ctx.Err()).To(HaveOccurred())
+		Expect(context.Cause(ctx).Error()).To(ContainSubstring("loop detected"))
+	})
+
+	It("should not cancel context when no CancelCauseFunc is set (backward compat)", func() {
+		mw := toolwrap.LoopDetectionMiddleware()
+		handler := mw.Wrap(passthrough("ok"))
+
+		ctx := context.Background()
+		tc := &toolwrap.ToolCallContext{ToolName: "run_shell", Args: []byte(`{"cmd":"ls"}`)}
+
+		_, err := handler(ctx, tc)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = handler(ctx, tc)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("loop detected"))
+
+		// Context should NOT be cancelled — no cancel function available.
+		Expect(ctx.Err()).NotTo(HaveOccurred())
+	})
+
+	It("should cancel context after 3 consecutive empty retrieval results", func() {
+		mw := toolwrap.LoopDetectionMiddleware()
+		handler := mw.Wrap(func(_ context.Context, _ *toolwrap.ToolCallContext) (any, error) {
+			return json.RawMessage(`{"results":[],"count":0}`), nil
+		})
+
+		ctx, cancel := context.WithCancelCause(context.Background())
+		defer cancel(nil)
+		ctx = toolwrap.WithCancelCause(ctx, cancel)
+
+		// 3 different queries, all returning empty — result loop
+		for i := 0; i < 3; i++ {
+			tc := &toolwrap.ToolCallContext{
+				ToolName: "memory_search",
+				Args:     []byte(fmt.Sprintf(`{"query":"attempt_%d"}`, i)),
+			}
+			_, err := handler(ctx, tc)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		Expect(ctx.Err()).To(HaveOccurred())
+		Expect(context.Cause(ctx).Error()).To(ContainSubstring("result loop"))
+	})
+
+	It("should reset empty streak on non-empty retrieval result", func() {
+		mw := toolwrap.LoopDetectionMiddleware()
+		callNum := 0
+		handler := mw.Wrap(func(_ context.Context, _ *toolwrap.ToolCallContext) (any, error) {
+			callNum++
+			if callNum == 2 {
+				return json.RawMessage(`{"results":[{"data":"x"}],"count":1}`), nil
+			}
+			return json.RawMessage(`{"results":[],"count":0}`), nil
+		})
+
+		ctx, cancel := context.WithCancelCause(context.Background())
+		defer cancel(nil)
+		ctx = toolwrap.WithCancelCause(ctx, cancel)
+
+		for i := 0; i < 4; i++ {
+			tc := &toolwrap.ToolCallContext{
+				ToolName: "memory_search",
+				Args:     []byte(fmt.Sprintf(`{"query":"q%d"}`, i)),
+			}
+			_, err := handler(ctx, tc)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		// Counter was reset at call 2 (non-empty), so only 2 consecutive empties at end.
+		Expect(ctx.Err()).NotTo(HaveOccurred())
+	})
+
+	It("should not track empty results for non-retrieval tools", func() {
+		mw := toolwrap.LoopDetectionMiddleware()
+		handler := mw.Wrap(func(_ context.Context, _ *toolwrap.ToolCallContext) (any, error) {
+			return json.RawMessage(`{"results":[],"count":0}`), nil
+		})
+
+		ctx, cancel := context.WithCancelCause(context.Background())
+		defer cancel(nil)
+		ctx = toolwrap.WithCancelCause(ctx, cancel)
+
+		for i := 0; i < 5; i++ {
+			tc := &toolwrap.ToolCallContext{
+				ToolName: "run_shell",
+				Args:     []byte(fmt.Sprintf(`{"cmd":"cmd_%d"}`, i)),
+			}
+			_, err := handler(ctx, tc)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		Expect(ctx.Err()).NotTo(HaveOccurred())
+	})
+
+	It("should trim history after more than 10 distinct calls", func() {
+		// Arrange — push 12 distinct calls to trigger the maxHistory=10 trim.
+		mw := toolwrap.LoopDetectionMiddleware()
+		handler := mw.Wrap(passthrough("ok"))
+
+		for i := 0; i < 12; i++ {
+			tc := &toolwrap.ToolCallContext{
+				ToolName: "run_shell",
+				Args:     []byte(fmt.Sprintf(`{"i":%d}`, i)),
+			}
+			_, err := handler(context.Background(), tc)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		// After 12 distinct calls, the middleware should still work correctly.
+		// Calling a new distinct tool should succeed.
+		tc := &toolwrap.ToolCallContext{ToolName: "run_shell", Args: []byte(`{"i":99}`)}
+		_, err := handler(context.Background(), tc)
+		Expect(err).NotTo(HaveOccurred())
+	})
 })
 
 var _ = Describe("FailureLimitMiddleware", func() {
@@ -92,4 +227,19 @@ var _ = Describe("FailureLimitMiddleware", func() {
 		Expect(result).To(Equal("ok"))
 		Expect(callNum).To(Equal(3))
 	})
+})
+
+var _ = Describe("IsRetrievalTool", func() {
+	DescribeTable("classifies tools correctly",
+		func(name string, expected bool) {
+			Expect(toolwrap.IsRetrievalTool(name)).To(Equal(expected))
+		},
+		Entry("memory_search is retrieval", "memory_search", true),
+		Entry("graph_query is retrieval", "graph_query", true),
+		Entry("graph_get_entity is retrieval", "graph_get_entity", true),
+		Entry("graph_shortest_path is retrieval", "graph_shortest_path", true),
+		Entry("run_shell is NOT retrieval", "run_shell", false),
+		Entry("read_file is NOT retrieval", "read_file", false),
+		Entry("empty string is NOT retrieval", "", false),
+	)
 })

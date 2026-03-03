@@ -129,6 +129,7 @@ type Response struct {
 //counterfeiter:generate . Expert
 type Expert interface {
 	Do(ctx context.Context, req Request) (Response, error)
+	GetBio() ExpertBio
 }
 
 type expert struct {
@@ -154,10 +155,24 @@ type expert struct {
 	lastTaskType modelprovider.TaskType
 }
 
+func (e *expert) GetBio() ExpertBio {
+	return e.bio
+}
+
 func (e *expert) getRunner(ctx context.Context, req Request) (runner.Runner, error) {
 	logr := logger.GetLogger(ctx).With("fn", "expert.getRunner", "agent", e.bio.Name)
 	if req.TaskType == "" {
 		req.TaskType = modelprovider.TaskPlanning
+	}
+
+	// Check persona token budget
+	personaTokens := len(e.bio.Personality) / 4
+	threshold := req.Mode.PersonaTokenThreshold
+	if threshold == 0 {
+		threshold = 2000
+	}
+	if personaTokens > threshold {
+		logr.Warn("persona exceeds threshold tokens — consider moving domain knowledge to skills", "threshold", threshold)
 	}
 
 	modelInstance, err := e.modelProvider.GetModel(ctx, req.TaskType)
