@@ -50,10 +50,22 @@ func (m *loopDetectionMiddleware) Wrap(next Handler) Handler {
 		m.mu.Unlock()
 
 		if looping {
-			return nil, fmt.Errorf(
+			loopErr := fmt.Errorf(
 				"loop detected: tool %s has been called with identical arguments %d times consecutively. "+
 					"Stop calling this tool and summarize the results you already have",
 				tc.ToolName, maxConsecutiveRepeatCalls)
+
+			// Cancel the sub-agent's context so the runner stops
+			// immediately. Without this, the LLM ignores the error
+			// and keeps retrying, burning the entire call budget.
+			// The cancel function is only set for sub-agents (via
+			// WithCancelCause in create_agent.go); parent agents
+			// get the error-only path for backward compatibility.
+			if cancel := cancelCauseFromContext(ctx); cancel != nil {
+				cancel(loopErr)
+			}
+
+			return nil, loopErr
 		}
 		return next(ctx, tc)
 	}

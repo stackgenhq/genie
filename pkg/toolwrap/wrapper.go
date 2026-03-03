@@ -200,6 +200,7 @@ func (deps MiddlewareDeps) DefaultMiddlewares(
 		SemanticCacheMiddleware(deps.SemanticKeyFields),
 		LoopDetectionMiddleware(),
 		FailureLimitMiddleware(),
+		EmptyResultsMiddleware(),
 	)
 
 	if cfg.Sanitize.Enabled {

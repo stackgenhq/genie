@@ -56,6 +56,44 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 			Expect(err).NotTo(HaveOccurred())
 		}
 	})
+
+	It("should cancel context when CancelCauseFunc is set", func() {
+		mw := toolwrap.LoopDetectionMiddleware()
+		handler := mw.Wrap(passthrough("ok"))
+
+		ctx, cancel := context.WithCancelCause(context.Background())
+		defer cancel(nil)
+		ctx = toolwrap.WithCancelCause(ctx, cancel)
+
+		tc := &toolwrap.ToolCallContext{ToolName: "run_shell", Args: []byte(`{"cmd":"kubectl get pods"}`)}
+
+		_, err := handler(ctx, tc)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = handler(ctx, tc)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("loop detected"))
+
+		// Context should be cancelled by the middleware.
+		Expect(ctx.Err()).To(HaveOccurred())
+		Expect(context.Cause(ctx).Error()).To(ContainSubstring("loop detected"))
+	})
+
+	It("should not cancel context when no CancelCauseFunc is set (backward compat)", func() {
+		mw := toolwrap.LoopDetectionMiddleware()
+		handler := mw.Wrap(passthrough("ok"))
+
+		ctx := context.Background()
+		tc := &toolwrap.ToolCallContext{ToolName: "run_shell", Args: []byte(`{"cmd":"ls"}`)}
+
+		_, err := handler(ctx, tc)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = handler(ctx, tc)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("loop detected"))
+
+		// Context should NOT be cancelled — no cancel function available.
+		Expect(ctx.Err()).NotTo(HaveOccurred())
+	})
 })
 
 var _ = Describe("FailureLimitMiddleware", func() {
