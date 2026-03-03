@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/stackgenhq/genie/pkg/hooks"
 	"trpc.group/trpc-go/trpc-agent-go/graph"
 )
 
@@ -71,6 +72,8 @@ const (
 	// a single agent node execution. The adaptive loop accumulates these
 	// across iterations to enforce ToolBudgets.
 	StateKeyToolCallCounts = "reactree_tool_call_counts"
+	// StateKeyContextBudget reports the context budget telemetry from the LLM call.
+	StateKeyContextBudget = "reactree_context_budget"
 )
 
 // NewReAcTreeSchema creates a graph.StateSchema with the fields used by
@@ -120,5 +123,10 @@ func NewReAcTreeSchema() *graph.StateSchema {
 			Type:    reflect.TypeOf(map[string]int{}),
 			Reducer: graph.DefaultReducer,
 			Default: func() any { return map[string]int{} },
+		}).
+		AddField(StateKeyContextBudget, graph.StateField{
+			Type:    reflect.TypeOf(hooks.ContextBudgetEvent{}),
+			Reducer: graph.DefaultReducer,
+			Default: func() any { return hooks.ContextBudgetEvent{} },
 		})
 }

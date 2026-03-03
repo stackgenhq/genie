@@ -1,8 +1,3 @@
-// Package tools provides a centralized tool registry that bootstraps all
-// tools from various integration points (file, shell, browser, MCP, etc.)
-// and filters denied tools based on HITL configuration. This is the single
-// source of truth for which tools are available to the orchestrator and
-// sub-agents.
 package tools
 
 import (
@@ -23,34 +18,71 @@ type ToolProviders interface {
 	GetTools() []tool.Tool
 }
 
-// Registry holds the bootstrapped, filtered set of tools.
-type Registry struct {
-	tools map[string]tool.Tool
-	cfg   hitl.Config
+// CloneableToolProvider represents a provider with epigenetic context that
+// should be instantiated freshly for isolated environments (like sub-agents).
+type CloneableToolProvider interface {
+	ToolProviders
+	Clone() ToolProviders
 }
 
-// NewRegistry collects tools from every supplied ToolProviders conformer.
+// Registry holds the bootstrapped, filtered set of tools.
+// It evaluates its providers dynamically so that dynamically loaded skills
+// become instantly available in downstream agents without needing a restart.
+type Registry struct {
+	providers []ToolProviders
+	hasCfg    bool
+	cfg       hitl.Config
+	includes  map[string]struct{}
+	excludes  map[string]struct{}
+}
+
+// NewRegistry collects tools from every supplied ToolProviders conformer
+// and evaluates them dynamically on each GetTools() call.
 // The returned Registry provides the aggregated tool list via AllTools().
 // Use FilterDenied to subsequently exclude tools blocked by HITL config.
 func NewRegistry(ctx context.Context, providers ...ToolProviders) *Registry {
 	log := logger.GetLogger(ctx).With("fn", "toolreg.NewRegistry")
 
-	tools := make(map[string]tool.Tool)
-	for _, provider := range providers {
-		for _, t := range provider.GetTools() {
-			tools[t.Declaration().Name] = t
+	r := &Registry{
+		providers: providers,
+	}
+
+	log.Info("Tool registry initialized", "total", len(r.getToolsMap()))
+
+	return r
+}
+
+func (r *Registry) getToolsMap() map[string]tool.Tool {
+	raw := make(map[string]tool.Tool)
+	for _, p := range r.providers {
+		for _, t := range p.GetTools() {
+			raw[t.Declaration().Name] = t
 		}
 	}
 
-	log.Info("Tool registry initialized", "total", len(tools))
-
-	return &Registry{
-		tools: tools,
+	filtered := make(map[string]tool.Tool)
+	for name, t := range raw {
+		if r.hasCfg && r.cfg.IsDenied(name) {
+			continue
+		}
+		if r.excludes != nil {
+			if _, skip := r.excludes[name]; skip {
+				continue
+			}
+		}
+		if r.includes != nil {
+			if _, keep := r.includes[name]; !keep {
+				continue
+			}
+		}
+		filtered[name] = t
 	}
+	return filtered
 }
 
 func (r *Registry) GetTool(name string) (tool.Tool, error) {
-	if t, ok := r.tools[name]; ok {
+	tools := r.getToolsMap()
+	if t, ok := tools[name]; ok {
 		return t, nil
 	}
 	return nil, errors.New("tool not found")
@@ -62,32 +94,28 @@ func (r *Registry) GetTool(name string) (tool.Tool, error) {
 func (r *Registry) FilterDenied(ctx context.Context, cfg hitl.Config) *Registry {
 	log := logger.GetLogger(ctx).With("fn", "toolreg.FilterDenied")
 
-	filtered := make(map[string]tool.Tool)
-	for name, t := range r.tools {
-		if cfg.IsDenied(name) {
-			log.Info("tool denied by config, excluding from registry", "tool", name)
-			continue
-		}
-		filtered[name] = t
-	}
+	r2 := r.clone()
+	r2.cfg = cfg
+	r2.hasCfg = true
 
+	// Log metrics
+	before := len(r.getToolsMap())
+	after := len(r2.getToolsMap())
 	log.Info("Tool registry filtered",
-		"before", len(r.tools),
-		"after", len(filtered),
-		"excluded", len(r.tools)-len(filtered))
+		"before", before,
+		"after", after,
+		"excluded", before-after)
 
-	return &Registry{
-		tools: filtered,
-		cfg:   cfg,
-	}
+	return r2
 }
 
 // GetTools returns the full set of available (non-denied) tools.
 // Satisfies the ToolProviders interface so a Registry can be passed
 // as a provider to another Registry (e.g. codeOwner tools).
 func (r *Registry) GetTools() []tool.Tool {
-	var tools []tool.Tool
-	for _, t := range r.tools {
+	m := r.getToolsMap()
+	tools := make([]tool.Tool, 0, len(m))
+	for _, t := range m {
 		tools = append(tools, t)
 	}
 	return tools
@@ -102,22 +130,65 @@ func (r *Registry) AllTools() Tools {
 
 // ToolNames returns the names of all available tools (for logging).
 func (r *Registry) ToolNames() []string {
-	names := make([]string, 0, len(r.tools))
-	for name := range r.tools {
+	m := r.getToolsMap()
+	names := make([]string, 0, len(m))
+	for name := range m {
 		names = append(names, name)
 	}
 	return names
 }
 
 func (r *Registry) GetToolDescriptions() []string {
-	descriptions := make([]string, 0, len(r.tools))
-	for _, t := range r.tools {
+	m := r.getToolsMap()
+	descriptions := make([]string, 0, len(m))
+	for _, t := range m {
 		descriptions = append(descriptions, fmt.Sprintf("%s: %s", t.Declaration().Name, t.Declaration().Description))
 	}
 	sorted := make([]string, len(descriptions))
 	copy(sorted, descriptions)
 	sort.Strings(sorted)
 	return sorted
+}
+
+func (r *Registry) clone() *Registry {
+	var includes map[string]struct{}
+	if r.includes != nil {
+		includes = make(map[string]struct{})
+		for k := range r.includes {
+			includes[k] = struct{}{}
+		}
+	}
+	var excludes map[string]struct{}
+	if r.excludes != nil {
+		excludes = make(map[string]struct{})
+		for k := range r.excludes {
+			excludes[k] = struct{}{}
+		}
+	}
+	return &Registry{
+		providers: r.providers,
+		hasCfg:    r.hasCfg,
+		cfg:       r.cfg,
+		includes:  includes,
+		excludes:  excludes,
+	}
+}
+
+// CloneWithEphemeralProviders creates a copy of the Registry and evaluates Clone()
+// on providers that implement CloneableToolProvider, guaranteeing epigenetic isolation.
+// This is used to ensure sub-agents get a fresh, empty state for dynamically loaded skills.
+func (r *Registry) CloneWithEphemeralProviders() *Registry {
+	r2 := r.clone()
+	var clonedProviders []ToolProviders
+	for _, p := range r.providers {
+		if cp, ok := p.(CloneableToolProvider); ok {
+			clonedProviders = append(clonedProviders, cp.Clone())
+		} else {
+			clonedProviders = append(clonedProviders, p)
+		}
+	}
+	r2.providers = clonedProviders
+	return r2
 }
 
 // Exclude returns a new Registry that omits tools with the given names.
@@ -127,17 +198,14 @@ func (r *Registry) Exclude(names ...string) *Registry {
 	if len(names) == 0 {
 		return r
 	}
-	excludeSet := make(map[string]struct{}, len(names))
+	r2 := r.clone()
+	if r2.excludes == nil {
+		r2.excludes = make(map[string]struct{})
+	}
 	for _, n := range names {
-		excludeSet[n] = struct{}{}
+		r2.excludes[n] = struct{}{}
 	}
-	filtered := make(map[string]tool.Tool)
-	for name, t := range r.tools {
-		if _, skip := excludeSet[name]; !skip {
-			filtered[name] = t
-		}
-	}
-	return &Registry{tools: filtered, cfg: r.cfg}
+	return r2
 }
 
 // Include returns a new Registry containing only tools whose names appear
@@ -148,11 +216,12 @@ func (r *Registry) Include(names ...string) *Registry {
 	if len(names) == 0 {
 		return r
 	}
-	filtered := make(map[string]tool.Tool, len(names))
-	for _, n := range names {
-		if t, ok := r.tools[n]; ok {
-			filtered[n] = t
-		}
+	r2 := r.clone()
+	if r2.includes == nil {
+		r2.includes = make(map[string]struct{})
 	}
-	return &Registry{tools: filtered, cfg: r.cfg}
+	for _, n := range names {
+		r2.includes[n] = struct{}{}
+	}
+	return r2
 }

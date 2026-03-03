@@ -126,7 +126,7 @@ var _ = Describe("Providers", func() {
 				bogusPath := "/tmp/nonexistent-skill-root-abc123"
 
 				// Act
-				provider, err := tools.NewSkillToolProvider("/tmp", bogusPath)
+				provider, err := tools.NewSkillToolProvider("/tmp", 3, bogusPath)
 
 				// Assert — no error; tools are still returned (meta-tools exist)
 				// but skill_list_docs will yield an empty list at runtime.
@@ -164,28 +164,28 @@ var _ = Describe("Providers", func() {
 
 			It("creates a provider successfully", func() {
 				// Act
-				provider, err := tools.NewSkillToolProvider("/tmp", skillDir)
+				provider, err := tools.NewSkillToolProvider("/tmp", 3, skillDir)
 
 				// Assert
 				Expect(err).NotTo(HaveOccurred())
 				Expect(provider).NotTo(BeNil())
 			})
 
-			It("returns exactly four skill tools", func() {
+			It("returns exactly three skill tools", func() {
 				// Arrange
-				provider, err := tools.NewSkillToolProvider("/tmp", skillDir)
+				provider, err := tools.NewSkillToolProvider("/tmp", 3, skillDir)
 				Expect(err).NotTo(HaveOccurred())
 
 				// Act
 				got := provider.GetTools()
 
-				// Assert — list_docs, select_docs, load, run
-				Expect(got).To(HaveLen(4))
+				// Assert — discover_skills, load_skill, unload_skill
+				Expect(got).To(HaveLen(3))
 			})
 
 			It("includes the expected skill tool names", func() {
 				// Arrange
-				provider, err := tools.NewSkillToolProvider("/tmp", skillDir)
+				provider, err := tools.NewSkillToolProvider("/tmp", 3, skillDir)
 				Expect(err).NotTo(HaveOccurred())
 
 				// Act
@@ -197,10 +197,9 @@ var _ = Describe("Providers", func() {
 					names = append(names, t.Declaration().Name)
 				}
 				Expect(names).To(ConsistOf(
-					"skill_list_docs",
-					"skill_select_docs",
-					"skill_load",
-					"skill_run",
+					"discover_skills",
+					"load_skill",
+					"unload_skill",
 				))
 			})
 		})

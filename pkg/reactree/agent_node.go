@@ -96,42 +96,11 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 		// Build prompt enriched with memory and previous stage context
 		prompt := buildAgentPrompt(ctx, goal, wm, ep, prevOutput, iterationCtx, iterationCount, cfg.BudgetExhaustedTools)
 
-		// Context Budget Calculation
-		personaText := cfg.SystemInstruction
-		if cfg.Expert != nil {
-			personaText = cfg.Expert.GetBio().Personality
-		}
-		personaTokens := hooks.EstimatePersonaTokens(personaText)
-
-		names := make([]string, len(cfg.Tools))
-		descs := make([]string, len(cfg.Tools))
-		for i, tl := range cfg.Tools {
-			d := tl.Declaration()
-			names[i] = d.Name
-			descs[i] = d.Description
-		}
-		toolSchemaTokens := hooks.EstimateToolSchemaTokens(names, descs)
-		historyTokens := hooks.EstimateHistoryTokens(prompt)
-
-		budgetEvt := hooks.NewContextBudgetEvent(personaTokens, toolSchemaTokens, historyTokens)
-
-		if cfg.Hooks != nil {
-			cfg.Hooks.OnContextBudget(ctx, budgetEvt)
-		}
-
-		if budgetEvt.IsOverBudget() {
-			logr.Warn(fmt.Sprintf("context budget at %d%%, consider reducing persona or compacting history", int(budgetEvt.UtilizationPct*100)),
-				"total_tokens", budgetEvt.TotalTokens,
-				"max_tokens", budgetEvt.MaxTokens,
-			)
-		}
-
 		logr.Info("agent node calling expert",
 			"prompt_length", len(prompt),
 			"iteration", iterationCount,
 			"has_prev_output", prevOutput != "",
 			"has_iteration_ctx", iterationCtx != "",
-			"total_tokens", budgetEvt.TotalTokens,
 		)
 
 		// Inject the goal into the context so downstream tools (e.g.
@@ -241,11 +210,31 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 			"task_completed", taskCompleted,
 		)
 
+		// The easiest way to get the usage is to sum up from all choices returned (since we loop over them below)
+		var lastUsage *model.Usage
+		if resp.Usage != nil {
+			lastUsage = resp.Usage
+		}
+
+		var budgetEvt hooks.ContextBudgetEvent
+		if lastUsage != nil {
+			budgetEvt = hooks.ContextBudgetEvent{
+				PersonaTokens:    0,
+				ToolSchemaTokens: 0,
+				HistoryTokens:    lastUsage.PromptTokens,
+				TotalTokens:      lastUsage.TotalTokens,
+				// maxTokens is harder to get here but we can default
+				MaxTokens:      128000,
+				UtilizationPct: float64(lastUsage.TotalTokens) / 128000.0,
+			}
+		}
+
 		return graph.State{
 			StateKeyNodeStatus:     Success,
 			StateKeyOutput:         output,
 			StateKeyTaskCompleted:  taskCompleted,
 			StateKeyToolCallCounts: toolCallCounts,
+			StateKeyContextBudget:  budgetEvt, // Passed via state map
 		}, nil
 	}
 }
@@ -423,12 +412,45 @@ func runLightweightAgent(ctx context.Context, prompt string, cfg AgentNodeConfig
 
 	// Collect response content from events.
 	var choices []model.Choice
+	var lastUsage *model.Usage
 	for ev := range evCh {
 		if ev.Error != nil {
 			return expert.Response{}, fmt.Errorf("lightweight agent error: %s", ev.Error.Message)
 		}
 		if ev.Response != nil {
 			choices = append(choices, ev.Choices...)
+			if ev.Response.Usage != nil {
+				lastUsage = ev.Response.Usage
+			}
+		}
+	}
+
+	if lastUsage != nil {
+		maxTokens := 128_000 // Fallback assuming a typical context window sizes
+		pct := float64(lastUsage.TotalTokens) / float64(maxTokens)
+
+		if cfg.Hooks != nil {
+			cfg.Hooks.OnContextBudget(ctx, hooks.ContextBudgetEvent{
+				PersonaTokens:    0,
+				ToolSchemaTokens: 0,
+				HistoryTokens:    lastUsage.PromptTokens, // we don't have the exact breakdown from trpc so map it all to history
+				TotalTokens:      lastUsage.TotalTokens,
+				MaxTokens:        maxTokens,
+				UtilizationPct:   pct,
+			})
+		}
+
+		if pct > 0.85 {
+			logr.Warn(fmt.Sprintf("context budget at %d%%, consider reducing persona or compacting history", int(pct*100)),
+				"prompt_tokens", lastUsage.PromptTokens,
+				"total_tokens", lastUsage.TotalTokens,
+			)
+		} else {
+			logr.Info("context budget update",
+				"prompt_tokens", lastUsage.PromptTokens,
+				"total_tokens", lastUsage.TotalTokens,
+				"pct", int(pct*100),
+			)
 		}
 	}
 

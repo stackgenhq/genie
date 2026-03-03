@@ -122,6 +122,7 @@ func (r Request) mode() []llmagent.Option {
 
 type Response struct {
 	Choices []model.Choice
+	Usage   *model.Usage
 }
 
 //go:generate go tool counterfeiter -generate
@@ -306,6 +307,9 @@ func (e *expert) Do(ctx context.Context, req Request) (Response, error) {
 			req.ChoiceProcessor(ev.Choices...)
 		}
 		response.Choices = append(response.Choices, ev.Choices...)
+		if ev.Response != nil && ev.Response.Usage != nil {
+			response.Usage = ev.Response.Usage
+		}
 		e.emitEventToTUI(ctx, ev)
 
 		// Debug: log agent thought preview (short to avoid log spam)

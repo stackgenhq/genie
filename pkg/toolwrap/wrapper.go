@@ -207,10 +207,6 @@ func (deps MiddlewareDeps) DefaultMiddlewares(
 			cfg.Sanitize.PerTool, cfg.Sanitize.Replacement))
 	}
 
-	if !cfg.ContextMode.Disabled {
-		mws = append(mws, ContextModeMiddleware(cfg.ContextMode))
-	}
-
 	mws = append(mws,
 		AutoSummarizeMiddleware(deps.Summarize, deps.SummarizeThreshold),
 	)

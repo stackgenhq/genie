@@ -184,7 +184,24 @@ func (a *Application) persona() string {
 	if err != nil {
 		return ""
 	}
-	return string(data)
+
+	content := string(data)
+
+	// Check against token threshold (roughly 4 chars per token)
+	approxTokens := len(content) / 4
+	threshold := a.cfg.PersonaTokenThreshold
+	if threshold == 0 {
+		threshold = 2000 // Fallback if defaults weren't applied
+	}
+	if approxTokens > threshold {
+		logger.GetLogger(context.TODO()).Warn(
+			"persona exceeds threshold tokens — consider moving domain knowledge to skills",
+			"approx_tokens", approxTokens,
+			"threshold", threshold,
+		)
+	}
+
+	return content
 }
 
 // Bootstrap initialises all dependencies: database, tools, vector memory,
@@ -317,7 +334,14 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 	// In-memory approve list so users can "approve for X mins" from the chat UI.
 	a.approveList = toolwrap.NewApproveList()
 
-	// --- CodeOwner ---
+	orchestratorOpts := []orchestrator.OrchestratorOption{
+		orchestrator.WithToolwrapOptions(
+			toolwrap.WithApprovalCacheTTL(a.cfg.HITL.CacheTTL),
+			toolwrap.WithApproveList(a.approveList),
+		),
+	}
+
+	// If a skill provider exists, we allow dynamic skills
 	a.codeOwner, err = orchestrator.NewOrchestrator(
 		ctx,
 		a.cfg.ModelConfig.NewEnvBasedModelProvider(),
@@ -328,10 +352,7 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 		memorySvc,
 		sessionStore,
 		a.persona(),
-		orchestrator.WithToolwrapOptions(
-			toolwrap.WithApprovalCacheTTL(a.cfg.HITL.CacheTTL),
-			toolwrap.WithApproveList(a.approveList),
-		),
+		orchestratorOpts...,
 	)
 	if err != nil {
 		return fmt.Errorf("codeowner init: %w", err)
@@ -727,8 +748,10 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 	}
 
 	// --- Skills ---
+	var skillProvider *tools.SkillToolProvider
 	if len(a.cfg.SkillsRoots) != 0 {
-		skillProvider, err := tools.NewSkillToolProvider(a.workingDir, a.cfg.SkillsRoots...)
+		var err error
+		skillProvider, err = tools.NewSkillToolProvider(a.workingDir, a.cfg.MaxLoadedSkills, a.cfg.SkillsRoots...)
 		if err != nil {
 			log.Warn("failed to initialize skills tool provider", "error", err)
 		} else {

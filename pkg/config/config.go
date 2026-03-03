@@ -42,18 +42,23 @@ type GenieConfig struct {
 	// to the agent's system prompt as project-level coding standards.
 	// When empty, no persona content is loaded.
 	PersonaFile string `yaml:"persona_file,omitempty" toml:"persona_file,omitempty"`
+	// PersonaTokenThreshold is the maximum recommended token length for the
+	// persona/system prompt. If exceeded at boot, a warning is emitted.
+	// Defaults to 2000.
+	PersonaTokenThreshold int `yaml:"persona_token_threshold,omitempty" toml:"persona_token_threshold,omitempty"`
 	// AuditPath overrides the default audit log path. When set, the auditor
 	// writes to this single file (no date rotation). Used for tests or custom paths.
-	AuditPath    string                    `yaml:"audit_path,omitempty" toml:"audit_path,omitempty"`
-	ModelConfig  modelprovider.ModelConfig `yaml:"model_config,omitempty" toml:"model_config,omitempty"`
-	SkillsRoots  []string                  `yaml:"skills_roots,omitempty" toml:"skills_roots,omitempty"` // Supports multiple roots including HTTPS URLs
-	MCP          mcp.MCPConfig             `yaml:"mcp,omitempty" toml:"mcp,omitempty"`
-	WebSearch    websearch.Config          `yaml:"web_search,omitempty" toml:"web_search,omitempty"`
-	VectorMemory vector.Config             `yaml:"vector_memory,omitempty" toml:"vector_memory,omitempty"`
-	Graph        graph.Config              `yaml:"graph,omitempty" toml:"graph,omitempty"`
-	Messenger    messenger.Config          `yaml:"messenger,omitempty" toml:"messenger,omitempty"`
-	Browser      browser.Config            `yaml:"browser,omitempty" toml:"browser,omitempty"`
-	SCM          scm.Config                `yaml:"scm,omitempty" toml:"scm,omitempty"`
+	AuditPath       string                    `yaml:"audit_path,omitempty" toml:"audit_path,omitempty"`
+	ModelConfig     modelprovider.ModelConfig `yaml:"model_config,omitempty" toml:"model_config,omitempty"`
+	SkillsRoots     []string                  `yaml:"skills_roots,omitempty" toml:"skills_roots,omitempty"` // Supports multiple roots including HTTPS URLs
+	MaxLoadedSkills int                       `yaml:"max_loaded_skills,omitempty" toml:"max_loaded_skills,omitempty"`
+	MCP             mcp.MCPConfig             `yaml:"mcp,omitempty" toml:"mcp,omitempty"`
+	WebSearch       websearch.Config          `yaml:"web_search,omitempty" toml:"web_search,omitempty"`
+	VectorMemory    vector.Config             `yaml:"vector_memory,omitempty" toml:"vector_memory,omitempty"`
+	Graph           graph.Config              `yaml:"graph,omitempty" toml:"graph,omitempty"`
+	Messenger       messenger.Config          `yaml:"messenger,omitempty" toml:"messenger,omitempty"`
+	Browser         browser.Config            `yaml:"browser,omitempty" toml:"browser,omitempty"`
+	SCM             scm.Config                `yaml:"scm,omitempty" toml:"scm,omitempty"`
 
 	ProjectManagement pm.Config `yaml:"project_management,omitempty" toml:"project_management,omitempty"`
 
@@ -112,7 +117,9 @@ func LoadGenieConfig(ctx context.Context, sp security.SecretProvider, path strin
 			GoogleCX:     get("GOOGLE_CSE_ID"),
 			BingAPIKey:   get("BING_API_KEY"),
 		},
-		VectorMemory: vector.DefaultConfig(ctx, sp),
+		MaxLoadedSkills:       3,
+		VectorMemory:          vector.DefaultConfig(ctx, sp),
+		PersonaTokenThreshold: 2000,
 		Messenger: messenger.Config{
 			AGUI: messenger.DefaultAGUIConfig(),
 		},
