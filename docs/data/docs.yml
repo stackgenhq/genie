@@ -27,6 +27,29 @@ header:
 # TAB 1: CONFIGURATION  (master-detail sidebar)
 # ═══════════════════════════════════════════════════════════
 config_sections:
+  - id: agent
+    icon: "🧞"
+    name: agent
+    sidebar_desc: Agent Identity & Persona
+    detail_title: "🧞 agent"
+    detail_desc: >
+      <strong>Agent Identity & Coding Standards.</strong><br>
+      Configure Genie's identity and persona. The <code>agent_name</code> gives your agent a personality,
+      controls the default audit log path (<code>~/.genie/{agent_name}.&lt;yyyy_mm_dd&gt;.ndjson</code>),
+      and is displayed in the chat UI header and <code>/health</code> endpoint.<br><br>
+      Optionally load project-level coding standards from a custom file with <code>persona_file</code>.
+      By default, Genie looks for <code>Agents.md</code> in the working directory.
+    tables:
+      - columns: [Key, Type, Default, Description]
+        rows:
+          - ["agent_name", "string", "`Genie`", "Name of your agent. Set during `genie setup`; gives the agent a personality and controls the default audit log path. Displayed in the chat UI and `/health` endpoint."]
+          - ["persona_file", "string", "—", "Optional path to a file whose contents are appended to the agent's system prompt as project-level coding standards. Supports absolute paths or paths relative to the working directory. Default behavior loads `Agents.md` if present."]
+    code_example:
+      label: Example TOML
+      code: |
+        agent_name = "Jarvis"
+        persona_file = "./STANDARDS.md"
+
   - id: model_config
     icon: "🤖"
     name: model_config
@@ -38,7 +61,11 @@ config_sections:
       the best brain for each specific task. For example, it might use a reasoning-heavy model like <em>o3</em> for
       complex planning, a fast model like <em>Gemini Flash</em> for tool calling, and a coding specialist like
       <em>Claude Sonnet</em> for writing software.<br><br>
-      Configure multiple providers here to give Genie a diverse set of capabilities.
+      Configure multiple providers here to give Genie a diverse set of capabilities.<br><br>
+      <strong>Token Tailoring</strong> is enabled by default — conversation history is automatically trimmed to
+      fit the model's context window for efficiency (based on
+      <a href="https://arxiv.org/abs/2601.14192" target="_blank" class="text-purple-500 hover:text-purple-600">arXiv:2601.14192</a>).
+      Set <code>enable_token_tailoring = false</code> on individual providers to disable.
     tables:
       - columns: [Key, Type, Description]
         rows:
@@ -48,6 +75,7 @@ config_sections:
           - ["token", "string", "API key — use `${OPENAI_API_KEY}` to read from environment"]
           - ["host", "string", "Base URL for self-hosted or compatible APIs (Ollama, OpenAI, HuggingFace)"]
           - ["good_for_task", "string", "What this model excels at: `planning`, `tool_calling`, `efficiency`, `scientific_reasoning`"]
+          - ["enable_token_tailoring", "bool", "When `true` (default), trims conversation history to the model's context window for efficiency. Set to `false` to disable (e.g. debugging or when the provider handles context itself)."]
     subsections:
       - label: Where to get API keys
         columns: [Provider, URL]
@@ -168,6 +196,7 @@ config_sections:
           - ["api_key", "string", "—", "OpenAI API key (only when provider is `openai`)"]
           - ["ollama_url", "string", "—", "Ollama server URL, e.g. `http://localhost:11434`"]
           - ["ollama_model", "string", "—", "Embedding model, e.g. `nomic-embed-text`"]
+          - ["allowed_metadata_keys", "string[]", "`[]`", "When set, only these keys are accepted in `memory_store` metadata and `memory_search` filter. Use for product/category bucket scoping. Empty = all keys allowed."]
 
   - id: graph
     icon: "🕸️"
@@ -199,8 +228,8 @@ config_sections:
       so <code>memory_search</code> returns relevant past content. Enable and scope each source (e.g. folder IDs for Drive,
       label IDs for Gmail). Sync runs on a schedule in the background; last sync time is persisted for incremental updates.<br><br>
       Only items whose content or metadata matches at least one <code>search_keywords</code> term are embedded (up to 10 keywords).
-      Leave <code>search_keywords</code> empty to index everything in scope. Currently <strong>Gmail</strong> and <strong>Google Drive</strong>
-      are wired for sync; Slack, Linear, GitHub, and Calendar are planned.
+      Leave <code>search_keywords</code> empty to index everything in scope. Currently <strong>Gmail</strong>, <strong>Google Drive</strong>,
+      <strong>GitHub</strong>, and <strong>GitLab</strong> are wired for sync; Slack, Linear, and Calendar are planned.
     tables:
       - columns: [Key, Type, Default, Description]
         rows:
@@ -211,10 +240,11 @@ config_sections:
         rows:
           - ["[data_sources.gmail]", "Enable Gmail sync; set <code>label_ids</code> (e.g. <code>[\"INBOX\"]</code>). Uses email/Gmail credentials"]
           - ["[data_sources.gdrive]", "Enable Drive sync; set <code>folder_ids</code> (e.g. <code>[\"root\"]</code>). Uses [google_drive] credentials"]
+          - ["[data_sources.github]", "Enable GitHub sync; set <code>repos</code> (e.g. <code>[\"owner/repo\"]</code>). Uses [scm] credentials (provider = github)"]
+          - ["[data_sources.gitlab]", "Enable GitLab sync; set <code>repos</code> (e.g. <code>[\"group/project\"]</code>). Uses [scm] credentials (provider = gitlab)"]
           - ["[data_sources.calendar]", "Enable Calendar sync; set <code>calendar_ids</code>. Not yet wired in sync loop"]
           - ["[data_sources.slack]", "Planned — channel IDs. Not yet wired in sync loop"]
           - ["[data_sources.linear]", "Planned — team IDs. Not yet wired in sync loop"]
-          - ["[data_sources.github]", "Planned — owner/repo. Not yet wired in sync loop"]
 
   - id: messenger
     icon: "💬"
@@ -256,7 +286,7 @@ config_sections:
         columns: [Key, Description]
         rows:
           - ["googlechat.credentials_file", "Service account JSON path"]
-          - ["googlechat.listen_addr", "Webhook address (default `:8080`)"]
+          - ["googlechat.listen_addr", "Webhook address (default `:9876`)"]
       - label: WhatsApp
         columns: [Key, Description]
         rows:
@@ -530,6 +560,7 @@ config_sections:
         rows:
           - ["always_allowed", "string[]", "`[]`", "Tools that skip human approval (read-only/safe operations), e.g. `['read_file', 'list_file']`. Supports prefix wildcards like `browser_*`. Use `['*']` to auto-approve <strong>all</strong> tools (disables HITL)."]
           - ["denied_tools", "string[]", "`[]`", "Tools the agent is completely forbidden from using — calls are rejected immediately with an error. Supports prefix wildcards like `browser_*`. Use `['*']` to block <strong>all</strong> tools."]
+          - ["cache_ttl", "duration", "—", "How long an approved tool+args combination stays auto-approved. After this duration the same call requires fresh human approval. Example: `10m`."]
 
   - id: toolwrap
     icon: "🔧"
@@ -1268,7 +1299,7 @@ architecture:
         - ["2. Recall", "Search `memory.Service` for past turns relevant to the question (sender-scoped)"]
         - ["3. Execute", "For `COMPLEX` — run through the ReAcTree with working memory and tools"]
         - ["4. Store", "Persist the Q&A turn back into memory for future recall"]
-        - ["5. Agents.md", "Load project-level coding standards from `Agents.md` and append to persona"]
+        - ["5. Persona", "Load project-level coding standards from `persona_file` (default: `Agents.md`) and append to persona"]
 
     - title: "🔧 Tool Middleware Pipeline (pkg/toolwrap)"
       desc: >
@@ -1315,9 +1346,10 @@ architecture:
       - ["`POST`", "`/`", "AG-UI run endpoint — accepts `RunAgentInput`, streams SSE events"]
       - ["`POST`", "`/approve`", "HITL approval — resolve a pending tool call (approved/rejected)"]
       - ["`POST`", "`/api/v1/events`", "Event gateway — accepts webhook/heartbeat/cron events for background processing"]
+      - ["`POST`", "`/api/v1/inject`", "Mid-run feedback — inject a user message into the agent's working memory while it is processing. Body: `{ thread_id, message }`."]
       - ["`GET`", "`/api/v1/resume`", "Returns the agent's natural-language capability resume"]
       - ["`GET`", "`/api/v1/capabilities`", "Returns the current AI stance: <code>tool_names</code>, <code>always_allowed</code>, <code>denied_tools</code> (JSON). The chat UI uses this to show a collapsible “What Genie can do” panel."]
-      - ["`GET`", "`/health`", "Health check — returns JSON with status, uptime, started_at, version, build_date, and (when authenticated) user"]
+      - ["`GET`", "`/health`", "Health check — returns JSON with status, uptime, started_at, version, build_date, agent_name, and (when authenticated) user"]
       - ["`GET`", "`/api/v1/cron/tasks`", "List all cron tasks (planned)"]
       - ["`GET`", "`/api/v1/cron/history`", "View cron execution history (planned)"]
 

@@ -9,6 +9,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Mid-run feedback injection — users can send asynchronous messages to the agent while it is processing via `POST /api/v1/inject`; feedback is stored in working memory with an `INTERRUPT` prefix
+- Feedback input UI in chat.js (textarea + send button) — shown/hidden during active agent processing
+- Caching for summarization middleware to avoid redundant LLM calls on repeated tool outputs
+
+## [0.1.6-rc.1] - 2026-03-02
+
+### Added
+
+- Context-based agent identity — `agent_name` config field honored end-to-end (system prompt, chat UI header, `/health` endpoint, audit log path)
+- `persona_file` config option — load project-level coding standards from a custom file instead of the default `Agents.md`
+- `/health` endpoint now returns `agent_name` in JSON response
+- `orchestratorcontext` package for injecting agent identity into request context
+- Chat UI dynamically displays the configured agent name
+
+### Changed
+
+- Default AG-UI port changed from `8080` to `9876`
+- Default CORS origins updated from `["*"]` to `["https://stackgenhq.github.io"]`
+- Docs proxy fixed: prevent double-prefix (`/genie/genie/...`) by capturing request path before director modifies it
+
+### Removed
+
+- `pkg/runbook` package (8 files) — runbook content is now discoverable via the skills system (`skills_roots`)
+- `[runbook]` config section removed; migration path: move runbook directories into `skills_roots`
+- `search_runbook` removed from default HITL auto-approve list
+- Runbook UI removed from Config Builder
+
+### Fixed
+
+- HITL approval card readability — widened column, increased font sizes, light yellow theme for better accessibility
+- XSS fix in `addToolCard` — escape `toolCallId` and friendly name in innerHTML via `safeDomId()`
+- Removed unused `isReasoning` parameter from `appendToAssistantBubble()`
+- MCP: added JSON struct tags and call `SetDefaults` before `Validate` (#8)
+- Chat UI URL now shown in startup banner
+
+### Security
+
+- [StepSecurity] applied security best practices (#7)
+
+### Dependencies
+
+- Bumped `trpc-agent-go/model/anthropic`, `model/ollama`, `tool/google`, `embedder/huggingface`, `embedder/gemini`, `vectorstore/milvus`
+- Bumped `github.com/mark3labs/mcp-go` from 0.44.0 to 0.44.1
+- Bumped `gocloud.dev` from 0.44.0 to 0.45.0
+- Bumped `google.golang.org/grpc` from 1.77.0 to 1.79.1
+- Bumped `actions/checkout` from 4.2.2 to 6.0.2
+- Bumped `ossf/scorecard-action` from 2.4.1 to 2.4.3
+- Bumped `actions/attest-build-provenance` from 3.0.0 to 4.1.0
+- Bumped `github/codeql-action` from 4.32.4 to 4.32.5
+- Bumped `actions/upload-artifact` from 4.6.1 to 7.0.0
+
+## [0.1.5] - 2026-03-01
+
+### Added
+
+- Configurable token tailoring per model provider (`enable_token_tailoring` field) — conversation history trimmed to model context window for efficiency (based on [arXiv:2601.14192](https://arxiv.org/abs/2601.14192))
+- Token tailoring support wired for all providers: OpenAI, Gemini, Anthropic, Ollama, HuggingFace
+
+### Security
+
+- [StepSecurity] applied security best practices (#7)
+
+## [0.1.4] - 2026-03-01
+
+### Added
+
 - Context-mode middleware (`mw_contextmode`) — local BM25-based compression for large tool outputs, runs before LLM summarisation to reduce cost and latency
 - `GetSecretRequest.Reason` field — carries the LLM's justification for why a secret is needed
 - Justification propagation via `toolcontext.WithJustification`/`GetJustification` context helpers
@@ -17,6 +83,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MCPCaller` interface with counterfeiter fake for unit-testing `ClientTool.Call` without a real MCP server
 - Comprehensive unit tests for MCP package: `ClientTool.Call`, `shouldIncludeTool`, `buildStdioEnv`, `expandEnvValue`
 - Arrange-Act-Assert (AAA) mandatory testing rule in `Agents.md`
+- Upgraded memory management with better vector store integration (#5)
 
 ### Changed
 
@@ -24,6 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Context-mode middleware enabled by default (`ContextModeConfig.Disabled` field; set to `true` to opt out)
 - Replaced hand-rolled test fakes with counterfeiter-generated `securityfakes.FakeSecretProvider` across `config`, `langfuse`, and `modelprovider` test suites
 - Removed redundant tests in `model_test.go` and `security_test.go`
+- Updated CODEOWNERS to change ownership to @stackgenhq/gophers
 
 ### Fixed
 
@@ -96,7 +164,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Chat UI: scroll propagation, fullscreen background, and duplicate messages
 
-[Unreleased]: https://github.com/stackgenhq/genie/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/stackgenhq/genie/compare/v0.1.6-rc.1...HEAD
+[0.1.6-rc.1]: https://github.com/stackgenhq/genie/compare/v0.1.5...v0.1.6-rc.1
+[0.1.5]: https://github.com/stackgenhq/genie/compare/v0.1.4...v0.1.5
+[0.1.4]: https://github.com/stackgenhq/genie/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/stackgenhq/genie/compare/v0.1.1...v0.1.3
 [0.1.1]: https://github.com/stackgenhq/genie/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/stackgenhq/genie/releases/tag/v0.1.0
