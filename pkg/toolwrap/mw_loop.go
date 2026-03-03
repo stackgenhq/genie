@@ -7,6 +7,8 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/tidwall/gjson"
+
 	"github.com/stackgenhq/genie/pkg/logger"
 )
 
@@ -133,7 +135,7 @@ func (m *loopDetectionMiddleware) trackEmptyResult(ctx context.Context, toolName
 	count := m.emptyStreaks[toolName]
 	m.mu.Unlock()
 
-	if count >= maxConsecutiveEmptyResults {
+	if count == maxConsecutiveEmptyResults {
 		logr := logger.GetLogger(ctx).With(
 			"fn", "LoopDetectionMiddleware",
 			"tool", toolName,
@@ -179,14 +181,14 @@ func (m *loopDetectionMiddleware) recordCall(fingerprint string) {
 }
 
 // isEmptyResult inspects a tool result to determine if it represents
-// an empty/zero-result response. Uses JSON introspection of "count"
-// and "results" fields to detect empty responses from retrieval tools.
+// an empty/zero-result response. Uses gjson to check "count", "results",
+// "found", and "path" fields in the JSON response.
 func isEmptyResult(result any) bool {
 	if result == nil {
 		return true
 	}
 
-	// JSON introspection for marshaled responses.
+	// Coerce to []byte for gjson inspection.
 	var raw []byte
 	switch v := result.(type) {
 	case json.RawMessage:
@@ -196,7 +198,6 @@ func isEmptyResult(result any) bool {
 	case string:
 		raw = []byte(v)
 	default:
-		// Marshal the result to inspect it.
 		var err error
 		raw, err = json.Marshal(result)
 		if err != nil {
@@ -204,25 +205,28 @@ func isEmptyResult(result any) bool {
 		}
 	}
 
-	var parsed map[string]json.RawMessage
-	if json.Unmarshal(raw, &parsed) != nil {
+	if !gjson.ValidBytes(raw) {
 		return false
 	}
 
-	// Check "count" field.
-	if countRaw, ok := parsed["count"]; ok {
-		var count int
-		if json.Unmarshal(countRaw, &count) == nil && count == 0 {
-			return true
-		}
+	// Check "count" field — zero means empty.
+	if c := gjson.GetBytes(raw, "count"); c.Exists() && c.Int() == 0 {
+		return true
 	}
 
-	// Check "results" field (empty array).
-	if resultsRaw, ok := parsed["results"]; ok {
-		var results []json.RawMessage
-		if json.Unmarshal(resultsRaw, &results) == nil && len(results) == 0 {
-			return true
-		}
+	// Check "results" field — empty array means empty.
+	if r := gjson.GetBytes(raw, "results"); r.Exists() && r.IsArray() && len(r.Array()) == 0 {
+		return true
+	}
+
+	// Check "found" field — false means empty (e.g. graph_get_entity).
+	if f := gjson.GetBytes(raw, "found"); f.Exists() && !f.Bool() {
+		return true
+	}
+
+	// Check "path" field — empty array means empty (e.g. graph_shortest_path).
+	if p := gjson.GetBytes(raw, "path"); p.Exists() && p.IsArray() && len(p.Array()) == 0 {
+		return true
 	}
 
 	return false
