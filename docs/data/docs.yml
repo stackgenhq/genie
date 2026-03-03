@@ -569,7 +569,7 @@ config_sections:
           - ["10", "`CircuitBreaker`", "Opt-in", "Three-state circuit (closed → open → half-open)"]
           - ["11", "`Concurrency`", "Opt-in", "Weighted semaphore limiting"]
           - ["12", "`Retry`", "Opt-in", "Exponential backoff with jitter"]
-          - ["13", "`LoopDetection`", "Always-on", "Blocks 3+ identical consecutive calls"]
+          - ["13", "`LoopDetection`", "Always-on", "Blocks identical consecutive calls and cancels sub-agents after 3 consecutive empty results from retrieval tools (memory_search, graph_*)"]
           - ["14", "`FailureLimit`", "Always-on", "Blocks tool after 3 consecutive failures"]
           - ["15", "`SemanticCache`", "Always-on", "Deduplicates idempotent calls (TTL-based)"]
           - ["16", "`Validation`", "Opt-in", "JSON schema validation on input args"]
