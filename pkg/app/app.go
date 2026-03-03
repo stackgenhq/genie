@@ -474,6 +474,7 @@ func (a *Application) Start(ctx context.Context) error {
 	fmt.Fprintf(os.Stderr, "   Messenger:         %s\n", a.msgr.Platform())
 	if a.msgr.Platform() == messenger.PlatformAGUI {
 		fmt.Fprintf(os.Stderr, "   Health check:      http://localhost:%d/health\n", aguiCfg.Port)
+		fmt.Fprintf(os.Stderr, "   Chat UI:           http://localhost:%d/ui/chat.html\n", aguiCfg.Port)
 	}
 	fmt.Fprintf(os.Stderr, "   Connection Info:   %s\n\n", a.msgr.ConnectionInfo())
 
