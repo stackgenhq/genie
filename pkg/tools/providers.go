@@ -2,12 +2,17 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"time"
 
+	"trpc.group/trpc-go/trpc-agent-go/codeexecutor"
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor/local"
+	"trpc.group/trpc-go/trpc-agent-go/skill"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	ctxtools "trpc.group/trpc-go/trpc-agent-go/tool/context"
 	"trpc.group/trpc-go/trpc-agent-go/tool/file"
+
+	skilltool "trpc.group/trpc-go/trpc-agent-go/tool/skill"
 )
 
 //go:generate go tool counterfeiter -generate
@@ -83,4 +88,34 @@ func NewPensieveToolProvider() *PensieveToolProvider {
 // GetTools returns the context management tools.
 func (p *PensieveToolProvider) GetTools() []tool.Tool {
 	return ctxtools.Tools()
+}
+
+// SkillToolProvider wraps the skill loading tools (skill_list_docs, skill_load, skill_run).
+type SkillToolProvider struct {
+	repo skill.Repository
+	exec codeexecutor.CodeExecutor
+}
+
+// NewSkillToolProvider creates a ToolProvider containing skill discovery tools.
+func NewSkillToolProvider(workingDir string, skillRoots ...string) (*SkillToolProvider, error) {
+	repo, err := skill.NewFSRepository(skillRoots...)
+	if err != nil {
+		return nil, fmt.Errorf("error creating skill repository: %w", err)
+	}
+	exec := local.New(
+		local.WithWorkDir(workingDir),
+		local.WithTimeout(10*time.Minute),
+		local.WithCleanTempFiles(true),
+	)
+	return &SkillToolProvider{repo: repo, exec: exec}, nil
+}
+
+// GetTools returns the tools needed for agents to dynamically discover and load skills.
+func (p *SkillToolProvider) GetTools() []tool.Tool {
+	return []tool.Tool{
+		skilltool.NewListDocsTool(p.repo),
+		skilltool.NewSelectDocsTool(p.repo),
+		skilltool.NewLoadTool(p.repo),
+		skilltool.NewRunTool(p.repo, p.exec),
+	}
 }

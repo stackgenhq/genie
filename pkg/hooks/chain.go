@@ -57,5 +57,17 @@ func (c *ChainHook) OnPlanExecution(ctx context.Context, event PlanExecutionEven
 	}
 }
 
+func (c *ChainHook) OnContextBudget(ctx context.Context, event ContextBudgetEvent) {
+	for _, h := range c.hooks {
+		h.OnContextBudget(ctx, event)
+	}
+}
+
+func (c *ChainHook) OnCompactionMiss(ctx context.Context, event CompactionMissEvent) {
+	for _, h := range c.hooks {
+		h.OnCompactionMiss(ctx, event)
+	}
+}
+
 // Ensure ChainHook satisfies the interface.
 var _ ExecutionHook = (*ChainHook)(nil)

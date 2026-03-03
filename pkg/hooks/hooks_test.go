@@ -2,6 +2,7 @@ package hooks_test
 
 import (
 	"context"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -11,12 +12,14 @@ import (
 // recordingHook records which events were called for test assertions.
 type recordingHook struct {
 	hooks.NoOpHook
-	iterStartCalls int
-	iterEndCalls   int
-	reflectCalls   int
-	toolValCalls   int
-	dryRunCalls    int
-	planExecCalls  int
+	iterStartCalls      int
+	iterEndCalls        int
+	reflectCalls        int
+	toolValCalls        int
+	dryRunCalls         int
+	planExecCalls       int
+	contextBudgetCalls  int
+	compactionMissCalls int
 }
 
 func (r *recordingHook) OnIterationStart(_ context.Context, _ hooks.IterationStartEvent) {
@@ -37,10 +40,16 @@ func (r *recordingHook) OnDryRun(_ context.Context, _ hooks.DryRunEvent) {
 func (r *recordingHook) OnPlanExecution(_ context.Context, _ hooks.PlanExecutionEvent) {
 	r.planExecCalls++
 }
+func (r *recordingHook) OnContextBudget(_ context.Context, _ hooks.ContextBudgetEvent) {
+	r.contextBudgetCalls++
+}
+func (r *recordingHook) OnCompactionMiss(_ context.Context, _ hooks.CompactionMissEvent) {
+	r.compactionMissCalls++
+}
 
 var _ = Describe("Hooks", func() {
 	Describe("NoOpHook", func() {
-		It("should not panic on any method", func(ctx context.Context) {
+		It("should not panic on any method including OnContextBudget and OnCompactionMiss", func(ctx context.Context) {
 			noop := hooks.NoOpHook{}
 			noop.OnIterationStart(ctx, hooks.IterationStartEvent{})
 			noop.OnIterationEnd(ctx, hooks.IterationEndEvent{})
@@ -48,6 +57,8 @@ var _ = Describe("Hooks", func() {
 			noop.OnToolValidation(ctx, hooks.ToolValidationEvent{})
 			noop.OnDryRun(ctx, hooks.DryRunEvent{})
 			noop.OnPlanExecution(ctx, hooks.PlanExecutionEvent{})
+			noop.OnContextBudget(ctx, hooks.ContextBudgetEvent{})
+			noop.OnCompactionMiss(ctx, hooks.CompactionMissEvent{})
 		})
 	})
 
@@ -64,6 +75,8 @@ var _ = Describe("Hooks", func() {
 				chain.OnToolValidation(ctx, hooks.ToolValidationEvent{ToolName: "read_file"})
 				chain.OnDryRun(ctx, hooks.DryRunEvent{PlannedSteps: 3})
 				chain.OnPlanExecution(ctx, hooks.PlanExecutionEvent{Flow: "sequence"})
+				chain.OnContextBudget(ctx, hooks.ContextBudgetEvent{TotalTokens: 5000})
+				chain.OnCompactionMiss(ctx, hooks.CompactionMissEvent{ToolName: "read_file"})
 
 				for _, h := range []*recordingHook{h1, h2} {
 					Expect(h.iterStartCalls).To(Equal(1))
@@ -72,6 +85,8 @@ var _ = Describe("Hooks", func() {
 					Expect(h.toolValCalls).To(Equal(1))
 					Expect(h.dryRunCalls).To(Equal(1))
 					Expect(h.planExecCalls).To(Equal(1))
+					Expect(h.contextBudgetCalls).To(Equal(1))
+					Expect(h.compactionMissCalls).To(Equal(1))
 				}
 			})
 		})
@@ -91,6 +106,8 @@ var _ = Describe("Hooks", func() {
 				chain := hooks.NewChainHook()
 				chain.OnIterationStart(ctx, hooks.IterationStartEvent{})
 				chain.OnIterationEnd(ctx, hooks.IterationEndEvent{})
+				chain.OnContextBudget(ctx, hooks.ContextBudgetEvent{})
+				chain.OnCompactionMiss(ctx, hooks.CompactionMissEvent{})
 			})
 		})
 	})
@@ -117,6 +134,101 @@ var _ = Describe("Hooks", func() {
 			}
 			Expect(endEvent.Status).To(Equal("failure"))
 			Expect(endEvent.ToolCallCounts["shell"]).To(Equal(3))
+		})
+	})
+
+	Describe("EstimatePersonaTokens", func() {
+		It("returns roughly len/4 for a non-empty string", func() {
+			// Arrange
+			text := strings.Repeat("a", 100)
+
+			// Act
+			tokens := hooks.EstimatePersonaTokens(text)
+
+			// Assert
+			Expect(tokens).To(Equal(25))
+		})
+
+		It("returns 0 for an empty string", func() {
+			Expect(hooks.EstimatePersonaTokens("")).To(Equal(0))
+		})
+	})
+
+	Describe("EstimateToolSchemaTokens", func() {
+		It("sums name and description lengths then divides by 4", func() {
+			// Arrange — two tools with 8-char names and 12-char descriptions
+			names := []string{"read_fil", "run_shel"}
+			descs := []string{"reads a file", "runs a shell"}
+
+			// Act
+			tokens := hooks.EstimateToolSchemaTokens(names, descs)
+
+			// Assert — total chars = 8+12 + 8+12 = 40 → 40/4 = 10
+			Expect(tokens).To(Equal(10))
+		})
+
+		It("handles more names than descriptions gracefully", func() {
+			// Arrange — 2 names but only 1 description
+			names := []string{"tool_a", "tool_b"}
+			descs := []string{"description_a"}
+
+			// Act
+			tokens := hooks.EstimateToolSchemaTokens(names, descs)
+
+			// Assert — 6+13 + 6 = 25 → 25/4 = 6
+			Expect(tokens).To(Equal(6))
+		})
+
+		It("returns 0 for empty slices", func() {
+			Expect(hooks.EstimateToolSchemaTokens(nil, nil)).To(Equal(0))
+		})
+	})
+
+	Describe("EstimateHistoryTokens", func() {
+		It("returns roughly len/4 for a non-empty prompt", func() {
+			prompt := strings.Repeat("x", 200)
+			Expect(hooks.EstimateHistoryTokens(prompt)).To(Equal(50))
+		})
+
+		It("returns 0 for an empty prompt", func() {
+			Expect(hooks.EstimateHistoryTokens("")).To(Equal(0))
+		})
+	})
+
+	Describe("NewContextBudgetEvent", func() {
+		It("populates all fields correctly", func() {
+			// Arrange
+			persona := 100
+			tools := 200
+			history := 300
+
+			// Act
+			event := hooks.NewContextBudgetEvent(persona, tools, history)
+
+			// Assert
+			Expect(event.PersonaTokens).To(Equal(100))
+			Expect(event.ToolSchemaTokens).To(Equal(200))
+			Expect(event.HistoryTokens).To(Equal(300))
+			Expect(event.TotalTokens).To(Equal(600))
+			Expect(event.MaxTokens).To(Equal(128_000))
+			Expect(event.UtilizationPct).To(BeNumerically("~", 600.0/128_000.0, 1e-9))
+		})
+	})
+
+	Describe("IsOverBudget", func() {
+		It("returns true when utilization exceeds 85%", func() {
+			event := hooks.ContextBudgetEvent{UtilizationPct: 0.90}
+			Expect(event.IsOverBudget()).To(BeTrue())
+		})
+
+		It("returns false when utilization is at exactly 85%", func() {
+			event := hooks.ContextBudgetEvent{UtilizationPct: 0.85}
+			Expect(event.IsOverBudget()).To(BeFalse())
+		})
+
+		It("returns false when utilization is below 85%", func() {
+			event := hooks.ContextBudgetEvent{UtilizationPct: 0.50}
+			Expect(event.IsOverBudget()).To(BeFalse())
 		})
 	})
 })

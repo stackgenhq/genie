@@ -420,7 +420,8 @@ func EchoCheckModel(ctx context.Context, m model.Model) error {
 	req := &model.Request{
 		Messages: []model.Message{model.NewUserMessage(echoCheckPrompt)},
 		GenerationConfig: model.GenerationConfig{
-			Stream: true,
+			Stream:    true,
+			MaxTokens: model.IntPtr(100),
 		},
 	}
 	ch, err := m.GenerateContent(ctx, req)
