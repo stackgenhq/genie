@@ -11,6 +11,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stackgenhq/genie/pkg/clarify"
+	"github.com/stackgenhq/genie/pkg/config"
 	geniedb "github.com/stackgenhq/genie/pkg/db"
 	"github.com/stackgenhq/genie/pkg/hitl"
 	"github.com/stackgenhq/genie/pkg/hitl/hitlfakes"
@@ -279,25 +280,59 @@ var _ = Describe("truncateForLog", func() {
 })
 
 var _ = Describe("loadAgentsGuide", func() {
-	It("should return contents when Agents.md exists", func() {
+	It("should load from custom persona file (relative path)", func() {
 		tmpDir := GinkgoT().TempDir()
-		content := "# Coding Standards\n\nFollow these rules."
-		err := os.WriteFile(filepath.Join(tmpDir, "Agents.md"), []byte(content), 0644)
+		content := "# Custom Standards"
+		err := os.WriteFile(filepath.Join(tmpDir, "STANDARDS.md"), []byte(content), 0644)
 		Expect(err).NotTo(HaveOccurred())
+		a := &Application{
+			cfg: config.GenieConfig{
+				PersonaFile: "STANDARDS.md",
+			},
+			workingDir: tmpDir,
+		}
 
-		result := loadAgentsGuide(tmpDir)
+		result := a.persona()
 		Expect(result).To(Equal(content))
 	})
 
-	It("should return empty string when Agents.md does not exist", func() {
+	It("should load from custom persona file (absolute path)", func() {
 		tmpDir := GinkgoT().TempDir()
-		result := loadAgentsGuide(tmpDir)
+		content := "# Absolute Custom Standards"
+		absPath := filepath.Join(tmpDir, "custom.md")
+		err := os.WriteFile(absPath, []byte(content), 0644)
+		Expect(err).NotTo(HaveOccurred())
+		a := &Application{
+			cfg: config.GenieConfig{
+				PersonaFile: absPath,
+			},
+		}
+
+		result := a.persona()
+		Expect(result).To(Equal(content))
+	})
+
+	It("should return empty string when custom persona file does not exist", func() {
+		a := &Application{}
+		result := a.persona()
 		Expect(result).To(BeEmpty())
 	})
 
-	It("should return empty string when directory is empty", func() {
-		result := loadAgentsGuide("")
-		Expect(result).To(BeEmpty())
+	It("should prefer persona file over Agents.md when both exist", func() {
+		tmpDir := GinkgoT().TempDir()
+		app := Application{
+			cfg: config.GenieConfig{
+				PersonaFile: "custom.md",
+			},
+			workingDir: tmpDir,
+		}
+		err := os.WriteFile(filepath.Join(tmpDir, "Agents.md"), []byte("agents content"), 0644)
+		Expect(err).NotTo(HaveOccurred())
+		err = os.WriteFile(filepath.Join(tmpDir, "custom.md"), []byte("custom content"), 0644)
+		Expect(err).NotTo(HaveOccurred())
+
+		result := app.persona()
+		Expect(result).To(Equal("custom content"))
 	})
 })
 

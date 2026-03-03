@@ -38,6 +38,11 @@ type GenieConfig struct {
 	// personality and is used for the default audit log path
 	// (~/.genie/{agent_name}.<yyyy_mm_dd>.ndjson).
 	AgentName string `yaml:"agent_name,omitempty" toml:"agent_name,omitempty"`
+	// PersonaFile is an optional path to a file whose contents are appended
+	// to the agent's system prompt as project-level coding standards.
+	// When empty, the agent falls back to loading Agents.md (case-insensitive)
+	// from the working directory.
+	PersonaFile string `yaml:"persona_file,omitempty" toml:"persona_file,omitempty"`
 	// AuditPath overrides the default audit log path. When set, the auditor
 	// writes to this single file (no date rotation). Used for tests or custom paths.
 	AuditPath    string                    `yaml:"audit_path,omitempty" toml:"audit_path,omitempty"`
