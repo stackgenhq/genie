@@ -826,7 +826,7 @@ func (s *Server) handleInjectFeedback(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"success"}`))
+	_, _ = w.Write([]byte(`{"status":"success"}`))
 }
 
 // corsMiddleware adds CORS headers for browser access.

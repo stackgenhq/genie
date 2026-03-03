@@ -37,13 +37,13 @@ config_sections:
       Configure Genie's identity and persona. The <code>agent_name</code> gives your agent a personality,
       controls the default audit log path (<code>~/.genie/{agent_name}.&lt;yyyy_mm_dd&gt;.ndjson</code>),
       and is displayed in the chat UI header and <code>/health</code> endpoint.<br><br>
-      Optionally load project-level coding standards from a custom file with <code>persona_file</code>.
-      By default, Genie looks for <code>Agents.md</code> in the working directory.
+      Optionally load project-level coding standards from a custom file with <code>persona_file</code>. If
+      <code>persona_file</code> is not set, no additional persona or coding-standards file is loaded.
     tables:
       - columns: [Key, Type, Default, Description]
         rows:
           - ["agent_name", "string", "`Genie`", "Name of your agent. Set during `genie setup`; gives the agent a personality and controls the default audit log path. Displayed in the chat UI and `/health` endpoint."]
-          - ["persona_file", "string", "—", "Optional path to a file whose contents are appended to the agent's system prompt as project-level coding standards. Supports absolute paths or paths relative to the working directory. Default behavior loads `Agents.md` if present."]
+          - ["persona_file", "string", "—", "Optional path to a file whose contents are appended to the agent's system prompt as project-level coding standards. Supports absolute paths or paths relative to the working directory. If not set, no persona file is loaded by default."]
     code_example:
       label: Example TOML
       code: |
@@ -1346,7 +1346,7 @@ architecture:
       - ["`POST`", "`/`", "AG-UI run endpoint — accepts `RunAgentInput`, streams SSE events"]
       - ["`POST`", "`/approve`", "HITL approval — resolve a pending tool call (approved/rejected)"]
       - ["`POST`", "`/api/v1/events`", "Event gateway — accepts webhook/heartbeat/cron events for background processing"]
-      - ["`POST`", "`/api/v1/inject`", "Mid-run feedback — inject a user message into the agent's working memory while it is processing. Body: `{ thread_id, message }`."]
+      - ["`POST`", "`/api/v1/inject`", "Mid-run feedback — inject a user message into the agent's working memory while it is processing. Body: `{ threadId, message }`."]
       - ["`GET`", "`/api/v1/resume`", "Returns the agent's natural-language capability resume"]
       - ["`GET`", "`/api/v1/capabilities`", "Returns the current AI stance: <code>tool_names</code>, <code>always_allowed</code>, <code>denied_tools</code> (JSON). The chat UI uses this to show a collapsible “What Genie can do” panel."]
       - ["`GET`", "`/health`", "Health check — returns JSON with status, uptime, started_at, version, build_date, agent_name, and (when authenticated) user"]
