@@ -1218,9 +1218,9 @@ architecture:
       │ (SSE)   │◀── events ───│  Messenger Adapter      │◀────────│  pkg/codeowner  │◀───────│  pkg/reactree     │
       └─────────┘              │  pkg/messenger/agui     │ events  │                │ result │                    │
       ┌─────────┐              │  pkg/messenger/slack    │         │  • Classify    │        │  • Sequence        │
-      │  Slack  │◀─ Socket ──▶│  pkg/messenger/whatsapp │         │  • Memory      │        │  • Fallback        │
-      │  Teams  │  Mode/API   │  pkg/messenger/discord  │         │  • ReAcTree    │        │  • Parallel        │
-      │WhatsApp │              │  pkg/messenger/teams    │         │  • Agents.md   │        │  • Adaptive loop   │
+      │  Slack  │◀─ Socket ──▶│  pkg/messenger/whatsapp │          │  • Memory      │        │  • Fallback        │
+      │  Teams  │  Mode/API   │  pkg/messenger/discord  │          │  • ReAcTree    │        │  • Parallel        │
+      │WhatsApp │              │  pkg/messenger/teams    │         │  • Persona.md   │        │  • Adaptive loop   │
       │  etc.   │              │  ...                    │         │                │        │                    │
       └─────────┘              └─────────────────────────┘         └────────────────┘        └──────────────────┘
 

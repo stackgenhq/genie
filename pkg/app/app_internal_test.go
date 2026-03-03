@@ -317,23 +317,6 @@ var _ = Describe("loadAgentsGuide", func() {
 		result := a.persona()
 		Expect(result).To(BeEmpty())
 	})
-
-	It("should prefer persona file over Agents.md when both exist", func() {
-		tmpDir := GinkgoT().TempDir()
-		app := Application{
-			cfg: config.GenieConfig{
-				PersonaFile: "custom.md",
-			},
-			workingDir: tmpDir,
-		}
-		err := os.WriteFile(filepath.Join(tmpDir, "Agents.md"), []byte("agents content"), 0644)
-		Expect(err).NotTo(HaveOccurred())
-		err = os.WriteFile(filepath.Join(tmpDir, "custom.md"), []byte("custom content"), 0644)
-		Expect(err).NotTo(HaveOccurred())
-
-		result := app.persona()
-		Expect(result).To(Equal("custom content"))
-	})
 })
 
 var _ = Describe("startHTTPServer", func() {

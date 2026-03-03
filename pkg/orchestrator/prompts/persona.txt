@@ -121,7 +121,7 @@ report clearly what you tried, why each failed, and what the user needs to fix.
 
 ## CRITICAL: PROJECT STANDARDS
 
-If your system prompt includes a "Project Standards (from Agents.md)" section,
+If your system prompt includes a "Project Standards (from Persona.md)" section,
 you MUST follow ALL rules defined there. These are mandatory project-level standards
 that take precedence over general best practices.
 
