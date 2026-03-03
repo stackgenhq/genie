@@ -11,6 +11,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/stackgenhq/genie/pkg/hooks"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/tidwall/gjson"
 )
@@ -175,6 +176,10 @@ func (m *contextModeMiddleware) Wrap(next Handler) Handler {
 			"chunks_total", len(chunks),
 			"compression_ratio", fmt.Sprintf("%.1f%%", float64(len(compressed))/float64(len(responseStr))*100),
 		)
+
+		if tracker, ok := ctx.Value(hooks.CompactionTrackerKey).(hooks.CompactionTracker); ok {
+			tracker.MarkCompressed(tc.ToolName, len(responseStr), len(compressed))
+		}
 
 		return compressed, nil
 	}
@@ -445,7 +450,6 @@ func (chunks chunkedStrings) scoreChunks(queryTerms []string) scoredChunks {
 	// and end of the document so that output headers and trailing
 	// summaries ("no resources found", status lines) are preserved.
 	scored := make([]scoredChunk, n)
-	nf := float64(n)
 	for i, chunk := range chunks {
 		lowerChunk := lowerChunks[i]
 		chunkLen := float64(len(chunk))
@@ -469,12 +473,17 @@ func (chunks chunkedStrings) scoreChunks(queryTerms []string) scoredChunks {
 		}
 
 		// Positional bias: boost first and last 10% of chunks.
+		// Use index-based window (normalized against n-1) so the very
+		// last chunk always receives the maximum tail boost.
+		lastIdx := float64(n - 1)
+		headWindow := math.Ceil(0.1 * float64(n))
+		tailStart := float64(n) - math.Ceil(0.1*float64(n))
 		pos := float64(i)
-		if pos < nf*0.1 {
-			score += 0.1 * (1 - pos/(nf*0.1)) // decays from 0.1→0
+		if pos < headWindow {
+			score += 0.1 * (1 - pos/headWindow) // decays from 0.1→0
 		}
-		if pos > nf*0.9 {
-			score += 0.1 * ((pos - nf*0.9) / (nf * 0.1)) // grows 0→0.1
+		if lastIdx > 0 && pos >= tailStart {
+			score += 0.1 * ((pos - tailStart) / (lastIdx - tailStart + 1)) // grows 0→0.1
 		}
 
 		scored[i] = scoredChunk{

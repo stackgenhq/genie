@@ -26,16 +26,22 @@ const maxConsecutiveEmptyResults = 3
 // tool that triggers a hard block.
 const maxConsecutiveToolFailures = 3
 
-// RetrievalTools lists tool names that are retrieval-only. Used by:
+// retrievalTools lists tool names that are retrieval-only. Used by:
 //   - Loop detection: tracks consecutive empty results for these tools
 //   - create_agent: decides if a sub-agent can be skipped when store is empty
 //
 // Keep this as the single source of truth for retrieval tool classification.
-var RetrievalTools = map[string]bool{
+var retrievalTools = map[string]bool{
 	"memory_search":       true,
 	"graph_query":         true,
 	"graph_get_entity":    true,
 	"graph_shortest_path": true,
+}
+
+// IsRetrievalTool reports whether the given tool name is classified as a
+// retrieval-only tool (memory_search, graph_query, etc.).
+func IsRetrievalTool(name string) bool {
+	return retrievalTools[name]
 }
 
 // --- Loop Detection ---
@@ -105,7 +111,7 @@ func (m *loopDetectionMiddleware) Wrap(next Handler) Handler {
 		// Track consecutive empty results for retrieval tools.
 		// This catches agents that rephrase queries but always get empty
 		// results because the backing store has no relevant data.
-		if RetrievalTools[tc.ToolName] {
+		if retrievalTools[tc.ToolName] {
 			m.trackEmptyResult(ctx, tc.ToolName, result)
 		}
 
@@ -173,21 +179,14 @@ func (m *loopDetectionMiddleware) recordCall(fingerprint string) {
 }
 
 // isEmptyResult inspects a tool result to determine if it represents
-// an empty/zero-result response. It supports typed responses via a
-// GetCount() int interface and, for other values, JSON introspection
-// of "count" and "results" fields.
+// an empty/zero-result response. Uses JSON introspection of "count"
+// and "results" fields to detect empty responses from retrieval tools.
 func isEmptyResult(result any) bool {
 	if result == nil {
 		return true
 	}
 
-	// Try typed struct with Count field (e.g. MemorySearchResponse).
-	type hasCount interface{ GetCount() int }
-	if c, ok := result.(hasCount); ok {
-		return c.GetCount() == 0
-	}
-
-	// Fall back to JSON introspection for marshaled responses.
+	// JSON introspection for marshaled responses.
 	var raw []byte
 	switch v := result.(type) {
 	case json.RawMessage:

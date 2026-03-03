@@ -52,7 +52,6 @@ import (
 	"github.com/stackgenhq/genie/pkg/report/activityreport"
 
 	"github.com/stackgenhq/genie/pkg/security"
-	"github.com/stackgenhq/genie/pkg/skills"
 	"github.com/stackgenhq/genie/pkg/tools"
 	"github.com/stackgenhq/genie/pkg/tools/codeskim"
 	"github.com/stackgenhq/genie/pkg/tools/datetime"
@@ -80,7 +79,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"gorm.io/gorm"
-	"trpc.group/trpc-go/trpc-agent-go/skill"
 )
 
 // Application orchestrates the Genie lifecycle. Create one with
@@ -731,13 +729,11 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 
 	// --- Skills ---
 	if len(a.cfg.SkillsRoots) != 0 {
-		repo, err := skill.NewFSRepository(a.cfg.SkillsRoots...)
+		stp, err := tools.NewSkillToolProvider(a.workingDir, a.cfg.SkillsRoots...)
 		if err != nil {
 			log.Warn("failed to initialize skills repository", "error", err)
-		}
-		if repo != nil {
-			executor := skills.NewLocalExecutor(a.workingDir)
-			providers = append(providers, skills.NewToolProvider(repo, executor))
+		} else {
+			providers = append(providers, stp)
 			log.Info("Skills tool provider added")
 		}
 	}

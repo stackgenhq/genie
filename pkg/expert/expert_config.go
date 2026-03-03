@@ -13,15 +13,18 @@ type ExpertConfig struct {
 	DisableParallelTools bool
 	// ReasoningContentMode
 	ReasoningContentMode string
+	// PersonaTokenThreshold is the warning limit for the system prompt size (default: 2000)
+	PersonaTokenThreshold int
 }
 
 // DefaultExpertConfig returns sensible defaults for token optimization.
 // These settings balance cost efficiency with agent capability for typical IaC generation tasks.
 func DefaultExpertConfig() ExpertConfig {
 	return ExpertConfig{
-		MaxLLMCalls:       15,
-		MaxToolIterations: 20,
-		MaxHistoryRuns:    3,
+		MaxLLMCalls:           15,
+		MaxToolIterations:     20,
+		MaxHistoryRuns:        3,
+		PersonaTokenThreshold: 2000,
 	}
 }
 
@@ -29,9 +32,10 @@ func DefaultExpertConfig() ExpertConfig {
 // Use this for architectures with many components or complex dependencies.
 func HighPerformanceConfig() ExpertConfig {
 	return ExpertConfig{
-		MaxLLMCalls:       25,
-		MaxToolIterations: 20,
-		MaxHistoryRuns:    8,
+		MaxLLMCalls:           25,
+		MaxToolIterations:     20,
+		MaxHistoryRuns:        8,
+		PersonaTokenThreshold: 3000,
 	}
 }
 
@@ -39,8 +43,9 @@ func HighPerformanceConfig() ExpertConfig {
 // Use this for simple tasks or when cost is the primary concern.
 func CostOptimizedConfig() ExpertConfig {
 	return ExpertConfig{
-		MaxLLMCalls:       8,
-		MaxToolIterations: 6,
-		MaxHistoryRuns:    3,
+		MaxLLMCalls:           8,
+		MaxToolIterations:     6,
+		MaxHistoryRuns:        3,
+		PersonaTokenThreshold: 1000,
 	}
 }

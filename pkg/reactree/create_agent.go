@@ -99,16 +99,22 @@ func (req CreateAgentRequest) clampedMaxLLMCalls() int {
 
 // resolveStatus determines the final status and output string for a
 // sub-agent run based on whether it timed out, produced errors, or
-// returned results. Without this, every caller of executeInner would
-// duplicate the same branching logic for timeout/error annotation.
-func (req CreateAgentRequest) resolveStatus(timedOut bool, lastErr, result string) (status, output string) {
+// returned results. The partialToolResults parameter carries content
+// captured from tool result events during the run — when the sub-agent
+// errors without producing a final response, these partial findings are
+// included so the parent agent can still use what was learned.
+// Without this, every caller of executeInner would duplicate the same
+// branching logic for timeout/error annotation.
+func (req CreateAgentRequest) resolveStatus(timedOut bool, lastErr, result, partialToolResults string) (status, output string) {
 	output = result
 	status = "success"
 
 	if timedOut {
 		status = "partial"
 		prefix := fmt.Sprintf("[TIME LIMIT REACHED] The sub-agent %q ran out of time. Here is what was found before the deadline:\n\n", req.AgentName)
-		if output == "" {
+		if output == "" && partialToolResults != "" {
+			output = prefix + partialToolResults
+		} else if output == "" {
 			output = prefix + "No output was captured before the deadline. The sub-agent may have been waiting for external calls (web_search, http_request) to complete."
 		} else {
 			output = prefix + output
@@ -117,8 +123,15 @@ func (req CreateAgentRequest) resolveStatus(timedOut bool, lastErr, result strin
 	}
 
 	if lastErr != "" && output == "" {
-		status = "error"
-		output = fmt.Sprintf("sub-agent error: %s", lastErr)
+		if partialToolResults != "" {
+			status = "partial"
+			output = fmt.Sprintf("[BUDGET EXCEEDED] The sub-agent %q ran out of LLM calls. "+
+				"Here is what it learned before the limit:\n\n%s\n\nError: %s",
+				req.AgentName, partialToolResults, lastErr)
+		} else {
+			status = "error"
+			output = fmt.Sprintf("sub-agent error: %s", lastErr)
+		}
 	}
 	return status, output
 }
@@ -399,7 +412,12 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 
 	// Collect response — accumulate partial output even if errors occur.
 	// On context deadline, we keep whatever was gathered instead of losing it.
+	// Additionally capture tool result content so that if the sub-agent
+	// errors (e.g. budget exceeded) without a final LLM response, the
+	// parent agent still receives the knowledge gathered by tool calls.
 	var sb strings.Builder
+	var toolResultsSB strings.Builder
+	const maxToolResultsLen = 4000
 	var lastErr string
 	timedOut := false
 	for ev := range evCh {
@@ -414,6 +432,15 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 			for _, choice := range ev.Choices {
 				if choice.Message.Role == model.RoleAssistant && choice.Message.Content != "" {
 					sb.WriteString(choice.Message.Content)
+				}
+				// Capture tool result content as partial findings.
+				// Tool results carry the actual data (file contents, search
+				// results, etc.) that the sub-agent gathered. When the sub-agent
+				// exhausts its budget before producing a final summary, these
+				// results are the only record of what was learned.
+				if choice.Message.ToolID != "" && choice.Message.Content != "" && toolResultsSB.Len() < maxToolResultsLen {
+					toolResultsSB.WriteString(choice.Message.Content)
+					toolResultsSB.WriteString("\n---\n")
 				}
 			}
 		}
@@ -454,7 +481,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	logr.Info("sub-agent execution completed",
 		"output_length", len(result), "timed_out", timedOut, "had_error", lastErr != "")
 
-	status, result := req.resolveStatus(timedOut, lastErr, result)
+	status, result := req.resolveStatus(timedOut, lastErr, result, toolResultsSB.String())
 
 	// Store sub-agent result in working memory so the parent can retrieve
 	// it via memory_search and compose a single user-facing message.
@@ -627,7 +654,7 @@ var vectorBackedTools = map[string]bool{
 }
 
 // isRetrievalOnly returns true when every tool in the registry is a
-// retrieval-only tool (per toolwrap.RetrievalTools). Sub-agents with only
+// retrieval-only tool (per toolwrap.IsRetrievalTool). Sub-agents with only
 // these tools are candidates for the empty-memory guard.
 func (t *createAgentTool) isRetrievalOnly(registry *tools.Registry) bool {
 	names := registry.ToolNames()
@@ -635,7 +662,7 @@ func (t *createAgentTool) isRetrievalOnly(registry *tools.Registry) bool {
 		return false
 	}
 	for _, name := range names {
-		if !toolwrap.RetrievalTools[name] {
+		if !toolwrap.IsRetrievalTool(name) {
 			return false
 		}
 	}
@@ -654,12 +681,15 @@ func (t *createAgentTool) hasVectorBackedTools(registry *tools.Registry) bool {
 	return false
 }
 
-// isMemoryEmpty probes the vector store with a broad search to check if
-// it contains any documents. Returns true if the store is nil or returns
-// zero results. Uses Search("", 1) as a lightweight probe — the empty
-// query matches any document, so a 0-result response means the store is
-// truly empty. Without this check, retrieval-only sub-agents would burn
-// their entire LLM call budget rephrasing fruitless queries.
+// isMemoryEmpty probes the vector store with a lightweight search to check
+// whether it likely contains any documents. Returns true if the store is
+// nil or if a best-effort probe returns zero results. Uses Search("", 1)
+// as a cheap heuristic: the empty query is still embedded and run through
+// vector similarity search, so it does not semantically "match any"
+// document, but in practice a non-empty store should usually return at
+// least one nearest neighbor. Without this check, retrieval-only
+// sub-agents would burn their entire LLM call budget rephrasing
+// fruitless queries when the store appears empty.
 func (t *createAgentTool) isMemoryEmpty(ctx context.Context) bool {
 	if t.vectorStore == nil {
 		return true
