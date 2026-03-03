@@ -151,5 +151,5 @@ persistence_dir = "~/.genie/vector_store"
 # Browser-based chat interface served over HTTP/SSE.
 # The server runs in the foreground when `genie grant` is invoked.
 [messenger.agui]
-port = 8080
+port = 9876
 cors_origins = ["https://stackgenhq.github.io"]

@@ -9,6 +9,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/agui"
 	"github.com/stackgenhq/genie/pkg/hooks"
 	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"trpc.group/trpc-go/trpc-agent-go/agent"
@@ -363,13 +364,14 @@ func (t *tree) ensureUserFeedback(ctx context.Context, ls *loopState) {
 		return
 	}
 
+	sender := orchestratorcontext.AgentNameFromContext(ctx)
 	switch {
 	case ls.lastOutput != "":
-		agui.EmitAgentMessage(ctx, "genie", ls.lastOutput)
+		agui.EmitAgentMessage(ctx, sender, ls.lastOutput)
 	case ls.contextBuffer.Len() > 0:
-		agui.EmitAgentMessage(ctx, "genie", "I ran into issues but found this:\n\n"+ls.contextBuffer.String())
+		agui.EmitAgentMessage(ctx, sender, "I ran into issues but found this:\n\n"+ls.contextBuffer.String())
 	default:
-		agui.EmitAgentMessage(ctx, "genie", "I encountered an issue and couldn't complete this request.")
+		agui.EmitAgentMessage(ctx, sender, "I encountered an issue and couldn't complete this request.")
 	}
 }
 

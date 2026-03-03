@@ -23,5 +23,5 @@ good_for_task = "planning"
 always_allowed = ["youtube_transcript"]
 
 [messenger.agui]
-port = 8080
+port = 9876
 cors_origins = ["https://stackgenhq.github.io"]

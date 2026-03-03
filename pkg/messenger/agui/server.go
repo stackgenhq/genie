@@ -22,6 +22,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/hitl"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 	"github.com/stackgenhq/genie/pkg/security/keyring"
 	"github.com/stackgenhq/genie/pkg/tools/google/oauth"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
@@ -265,6 +266,10 @@ type Server struct {
 	// startedAt is when the server was created; used for /health uptime and started_at.
 	startedAt time.Time
 
+	// agentName is the configured agent name, exposed via /health so the chat
+	// UI can dynamically display it instead of hardcoding "Genie".
+	agentName string
+
 	// passwordProtected, when true, requires the X-AGUI-Password header to match the value stored in keyring (per agent).
 	passwordProtected bool
 
@@ -287,8 +292,12 @@ func NewServer(
 	bgWorker *BackgroundWorker,
 	capabilities *CapabilitiesStance,
 	approveList *toolwrap.ApproveList,
+	agentName string,
 	workers ...aguitypes.BGWorker,
 ) *Server {
+	if agentName == "" {
+		agentName = "Genie"
+	}
 	s := &Server{
 		chatHandler:       handler,
 		port:              c.Port,
@@ -302,6 +311,7 @@ func NewServer(
 		clarifyStore:      clarifyStore,
 		capabilities:      capabilities,
 		startedAt:         time.Now(),
+		agentName:         agentName,
 		passwordProtected: c.PasswordProtected,
 	}
 
@@ -462,6 +472,7 @@ func (s *Server) Handler() http.Handler {
 			"started_at": s.startedAt.Format(time.RFC3339),
 			"version":    config.Version,
 			"build_date": config.BuildDate,
+			"agent_name": s.agentName,
 		}
 		if name, _ := oauth.GetStoredUserInfo(); name != "" {
 			payload["user"] = name
@@ -674,6 +685,12 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		Channel:  messenger.Channel{ID: input.ThreadID},
 		Sender:   messenger.Sender{ID: "agui-user"},
 	})
+
+	// Inject the configured agent name so downstream code (e.g.
+	// server_expert.Handle RUN_STARTED, EmitAgentMessage) sees it.
+	if s.agentName != "" {
+		ctx = orchestratorcontext.WithAgent(ctx, orchestratorcontext.Agent{Name: s.agentName})
+	}
 
 	// Create event channel for this request
 	eventChan := make(chan interface{}, 100)

@@ -72,7 +72,7 @@ config_sections:
     tables:
       - columns: [Key, Type, Default, Description]
         rows:
-          - ["port", "int", "`8080`", "Port to listen on"]
+          - ["port", "int", "`9876`", "Port to listen on"]
           - ["cors_origins", "string[]", '`["https://stackgenhq.github.io"]`', "Allowed CORS origins for the web UI"]
           - ["rate_limit", "float", "`0.5`", "Requests per second limit per IP"]
           - ["rate_burst", "int", "`3`", "Burst request allowance"]
@@ -1099,7 +1099,7 @@ howto_guides:
 
       [messenger.googlechat]
       credentials_file = "/path/to/service-account.json"
-      listen_addr = ":8080"              # webhook endpoint
+      listen_addr = ":9876"              # webhook endpoint
 
       # Genie sends HITL approvals as Cards v2 with headers,
       # code-formatted arguments, and instructional footers.

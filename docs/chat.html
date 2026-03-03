@@ -13,7 +13,8 @@
     <meta name="theme-color" content="#8247E7">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Genie">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.tailwindcss.com 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' http: https:; frame-ancestors 'none'; base-uri 'self';">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' https://cdn.tailwindcss.com 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' http: https:; frame-ancestors 'none'; base-uri 'self';">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
@@ -55,167 +56,197 @@
         <div class="chat-layout">
             <div id="chat-container" class="chat-container">
 
-            <!-- Chat Header -->
-            <div class="flex items-center justify-between px-6 py-3 border-b border-gray-100 bg-white/80 backdrop-blur-sm chat-header"
-                style="padding-top: max(0.75rem, env(safe-area-inset-top))">
-                <div class="flex items-center gap-3 min-w-0 flex-shrink-0">
-                    <button class="sidebar-toggle" onclick="genie.toggleSidebar()" title="Chat history" aria-label="Chat history">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2" stroke-linecap="round">
-                            <line x1="3" y1="6" x2="21" y2="6" />
-                            <line x1="3" y1="12" x2="21" y2="12" />
-                            <line x1="3" y1="18" x2="21" y2="18" />
-                        </svg>
-                    </button>
-                    <div
-                        class="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-500 to-purple-900 flex items-center justify-center text-lg flex-shrink-0">
-                        🧞
-                    </div>
-                    <div class="min-w-0">
-                        <h1 class="text-sm font-semibold text-gray-900 truncate">Genie Chat</h1>
-                        <p class="text-xs text-gray-400 truncate">AG-UI HTTP/SSE • Stackgen</p>
-                    </div>
-                </div>
-                <div id="chat-header-actions" class="chat-header-actions flex items-center gap-2 flex-shrink-0">
-                    <button id="btn-summarize" onclick="genie.summarizeChat()" class="btn-secondary text-xs"
-                        title="Summarize conversation" aria-label="Summarize" disabled>📝 Summarize</button>
-                    <button id="btn-export" onclick="genie.exportChat()" class="btn-secondary text-xs"
-                        title="Export conversation" aria-label="Export" disabled>⬇️ Export</button>
-                    <button id="btn-new-chat" onclick="genie.startNewChat()" class="btn-secondary text-xs"
-                        title="Start new chat" aria-label="New chat" disabled>➕ New Chat</button>
-                    <button id="fullscreen-btn" class="btn-secondary text-xs" onclick="genie.toggleFullscreen()" title="Fullscreen" aria-label="Toggle fullscreen">⛶ Fullscreen</button>
-                    <div id="connection-badge" class="connection-badge disconnected">
-                        <span class="connection-dot"></span>
-                        <span id="connection-label">Not connected</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Notification prompt: ask for permission when connected (shown only if not yet granted/dismissed) -->
-            <div id="notification-prompt" class="notification-prompt" style="display: none;" aria-live="polite">
-                <span>Get notified when Genie needs your approval or has a reply.</span>
-                <div class="notification-prompt-btns">
-                    <button type="button" class="btn-enable" onclick="genie.enableNotifications()">Enable</button>
-                    <button type="button" class="btn-dismiss" onclick="genie.dismissNotificationPrompt()">Not now</button>
-                </div>
-            </div>
-
-            <!-- Resume Section (shown after connection) -->
-            <div id="resume-container" class="resume-container">
-                <details class="resume-card" id="resume-card">
-                    <summary>
-                        <span class="resume-chevron">▶</span>
-                        🧞 Genie Resume
-                    </summary>
-                    <div class="resume-body" id="resume-body"></div>
-                </details>
-            </div>
-
-            <!-- Capabilities / AI stance (shown after connection when API returns data; collapsed by default) -->
-            <div id="capabilities-container" class="resume-container">
-                <details class="resume-card" id="capabilities-card">
-                    <summary>
-                        <span class="resume-chevron">▶</span>
-                        📋 What Genie can do
-                    </summary>
-                    <div class="resume-body capabilities-body" id="capabilities-body"></div>
-                </details>
-            </div>
-
-            <!-- Messages Area -->
-            <div id="chat-messages" class="chat-messages">
-                <div id="empty-state" class="empty-state">
-                    <div class="genie-icon">🧞</div>
-                    <h2 class="text-2xl font-bold text-gray-800 mb-2">Welcome to Genie</h2>
-                    <p class="text-sm text-gray-500 max-w-md leading-relaxed mb-2">
-                        Your intelligent assistant. Connect to a daemon to plan, get things done, and collaborate.
-                    </p>
-                    <p class="text-xs text-gray-400 max-w-lg leading-relaxed mb-6">
-                        You can: transcribe YouTube videos, summarize web articles and documents, search the web, draft emails, and more. Try a sample below or ask in your own words.
-                    </p>
-
-                    <div class="flex flex-col items-center gap-3 mb-8 w-full max-w-md">
-                        <div class="empty-state-connect-row flex items-center gap-2 w-full">
-                            <input id="endpoint-input" type="text" value="http://localhost:8080"
-                                class="form-input text-sm text-center flex-1 min-w-0" style="border-radius: 0.75rem;"
-                                placeholder="http://localhost:8080">
-                            <button id="connect-btn" onclick="genie.connectToServer()" class="btn-primary text-sm flex-shrink-0"
-                                style="border-radius: 0.75rem; padding: 0.5rem 1.25rem;">
-                                Connect
-                            </button>
+                <!-- Chat Header -->
+                <div class="flex items-center justify-between px-6 py-3 border-b border-gray-100 bg-white/80 backdrop-blur-sm chat-header"
+                    style="padding-top: max(0.75rem, env(safe-area-inset-top))">
+                    <div class="flex items-center gap-3 min-w-0 flex-shrink-0">
+                        <button class="sidebar-toggle" onclick="genie.toggleSidebar()" title="Chat history"
+                            aria-label="Chat history">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round">
+                                <line x1="3" y1="6" x2="21" y2="6" />
+                                <line x1="3" y1="12" x2="21" y2="12" />
+                                <line x1="3" y1="18" x2="21" y2="18" />
+                            </svg>
+                        </button>
+                        <div
+                            class="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-500 to-purple-900 flex items-center justify-center text-lg flex-shrink-0">
+                            🧞
                         </div>
-                        <p class="text-xs text-gray-400">
-                            Run: <code
-                                class="text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded text-xs font-mono">genie grant</code>
-                            · Or open with <code class="text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded text-xs font-mono">?url=<var>GENIE_URL</var></code> to connect in one click.
+                        <div class="min-w-0">
+                            <h1 id="header-title" class="text-sm font-semibold text-gray-900 truncate">Genie Chat</h1>
+                            <p class="text-xs text-gray-400 truncate">AG-UI HTTP/SSE • Stackgen</p>
+                        </div>
+                    </div>
+                    <div id="chat-header-actions" class="chat-header-actions flex items-center gap-2 flex-shrink-0">
+                        <button id="btn-summarize" onclick="genie.summarizeChat()" class="btn-secondary text-xs"
+                            title="Summarize conversation" aria-label="Summarize" disabled>📝 Summarize</button>
+                        <button id="btn-export" onclick="genie.exportChat()" class="btn-secondary text-xs"
+                            title="Export conversation" aria-label="Export" disabled>⬇️ Export</button>
+                        <button id="btn-new-chat" onclick="genie.startNewChat()" class="btn-secondary text-xs"
+                            title="Start new chat" aria-label="New chat" disabled>➕ New Chat</button>
+                        <button id="fullscreen-btn" class="btn-secondary text-xs" onclick="genie.toggleFullscreen()"
+                            title="Fullscreen" aria-label="Toggle fullscreen">⛶ Fullscreen</button>
+                        <div id="connection-badge" class="connection-badge disconnected">
+                            <span class="connection-dot"></span>
+                            <span id="connection-label">Not connected</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Notification prompt: ask for permission when connected (shown only if not yet granted/dismissed) -->
+                <div id="notification-prompt" class="notification-prompt" style="display: none;" aria-live="polite">
+                    <span id="notification-text">Get notified when Genie needs your approval or has a reply.</span>
+                    <div class="notification-prompt-btns">
+                        <button type="button" class="btn-enable" onclick="genie.enableNotifications()">Enable</button>
+                        <button type="button" class="btn-dismiss" onclick="genie.dismissNotificationPrompt()">Not
+                            now</button>
+                    </div>
+                </div>
+
+                <!-- Resume Section (shown after connection) -->
+                <div id="resume-container" class="resume-container">
+                    <details class="resume-card" id="resume-card">
+                        <summary>
+                            <span class="resume-chevron">▶</span>
+                            <span id="resume-label">🧞 Genie Resume</span>
+                        </summary>
+                        <div class="resume-body" id="resume-body"></div>
+                    </details>
+                </div>
+
+                <!-- Capabilities / AI stance (shown after connection when API returns data; collapsed by default) -->
+                <div id="capabilities-container" class="resume-container">
+                    <details class="resume-card" id="capabilities-card">
+                        <summary>
+                            <span class="resume-chevron">▶</span>
+                            <span id="capabilities-label">📋 What Genie can do</span>
+                        </summary>
+                        <div class="resume-body capabilities-body" id="capabilities-body"></div>
+                    </details>
+                </div>
+
+                <!-- Messages Area -->
+                <div id="chat-messages" class="chat-messages">
+                    <div id="empty-state" class="empty-state">
+                        <div class="genie-icon">🧞</div>
+                        <h2 id="welcome-title" class="text-2xl font-bold text-gray-800 mb-2">Welcome to Genie</h2>
+                        <p class="text-sm text-gray-500 max-w-md leading-relaxed mb-2">
+                            Your intelligent assistant. Connect to a daemon to plan, get things done, and collaborate.
                         </p>
-                    </div>
+                        <p class="text-xs text-gray-400 max-w-lg leading-relaxed mb-6">
+                            You can: transcribe YouTube videos, summarize web articles and documents, search the web,
+                            draft emails, and more. Try a sample below or ask in your own words.
+                        </p>
 
-                    <!-- Sample Prompts -->
-                    <div class="sample-prompts-grid">
-                        <div class="prompt-card" onclick="genie.usePrompt('Transcribe this YouTube video and summarize the key points: https://www.youtube.com/watch?v=VIDEO_ID')">
-                            <h3>Video transcript</h3>
-                            <p>Transcribe a YouTube video and summarize or answer questions about it</p>
+                        <div class="flex flex-col items-center gap-3 mb-8 w-full max-w-md">
+                            <div class="empty-state-connect-row flex items-center gap-2 w-full">
+                                <input id="endpoint-input" type="text" value="http://localhost:9876"
+                                    class="form-input text-sm text-center flex-1 min-w-0"
+                                    style="border-radius: 0.75rem;" placeholder="http://localhost:9876">
+                                <button id="connect-btn" onclick="genie.connectToServer()"
+                                    class="btn-primary text-sm flex-shrink-0"
+                                    style="border-radius: 0.75rem; padding: 0.5rem 1.25rem;">
+                                    Connect
+                                </button>
+                            </div>
+                            <p class="text-xs text-gray-400">
+                                Run: <code
+                                    class="text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded text-xs font-mono">genie grant</code>
+                                · Or open with <code
+                                    class="text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded text-xs font-mono">?url=<var>GENIE_URL</var></code>
+                                to connect in one click.
+                            </p>
                         </div>
-                        <div class="prompt-card" onclick="genie.usePrompt('Summarize this web article for me: https://example.com/article-url')">
-                            <h3>Summarize article</h3>
-                            <p>Fetch a URL and get a concise summary of the content</p>
-                        </div>
-                        <div class="prompt-card" onclick="genie.usePrompt('Summarize the key points of this document')">
-                            <h3>Summarize</h3>
-                            <p>Get a quick overview of a document or topic</p>
-                        </div>
-                        <div class="prompt-card" onclick="genie.usePrompt('Draft an email to schedule a meeting')">
-                            <h3>Draft</h3>
-                            <p>Compose an email, message, or short document</p>
-                        </div>
-                        <div class="prompt-card" onclick="genie.usePrompt('Research this topic and summarize the findings')">
-                            <h3>Research</h3>
-                            <p>Find reliable sources and summarize</p>
-                        </div>
-                        <div class="prompt-card" onclick="genie.usePrompt('Create a step-by-step plan for this goal')">
-                            <h3>Plan</h3>
-                            <p>Break down a goal into actionable steps</p>
+
+                        <!-- Sample Prompts -->
+                        <div class="sample-prompts-grid">
+                            <div class="prompt-card"
+                                onclick="genie.usePrompt('Transcribe this YouTube video and summarize the key points: https://www.youtube.com/watch?v=VIDEO_ID')">
+                                <h3>Video transcript</h3>
+                                <p>Transcribe a YouTube video and summarize or answer questions about it</p>
+                            </div>
+                            <div class="prompt-card"
+                                onclick="genie.usePrompt('Summarize this web article for me: https://example.com/article-url')">
+                                <h3>Summarize article</h3>
+                                <p>Fetch a URL and get a concise summary of the content</p>
+                            </div>
+                            <div class="prompt-card"
+                                onclick="genie.usePrompt('Summarize the key points of this document')">
+                                <h3>Summarize</h3>
+                                <p>Get a quick overview of a document or topic</p>
+                            </div>
+                            <div class="prompt-card" onclick="genie.usePrompt('Draft an email to schedule a meeting')">
+                                <h3>Draft</h3>
+                                <p>Compose an email, message, or short document</p>
+                            </div>
+                            <div class="prompt-card"
+                                onclick="genie.usePrompt('Research this topic and summarize the findings')">
+                                <h3>Research</h3>
+                                <p>Find reliable sources and summarize</p>
+                            </div>
+                            <div class="prompt-card"
+                                onclick="genie.usePrompt('Create a step-by-step plan for this goal')">
+                                <h3>Plan</h3>
+                                <p>Break down a goal into actionable steps</p>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Input Area -->
-            <div class="chat-input-area">
-                <div class="chat-input-wrapper">
-                    <textarea id="chat-input" rows="1" placeholder="Ask Genie anything..."
-                        onkeydown="genie.handleKeyDown(event)" oninput="genie.autoResize(this)" disabled></textarea>
-                    <button id="mic-btn" class="chat-mic-btn" onclick="genie.toggleMic()" disabled title="Use microphone to speak" aria-label="Use microphone to speak">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                        </svg>
-                    </button>
-                    <button id="send-btn" class="chat-send-btn" onclick="genie.sendMessage()" disabled>
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M12 19V5m0 0l-7 7m7-7l7 7" />
-                        </svg>
-                    </button>
-                    <button id="stop-btn" class="chat-stop-btn" onclick="genie.stopStreaming()" title="Stop generating">
-                        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                            <rect x="2" y="2" width="10" height="10" rx="1" />
-                        </svg>
-                    </button>
+                <!-- Input Area -->
+                <div class="chat-input-area">
+                    <div class="chat-input-wrapper">
+                        <textarea id="chat-input" rows="1" placeholder="Ask Genie anything..."
+                            onkeydown="genie.handleKeyDown(event)" oninput="genie.autoResize(this)" disabled></textarea>
+                        <button id="mic-btn" class="chat-mic-btn" onclick="genie.toggleMic()" disabled
+                            title="Use microphone to speak" aria-label="Use microphone to speak">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                            </svg>
+                        </button>
+                        <button id="send-btn" class="chat-send-btn" onclick="genie.sendMessage()" disabled>
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 19V5m0 0l-7 7m7-7l7 7" />
+                            </svg>
+                        </button>
+                        <button id="stop-btn" class="chat-stop-btn" onclick="genie.stopStreaming()"
+                            title="Stop generating">
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                                <rect x="2" y="2" width="10" height="10" rx="1" />
+                            </svg>
+                        </button>
+                    </div>
+                    <p class="chat-input-hints chat-input-hints-long text-xs text-gray-400 text-center mt-2">
+                        <kbd
+                            class="px-1.5 py-0.5 bg-gray-100 border border-gray-200 rounded text-xs font-mono">Enter</kbd>
+                        send ·
+                        <kbd
+                            class="px-1.5 py-0.5 bg-gray-100 border border-gray-200 rounded text-xs font-mono">Shift+Enter</kbd>
+                        new line ·
+                        <kbd class="px-1.5 py-0.5 bg-gray-200 rounded text-xs font-mono">⌘K</kbd> focus ·
+                        <kbd
+                            class="px-1.5 py-0.5 bg-gray-100 border border-gray-200 rounded text-xs font-mono">Esc</kbd>
+                        stop · mic to speak
+                    </p>
+                    <p class="chat-input-hints chat-input-hints-short text-xs text-gray-400 text-center mt-1"
+                        aria-hidden="true">
+                        <kbd
+                            class="px-1 py-0.5 bg-gray-100 border border-gray-200 rounded text-xs font-mono">Enter</kbd>
+                        send · <kbd
+                            class="px-1 py-0.5 bg-gray-100 border border-gray-200 rounded text-xs font-mono">Esc</kbd>
+                        stop
+                    </p>
+                    <p class="text-xs text-gray-400 text-center mt-1">
+                        <button type="button" id="vibrate-toggle"
+                            class="underline text-gray-500 hover:text-gray-700 focus:outline-none"
+                            onclick="genie.toggleVibratePreference()" aria-label="Toggle vibration for alerts">Vibrate
+                            on alerts: On</button>
+                    </p>
                 </div>
-                <p class="chat-input-hints chat-input-hints-long text-xs text-gray-400 text-center mt-2">
-                    <kbd class="px-1.5 py-0.5 bg-gray-100 border border-gray-200 rounded text-xs font-mono">Enter</kbd> send ·
-                    <kbd class="px-1.5 py-0.5 bg-gray-100 border border-gray-200 rounded text-xs font-mono">Shift+Enter</kbd> new line ·
-                    <kbd class="px-1.5 py-0.5 bg-gray-200 rounded text-xs font-mono">⌘K</kbd> focus ·
-                    <kbd class="px-1.5 py-0.5 bg-gray-100 border border-gray-200 rounded text-xs font-mono">Esc</kbd> stop · mic to speak
-                </p>
-                <p class="chat-input-hints chat-input-hints-short text-xs text-gray-400 text-center mt-1" aria-hidden="true">
-                    <kbd class="px-1 py-0.5 bg-gray-100 border border-gray-200 rounded text-xs font-mono">Enter</kbd> send · <kbd class="px-1 py-0.5 bg-gray-100 border border-gray-200 rounded text-xs font-mono">Esc</kbd> stop
-                </p>
-                <p class="text-xs text-gray-400 text-center mt-1">
-                    <button type="button" id="vibrate-toggle" class="underline text-gray-500 hover:text-gray-700 focus:outline-none" onclick="genie.toggleVibratePreference()" aria-label="Toggle vibration for alerts">Vibrate on alerts: On</button>
-                </p>
-            </div>
 
             </div>
             <!-- Right column: pending tool approvals / clarifications (only shown when there are items) -->
@@ -230,16 +261,19 @@
     </main>
 
     <!-- Password required modal (shown when server returns 401) -->
-    <div id="password-modal-overlay" class="password-modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="password-modal-title" onclick="genie.closePasswordModal()">
+    <div id="password-modal-overlay" class="password-modal-overlay" style="display: none;" role="dialog"
+        aria-modal="true" aria-labelledby="password-modal-title" onclick="genie.closePasswordModal()">
         <div class="password-modal" onclick="event.stopPropagation()">
             <h2 id="password-modal-title" class="password-modal-title">Password required</h2>
             <p class="password-modal-message">This Genie requires a password to connect. Enter it below.</p>
-            <input id="agui-password-input" type="password" class="form-input password-modal-input" placeholder="Password" aria-label="AG-UI password"
-                autocomplete="current-password" onkeydown="if (event.key === 'Enter') { event.preventDefault(); genie.connectWithPassword(); }">
+            <input id="agui-password-input" type="password" class="form-input password-modal-input"
+                placeholder="Password" aria-label="AG-UI password" autocomplete="current-password"
+                onkeydown="if (event.key === 'Enter') { event.preventDefault(); genie.connectWithPassword(); }">
             <p id="agui-password-error" class="password-modal-error" style="display: none;"></p>
             <div class="password-modal-actions">
                 <button type="button" class="btn-secondary" onclick="genie.closePasswordModal()">Cancel</button>
-                <button type="button" class="btn-primary" onclick="genie.connectWithPassword()">Connect with password</button>
+                <button type="button" class="btn-primary" onclick="genie.connectWithPassword()">Connect with
+                    password</button>
             </div>
         </div>
     </div>

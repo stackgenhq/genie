@@ -9,7 +9,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/logger"
 )
 
-const DefaultAGUIPort uint32 = 8080
+const DefaultAGUIPort uint32 = 9876
 
 // Config holds platform-agnostic messenger configuration that can be loaded
 // from TOML or YAML config files (e.g., .genie.toml).
@@ -100,7 +100,7 @@ type AGUIConfig struct {
 	// --- Server settings ---
 	CORSOrigins []string `yaml:"cors_origins,omitempty" toml:"cors_origins,omitempty"`
 	Port        uint32   `yaml:"port,omitempty" toml:"port,omitempty"`
-	// BindAddr is the listen address (e.g. ":8080" for all interfaces, "127.0.0.1:8080" for localhost only).
+	// BindAddr is the listen address (e.g. ":9876" for all interfaces, "127.0.0.1:9876" for localhost only).
 	// When empty, the server binds to ":port" so HTTP-push messengers (Teams, Google Chat, AGUI) are reachable from other hosts/containers.
 	BindAddr      string  `yaml:"bind_addr,omitempty" toml:"bind_addr,omitempty"`
 	RateLimit     float64 `yaml:"rate_limit,omitempty" toml:"rate_limit,omitempty"`         // req/sec per IP (0 = disabled)

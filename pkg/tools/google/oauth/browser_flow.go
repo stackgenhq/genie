@@ -32,7 +32,7 @@ const RedirectPort = "8765"
 // DefaultGenieAGUIPort is the default port for the Genie AG-UI server.
 // Must match messenger.DefaultAGUIPort; we cannot import messenger here (messenger/agui imports this package).
 // See browser_flow_test.go for an assertion that keeps them in sync.
-const DefaultGenieAGUIPort = 8080
+const DefaultGenieAGUIPort = 9876
 
 // Scopes for Calendar, Contacts, Gmail, Drive, Tasks, Chat, Custom Search, and user profile (one sign-in powers all).
 var defaultBrowserFlowScopes = []string{

@@ -72,13 +72,14 @@ type CreateAgentRequest struct {
 	Flow string `json:"flow_type,omitempty" jsonschema:"description=How steps are coordinated: sequence (default) or parallel or fallback. Only used when steps is provided."`
 }
 
-func (req CreateAgentRequest) timeoutSeconds() float64 {
+func (req CreateAgentRequest) timeout() time.Duration {
 	// Clamp timeout: floor prevents overly tight deadlines, ceiling
 	// prevents runaway agents. Default 5 min if not specified.
 	if req.TimeoutSeconds <= 0 {
-		return defaultTimeout.Seconds()
+		return defaultTimeout
 	}
-	return min(max(req.TimeoutSeconds, minTimeout.Seconds()), maxTimeout.Seconds())
+	seconds := min(max(req.TimeoutSeconds, minTimeout.Seconds()), maxTimeout.Seconds())
+	return time.Duration(seconds) * time.Second
 }
 
 // clampedMaxToolIterations returns MaxToolIterations clamped to
@@ -332,9 +333,9 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 		logr.Info("sub-agent execution completed", "duration", time.Since(startTime).String())
 	}(time.Now())
 
-	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Duration(req.timeoutSeconds())*time.Second)
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, req.timeout())
 	defer cancelTimeout()
-	logr.Info("sub-agent timeout set", "timeout_seconds", req.timeoutSeconds())
+	logr.Info("sub-agent timeout set", "timeout", req.timeout().String())
 
 	tracer := otel.Tracer("genie")
 	runCtx, span := tracer.Start(timeoutCtx, req.AgentName+" execution")

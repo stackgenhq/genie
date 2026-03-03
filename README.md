@@ -117,7 +117,7 @@ nano ~/.genie/genie.toml  # Add your configuration
 docker run -d \
   --name genie \
   --restart unless-stopped \
-  -p 8080:8080 \
+  -p 9876:9876 \
   -v ~/.genie:/home/genie/.config \
   -v /var/lib/genie/data:/workspace \
   -e OPENAI_API_KEY="${OPENAI_API_KEY}" \
@@ -174,7 +174,7 @@ sudo systemctl status genie
 #### Security Recommendations
 
 * **Use IAM roles** (AWS) or equivalent for secret management instead of hardcoded keys
-* **Configure firewall**: Only expose port 8080 to trusted IPs/VPCs
+* **Configure firewall**: Only expose port 9876 to trusted IPs/VPCs
 * **Enable HTTPS**: Use a reverse proxy (nginx/caddy) with Let's Encrypt certificates
 * **Set rate limits**: Configure `[agui] rate_limit` and `max_concurrent` in your config
 * **Regular updates**: Set up automated security updates for your instance
@@ -199,7 +199,7 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/genie.example.com/privkey.pem;
 
     location / {
-        proxy_pass http://localhost:8080;
+        proxy_pass http://localhost:9876;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
