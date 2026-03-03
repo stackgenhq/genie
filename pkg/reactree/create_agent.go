@@ -433,7 +433,6 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 			continue
 		}
 		if ev.Response != nil {
-			logr.Debug("sub-agent event", "event", ev)
 			for _, choice := range ev.Choices {
 				if choice.Message.Role == model.RoleAssistant && choice.Message.Content != "" {
 					sb.WriteString(choice.Message.Content)
@@ -444,8 +443,16 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 				// exhausts its budget before producing a final summary, these
 				// results are the only record of what was learned.
 				if choice.Message.ToolID != "" && choice.Message.Content != "" && toolResultsSB.Len() < maxToolResultsLen {
-					toolResultsSB.WriteString(choice.Message.Content)
-					toolResultsSB.WriteString("\n---\n")
+					remaining := maxToolResultsLen - toolResultsSB.Len()
+					content := choice.Message.Content
+					if len(content) > remaining {
+						content = content[:remaining]
+					}
+					toolResultsSB.WriteString(content)
+					// Only write separator if budget remains after the content.
+					if sep := "\n---\n"; toolResultsSB.Len()+len(sep) <= maxToolResultsLen {
+						toolResultsSB.WriteString(sep)
+					}
 				}
 			}
 		}
