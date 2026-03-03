@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"time"
 
@@ -433,6 +434,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 			continue
 		}
 		if ev.Response != nil {
+			logr.Debug("sub-agent event", "event", ev)
 			for _, choice := range ev.Choices {
 				if choice.Message.Role == model.RoleAssistant && choice.Message.Content != "" {
 					sb.WriteString(choice.Message.Content)
@@ -446,7 +448,11 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 					remaining := maxToolResultsLen - toolResultsSB.Len()
 					content := choice.Message.Content
 					if len(content) > remaining {
-						content = content[:remaining]
+						cut := remaining
+						for cut > 0 && !utf8.RuneStart(content[cut]) {
+							cut--
+						}
+						content = content[:cut]
 					}
 					toolResultsSB.WriteString(content)
 					// Only write separator if budget remains after the content.

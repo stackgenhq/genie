@@ -22,16 +22,19 @@ import (
 func NewChatHandler(
 	resumeFunc func(ctx context.Context) string,
 	chatFunc func(ctx context.Context, message string, agentsMessage chan<- interface{}) error,
+	injectFunc func(ctx context.Context, message string) error,
 ) Expert {
 	return serverExpert{
 		resumeFunc: resumeFunc,
 		chatFunc:   chatFunc,
+		injectFunc: injectFunc,
 	}
 }
 
 type serverExpert struct {
 	resumeFunc func(ctx context.Context) string
 	chatFunc   func(ctx context.Context, message string, agentsMessage chan<- interface{}) error
+	injectFunc func(ctx context.Context, message string) error
 }
 
 func (e serverExpert) Resume(ctx context.Context) string {
@@ -71,4 +74,15 @@ func (e serverExpert) Handle(ctx context.Context, req ChatRequest) {
 		Success: true,
 		Message: "Request completed",
 	}
+}
+
+func (e serverExpert) InjectFeedback(ctx context.Context, threadID, message string) error {
+	if e.injectFunc == nil {
+		return nil
+	}
+
+	// server.go already constructs the MessageOrigin (including agui-user)
+	// so the orchestrator will find the right WorkingMemory.
+
+	return e.injectFunc(ctx, message)
 }

@@ -169,7 +169,7 @@ func (e *expert) getRunner(ctx context.Context, req Request) (runner.Runner, err
 	personaTokens := len(e.bio.Personality) / 4
 	threshold := req.Mode.PersonaTokenThreshold
 	if threshold == 0 {
-		threshold = 2000
+		threshold = DefaultExpertConfig().PersonaTokenThreshold
 	}
 	if personaTokens > threshold {
 		logr.Warn("persona exceeds threshold tokens — consider moving domain knowledge to skills", "threshold", threshold)

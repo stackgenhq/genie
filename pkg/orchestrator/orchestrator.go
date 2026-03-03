@@ -76,6 +76,7 @@ type CodeQuestion struct {
 //counterfeiter:generate . Orchestrator
 type Orchestrator interface {
 	Chat(ctx context.Context, req CodeQuestion, outputChan chan<- string) error
+	InjectFeedback(ctx context.Context, message string) error
 	Close() error
 	Resume(ctx context.Context) string
 }
@@ -617,6 +618,23 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	return nil
 }
 
+// InjectFeedback injects a user message into the working memory of the current sender
+// so the agent can naturally adapt to "mid-stream" instructions during an ongoing ReAcTree execution.
+func (c *orchestrator) InjectFeedback(ctx context.Context, message string) error {
+	wm := c.workingMemoryForSender(ctx)
+
+	// Format as a clear directive
+	feedback := fmt.Sprintf("INTERRUPT: New User Instruction Received: %s", message)
+
+	// Add a Unix nanosecond timestamp to ensure the key is unique even for rapid injections
+	key := fmt.Sprintf("user_feedback_%d", time.Now().UnixNano())
+
+	wm.Store(key, feedback)
+
+	logger.GetLogger(ctx).Info("injected user feedback into working memory", "key", key)
+	return nil
+}
+
 // recallConversation searches memory.Service for past turns relevant
 // to the current question and formats them as context.
 // Uses senderID-based key so each sender/thread has isolated history.
@@ -876,9 +894,8 @@ func (c *orchestrator) memoryKeyForSender(senderID string) memory.UserKey {
 // instance for the given sender. This prevents User A's observations from
 // leaking into User B's context.
 func (c *orchestrator) workingMemoryForSender(ctx context.Context) *rtmemory.WorkingMemory {
-	origin := messenger.MessageOriginFrom(ctx)
-	sender := origin.DeriveVisibility()
-	if sender == "" {
+	sender := c.conversationKeyFromContext(ctx)
+	if sender == "global" || sender == "" {
 		sender = "default"
 	}
 	if existing, ok := c.workingMemories.Load(sender); ok {

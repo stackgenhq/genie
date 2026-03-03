@@ -40,6 +40,7 @@ type GenieConfig struct {
 	AgentName string `yaml:"agent_name,omitempty" toml:"agent_name,omitempty"`
 	// PersonaFile is an optional path to a file whose contents are appended
 	// to the agent's system prompt as project-level coding standards.
+	// When empty, no persona content is loaded.
 	PersonaFile string `yaml:"persona_file,omitempty" toml:"persona_file,omitempty"`
 	// AuditPath overrides the default audit log path. When set, the auditor
 	// writes to this single file (no date rotation). Used for tests or custom paths.

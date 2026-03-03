@@ -176,10 +176,11 @@ func (a *Application) persona() string {
 		return ""
 	}
 
-	if !filepath.IsAbs(a.cfg.PersonaFile) && a.workingDir != "" {
-		a.cfg.PersonaFile = filepath.Join(a.workingDir, a.cfg.PersonaFile)
+	personaPath := a.cfg.PersonaFile
+	if !filepath.IsAbs(personaPath) && a.workingDir != "" {
+		personaPath = filepath.Join(a.workingDir, personaPath)
 	}
-	data, err := os.ReadFile(a.cfg.PersonaFile)
+	data, err := os.ReadFile(personaPath)
 	if err != nil {
 		return ""
 	}
@@ -354,7 +355,7 @@ func (a *Application) Start(ctx context.Context) error {
 
 	// The BackgroundWorker needs an Expert (Handle + Resume). For all
 	// platforms we use a lightweight wrapper that just calls codeOwner.
-	bgExpert := messengeragui.NewChatHandler(a.codeOwner.Resume, chatHandler)
+	bgExpert := messengeragui.NewChatHandler(a.codeOwner.Resume, chatHandler, a.codeOwner.InjectFeedback)
 	bgWorker := messengeragui.NewBackgroundWorker(bgExpert, runtime.NumCPU())
 
 	// Spawn replay goroutines for recoverable pending approvals.

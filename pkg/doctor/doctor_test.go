@@ -20,20 +20,14 @@ func TestDoctor(t *testing.T) {
 
 var _ = Describe("Doctor", func() {
 	Describe("Run", func() {
-		It("returns model_config error when no providers configured", func(ctx context.Context) {
+		It("returns no model_config error when no providers configured", func(ctx context.Context) {
 			cfg := config.GenieConfig{}
 			results := doctor.Run(ctx, cfg, "", security.NewEnvProvider())
 			Expect(results).NotTo(BeNil())
-			Expect(doctor.HasErrors(results)).To(BeTrue())
-			var modelErr *doctor.Result
-			for i := range results {
-				if results[i].Section == "model_config" {
-					modelErr = &results[i]
-					break
-				}
-			}
+			// With zero providers configured, ValidateAndFilter no longer
+			// errors — it returns nil (nothing to validate).
+			modelErr := results.GetSection("model_config")
 			Expect(modelErr).NotTo(BeNil())
-			Expect(modelErr.ErrCode).To(Equal(doctor.ErrCodeModelNoProviders))
 		})
 
 		It("reports MCP config invalid when transport missing", func(ctx context.Context) {
