@@ -70,16 +70,6 @@ type TreeConfig struct {
 
 	// Checkpointer is used to save and restore execution state.
 	Checkpointer graph.CheckpointSaver `json:"-"`
-
-	// SkillRegistry is used to discover and dynamically load tools.
-	// When provided, the tree executor automatically injects meta-tools
-	// (discover_skills, load_skill, unload_skill) to allow the LLM to
-	// modify its own active tool schema during the adaptive loop.
-	SkillRegistry SkillRegistry `json:"-"`
-
-	// MaxLoadedSkills limits the number of skills the LLM can concurrently load.
-	// Defaults to 3 if zero.
-	MaxLoadedSkills int
 }
 
 // DefaultTreeConfig returns sensible defaults for tree execution.
