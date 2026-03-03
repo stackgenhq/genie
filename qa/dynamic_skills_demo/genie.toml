@@ -1,0 +1,21 @@
+agent_name = "dynamic_skills_tester"
+
+# Dynamic skills configuration
+[skill_load]
+skills_roots = ["./skills"]
+max_loaded_skills = 2
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "tool_calling"
+
+[messenger.agui]
+port = 9876
+cors_origins = ["*"]
+
+
+[hitl]
+# Automatically allow loading skills without user approval
+always_allowed = ["discover_skills", "load_skill", "unload_skill"]

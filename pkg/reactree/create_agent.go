@@ -49,6 +49,7 @@ const (
 type CreateAgentRequest struct {
 	AgentName         string                 `json:"agent_name" jsonschema:"description=Name of the sub-agent,required"`
 	Goal              string                 `json:"goal" jsonschema:"description=The goal or task for the sub-agent to accomplish,required"`
+	Context           string                 `json:"context,omitempty" jsonschema:"description=Optional historical or contextual data to provide to the sub-agent alongside the goal."`
 	ToolNames         []string               `json:"tool_names,omitempty" jsonschema:"description=Names of tools to give the sub-agent. If empty all tools are provided."`
 	TaskType          modelprovider.TaskType `json:"task_type,omitempty" jsonschema:"description=Selects the model best suited for the sub-agent. planning: complex reasoning and multi-step analysis and code changes (default — use for most tasks). tool_calling: straightforward function calls and data extraction. terminal_calling: shell commands and CLI workflows. efficiency: quick read-only lookups and simple searches."`
 	MaxToolIterations int                    `json:"max_tool_iterations,omitempty" jsonschema:"description=Maximum tool iterations. Scale to complexity: simple lookups 5-10 and file edits 15-25 and multi-step/infrastructure 30-50,required"`
@@ -285,6 +286,10 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 		scopedRegistry = scopedRegistry.Include(req.ToolNames...)
 	}
 
+	// Create ephemeral states for dynamic skill loaders so sub-agents
+	// have isolated skill environments that don't conflict globally.
+	scopedRegistry = scopedRegistry.CloneWithEphemeralProviders()
+
 	// Empty-memory guard: if all requested tools are retrieval-only AND
 	// at least one is vector-backed (memory_search), probe the vector
 	// store — if it's empty, skip this sub-agent entirely. Prevents
@@ -397,7 +402,11 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	var evCh <-chan *event.Event
 	runErr := retrier.Retry(runCtx, func() error {
 		var err error
-		evCh, err = r.Run(runCtx, "parent", req.AgentName, model.NewUserMessage(req.Goal))
+		prompt := req.Goal
+		if req.Context != "" {
+			prompt = fmt.Sprintf("Context:\n%s\n\nGoal:\n%s", req.Context, req.Goal)
+		}
+		evCh, err = r.Run(runCtx, "parent", req.AgentName, model.NewUserMessage(prompt))
 		return err
 	},
 		retrier.WithAttempts(3),
@@ -475,6 +484,9 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 			logr.Warn("sub-agent cancelled by middleware",
 				"cause", cause.Error(),
 				"partial_output_length", sb.Len())
+
+			// Surface the cancellation cause to the parent agent instead of swallowing it
+			lastErr = cause.Error()
 		} else {
 			timedOut = true
 			logr.Warn("sub-agent context expired, returning partial results",

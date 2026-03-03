@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 
 	"github.com/stackgenhq/genie/pkg/logger"
 )
@@ -77,7 +78,11 @@ func LoopDetectionMiddleware() Middleware {
 
 func (m *loopDetectionMiddleware) Wrap(next Handler) Handler {
 	return func(ctx context.Context, tc *ToolCallContext) (any, error) {
-		fingerprint := uuid.NewSHA1(uuid.Nil, []byte(tc.ToolName+":"+string(tc.Args))).String()
+		argsStr := string(tc.Args)
+		if cleaned, err := sjson.Delete(argsStr, "_justification"); err == nil {
+			argsStr = cleaned
+		}
+		fingerprint := uuid.NewSHA1(uuid.Nil, []byte(tc.ToolName+":"+argsStr)).String()
 
 		m.mu.Lock()
 		looping := m.isLooping(fingerprint)

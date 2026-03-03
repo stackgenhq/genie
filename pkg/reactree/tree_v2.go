@@ -20,6 +20,7 @@ import (
 
 // runAdaptiveLoop coordinates the high-level execution flow.
 func (t *tree) runAdaptiveLoop_v2(ctx context.Context, req TreeRequest) (TreeResult, error) {
+
 	ls := &loopState{
 		maxIterations:  t.config.MaxIterations,
 		toolBudgets:    t.config.ToolBudgets,
@@ -169,6 +170,9 @@ type loopState struct {
 	lastCompressedTool string
 	lastOriginalSize   int
 	lastCompressedSize int
+
+	// Last telemetry tracked for token observability
+	lastBudgetEvent hooks.ContextBudgetEvent
 }
 
 func (ls *loopState) MarkCompressed(toolName string, originalSize, compressedSize int) {
@@ -177,13 +181,15 @@ func (ls *loopState) MarkCompressed(toolName string, originalSize, compressedSiz
 	ls.lastCompressedSize = compressedSize
 }
 
-// toolsForIteration returns the tool list with budget-exceeded tools removed.
+// toolsForIteration returns the tool list, with budget-exceeded tools removed.
 // This is a hard code-level guardrail — the LLM literally cannot call a tool
-// that isn't in the list. Any tool listed in ToolBudgets whose cumulative count
-// has reached its limit gets stripped.
+// that isn't in the list.
 func (ls *loopState) toolsForIteration(tools []tool.Tool) []tool.Tool {
+	var baseTools []tool.Tool
+	baseTools = append(baseTools, tools...)
+
 	if len(ls.toolBudgets) == 0 {
-		return tools
+		return baseTools
 	}
 	// Build set of tools that have exceeded their budget.
 	exceeded := make(map[string]bool)
@@ -193,10 +199,10 @@ func (ls *loopState) toolsForIteration(tools []tool.Tool) []tool.Tool {
 		}
 	}
 	if len(exceeded) == 0 {
-		return tools
+		return baseTools
 	}
-	filtered := make([]tool.Tool, 0, len(tools))
-	for _, t := range tools {
+	filtered := make([]tool.Tool, 0, len(baseTools))
+	for _, t := range baseTools {
 		if !exceeded[t.Declaration().Name] {
 			filtered = append(filtered, t)
 		}
@@ -258,7 +264,11 @@ func (t *tree) prepareGraph(req TreeRequest, ls *loopState) (*graph.Graph, error
 	schema := NewReAcTreeSchema()
 	sg := graph.NewStateGraph(schema)
 
-	toolsToUse := ls.toolsForIteration(req.Tools)
+	baseTools := req.Tools
+	if req.ToolGetter != nil {
+		baseTools = req.ToolGetter()
+	}
+	toolsToUse := ls.toolsForIteration(baseTools)
 
 	// Enterprise: wrap tools with critic middleware if enabled.
 	if t.config.Toggles.EnableCriticMiddleware {
@@ -311,6 +321,9 @@ func (t *tree) prepareGraph(req TreeRequest, ls *loopState) (*graph.Graph, error
 				for name, count := range counts {
 					ls.toolCallCounts[name] += count
 				}
+			}
+			if budget, ok := stateMap[StateKeyContextBudget].(hooks.ContextBudgetEvent); ok {
+				ls.lastBudgetEvent = budget
 			}
 		}
 		return result, nil
@@ -409,9 +422,10 @@ func (t *tree) ensureUserFeedback(ctx context.Context, ls *loopState) {
 
 func (ls *loopState) toResult() TreeResult {
 	return TreeResult{
-		Status:    ls.lastStatus,
-		Output:    ls.lastOutput,
-		NodeCount: ls.iteration,
+		Status:        ls.lastStatus,
+		Output:        ls.lastOutput,
+		NodeCount:     ls.iteration,
+		ContextBudget: ls.lastBudgetEvent,
 	}
 }
 

@@ -42,8 +42,9 @@ const (
 
 // ContextModeConfig controls the context-mode middleware.
 type ContextModeConfig struct {
-	// Disabled deactivates the context-mode middleware. Default: false (enabled).
-	Disabled bool `yaml:"disabled,omitempty" toml:"disabled,omitempty"`
+	// Enabled activates the context-mode middleware. Default: false (disabled).
+	// Set to true to opt in.
+	Enabled bool `yaml:"enabled,omitempty" toml:"enabled,omitempty"`
 	// Threshold is the character count above which a response is compressed.
 	// When 0, defaultContextModeThreshold (20 000) is used.
 	Threshold int `yaml:"threshold,omitempty" toml:"threshold,omitempty"`

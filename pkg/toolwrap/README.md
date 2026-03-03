@@ -91,7 +91,7 @@ result, err := handler(ctx, tc)
 ```yaml
 toolwrap:
   context_mode:
-    disabled: false     # enabled by default
+    enabled: true     # opt-in; set to true to activate
     threshold: 20000    # compress responses above this char count
   timeout:
     enabled: true
@@ -586,7 +586,7 @@ toolwrap.ContextModeMiddleware(toolwrap.ContextModeConfig{
 **Config:**
 ```yaml
 context_mode:
-  disabled: false      # enabled by default; set true to turn off
+  enabled: true       # opt-in; set true to activate
   threshold: 20000     # compress responses above this char count
   max_chunks: 10       # return at most this many top-scored chunks
   chunk_size: 800      # target chars per chunk

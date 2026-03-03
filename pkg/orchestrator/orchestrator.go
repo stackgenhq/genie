@@ -34,7 +34,6 @@ import (
 	"github.com/stackgenhq/genie/pkg/pii"
 	"github.com/stackgenhq/genie/pkg/reactree"
 	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
-
 	"github.com/stackgenhq/genie/pkg/tools"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
 	"github.com/stackgenhq/genie/pkg/ttlcache"
@@ -584,6 +583,7 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	res, err := c.treeExecutor.Run(runCtx, reactree.TreeRequest{
 		Goal:           message,
 		Tools:          c.toolRegistry.GetTools(),
+		ToolGetter:     c.toolRegistry.GetTools,
 		TaskType:       taskType,
 		Attachments:    req.Attachments,
 		WorkingMemory:  c.workingMemoryForSender(ctx),

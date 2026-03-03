@@ -24,7 +24,7 @@
         providers: [{ provider: 'openai', model_name: 'gpt-5.2', variant: 'default', token: 'OPENAI_API_KEY', good_for_task: 'efficiency', enable_token_tailoring: true }],
 
 
-        skills_roots: ['./skills'],
+        skill_load: { max_loaded_skills: 3, skills_roots: ['./skills'] },
         mcp_servers: [],
         web_search: { provider: 'duckduckgo', google_api_key: 'GOOGLE_API_KEY', google_cx: 'GOOGLE_CSE_ID', bing_api_key: 'BING_API_KEY' },
         vector_memory: { persistence_dir: '', embedding_provider: 'dummy', api_key: 'OPENAI_API_KEY', ollama_url: '', ollama_model: '', huggingface_url: '', gemini_api_key: 'GOOGLE_API_KEY', gemini_model: '', vector_store_provider: 'inmemory', allowed_metadata_keys: [], milvus: { address: '', username: '', password: '', db_name: '', api_key: 'MILVUS_API_KEY', collection_name: '', dimension: 0 } },
@@ -46,7 +46,7 @@
         email: { provider: '', host: '', port: 587, username: '', password: '', imap_host: '', imap_port: 993 },
         hitl: { always_allowed: [], denied_tools: [], cache_ttl: '' },
         toolwrap: {
-            context_mode: { disabled: false, threshold: 20000, max_chunks: 10, chunk_size: 800, min_term_len: 3, per_tool: '' },
+            context_mode: { enabled: false, threshold: 20000, max_chunks: 10, chunk_size: 800, min_term_len: 3, per_tool: '' },
             timeout: { enabled: false, default_timeout: '30s', per_tool: '' },
             rate_limit: { enabled: false, global_rate_per_minute: 60, per_tool_rate_per_minute: '' },
             circuit_breaker: { enabled: false, failure_threshold: 5, open_duration: '30s' },
@@ -278,20 +278,25 @@
         var c = $('skills-body');
         if (!c) return;
         c.innerHTML = '';
-        state.skills_roots.forEach(function (s, i) {
+        var sl = state.skill_load;
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4 mb-3' }, [
+            fieldNumber('Max Loaded Skills', sl.max_loaded_skills, function (v) { sl.max_loaded_skills = v; renderOutput(); }, 1, 20, 'Maximum number of skills that can be loaded simultaneously per agent loop (default 3)')
+        ]));
+        sl.skills_roots.forEach(function (s, i) {
             c.appendChild(buildSkillRow(s, i));
         });
         c.appendChild(
-            el('button', { className: 'btn-add mt-1', onClick: function () { state.skills_roots.push(''); renderAll(); } }, '+ Add Path')
+            el('button', { className: 'btn-add mt-1', onClick: function () { sl.skills_roots.push(''); renderAll(); } }, '+ Add Path')
         );
     }
 
     function buildSkillRow(value, i) {
+        var sl = state.skill_load;
         var inp = el('input', { className: 'form-input', type: 'text', value: value, placeholder: './skills or https://...' });
-        inp.addEventListener('input', function () { state.skills_roots[i] = this.value; renderOutput(); });
+        inp.addEventListener('input', function () { sl.skills_roots[i] = this.value; renderOutput(); });
         return el('div', { className: 'flex items-center gap-2 mb-2' }, [
             inp,
-            el('button', { className: 'btn-remove', onClick: function () { state.skills_roots.splice(i, 1); renderAll(); } }, '✕')
+            el('button', { className: 'btn-remove', onClick: function () { sl.skills_roots.splice(i, 1); renderAll(); } }, '✕')
         ]);
     }
 
@@ -607,12 +612,12 @@
         c.appendChild(el('div', { className: 'space-y-3 mb-4' }, [
             el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Context Mode'),
             el('div', { className: 'grid grid-cols-1 sm:grid-cols-3 gap-4' }, [
-                fieldToggle('Disabled', tw.context_mode.disabled, function (v) { tw.context_mode.disabled = v; renderAll(); }, 'Local BM25 compression for large tool outputs — reduces token usage without LLM calls. Enabled by default.'),
-                !tw.context_mode.disabled ? fieldNumber('Threshold (chars)', tw.context_mode.threshold, function (v) { tw.context_mode.threshold = v; renderOutput(); }, 1000, 500000, 'Character count above which responses are compressed (default 20000 ≈ 5k tokens)') : null,
-                !tw.context_mode.disabled ? fieldNumber('Max Chunks', tw.context_mode.max_chunks, function (v) { tw.context_mode.max_chunks = v; renderOutput(); }, 1, 100, 'Maximum number of top-scored chunks returned (default 10)') : null,
-                !tw.context_mode.disabled ? fieldNumber('Chunk Size (chars)', tw.context_mode.chunk_size, function (v) { tw.context_mode.chunk_size = v; renderOutput(); }, 100, 10000, 'Target character count per chunk (default 800)') : null,
-                !tw.context_mode.disabled ? fieldNumber('Min Term Length', tw.context_mode.min_term_len, function (v) { tw.context_mode.min_term_len = v; renderOutput(); }, 1, 10, 'Minimum character length for query terms used in BM25 scoring (default 3). Lower values keep short IDs like pod hashes.') : null,
-                !tw.context_mode.disabled ? fieldText('Per-Tool Overrides', tw.context_mode.per_tool, function (v) { tw.context_mode.per_tool = v; renderOutput(); }, 'run_shell:40000/15/800/2', 'Tool-specific overrides (name:threshold/max_chunks/chunk_size/min_term_len, comma-separated). Omit trailing values to keep defaults.') : null
+                fieldToggle('Enabled', tw.context_mode.enabled, function (v) { tw.context_mode.enabled = v; renderAll(); }, 'Local BM25 compression for large tool outputs — reduces token usage without LLM calls. Disabled by default.'),
+                tw.context_mode.enabled ? fieldNumber('Threshold (chars)', tw.context_mode.threshold, function (v) { tw.context_mode.threshold = v; renderOutput(); }, 1000, 500000, 'Character count above which responses are compressed (default 20000 ≈ 5k tokens)') : null,
+                tw.context_mode.enabled ? fieldNumber('Max Chunks', tw.context_mode.max_chunks, function (v) { tw.context_mode.max_chunks = v; renderOutput(); }, 1, 100, 'Maximum number of top-scored chunks returned (default 10)') : null,
+                tw.context_mode.enabled ? fieldNumber('Chunk Size (chars)', tw.context_mode.chunk_size, function (v) { tw.context_mode.chunk_size = v; renderOutput(); }, 100, 10000, 'Target character count per chunk (default 800)') : null,
+                tw.context_mode.enabled ? fieldNumber('Min Term Length', tw.context_mode.min_term_len, function (v) { tw.context_mode.min_term_len = v; renderOutput(); }, 1, 10, 'Minimum character length for query terms used in BM25 scoring (default 3). Lower values keep short IDs like pod hashes.') : null,
+                tw.context_mode.enabled ? fieldText('Per-Tool Overrides', tw.context_mode.per_tool, function (v) { tw.context_mode.per_tool = v; renderOutput(); }, 'run_shell:40000/15/800/2', 'Tool-specific overrides (name:threshold/max_chunks/chunk_size/min_term_len, comma-separated). Omit trailing values to keep defaults.') : null
             ].filter(Boolean))
         ]));
 
@@ -839,8 +844,13 @@
 
 
     function skillsToToml(lines) {
-        if (!hasItems(state.skills_roots)) return;
-        lines.push('skills_roots = [' + state.skills_roots.filter(Boolean).map(q).join(', ') + ']');
+        var sl = state.skill_load;
+        var hasRoots = hasItems(sl.skills_roots);
+        var hasCustomMax = sl.max_loaded_skills && sl.max_loaded_skills !== 3;
+        if (!hasRoots && !hasCustomMax) return;
+        lines.push('[skill_load]');
+        if (hasCustomMax) lines.push('max_loaded_skills = ' + sl.max_loaded_skills);
+        if (hasRoots) lines.push('skills_roots = [' + sl.skills_roots.filter(Boolean).map(q).join(', ') + ']');
         lines.push('');
     }
 
@@ -1140,7 +1150,7 @@
 
     function toolwrapToToml(lines) {
         var tw = state.toolwrap;
-        var cmNonDefault = tw.context_mode.disabled || tw.context_mode.threshold !== 20000 ||
+        var cmNonDefault = tw.context_mode.enabled || tw.context_mode.threshold !== 20000 ||
             tw.context_mode.max_chunks !== 10 || tw.context_mode.chunk_size !== 800 ||
             tw.context_mode.min_term_len !== 3 || tw.context_mode.per_tool;
         var any = cmNonDefault || tw.timeout.enabled || tw.rate_limit.enabled || tw.circuit_breaker.enabled ||
@@ -1148,11 +1158,9 @@
             tw.tracing.enabled || tw.sanitize.enabled || tw.validation.enabled;
         if (!any) return;
 
-        if (tw.context_mode.disabled) {
+        if (tw.context_mode.enabled) {
             lines.push('[toolwrap.context_mode]');
-            lines.push('disabled = true');
-            lines.push('');
-        } else {
+            lines.push('enabled = true');
             var cmChanged = tw.context_mode.threshold !== 20000 ||
                 tw.context_mode.max_chunks !== 10 ||
                 tw.context_mode.chunk_size !== 800 ||
@@ -1352,9 +1360,16 @@
 
 
     function skillsToYaml(lines) {
-        if (!hasItems(state.skills_roots)) return;
-        lines.push('skills_roots:');
-        state.skills_roots.filter(Boolean).forEach(function (s) { lines.push('  - ' + yq(s)); });
+        var sl = state.skill_load;
+        var hasRoots = hasItems(sl.skills_roots);
+        var hasCustomMax = sl.max_loaded_skills && sl.max_loaded_skills !== 3;
+        if (!hasRoots && !hasCustomMax) return;
+        lines.push('skill_load:');
+        if (hasCustomMax) lines.push('  max_loaded_skills: ' + sl.max_loaded_skills);
+        if (hasRoots) {
+            lines.push('  skills_roots:');
+            sl.skills_roots.filter(Boolean).forEach(function (s) { lines.push('    - ' + yq(s)); });
+        }
         lines.push('');
     }
 
@@ -1624,7 +1639,7 @@
 
     function toolwrapToYaml(lines) {
         var tw = state.toolwrap;
-        var cmNonDefault = tw.context_mode.disabled || tw.context_mode.threshold !== 20000 ||
+        var cmNonDefault = tw.context_mode.enabled || tw.context_mode.threshold !== 20000 ||
             tw.context_mode.max_chunks !== 10 || tw.context_mode.chunk_size !== 800 ||
             tw.context_mode.min_term_len !== 3 || tw.context_mode.per_tool;
         var any = cmNonDefault || tw.timeout.enabled || tw.rate_limit.enabled || tw.circuit_breaker.enabled ||
@@ -1633,10 +1648,9 @@
         if (!any) return;
         lines.push('toolwrap:');
 
-        if (tw.context_mode.disabled) {
+        if (tw.context_mode.enabled) {
             lines.push('  context_mode:');
-            lines.push('    disabled: true');
-        } else {
+            lines.push('    enabled: true');
             var cmChanged = tw.context_mode.threshold !== 20000 ||
                 tw.context_mode.max_chunks !== 10 ||
                 tw.context_mode.chunk_size !== 800 ||

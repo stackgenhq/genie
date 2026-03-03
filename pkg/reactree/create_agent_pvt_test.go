@@ -144,6 +144,10 @@ var _ = Describe("CreateAgentRequest", func() {
 				false, "some warning", "valid result", "tool results here",
 				"success", Equal("valid result"),
 			),
+			Entry("middleware cancellation error surfaces correctly",
+				false, "loop detected: tool X has been called with identical arguments 3 times consecutively. Stop calling this tool and summarize the results you already have", "", "",
+				"error", ContainSubstring("loop detected"),
+			),
 		)
 	})
 })
