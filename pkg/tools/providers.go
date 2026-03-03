@@ -131,17 +131,6 @@ func (p *SkillToolProvider) GetTools() []tool.Tool {
 	return tools
 }
 
-// Clone returns a new SkillToolProvider with a fresh, empty DynamicSkillLoader connected to the same repository.
-// This implements CloneableToolProvider to allow sub-agents to have an isolated environment for dynamic skills.
-func (p *SkillToolProvider) Clone() ToolProviders {
-	clone := &SkillToolProvider{
-		repo: p.repo,
-		exec: p.exec,
-	}
-	clone.loader = dynamicskills.NewDynamicSkillLoader(clone, p.loader.MaxSkills())
-	return clone
-}
-
 // Search implements dynamicskills.SkillRegistry.
 func (p *SkillToolProvider) Search(query string) []dynamicskills.Skill {
 	// If query is empty, we return all skills.

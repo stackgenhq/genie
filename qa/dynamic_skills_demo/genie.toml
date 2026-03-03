@@ -1,5 +1,9 @@
 agent_name = "dynamic_skills_tester"
 
+# Dynamic skills configuration
+skills_roots = ["./skills"]
+max_loaded_skills = 2
+
 [[model_config.providers]]
 provider = "gemini"
 model_name = "gemini-3-flash-preview"
@@ -10,10 +14,6 @@ good_for_task = "tool_calling"
 port = 9876
 cors_origins = ["*"]
 
-# Dynamic skills configuration
-# Dynamic skills configuration
-skills_roots = ["./skills"]
-max_loaded_skills = 2
 
 [hitl]
 # Automatically allow loading skills without user approval
