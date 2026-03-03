@@ -2,7 +2,6 @@ package reactree
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -361,14 +360,6 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 		// Token optimization: Only include current request context, not full
 		// history, preventing unbounded context growth (50-70% savings).
 		llmagent.WithMessageFilterMode(llmagent.RequestContext),
-		llmagent.WithModelCallbacks(model.NewCallbacks().RegisterBeforeModel(
-			func(ctx context.Context, args *model.BeforeModelArgs) (*model.BeforeModelResult, error) {
-				if b, err := json.MarshalIndent(args.Request.Messages, "", "  "); err == nil {
-					fmt.Printf("\n--- SUB-AGENT PROMPT ---\n%s\n----------------------\n", string(b))
-				}
-				return &model.BeforeModelResult{}, nil
-			},
-		)),
 	)
 
 	// Run via a one-shot runner with isolated session.

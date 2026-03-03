@@ -1,7 +1,8 @@
 agent_name = "dynamic_skills_tester"
 
 # Dynamic skills configuration
-skills_roots = ["./skills"]
+# Path is relative to workingDir (repo root when using `go run main.go grant --config ...`)
+skills_roots = ["qa/dynamic_skills_demo/skills"]
 max_loaded_skills = 2
 
 [[model_config.providers]]
