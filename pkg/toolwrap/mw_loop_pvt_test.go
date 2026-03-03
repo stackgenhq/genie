@@ -62,4 +62,24 @@ var _ = Describe("isEmptyResult", func() {
 		ch := make(chan int)
 		Expect(isEmptyResult(ch)).To(BeFalse())
 	})
+
+	It("returns true for found:false (graph_get_entity shape)", func() {
+		raw := json.RawMessage(`{"entity":null,"found":false}`)
+		Expect(isEmptyResult(raw)).To(BeTrue())
+	})
+
+	It("returns false for found:true (graph_get_entity shape)", func() {
+		raw := json.RawMessage(`{"entity":{"id":"1"},"found":true}`)
+		Expect(isEmptyResult(raw)).To(BeFalse())
+	})
+
+	It("returns true for empty path array (graph_shortest_path shape)", func() {
+		raw := json.RawMessage(`{"path":[],"found":false}`)
+		Expect(isEmptyResult(raw)).To(BeTrue())
+	})
+
+	It("returns false for non-empty path array (graph_shortest_path shape)", func() {
+		raw := json.RawMessage(`{"path":[{"id":"a"},{"id":"b"}],"found":true}`)
+		Expect(isEmptyResult(raw)).To(BeFalse())
+	})
 })
