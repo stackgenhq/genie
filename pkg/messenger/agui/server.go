@@ -796,7 +796,7 @@ type InjectFeedbackRequest struct {
 func (s *Server) handleInjectFeedback(w http.ResponseWriter, r *http.Request) {
 	logr := logger.GetLogger(r.Context()).With("fn", "agui.Server.handleInjectFeedback")
 
-	defer r.Body.Close()
+	defer r.Body.Close() //nolint:errcheck
 
 	var req InjectFeedbackRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

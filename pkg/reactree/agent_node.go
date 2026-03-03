@@ -419,8 +419,8 @@ func runLightweightAgent(ctx context.Context, prompt string, cfg AgentNodeConfig
 		}
 		if ev.Response != nil {
 			choices = append(choices, ev.Choices...)
-			if ev.Response.Usage != nil {
-				lastUsage = ev.Response.Usage
+			if ev.Usage != nil {
+				lastUsage = ev.Usage
 			}
 		}
 	}
