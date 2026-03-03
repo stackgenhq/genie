@@ -60,5 +60,5 @@ To verify that Genie can effectively discover, load, and interact with specializ
 - [ ] Genie successfully lists unloaded skills using `discover_skills`.
 - [ ] Genie selectively loads skills via `load_skill`.
 - [ ] Loaded custom skills actually function correctly via their standard tools.
-- [ ] Genie hits context blockers actively when attempting to horde skills past limitations.
+- [ ] Genie hits context blockers actively when attempting to hoard skills past limitations.
 - [ ] `unload_skill` correctly purges an active skill to accommodate new ones.

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -144,7 +145,10 @@ func (p *SkillToolProvider) Search(query string) []dynamicskills.Skill {
 
 		// trpc-agent-go skills are invoked via skill_run which takes a skill name as parameter.
 		// For dynamic skills, we give them direct access to skill_run.
-		runTool := skilltool.NewRunTool(p.repo, p.exec)
+		var runTool tool.Tool = skilltool.NewRunTool(p.repo, p.exec)
+		if callable, ok := runTool.(tool.CallableTool); ok {
+			runTool = &restrictedSkillRunTool{CallableTool: callable, loader: p.loader}
+		}
 
 		results = append(results, dynamicskills.Skill{
 			Name:        summary.Name,
@@ -162,10 +166,30 @@ func (p *SkillToolProvider) Get(name string) (dynamicskills.Skill, bool) {
 		return dynamicskills.Skill{}, false
 	}
 
-	runTool := skilltool.NewRunTool(p.repo, p.exec)
+	var runTool tool.Tool = skilltool.NewRunTool(p.repo, p.exec)
+	if callable, ok := runTool.(tool.CallableTool); ok {
+		runTool = &restrictedSkillRunTool{CallableTool: callable, loader: p.loader}
+	}
 	return dynamicskills.Skill{
 		Name:        skillData.Summary.Name,
 		Description: skillData.Summary.Description,
 		Tools:       []tool.Tool{runTool},
 	}, true
+}
+
+type restrictedSkillRunTool struct {
+	tool.CallableTool
+	loader *dynamicskills.DynamicSkillLoader
+}
+
+func (r *restrictedSkillRunTool) Call(ctx context.Context, args []byte) (any, error) {
+	var parsed struct {
+		SkillName string `json:"skill_name"`
+	}
+	if err := json.Unmarshal(args, &parsed); err == nil && parsed.SkillName != "" {
+		if !r.loader.IsLoaded(parsed.SkillName) {
+			return nil, fmt.Errorf("skill %q is not currently loaded. You must load it using load_skill first", parsed.SkillName)
+		}
+	}
+	return r.CallableTool.Call(ctx, args)
 }

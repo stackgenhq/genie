@@ -114,6 +114,14 @@ func (dsl *DynamicSkillLoader) loadedSkillNames() []string {
 	return names
 }
 
+// IsLoaded checks if a skill is currently loaded.
+func (dsl *DynamicSkillLoader) IsLoaded(name string) bool {
+	dsl.mu.RLock()
+	defer dsl.mu.RUnlock()
+	_, ok := dsl.loadedSkills[name]
+	return ok
+}
+
 // discoverSkillsReq is the input schema for discover_skills.
 type discoverSkillsReq struct {
 	Query string `json:"query" jsonschema:"description=Search term to find relevant skills. Leave empty to list all."`

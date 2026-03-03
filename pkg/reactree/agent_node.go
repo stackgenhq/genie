@@ -456,7 +456,10 @@ func runLightweightAgent(ctx context.Context, prompt string, cfg AgentNodeConfig
 
 	logr.Info("lightweight agent completed", "choices", len(choices))
 
-	return expert.Response{Choices: choices}, nil
+	return expert.Response{
+		Choices: choices,
+		Usage:   lastUsage,
+	}, nil
 }
 
 // terminalTools are tools that represent the agent's final action — delivering

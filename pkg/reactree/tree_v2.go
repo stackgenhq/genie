@@ -264,7 +264,11 @@ func (t *tree) prepareGraph(req TreeRequest, ls *loopState) (*graph.Graph, error
 	schema := NewReAcTreeSchema()
 	sg := graph.NewStateGraph(schema)
 
-	toolsToUse := ls.toolsForIteration(req.Tools)
+	baseTools := req.Tools
+	if req.ToolGetter != nil {
+		baseTools = req.ToolGetter()
+	}
+	toolsToUse := ls.toolsForIteration(baseTools)
 
 	// Enterprise: wrap tools with critic middleware if enabled.
 	if t.config.Toggles.EnableCriticMiddleware {
@@ -317,6 +321,9 @@ func (t *tree) prepareGraph(req TreeRequest, ls *loopState) (*graph.Graph, error
 				for name, count := range counts {
 					ls.toolCallCounts[name] += count
 				}
+			}
+			if budget, ok := stateMap[StateKeyContextBudget].(hooks.ContextBudgetEvent); ok {
+				ls.lastBudgetEvent = budget
 			}
 		}
 		return result, nil
