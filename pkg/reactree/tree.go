@@ -79,7 +79,6 @@ func DefaultTreeConfig() TreeConfig {
 		MaxDecisionsPerNode: 10,
 		MaxTotalNodes:       30,
 		MaxIterations:       3,
-		MaxLoadedSkills:     3,
 		ToolBudgets: map[string]int{
 			clarify.ToolName: 1,
 			// Limit sub-agent spawning to prevent the LLM from creating
