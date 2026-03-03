@@ -1,6 +1,7 @@
 agent_name = "dynamic_skills_tester"
 
 # Dynamic skills configuration
+[skill_load]
 skills_roots = ["./skills"]
 max_loaded_skills = 2
 
