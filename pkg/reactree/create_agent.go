@@ -250,7 +250,7 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 
 	// Dedup: identical parallel calls (same name+goal) are collapsed
 	// via singleflight so only one sub-agent runs.
-	dedupKey := req.AgentName + ":" + req.Goal + ":" + req.Context + ":" + strings.Join(req.ToolNames, ",") + ":" + string(req.TaskType)
+	dedupKey := req.AgentName + ":" + req.Goal
 	resp, err, shared := t.inflight.Do(dedupKey, func() (CreateAgentResponse, error) {
 		return t.executeInner(ctx, req)
 	})
