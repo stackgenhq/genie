@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stackgenhq/genie/pkg/tools"
+	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
 var _ = Describe("Providers", func() {
@@ -201,6 +202,55 @@ var _ = Describe("Providers", func() {
 					"load_skill",
 					"unload_skill",
 				))
+			})
+
+			It("supports Search to find dynamic skills", func() {
+				provider, err := tools.NewSkillToolProvider("/tmp", 3, skillDir)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Empty query
+				skills := provider.Search("")
+				Expect(skills).To(HaveLen(1))
+				Expect(skills[0].Name).To(Equal("test_skill"))
+
+				// Match query
+				skills = provider.Search("test")
+				Expect(skills).To(HaveLen(1))
+
+				// No match query
+				skills = provider.Search("bogus")
+				Expect(skills).To(HaveLen(0))
+			})
+
+			It("supports Get to retrieve a dynamic skill", func() {
+				provider, err := tools.NewSkillToolProvider("/tmp", 3, skillDir)
+				Expect(err).NotTo(HaveOccurred())
+
+				skill, found := provider.Get("test_skill")
+				Expect(found).To(BeTrue())
+				Expect(skill.Name).To(Equal("test_skill"))
+				Expect(skill.Tools).To(HaveLen(1)) // skill_run tool
+
+				_, found = provider.Get("missing_skill")
+				Expect(found).To(BeFalse())
+			})
+
+			It("restrictedSkillRunTool prevents calling unloaded skills", func() {
+				provider, err := tools.NewSkillToolProvider("/tmp", 3, skillDir)
+				Expect(err).NotTo(HaveOccurred())
+
+				skill, found := provider.Get("test_skill")
+				Expect(found).To(BeTrue())
+
+				runTool := skill.Tools[0].(tool.CallableTool)
+
+				// By default not loaded
+				_, err = runTool.Call(context.Background(), []byte(`{"skill_name":"test_skill","input":""}`))
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("is not currently loaded"))
+
+				// We can't automatically test the loader here easily without using LoadSkillTool,
+				// but we have unit tests on dynamic_skills loader so it's fine.
 			})
 		})
 	})

@@ -6,10 +6,18 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"testing"
+
 	"github.com/stackgenhq/genie/pkg/tools/skills/dynamicskills"
+
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )
+
+func TestDynamicSkills(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "DynamicSkills Suite")
+}
 
 // mockRegistry implements SkillRegistry for testing.
 type mockRegistry struct {
@@ -131,5 +139,72 @@ var _ = Describe("DynamicSkillLoader", func() {
 	It("should return an error when unloading a missing skill", func() {
 		err := loader.UnloadSkill("skillC")
 		Expect(err).To(MatchError(ContainSubstring("not currently loaded")))
+	})
+
+	It("should return MaxSkills", func() {
+		Expect(loader.MaxSkills()).To(Equal(2))
+	})
+
+	It("should correctly identify loaded skills with IsLoaded", func() {
+		err := loader.LoadSkill("skillA")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(loader.IsLoaded("skillA")).To(BeTrue())
+		Expect(loader.IsLoaded("skillB")).To(BeFalse())
+	})
+
+	Describe("Tools", func() {
+		It("DiscoverSkillsTool should search registry", func() {
+			tl := dynamicskills.DiscoverSkillsTool(reg)
+			callable := tl.(tool.CallableTool)
+
+			// Empty query matches all
+			res, err := callable.Call(context.Background(), []byte(`{}`))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(res.(string)).To(ContainSubstring("skillA"))
+			Expect(res.(string)).To(ContainSubstring("skillB"))
+			Expect(res.(string)).To(ContainSubstring("skillC"))
+
+			// Query "skillA" matches only skillA
+			res, err = callable.Call(context.Background(), []byte(`{"query": "skillA"}`))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(res.(string)).To(ContainSubstring("skillA"))
+			Expect(res.(string)).NotTo(ContainSubstring("skillB"))
+
+			// Query "xyz" matches none
+			res, err = callable.Call(context.Background(), []byte(`{"query": "xyz"}`))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(res.(string)).To(ContainSubstring("No skills found"))
+		})
+
+		It("LoadSkillTool should load a skill", func() {
+			tl := dynamicskills.LoadSkillTool(loader)
+			callable := tl.(tool.CallableTool)
+
+			res, err := callable.Call(context.Background(), []byte(`{"name": "skillA"}`))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(res.(string)).To(ContainSubstring("Successfully loaded skill \"skillA\""))
+			Expect(loader.IsLoaded("skillA")).To(BeTrue())
+
+			// Invalid skill
+			_, err = callable.Call(context.Background(), []byte(`{"name": "skillX"}`))
+			Expect(err).To(HaveOccurred())
+			Expect(loader.IsLoaded("skillX")).To(BeFalse())
+		})
+
+		It("UnloadSkillTool should unload a skill", func() {
+			Expect(loader.LoadSkill("skillA")).To(Succeed())
+
+			tl := dynamicskills.UnloadSkillTool(loader)
+			callable := tl.(tool.CallableTool)
+
+			res, err := callable.Call(context.Background(), []byte(`{"name": "skillA"}`))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(res.(string)).To(ContainSubstring("Successfully unloaded skill \"skillA\""))
+			Expect(loader.IsLoaded("skillA")).To(BeFalse())
+
+			// Invalid skill
+			_, err = callable.Call(context.Background(), []byte(`{"name": "skillX"}`))
+			Expect(err).To(HaveOccurred())
+		})
 	})
 })
