@@ -1406,7 +1406,7 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 	}()
 
 	for response := range agentThoughts {
-		agui.EmitAgentMessage(ctx, "Genie", response)
+		agui.EmitAgentMessage(ctx, orchestratorcontext.AgentFromContext(ctx).Name, response)
 
 		if _, err := a.msgr.Send(ctx, messenger.SendRequest{
 			Channel:  msg.Channel,

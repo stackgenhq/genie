@@ -22,6 +22,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/hitl"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 	"github.com/stackgenhq/genie/pkg/security/keyring"
 	"github.com/stackgenhq/genie/pkg/tools/google/oauth"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
@@ -684,6 +685,12 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		Channel:  messenger.Channel{ID: input.ThreadID},
 		Sender:   messenger.Sender{ID: "agui-user"},
 	})
+
+	// Inject the configured agent name so downstream code (e.g.
+	// server_expert.Handle RUN_STARTED, EmitAgentMessage) sees it.
+	if s.agentName != "" {
+		ctx = orchestratorcontext.WithAgent(ctx, orchestratorcontext.Agent{Name: s.agentName})
+	}
 
 	// Create event channel for this request
 	eventChan := make(chan interface{}, 100)

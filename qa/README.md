@@ -66,7 +66,7 @@ set -a && source .env && set +a
 ./build/genie grant
 ```
 
-Verify with: `curl http://localhost:8080/health` → HTTP 200.
+Verify with: `curl http://localhost:9876/health` → HTTP 200.
 
 ### Running genie doctor
 

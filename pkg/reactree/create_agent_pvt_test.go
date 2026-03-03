@@ -3,6 +3,7 @@ package reactree
 import (
 	"context"
 	"fmt"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -10,19 +11,19 @@ import (
 
 var _ = Describe("CreateAgentRequest", func() {
 
-	Describe("timeoutSeconds", func() {
+	Describe("timeout", func() {
 		DescribeTable("clamps the timeout to [minTimeout, maxTimeout] with a default",
-			func(input float64, expected float64) {
+			func(input float64, expected time.Duration) {
 				req := CreateAgentRequest{TimeoutSeconds: input}
 				Expect(req.timeout()).To(Equal(expected))
 			},
-			Entry("zero uses default (5 min)", 0.0, defaultTimeout.Seconds()),
-			Entry("negative uses default (5 min)", -10.0, defaultTimeout.Seconds()),
-			Entry("below floor is clamped to floor", 5.0, minTimeout.Seconds()),
-			Entry("exactly at floor stays at floor", minTimeout.Seconds(), minTimeout.Seconds()),
-			Entry("within range is unchanged", 180.0, 180.0),
-			Entry("exactly at ceiling stays at ceiling", maxTimeout.Seconds(), maxTimeout.Seconds()),
-			Entry("above ceiling is clamped to ceiling", 900.0, maxTimeout.Seconds()),
+			Entry("zero uses default (5 min)", 0.0, defaultTimeout),
+			Entry("negative uses default (5 min)", -10.0, defaultTimeout),
+			Entry("below floor is clamped to floor", 5.0, minTimeout),
+			Entry("exactly at floor stays at floor", minTimeout.Seconds(), minTimeout),
+			Entry("within range is unchanged", 180.0, 180*time.Second),
+			Entry("exactly at ceiling stays at ceiling", maxTimeout.Seconds(), maxTimeout),
+			Entry("above ceiling is clamped to ceiling", 900.0, maxTimeout),
 		)
 	})
 
