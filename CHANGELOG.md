@@ -88,7 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Breaking:** `SecretProvider.GetSecret` signature changed from `(ctx, string)` to `(ctx, GetSecretRequest)` — all call sites migrated
-- Context-mode middleware enabled by default (`ContextModeConfig.Disabled` field; set to `true` to opt out)
+- **Breaking:** Context-mode middleware changed from enabled-by-default to opt-in (`ContextModeConfig.Enabled` field; set to `true` to activate)
 - Replaced hand-rolled test fakes with counterfeiter-generated `securityfakes.FakeSecretProvider` across `config`, `langfuse`, and `modelprovider` test suites
 - Removed redundant tests in `model_test.go` and `security_test.go`
 - Updated CODEOWNERS to change ownership to @stackgenhq/gophers

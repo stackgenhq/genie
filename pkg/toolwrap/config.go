@@ -29,8 +29,5 @@ func DefaultMiddlewareConfig() MiddlewareConfig {
 			Enabled:          true,
 			FailureThreshold: 3, // open after 3 consecutive failures
 		},
-		ContextModeConfig: ContextModeConfig{
-			Disabled: true,
-		},
 	}
 }

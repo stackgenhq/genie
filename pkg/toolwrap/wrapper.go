@@ -202,7 +202,7 @@ func (deps MiddlewareDeps) DefaultMiddlewares(
 		FailureLimitMiddleware(),
 	)
 
-	if !cfg.ContextModeConfig.Disabled {
+	if cfg.ContextModeConfig.Enabled {
 		mws = append(mws, ContextModeMiddleware(cfg.ContextModeConfig))
 	}
 

@@ -576,10 +576,11 @@ config_sections:
       <strong>observability</strong> (OpenTelemetry metrics &amp; tracing), and
       <strong>security</strong> (output sanitization, input validation, HITL approval) — all
       configurable via YAML/TOML with zero code changes.<br><br>
-      <strong>Context Mode</strong> is <em>enabled by default</em> and runs before the LLM summariser.
+      <strong>Context Mode</strong> is <em>opt-in</em> and runs before the LLM summariser.
       It chunks large tool outputs, scores them against the tool's input using BM25-lite, and returns
-      only the top-K most relevant chunks — saving tokens and API cost without any LLM call.<br><br>
-      Core middlewares (context mode, panic recovery, loop detection, caching, HITL, audit) are always active.
+      only the top-K most relevant chunks — saving tokens and API cost without any LLM call. Enable with
+      <code>context_mode.enabled = true</code>.<br><br>
+      Core middlewares (panic recovery, loop detection, caching, HITL, audit) are always active.
       Opt-in middlewares are enabled individually via their <code>enabled</code> flag.
       Backed by battle-tested libraries: <code>golang.org/x/time/rate</code>,
       <code>golang.org/x/sync/semaphore</code>, <code>sony/gobreaker/v2</code>,
@@ -588,7 +589,7 @@ config_sections:
       - label: Middleware Execution Order
         columns: [Position, Middleware, Type, Purpose]
         rows:
-          - ["1", "`ContextMode`", "On by default", "BM25 chunk scoring — compresses large tool output locally (no LLM). Disable with `context_mode.disabled = true`"]
+          - ["1", "`ContextMode`", "Opt-in", "BM25 chunk scoring — compresses large tool output locally (no LLM). Enable with `context_mode.enabled = true`"]
           - ["2", "`PanicRecovery`", "Always-on", "Catches panics, prevents crash"]
           - ["3", "`Tracing`", "Opt-in", "OpenTelemetry spans per tool call"]
           - ["4", "`Metrics`", "Opt-in", "OTel counters + latency histogram"]
@@ -610,7 +611,7 @@ config_sections:
       - label: Context Mode Configuration
         columns: [Key, Type, Default, Description]
         rows:
-          - ["context_mode.disabled", "bool", "`false`", "Set to `true` to turn off local BM25 compression. Enabled by default."]
+          - ["context_mode.enabled", "bool", "`false`", "Set to `true` to enable local BM25 compression. Disabled by default."]
           - ["context_mode.threshold", "int", "`20000`", "Character count above which responses are compressed (≈ 5k tokens)"]
           - ["context_mode.max_chunks", "int", "`10`", "Maximum number of top-scored chunks returned"]
           - ["context_mode.chunk_size", "int", "`800`", "Target character count per chunk (split on paragraph boundaries)"]
@@ -651,7 +652,7 @@ config_sections:
       - label: Key Features
         columns: [Feature, Detail]
         rows:
-          - ["Context Mode (on by default)", "Large tool outputs are chunked and BM25-scored against the tool's input — only the top-K most relevant chunks are kept. No LLM call, no API cost. Saves tokens and avoids hitting the summariser."]
+          - ["Context Mode (opt-in)", "Large tool outputs are chunked and BM25-scored against the tool's input — only the top-K most relevant chunks are kept. No LLM call, no API cost. Saves tokens and avoids hitting the summariser."]
           - ["Zero-config defaults", "Core middlewares run out of the box — no configuration needed for context mode, panic recovery, loop detection, caching, audit, and HITL"]
           - ["Config-driven", "Enable any opt-in middleware with a single `enabled = true` — no code changes, no recompilation"]
           - ["Composable", "Mix and match middlewares, or build custom chains with `CompositeMiddleware`"]
@@ -663,11 +664,11 @@ config_sections:
       code: |
         [toolwrap]
 
-        # Context Mode — enabled by default.
+        # Context Mode — opt-in.
         # Compresses large tool output using BM25 chunk scoring (no LLM call).
-        # Uncomment to disable or tune:
+        # Uncomment to enable and tune:
         # [toolwrap.context_mode]
-        # disabled = true          # set true to turn off
+        # enabled = true           # set true to turn on
         # threshold = 20000        # chars above which compression kicks in
         # max_chunks = 10          # top-K chunks to keep
         # chunk_size = 800         # target chars per chunk

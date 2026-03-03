@@ -46,7 +46,7 @@
         email: { provider: '', host: '', port: 587, username: '', password: '', imap_host: '', imap_port: 993 },
         hitl: { always_allowed: [], denied_tools: [], cache_ttl: '' },
         toolwrap: {
-            context_mode: { disabled: false, threshold: 20000, max_chunks: 10, chunk_size: 800, min_term_len: 3, per_tool: '' },
+            context_mode: { enabled: false, threshold: 20000, max_chunks: 10, chunk_size: 800, min_term_len: 3, per_tool: '' },
             timeout: { enabled: false, default_timeout: '30s', per_tool: '' },
             rate_limit: { enabled: false, global_rate_per_minute: 60, per_tool_rate_per_minute: '' },
             circuit_breaker: { enabled: false, failure_threshold: 5, open_duration: '30s' },
@@ -607,12 +607,12 @@
         c.appendChild(el('div', { className: 'space-y-3 mb-4' }, [
             el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Context Mode'),
             el('div', { className: 'grid grid-cols-1 sm:grid-cols-3 gap-4' }, [
-                fieldToggle('Disabled', tw.context_mode.disabled, function (v) { tw.context_mode.disabled = v; renderAll(); }, 'Local BM25 compression for large tool outputs — reduces token usage without LLM calls. Enabled by default.'),
-                !tw.context_mode.disabled ? fieldNumber('Threshold (chars)', tw.context_mode.threshold, function (v) { tw.context_mode.threshold = v; renderOutput(); }, 1000, 500000, 'Character count above which responses are compressed (default 20000 ≈ 5k tokens)') : null,
-                !tw.context_mode.disabled ? fieldNumber('Max Chunks', tw.context_mode.max_chunks, function (v) { tw.context_mode.max_chunks = v; renderOutput(); }, 1, 100, 'Maximum number of top-scored chunks returned (default 10)') : null,
-                !tw.context_mode.disabled ? fieldNumber('Chunk Size (chars)', tw.context_mode.chunk_size, function (v) { tw.context_mode.chunk_size = v; renderOutput(); }, 100, 10000, 'Target character count per chunk (default 800)') : null,
-                !tw.context_mode.disabled ? fieldNumber('Min Term Length', tw.context_mode.min_term_len, function (v) { tw.context_mode.min_term_len = v; renderOutput(); }, 1, 10, 'Minimum character length for query terms used in BM25 scoring (default 3). Lower values keep short IDs like pod hashes.') : null,
-                !tw.context_mode.disabled ? fieldText('Per-Tool Overrides', tw.context_mode.per_tool, function (v) { tw.context_mode.per_tool = v; renderOutput(); }, 'run_shell:40000/15/800/2', 'Tool-specific overrides (name:threshold/max_chunks/chunk_size/min_term_len, comma-separated). Omit trailing values to keep defaults.') : null
+                fieldToggle('Enabled', tw.context_mode.enabled, function (v) { tw.context_mode.enabled = v; renderAll(); }, 'Local BM25 compression for large tool outputs — reduces token usage without LLM calls. Disabled by default.'),
+                tw.context_mode.enabled ? fieldNumber('Threshold (chars)', tw.context_mode.threshold, function (v) { tw.context_mode.threshold = v; renderOutput(); }, 1000, 500000, 'Character count above which responses are compressed (default 20000 ≈ 5k tokens)') : null,
+                tw.context_mode.enabled ? fieldNumber('Max Chunks', tw.context_mode.max_chunks, function (v) { tw.context_mode.max_chunks = v; renderOutput(); }, 1, 100, 'Maximum number of top-scored chunks returned (default 10)') : null,
+                tw.context_mode.enabled ? fieldNumber('Chunk Size (chars)', tw.context_mode.chunk_size, function (v) { tw.context_mode.chunk_size = v; renderOutput(); }, 100, 10000, 'Target character count per chunk (default 800)') : null,
+                tw.context_mode.enabled ? fieldNumber('Min Term Length', tw.context_mode.min_term_len, function (v) { tw.context_mode.min_term_len = v; renderOutput(); }, 1, 10, 'Minimum character length for query terms used in BM25 scoring (default 3). Lower values keep short IDs like pod hashes.') : null,
+                tw.context_mode.enabled ? fieldText('Per-Tool Overrides', tw.context_mode.per_tool, function (v) { tw.context_mode.per_tool = v; renderOutput(); }, 'run_shell:40000/15/800/2', 'Tool-specific overrides (name:threshold/max_chunks/chunk_size/min_term_len, comma-separated). Omit trailing values to keep defaults.') : null
             ].filter(Boolean))
         ]));
 
@@ -1140,7 +1140,7 @@
 
     function toolwrapToToml(lines) {
         var tw = state.toolwrap;
-        var cmNonDefault = tw.context_mode.disabled || tw.context_mode.threshold !== 20000 ||
+        var cmNonDefault = tw.context_mode.enabled || tw.context_mode.threshold !== 20000 ||
             tw.context_mode.max_chunks !== 10 || tw.context_mode.chunk_size !== 800 ||
             tw.context_mode.min_term_len !== 3 || tw.context_mode.per_tool;
         var any = cmNonDefault || tw.timeout.enabled || tw.rate_limit.enabled || tw.circuit_breaker.enabled ||
@@ -1148,11 +1148,9 @@
             tw.tracing.enabled || tw.sanitize.enabled || tw.validation.enabled;
         if (!any) return;
 
-        if (tw.context_mode.disabled) {
+        if (tw.context_mode.enabled) {
             lines.push('[toolwrap.context_mode]');
-            lines.push('disabled = true');
-            lines.push('');
-        } else {
+            lines.push('enabled = true');
             var cmChanged = tw.context_mode.threshold !== 20000 ||
                 tw.context_mode.max_chunks !== 10 ||
                 tw.context_mode.chunk_size !== 800 ||
@@ -1624,7 +1622,7 @@
 
     function toolwrapToYaml(lines) {
         var tw = state.toolwrap;
-        var cmNonDefault = tw.context_mode.disabled || tw.context_mode.threshold !== 20000 ||
+        var cmNonDefault = tw.context_mode.enabled || tw.context_mode.threshold !== 20000 ||
             tw.context_mode.max_chunks !== 10 || tw.context_mode.chunk_size !== 800 ||
             tw.context_mode.min_term_len !== 3 || tw.context_mode.per_tool;
         var any = cmNonDefault || tw.timeout.enabled || tw.rate_limit.enabled || tw.circuit_breaker.enabled ||
@@ -1633,10 +1631,9 @@
         if (!any) return;
         lines.push('toolwrap:');
 
-        if (tw.context_mode.disabled) {
+        if (tw.context_mode.enabled) {
             lines.push('  context_mode:');
-            lines.push('    disabled: true');
-        } else {
+            lines.push('    enabled: true');
             var cmChanged = tw.context_mode.threshold !== 20000 ||
                 tw.context_mode.max_chunks !== 10 ||
                 tw.context_mode.chunk_size !== 800 ||
