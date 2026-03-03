@@ -95,6 +95,8 @@ All checks should pass. If model providers fail, check that tokens are exported 
 | MCP validation | [20260227_mcp_validation.md](20260227_mcp_validation.md) |
 | genie doctor | [20260227_genie_doctor.md](20260227_genie_doctor.md) |
 | Knowledge graph + data sources | [20260227_graph_datasource.md](20260227_graph_datasource.md) |
+| Dynamic Skills Loading | [20260303_dynamic_skills.md](20260303_dynamic_skills.md) |
+| Compaction Quality Feedback | [20260303_compaction_quality.md](20260303_compaction_quality.md) |
 
 ---
 

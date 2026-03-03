@@ -24,6 +24,93 @@ type IterationStartEvent struct {
 	MaxIterations int
 }
 
+// ContextBudgetEvent is fired before making a model request to report token usage.
+// Use NewContextBudgetEvent to construct one from raw inputs; the helper
+// functions EstimatePersonaTokens / EstimateToolSchemaTokens /
+// EstimateHistoryTokens perform the heuristic word-to-token conversion.
+type ContextBudgetEvent struct {
+	PersonaTokens    int
+	ToolSchemaTokens int
+	HistoryTokens    int
+	TotalTokens      int
+	MaxTokens        int
+	UtilizationPct   float64
+}
+
+// defaultMaxTokens is the generic fallback context window size used when the
+// model's actual limit is not exposed by trpc-agent-go.
+const defaultMaxTokens = 128_000
+
+// budgetWarningThreshold is the utilization fraction above which a warning
+// is emitted. 0.85 = 85%.
+const budgetWarningThreshold = 0.85
+
+// EstimatePersonaTokens returns a rough token count for the persona text.
+// Uses the common heuristic of ~4 chars per token.
+func EstimatePersonaTokens(personaText string) int {
+	return len(personaText) / 4
+}
+
+// EstimateToolSchemaTokens returns a rough token count for a set of tool
+// declarations by summing name + description lengths.
+func EstimateToolSchemaTokens(names []string, descriptions []string) int {
+	total := 0
+	for i := range names {
+		total += len(names[i])
+		if i < len(descriptions) {
+			total += len(descriptions[i])
+		}
+	}
+	return total / 4
+}
+
+// EstimateHistoryTokens returns a rough token count for the prompt / message
+// history string.
+func EstimateHistoryTokens(prompt string) int {
+	return len(prompt) / 4
+}
+
+// NewContextBudgetEvent constructs a fully populated ContextBudgetEvent from
+// the three token components.
+func NewContextBudgetEvent(personaTokens, toolSchemaTokens, historyTokens int) ContextBudgetEvent {
+	total := personaTokens + toolSchemaTokens + historyTokens
+	return ContextBudgetEvent{
+		PersonaTokens:    personaTokens,
+		ToolSchemaTokens: toolSchemaTokens,
+		HistoryTokens:    historyTokens,
+		TotalTokens:      total,
+		MaxTokens:        defaultMaxTokens,
+		UtilizationPct:   float64(total) / float64(defaultMaxTokens),
+	}
+}
+
+// IsOverBudget reports whether context utilization exceeds the warning
+// threshold (85%).
+func (e ContextBudgetEvent) IsOverBudget() bool {
+	return e.UtilizationPct > budgetWarningThreshold
+}
+
+// CompactionMissEvent is fired when a tool is re-invoked identically after its prior output was compressed.
+type CompactionMissEvent struct {
+	ToolName       string
+	OriginalSize   int
+	CompressedSize int
+}
+
+type compactionTrackerKey struct{}
+
+// CompactionTrackerKey is the context key for passing a CompactionTracker.
+var CompactionTrackerKey = compactionTrackerKey{}
+
+// CompactionTracker allows middlewares to signal that compaction occurred
+// and to query adaptive chunk-boost hints set by the loop on compaction misses.
+type CompactionTracker interface {
+	MarkCompressed(toolName string, originalSize, compressedSize int)
+	// GetChunkBoost returns a multiplier (>1) for max_chunks on a tool that
+	// previously caused a compaction miss, or 0 if no boost is needed.
+	GetChunkBoost(toolName string) int
+}
+
 // IterationEndEvent is fired at the end of each adaptive loop iteration.
 type IterationEndEvent struct {
 	Iteration      int

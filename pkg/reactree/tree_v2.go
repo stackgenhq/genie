@@ -24,6 +24,7 @@ func (t *tree) runAdaptiveLoop_v2(ctx context.Context, req TreeRequest) (TreeRes
 		maxIterations:  t.config.MaxIterations,
 		toolBudgets:    t.config.ToolBudgets,
 		toolCallCounts: make(map[string]int),
+		chunkBoosts:    make(map[string]int),
 	}
 	logr := logger.GetLogger(ctx).With("fn", "tree.RunAdaptiveLoop", "goal", req.Goal)
 
@@ -115,6 +116,21 @@ func (t *tree) runAdaptiveLoop_v2(ctx context.Context, req TreeRequest) (TreeRes
 				"iteration", ls.iteration,
 				"repeated_count", ls.repetitionCount,
 			)
+
+			// If the loop was likely caused by context compression, fire a hook
+			// and apply adaptive chunk boost so the next iteration retains more content.
+			if ls.lastCompressedTool != "" {
+				logr.Warn("possible compaction miss — agent re-invoked tool identically after compressed output", "tool", ls.lastCompressedTool)
+				t.hooks.OnCompactionMiss(ctx, hooks.CompactionMissEvent{
+					ToolName:       ls.lastCompressedTool,
+					OriginalSize:   ls.lastOriginalSize,
+					CompressedSize: ls.lastCompressedSize,
+				})
+				// Adaptive compaction: double max_chunks for this tool on next invocation.
+				ls.chunkBoosts[ls.lastCompressedTool] = 2
+				logr.Info("adaptive compaction: boosting max_chunks for next invocation", "tool", ls.lastCompressedTool, "boost", 2)
+			}
+
 			ls.lastStatus = Failure
 			ls.lastOutput = "I got stuck repeating the same approach. Please try rephrasing your request."
 			break
@@ -149,9 +165,33 @@ type loopState struct {
 	// stuck loops where the LLM repeats the same failing action.
 	lastOutputHash  uint64
 	repetitionCount int
+
+	// Compaction tracking: remembers if the last tool call in the iteration
+	// returned a compressed result, to diagnose loops caused by compaction misses.
+	lastCompressedTool string
+	lastOriginalSize   int
+	lastCompressedSize int
+
+	// Adaptive compaction: per-tool max_chunks multiplier set after a compaction miss.
+	chunkBoosts map[string]int
+
+	// Last telemetry tracked for token observability
+	lastBudgetEvent hooks.ContextBudgetEvent
 }
 
-// toolsForIteration returns the tool list with budget-exceeded tools removed.
+func (ls *loopState) MarkCompressed(toolName string, originalSize, compressedSize int) {
+	ls.lastCompressedTool = toolName
+	ls.lastOriginalSize = originalSize
+	ls.lastCompressedSize = compressedSize
+}
+
+// GetChunkBoost returns the adaptive max_chunks multiplier for a tool. Returns
+// 0 when no boost is needed (normal path). A value of 2 means "double max_chunks".
+func (ls *loopState) GetChunkBoost(toolName string) int {
+	return ls.chunkBoosts[toolName]
+}
+
+// toolsForIteration returns the tool list, with budget-exceeded tools removed.
 // This is a hard code-level guardrail — the LLM literally cannot call a tool
 // that isn't in the list. Any tool listed in ToolBudgets whose cumulative count
 // has reached its limit gets stripped.

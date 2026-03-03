@@ -9,7 +9,9 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
+	"github.com/stackgenhq/genie/pkg/hooks"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/tidwall/gjson"
 )
@@ -40,8 +42,9 @@ const (
 
 // ContextModeConfig controls the context-mode middleware.
 type ContextModeConfig struct {
-	// Disabled deactivates the context-mode middleware. Default: false (enabled).
-	Disabled bool `yaml:"disabled,omitempty" toml:"disabled,omitempty"`
+	// Enabled activates the context-mode middleware. Default: false (disabled).
+	// Set to true to opt in.
+	Enabled bool `yaml:"enabled,omitempty" toml:"enabled,omitempty"`
 	// Threshold is the character count above which a response is compressed.
 	// When 0, defaultContextModeThreshold (20 000) is used.
 	Threshold int `yaml:"threshold,omitempty" toml:"threshold,omitempty"`
@@ -51,6 +54,25 @@ type ContextModeConfig struct {
 	// ChunkSize is the target character count per chunk.
 	// When 0, defaultChunkSize (800) is used.
 	ChunkSize int `yaml:"chunk_size,omitempty" toml:"chunk_size,omitempty"`
+	// MinTermLen is the minimum character length for a query term to be
+	// considered meaningful. When 0, the package default (3) is used.
+	// Lowering this value retains shorter tokens such as 2-character IDs.
+	MinTermLen int `yaml:"min_term_len,omitempty" toml:"min_term_len,omitempty"`
+	// PerTool maps tool names to per-tool overrides. Non-zero fields in the
+	// override replace the global defaults for that tool. This lets operators
+	// tune compression aggressiveness per tool — e.g. relax thresholds for
+	// run_shell output.
+	PerTool map[string]ContextModeToolOverride `yaml:"per_tool,omitempty" toml:"per_tool,omitempty"`
+}
+
+// ContextModeToolOverride holds per-tool overrides for the context-mode
+// middleware. Only non-zero fields take effect; zero values fall back to
+// the global defaults.
+type ContextModeToolOverride struct {
+	Threshold  int `yaml:"threshold,omitempty" toml:"threshold,omitempty"`
+	MaxChunks  int `yaml:"max_chunks,omitempty" toml:"max_chunks,omitempty"`
+	ChunkSize  int `yaml:"chunk_size,omitempty" toml:"chunk_size,omitempty"`
+	MinTermLen int `yaml:"min_term_len,omitempty" toml:"min_term_len,omitempty"`
 }
 
 // contextModeMiddleware compresses oversized tool results using local
@@ -58,9 +80,8 @@ type ContextModeConfig struct {
 // AutoSummarizeMiddleware in the chain so that a cheap first-pass
 // reduction can avoid the slower (and costlier) LLM summarisation.
 type contextModeMiddleware struct {
-	threshold int
-	maxChunks int
-	chunkSize int
+	ContextModeToolOverride
+	perTool map[string]ContextModeToolOverride
 }
 
 // ContextModeMiddleware returns a Middleware that detects tool responses
@@ -86,11 +107,19 @@ func ContextModeMiddleware(cfg ContextModeConfig) Middleware {
 	if chunkSize <= 0 {
 		chunkSize = defaultChunkSize
 	}
+	minTerm := cfg.MinTermLen
+	if minTerm <= 0 {
+		minTerm = minQueryTermLen
+	}
 
 	return &contextModeMiddleware{
-		threshold: threshold,
-		maxChunks: maxChunks,
-		chunkSize: chunkSize,
+		ContextModeToolOverride: ContextModeToolOverride{
+			Threshold:  threshold,
+			MaxChunks:  maxChunks,
+			ChunkSize:  chunkSize,
+			MinTermLen: minTerm,
+		},
+		perTool: cfg.PerTool,
 	}
 }
 
@@ -103,8 +132,24 @@ func (m *contextModeMiddleware) Wrap(next Handler) Handler {
 			return output, err
 		}
 
+		// Resolve effective settings (per-tool overrides win).
+		resolveSettings := m.resolveSettings(tc.ToolName)
+
+		// Adaptive compaction: if a prior iteration flagged this tool
+		// for a chunk boost (compaction miss), increase MaxChunks.
+		if tracker, ok := ctx.Value(hooks.CompactionTrackerKey).(hooks.CompactionTracker); ok {
+			if boost := tracker.GetChunkBoost(tc.ToolName); boost > 1 {
+				resolveSettings.MaxChunks *= boost
+				logr := logger.GetLogger(ctx).With(
+					"fn", "ContextModeMiddleware",
+					"tool", tc.ToolName,
+				)
+				logr.Info("adaptive compaction: boosted max_chunks", "boost", boost, "effective_max_chunks", resolveSettings.MaxChunks)
+			}
+		}
+
 		responseStr := fmt.Sprintf("%v", output)
-		if len(responseStr) < m.threshold {
+		if len(responseStr) < resolveSettings.Threshold {
 			return output, nil
 		}
 
@@ -112,31 +157,31 @@ func (m *contextModeMiddleware) Wrap(next Handler) Handler {
 			"fn", "ContextModeMiddleware",
 			"tool", tc.ToolName,
 			"original_chars", len(responseStr),
-			"threshold", m.threshold,
+			"threshold", resolveSettings.Threshold,
 		)
 		logr.Info("tool response exceeds threshold, applying context-mode compression")
 
 		// Step 1: Chunk the text on paragraph boundaries.
-		chunks := chunkText(responseStr, m.chunkSize)
-		if len(chunks) <= m.maxChunks {
+		chunks := chunkText(responseStr, resolveSettings.ChunkSize)
+		if len(chunks) <= resolveSettings.MaxChunks {
 			// Not enough chunks to warrant scoring — return as-is.
 			return output, nil
 		}
 
 		// Step 2: Extract query terms from the tool's input arguments.
-		queryTerms := extractQueryTerms(tc.Args)
+		queryTerms := extractQueryTerms(tc.Args, resolveSettings.MinTermLen)
 		if len(queryTerms) == 0 {
 			// No searchable terms — fall back to returning first + last
 			// chunks to preserve context boundaries.
 			logr.Info("no query terms extracted, returning boundary chunks")
-			return buildBoundaryResult(chunks, m.maxChunks, len(responseStr)), nil
+			return buildBoundaryResult(chunks, resolveSettings.MaxChunks, len(responseStr)), nil
 		}
 
-		// Step 3: Score chunks using BM25-lite.
+		// Step 3: Score chunks using BM25-lite with positional bias.
 		scored := chunks.scoreChunks(queryTerms)
 
 		// Step 4: Select top-K by score, then re-order by original position.
-		topK := scored.selectTopK(m.maxChunks)
+		topK := scored.selectTopK(resolveSettings.MaxChunks)
 
 		compressed := buildResult(topK, len(chunks), len(responseStr))
 		logr.Info("context-mode compression complete",
@@ -146,8 +191,47 @@ func (m *contextModeMiddleware) Wrap(next Handler) Handler {
 			"compression_ratio", fmt.Sprintf("%.1f%%", float64(len(compressed))/float64(len(responseStr))*100),
 		)
 
+		if tracker, ok := ctx.Value(hooks.CompactionTrackerKey).(hooks.CompactionTracker); ok {
+			tracker.MarkCompressed(tc.ToolName, len(responseStr), len(compressed))
+		}
+
 		return compressed, nil
 	}
+}
+
+func (c ContextModeToolOverride) clone() ContextModeToolOverride {
+	return ContextModeToolOverride{
+		Threshold:  c.Threshold,
+		MaxChunks:  c.MaxChunks,
+		ChunkSize:  c.ChunkSize,
+		MinTermLen: c.MinTermLen,
+	}
+}
+
+// resolveSettings returns the effective (threshold, maxChunks, chunkSize,
+// minTermLen) for the given tool, applying per-tool overrides where set.
+func (m *contextModeMiddleware) resolveSettings(toolName string) ContextModeToolOverride {
+	override := m.clone()
+
+	result, ok := m.perTool[toolName]
+	if !ok {
+		return override
+	}
+
+	if result.Threshold > 0 {
+		override.Threshold = result.Threshold
+	}
+	if result.MaxChunks > 0 {
+		override.MaxChunks = result.MaxChunks
+	}
+	if result.ChunkSize > 0 {
+		override.ChunkSize = result.ChunkSize
+	}
+	if result.MinTermLen > 0 {
+		override.MinTermLen = result.MinTermLen
+	}
+
+	return override
 }
 
 // --- Internal helpers (unexported) ---
@@ -270,12 +354,23 @@ func splitOnWords(text string, targetSize int) chunkedStrings {
 	return chunks
 }
 
+// hexPattern matches hex-like substrings that are at least 4 hex
+// characters long. This catches pod ID prefixes (e.g. bc97d0), commit
+// SHAs, container IDs, and similar infrastructure identifiers that
+// would otherwise be lost by the word tokeniser.
+var hexPattern = regexp.MustCompile(`[0-9a-fA-F]{4,}`)
+
 // extractQueryTerms pulls searchable terms from the JSON tool arguments.
 // It extracts string values from the JSON, tokenises them, lowercases,
-// and filters out very short tokens (< minQueryTermLen chars).
-func extractQueryTerms(args []byte) []string {
+// and filters out very short tokens (< minLen chars). It also extracts
+// hex-like substrings separately so that infrastructure identifiers
+// (pod IDs, commit SHAs) are not lost during tokenisation.
+func extractQueryTerms(args []byte, minLen int) []string {
 	if len(args) == 0 {
 		return nil
+	}
+	if minLen <= 0 {
+		minLen = minQueryTermLen
 	}
 
 	parsed := gjson.ParseBytes(args)
@@ -286,7 +381,10 @@ func extractQueryTerms(args []byte) []string {
 	var rawTerms []string
 	parsed.ForEach(func(_, value gjson.Result) bool {
 		if value.Type == gjson.String {
-			rawTerms = append(rawTerms, tokenise(value.String())...)
+			s := value.String()
+			rawTerms = append(rawTerms, tokenise(s, minLen)...)
+			// Also extract hex-like substrings for infrastructure IDs.
+			rawTerms = append(rawTerms, extractHexTokens(s)...)
 		}
 		return true
 	})
@@ -304,15 +402,32 @@ func extractQueryTerms(args []byte) []string {
 	return terms
 }
 
-// tokenise splits a string into lowercase tokens, filtering out short ones.
-func tokenise(s string) []string {
+// extractHexTokens returns all hex-like substrings (≥4 hex chars) found
+// in s, lowercased. These capture pod IDs, commit SHAs, container IDs,
+// and similar identifiers that the standard word tokeniser may miss or
+// merge with surrounding text.
+func extractHexTokens(s string) []string {
+	matches := hexPattern.FindAllString(s, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	tokens := make([]string, 0, len(matches))
+	for _, m := range matches {
+		tokens = append(tokens, strings.ToLower(m))
+	}
+	return tokens
+}
+
+// tokenise splits a string into lowercase tokens, filtering out tokens
+// shorter than minLen characters.
+func tokenise(s string, minLen int) []string {
 	words := strings.FieldsFunc(s, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
 	})
 	var tokens []string
 	for _, w := range words {
 		w = strings.ToLower(w)
-		if len(w) >= minQueryTermLen {
+		if utf8.RuneCountInString(w) >= minLen {
 			tokens = append(tokens, w)
 		}
 	}
@@ -344,7 +459,10 @@ func (chunks chunkedStrings) scoreChunks(queryTerms []string) scoredChunks {
 	// Compute average chunk length.
 	avgLen := float64(totalLen) / float64(n)
 
-	// Score each chunk.
+	// Score each chunk with BM25 + positional bias.
+	// Positional bias gives a small boost to chunks near the beginning
+	// and end of the document so that output headers and trailing
+	// summaries ("no resources found", status lines) are preserved.
 	scored := make([]scoredChunk, n)
 	for i, chunk := range chunks {
 		lowerChunk := lowerChunks[i]
@@ -366,6 +484,25 @@ func (chunks chunkedStrings) scoreChunks(queryTerms []string) scoredChunks {
 			numerator := tf * (bm25K1 + 1)
 			denominator := tf + bm25K1*(1-bm25B+bm25B*(chunkLen/avgLen))
 			score += idf * (numerator / denominator)
+		}
+
+		// Positional bias: boost first and last 10% of chunks.
+		// Use index-based window (normalized against n-1) so the very
+		// last chunk always receives the maximum tail boost.
+		lastIdx := float64(n - 1)
+		headWindow := math.Ceil(0.1 * float64(n))
+		tailStart := float64(n) - math.Ceil(0.1*float64(n))
+		pos := float64(i)
+		if pos < headWindow {
+			score += 0.1 * (1 - pos/headWindow) // decays from 0.1→0
+		}
+		if lastIdx > 0 && pos >= tailStart {
+			tailRange := lastIdx - tailStart
+			if tailRange > 0 {
+				score += 0.1 * ((pos - tailStart) / tailRange) // grows 0→0.1
+			} else {
+				score += 0.1 // single-element tail window gets full boost
+			}
 		}
 
 		scored[i] = scoredChunk{

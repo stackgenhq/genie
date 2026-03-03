@@ -7,6 +7,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/hooks"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
 )
 
@@ -139,4 +140,364 @@ var _ = Describe("ContextModeMiddleware", func() {
 		Expect(resultStr).To(ContainSubstring("kubernetes"))
 		Expect(resultStr).To(ContainSubstring("Context Mode: compressed"))
 	})
+
+	// --- Per-tool override tests ---
+
+	It("applies per-tool override when tool name matches", func() {
+		// Global threshold = 100, but run_shell override = 5000.
+		// A 200-char response should be compressed globally but NOT for run_shell.
+		response := strings.Repeat("data line\n\n", 50) // ~550 chars, many chunks
+		mw := toolwrap.ContextModeMiddleware(toolwrap.ContextModeConfig{
+			Threshold: 100,
+			MaxChunks: 3,
+			ChunkSize: 50,
+			PerTool: map[string]toolwrap.ContextModeToolOverride{
+				"run_shell": {Threshold: 5000}, // Much higher — should skip compression.
+			},
+		})
+
+		handler := mw.Wrap(passthrough(response))
+		result, err := handler(context.Background(), makeTC("run_shell", `{"command":"kubectl get pods"}`))
+
+		Expect(err).NotTo(HaveOccurred())
+		// run_shell has threshold=5000, response is ~550 chars → should pass through.
+		Expect(result).To(Equal(response))
+	})
+
+	It("falls back to global settings when tool name has no override", func() {
+		response := strings.Repeat("data line\n\n", 50) // ~550 chars
+		mw := toolwrap.ContextModeMiddleware(toolwrap.ContextModeConfig{
+			Threshold: 100,
+			MaxChunks: 3,
+			ChunkSize: 50,
+			PerTool: map[string]toolwrap.ContextModeToolOverride{
+				"run_shell": {Threshold: 5000},
+			},
+		})
+
+		handler := mw.Wrap(passthrough(response))
+		result, err := handler(context.Background(), makeTC("web_fetch", `{"url":"https://example.com"}`))
+
+		Expect(err).NotTo(HaveOccurred())
+		// web_fetch has no override → global threshold=100 applies → compressed.
+		resultStr, ok := result.(string)
+		Expect(ok).To(BeTrue())
+		Expect(resultStr).To(ContainSubstring("Context Mode: compressed"))
+	})
+
+	It("applies per-tool MaxChunks override", func() {
+		// Build distinct paragraphs so chunking is deterministic.
+		var parts []string
+		for i := 0; i < 30; i++ {
+			parts = append(parts, strings.Repeat("word"+strings.Repeat("x", i)+" ", 15))
+		}
+		largeResponse := strings.Join(parts, "\n\n")
+
+		// Global: maxChunks=3, per-tool run_shell: maxChunks=20.
+		globalMW := toolwrap.ContextModeMiddleware(toolwrap.ContextModeConfig{
+			Threshold: 500,
+			MaxChunks: 3,
+			ChunkSize: 100,
+		})
+		perToolMW := toolwrap.ContextModeMiddleware(toolwrap.ContextModeConfig{
+			Threshold: 500,
+			MaxChunks: 3,
+			ChunkSize: 100,
+			PerTool: map[string]toolwrap.ContextModeToolOverride{
+				"run_shell": {MaxChunks: 20},
+			},
+		})
+
+		tc := makeTC("run_shell", `{"command":"ls -la"}`)
+
+		globalHandler := globalMW.Wrap(passthrough(largeResponse))
+		globalResult, err := globalHandler(context.Background(), tc)
+		Expect(err).NotTo(HaveOccurred())
+
+		perToolHandler := perToolMW.Wrap(passthrough(largeResponse))
+		perToolResult, err := perToolHandler(context.Background(), tc)
+		Expect(err).NotTo(HaveOccurred())
+
+		globalStr, _ := globalResult.(string)
+		perToolStr, _ := perToolResult.(string)
+
+		// Per-tool result should retain significantly more content.
+		Expect(len(perToolStr)).To(BeNumerically(">", len(globalStr)))
+		Expect(perToolStr).To(ContainSubstring("Context Mode: compressed"))
+	})
+
+	// --- Hex token extraction tests ---
+
+	It("extracts hex-like pod IDs from tool arguments for scoring", func() {
+		// Build a response where only a few chunks contain the pod ID "bc97d0".
+		var parts []string
+		for i := 0; i < 20; i++ {
+			if i == 10 {
+				parts = append(parts, "pod bc97d0 is in CrashLoopBackOff namespace production")
+			} else {
+				parts = append(parts, strings.Repeat("other unrelated pod data filler ", 10))
+			}
+		}
+		largeResponse := strings.Join(parts, "\n\n")
+
+		mw := toolwrap.ContextModeMiddleware(toolwrap.ContextModeConfig{
+			Threshold: 500,
+			MaxChunks: 3,
+			ChunkSize: 200,
+		})
+
+		handler := mw.Wrap(passthrough(largeResponse))
+		// The command contains hex pod IDs — they should be extracted as query terms.
+		result, err := handler(context.Background(), makeTC("run_shell",
+			`{"command":"kubectl get pods -A | grep -E 'bc97d0|b5ae09'"}`))
+
+		Expect(err).NotTo(HaveOccurred())
+		resultStr, ok := result.(string)
+		Expect(ok).To(BeTrue())
+		Expect(resultStr).To(ContainSubstring("bc97d0"))
+	})
+
+	// --- MinTermLen config tests ---
+
+	It("respects MinTermLen configuration", func() {
+		// Build response with 2-char tokens "ab".
+		var parts []string
+		for i := 0; i < 20; i++ {
+			if i == 5 {
+				parts = append(parts, strings.Repeat("ab data ab data ab ", 20))
+			} else {
+				parts = append(parts, strings.Repeat("unrelated filler content stuff ", 10))
+			}
+		}
+		largeResponse := strings.Join(parts, "\n\n")
+
+		// With MinTermLen=2, "ab" should be extracted as a query term.
+		mw := toolwrap.ContextModeMiddleware(toolwrap.ContextModeConfig{
+			Threshold:  500,
+			MaxChunks:  3,
+			ChunkSize:  200,
+			MinTermLen: 2,
+		})
+
+		handler := mw.Wrap(passthrough(largeResponse))
+		result, err := handler(context.Background(), makeTC("web_search", `{"query":"ab"}`))
+
+		Expect(err).NotTo(HaveOccurred())
+		resultStr, ok := result.(string)
+		Expect(ok).To(BeTrue())
+		// The chunk containing "ab" should be ranked higher.
+		Expect(resultStr).To(ContainSubstring("ab data"))
+	})
+
+	It("invokes CompactionTracker.MarkCompressed when tracker is in context", func() {
+		// Build a large response that will be compressed.
+		var parts []string
+		for i := 0; i < 30; i++ {
+			if i%3 == 0 {
+				parts = append(parts, strings.Repeat("authentication security token ", 20))
+			} else {
+				parts = append(parts, strings.Repeat("unrelated filler content padding ", 20))
+			}
+		}
+		largeResponse := strings.Join(parts, "\n\n")
+
+		mw := toolwrap.ContextModeMiddleware(toolwrap.ContextModeConfig{
+			Threshold: 500,
+			MaxChunks: 5,
+			ChunkSize: 200,
+		})
+
+		// Arrange — inject a fake CompactionTracker into the context.
+		tracker := &fakeCompactionTracker{}
+		ctx := context.WithValue(context.Background(), hooks.CompactionTrackerKey, tracker)
+
+		handler := mw.Wrap(passthrough(largeResponse))
+		result, err := handler(ctx, makeTC("http_request", `{"url":"https://example.com/auth","method":"GET"}`))
+
+		Expect(err).NotTo(HaveOccurred())
+		resultStr, ok := result.(string)
+		Expect(ok).To(BeTrue())
+		Expect(resultStr).To(ContainSubstring("Context Mode: compressed"))
+
+		// Assert — tracker should have been called with the tool name and sizes.
+		Expect(tracker.calls).To(HaveLen(1))
+		Expect(tracker.calls[0].toolName).To(Equal("http_request"))
+		Expect(tracker.calls[0].originalSize).To(Equal(len(largeResponse)))
+		Expect(tracker.calls[0].compressedSize).To(BeNumerically("<", tracker.calls[0].originalSize))
+	})
+
+	It("applies per-tool ChunkSize override", func() {
+		// Build a response with many distinct paragraphs.
+		var parts []string
+		for i := 0; i < 40; i++ {
+			parts = append(parts, strings.Repeat("word"+strings.Repeat("y", i)+" ", 10))
+		}
+		largeResponse := strings.Join(parts, "\n\n")
+
+		// Global chunkSize=50 vs per-tool chunkSize=500 (much larger chunks → fewer chunks → less compression).
+		smallChunkMW := toolwrap.ContextModeMiddleware(toolwrap.ContextModeConfig{
+			Threshold: 100,
+			MaxChunks: 3,
+			ChunkSize: 50,
+		})
+		largeChunkMW := toolwrap.ContextModeMiddleware(toolwrap.ContextModeConfig{
+			Threshold: 100,
+			MaxChunks: 3,
+			ChunkSize: 50,
+			PerTool: map[string]toolwrap.ContextModeToolOverride{
+				"web_fetch": {ChunkSize: 500},
+			},
+		})
+
+		tc := makeTC("web_fetch", `{"url":"https://example.com"}`)
+
+		smallResult, err := smallChunkMW.Wrap(passthrough(largeResponse))(context.Background(), tc)
+		Expect(err).NotTo(HaveOccurred())
+
+		largeResult, err := largeChunkMW.Wrap(passthrough(largeResponse))(context.Background(), tc)
+		Expect(err).NotTo(HaveOccurred())
+
+		// With larger per-tool chunks, the result may differ from the global setting.
+		smallStr := resultToString(smallResult)
+		largeStr := resultToString(largeResult)
+		// Both should be compressed, but they should differ because of different chunk sizes.
+		Expect(smallStr).To(ContainSubstring("Context Mode"))
+		Expect(largeStr).To(ContainSubstring("Context Mode"))
+	})
+
+	It("applies per-tool MinTermLen override", func() {
+		// Build response with 2-char tokens.
+		var parts []string
+		for i := 0; i < 20; i++ {
+			if i == 5 {
+				parts = append(parts, strings.Repeat("xy data xy data xy ", 20))
+			} else {
+				parts = append(parts, strings.Repeat("unrelated filler content padding ", 10))
+			}
+		}
+		largeResponse := strings.Join(parts, "\n\n")
+
+		// Global minTermLen=3 (would filter "xy"), per-tool override=2 (would keep "xy").
+		mw := toolwrap.ContextModeMiddleware(toolwrap.ContextModeConfig{
+			Threshold:  500,
+			MaxChunks:  3,
+			ChunkSize:  200,
+			MinTermLen: 3, // Global: "xy" filtered out.
+			PerTool: map[string]toolwrap.ContextModeToolOverride{
+				"web_search": {MinTermLen: 2}, // Override: "xy" kept.
+			},
+		})
+
+		handler := mw.Wrap(passthrough(largeResponse))
+		result, err := handler(context.Background(), makeTC("web_search", `{"query":"xy"}`))
+
+		Expect(err).NotTo(HaveOccurred())
+		resultStr, ok := result.(string)
+		Expect(ok).To(BeTrue())
+		// "xy" should be extracted as a query term and match the relevant chunk.
+		Expect(resultStr).To(ContainSubstring("xy data"))
+	})
+
+	// --- Adaptive compaction boost tests ---
+
+	It("applies adaptive chunk boost from CompactionTracker", func() {
+		// Build a large response: 30 distinct paragraphs with query-relevant terms.
+		var parts []string
+		for i := 0; i < 30; i++ {
+			if i%3 == 0 {
+				parts = append(parts, strings.Repeat("authentication security token ", 20))
+			} else {
+				parts = append(parts, strings.Repeat("unrelated filler content padding ", 20))
+			}
+		}
+		largeResponse := strings.Join(parts, "\n\n")
+
+		mw := toolwrap.ContextModeMiddleware(toolwrap.ContextModeConfig{
+			Threshold: 500,
+			MaxChunks: 3,
+			ChunkSize: 200,
+		})
+
+		tc := makeTC("http_request", `{"url":"https://example.com/auth","method":"GET"}`)
+
+		// Run WITHOUT adaptive boost (baseline).
+		baselineResult, err := mw.Wrap(passthrough(largeResponse))(context.Background(), tc)
+		Expect(err).NotTo(HaveOccurred())
+		baselineStr := resultToString(baselineResult)
+		Expect(baselineStr).To(ContainSubstring("Context Mode: compressed"))
+
+		// Run WITH adaptive boost = 2 (should double max_chunks: 3 → 6).
+		tracker := &fakeCompactionTracker{
+			boost: map[string]int{"http_request": 2},
+		}
+		ctx := context.WithValue(context.Background(), hooks.CompactionTrackerKey, tracker)
+		boostedResult, err := mw.Wrap(passthrough(largeResponse))(ctx, tc)
+		Expect(err).NotTo(HaveOccurred())
+		boostedStr := resultToString(boostedResult)
+		Expect(boostedStr).To(ContainSubstring("Context Mode: compressed"))
+
+		// The boosted result should retain more content (more chunks kept).
+		Expect(len(boostedStr)).To(BeNumerically(">", len(baselineStr)))
+	})
+
+	It("does not apply adaptive boost when GetChunkBoost returns 0", func() {
+		// Build a large response.
+		var parts []string
+		for i := 0; i < 30; i++ {
+			parts = append(parts, strings.Repeat("data content ", 20))
+		}
+		largeResponse := strings.Join(parts, "\n\n")
+
+		mw := toolwrap.ContextModeMiddleware(toolwrap.ContextModeConfig{
+			Threshold: 500,
+			MaxChunks: 3,
+			ChunkSize: 200,
+		})
+
+		// Tracker with no boosts (returns 0 for all tools).
+		tracker := &fakeCompactionTracker{}
+		ctx := context.WithValue(context.Background(), hooks.CompactionTrackerKey, tracker)
+
+		tc := makeTC("read_file", `{"path":"/tmp/foo"}`)
+
+		withTracker, err := mw.Wrap(passthrough(largeResponse))(ctx, tc)
+		Expect(err).NotTo(HaveOccurred())
+
+		without, err := mw.Wrap(passthrough(largeResponse))(context.Background(), tc)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Both should produce the same result — no boost applied.
+		Expect(resultToString(withTracker)).To(Equal(resultToString(without)))
+	})
 })
+
+// fakeCompactionTracker records calls to MarkCompressed and returns
+// configurable chunk boost values for test assertions.
+type fakeCompactionTracker struct {
+	calls []compactionCall
+	boost map[string]int // per-tool boost multiplier (0 = no boost)
+}
+
+type compactionCall struct {
+	toolName       string
+	originalSize   int
+	compressedSize int
+}
+
+func (f *fakeCompactionTracker) MarkCompressed(toolName string, originalSize, compressedSize int) {
+	f.calls = append(f.calls, compactionCall{toolName, originalSize, compressedSize})
+}
+
+func (f *fakeCompactionTracker) GetChunkBoost(toolName string) int {
+	if f.boost == nil {
+		return 0
+	}
+	return f.boost[toolName]
+}
+
+func resultToString(result any) string {
+	if s, ok := result.(string); ok {
+		return s
+	}
+	return ""
+}
