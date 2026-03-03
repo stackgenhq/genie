@@ -127,7 +127,10 @@ var _ = Describe("Providers", func() {
 				bogusPath := "/tmp/nonexistent-skill-root-abc123"
 
 				// Act
-				provider, err := tools.NewSkillToolProvider("/tmp", 3, bogusPath)
+				provider, err := tools.NewSkillToolProvider("/tmp", tools.SkillLoadConfig{
+					MaxLoadedSkills: 3,
+					SkillsRoots:     []string{bogusPath},
+				})
 
 				// Assert — no error; tools are still returned (meta-tools exist)
 				// but skill_list_docs will yield an empty list at runtime.
@@ -165,7 +168,10 @@ var _ = Describe("Providers", func() {
 
 			It("creates a provider successfully", func() {
 				// Act
-				provider, err := tools.NewSkillToolProvider("/tmp", 3, skillDir)
+				provider, err := tools.NewSkillToolProvider("/tmp", tools.SkillLoadConfig{
+					MaxLoadedSkills: 3,
+					SkillsRoots:     []string{skillDir},
+				})
 
 				// Assert
 				Expect(err).NotTo(HaveOccurred())
@@ -174,7 +180,10 @@ var _ = Describe("Providers", func() {
 
 			It("returns exactly three skill tools", func() {
 				// Arrange
-				provider, err := tools.NewSkillToolProvider("/tmp", 3, skillDir)
+				provider, err := tools.NewSkillToolProvider("/tmp", tools.SkillLoadConfig{
+					MaxLoadedSkills: 3,
+					SkillsRoots:     []string{skillDir},
+				})
 				Expect(err).NotTo(HaveOccurred())
 
 				// Act
@@ -186,7 +195,10 @@ var _ = Describe("Providers", func() {
 
 			It("includes the expected skill tool names", func() {
 				// Arrange
-				provider, err := tools.NewSkillToolProvider("/tmp", 3, skillDir)
+				provider, err := tools.NewSkillToolProvider("/tmp", tools.SkillLoadConfig{
+					MaxLoadedSkills: 3,
+					SkillsRoots:     []string{skillDir},
+				})
 				Expect(err).NotTo(HaveOccurred())
 
 				// Act
@@ -205,7 +217,10 @@ var _ = Describe("Providers", func() {
 			})
 
 			It("supports Search to find dynamic skills", func() {
-				provider, err := tools.NewSkillToolProvider("/tmp", 3, skillDir)
+				provider, err := tools.NewSkillToolProvider("/tmp", tools.SkillLoadConfig{
+					MaxLoadedSkills: 3,
+					SkillsRoots:     []string{skillDir},
+				})
 				Expect(err).NotTo(HaveOccurred())
 
 				// Empty query
@@ -223,7 +238,10 @@ var _ = Describe("Providers", func() {
 			})
 
 			It("supports Get to retrieve a dynamic skill", func() {
-				provider, err := tools.NewSkillToolProvider("/tmp", 3, skillDir)
+				provider, err := tools.NewSkillToolProvider("/tmp", tools.SkillLoadConfig{
+					MaxLoadedSkills: 3,
+					SkillsRoots:     []string{skillDir},
+				})
 				Expect(err).NotTo(HaveOccurred())
 
 				skill, found := provider.Get("test_skill")
@@ -236,7 +254,10 @@ var _ = Describe("Providers", func() {
 			})
 
 			It("restrictedSkillRunTool prevents calling unloaded skills", func() {
-				provider, err := tools.NewSkillToolProvider("/tmp", 3, skillDir)
+				provider, err := tools.NewSkillToolProvider("/tmp", tools.SkillLoadConfig{
+					MaxLoadedSkills: 3,
+					SkillsRoots:     []string{skillDir},
+				})
 				Expect(err).NotTo(HaveOccurred())
 
 				skill, found := provider.Get("test_skill")
@@ -251,6 +272,25 @@ var _ = Describe("Providers", func() {
 
 				// We can't automatically test the loader here easily without using LoadSkillTool,
 				// but we have unit tests on dynamic_skills loader so it's fine.
+			})
+
+			It("Clone returns a fresh provider with empty loader state", func() {
+				provider, err := tools.NewSkillToolProvider("/tmp", tools.SkillLoadConfig{
+					MaxLoadedSkills: 3,
+					SkillsRoots:     []string{skillDir},
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				// Verify that SkillToolProvider implements CloneableToolProvider
+				var cloneable tools.CloneableToolProvider = provider
+				cloned := cloneable.Clone()
+
+				Expect(cloned).NotTo(BeNil())
+				Expect(cloned).NotTo(BeIdenticalTo(provider))
+
+				// Cloned provider should return the same base tools (discover_skills, load_skill, unload_skill)
+				clonedTools := cloned.GetTools()
+				Expect(clonedTools).To(HaveLen(3))
 			})
 		})
 	})

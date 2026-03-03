@@ -52,6 +52,13 @@ func NewRegistry(ctx context.Context, providers ...ToolProviders) *Registry {
 	return r
 }
 
+// getToolsMap rebuilds the aggregated tool map by calling each provider's
+// GetTools() on every access. This is intentionally uncached so that dynamic
+// providers (e.g. SkillToolProvider) can reflect newly loaded skills instantly.
+//
+// IMPORTANT: This is a hot path — it is called on every GetTools/GetTool/
+// ToolNames/etc. invocation. Provider.GetTools() implementations MUST be cheap
+// and side-effect free (no allocations of new tool instances, no I/O).
 func (r *Registry) getToolsMap() map[string]tool.Tool {
 	raw := make(map[string]tool.Tool)
 	for _, p := range r.providers {

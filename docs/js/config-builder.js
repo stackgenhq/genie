@@ -24,7 +24,7 @@
         providers: [{ provider: 'openai', model_name: 'gpt-5.2', variant: 'default', token: 'OPENAI_API_KEY', good_for_task: 'efficiency', enable_token_tailoring: true }],
 
 
-        skills_roots: ['./skills'],
+        skill_load: { max_loaded_skills: 3, skills_roots: ['./skills'] },
         mcp_servers: [],
         web_search: { provider: 'duckduckgo', google_api_key: 'GOOGLE_API_KEY', google_cx: 'GOOGLE_CSE_ID', bing_api_key: 'BING_API_KEY' },
         vector_memory: { persistence_dir: '', embedding_provider: 'dummy', api_key: 'OPENAI_API_KEY', ollama_url: '', ollama_model: '', huggingface_url: '', gemini_api_key: 'GOOGLE_API_KEY', gemini_model: '', vector_store_provider: 'inmemory', allowed_metadata_keys: [], milvus: { address: '', username: '', password: '', db_name: '', api_key: 'MILVUS_API_KEY', collection_name: '', dimension: 0 } },
@@ -278,20 +278,25 @@
         var c = $('skills-body');
         if (!c) return;
         c.innerHTML = '';
-        state.skills_roots.forEach(function (s, i) {
+        var sl = state.skill_load;
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4 mb-3' }, [
+            fieldNumber('Max Loaded Skills', sl.max_loaded_skills, function (v) { sl.max_loaded_skills = v; renderOutput(); }, 1, 20, 'Maximum number of skills that can be loaded simultaneously per agent loop (default 3)')
+        ]));
+        sl.skills_roots.forEach(function (s, i) {
             c.appendChild(buildSkillRow(s, i));
         });
         c.appendChild(
-            el('button', { className: 'btn-add mt-1', onClick: function () { state.skills_roots.push(''); renderAll(); } }, '+ Add Path')
+            el('button', { className: 'btn-add mt-1', onClick: function () { sl.skills_roots.push(''); renderAll(); } }, '+ Add Path')
         );
     }
 
     function buildSkillRow(value, i) {
+        var sl = state.skill_load;
         var inp = el('input', { className: 'form-input', type: 'text', value: value, placeholder: './skills or https://...' });
-        inp.addEventListener('input', function () { state.skills_roots[i] = this.value; renderOutput(); });
+        inp.addEventListener('input', function () { sl.skills_roots[i] = this.value; renderOutput(); });
         return el('div', { className: 'flex items-center gap-2 mb-2' }, [
             inp,
-            el('button', { className: 'btn-remove', onClick: function () { state.skills_roots.splice(i, 1); renderAll(); } }, '✕')
+            el('button', { className: 'btn-remove', onClick: function () { sl.skills_roots.splice(i, 1); renderAll(); } }, '✕')
         ]);
     }
 
@@ -839,8 +844,13 @@
 
 
     function skillsToToml(lines) {
-        if (!hasItems(state.skills_roots)) return;
-        lines.push('skills_roots = [' + state.skills_roots.filter(Boolean).map(q).join(', ') + ']');
+        var sl = state.skill_load;
+        var hasRoots = hasItems(sl.skills_roots);
+        var hasCustomMax = sl.max_loaded_skills && sl.max_loaded_skills !== 3;
+        if (!hasRoots && !hasCustomMax) return;
+        lines.push('[skill_load]');
+        if (hasCustomMax) lines.push('max_loaded_skills = ' + sl.max_loaded_skills);
+        if (hasRoots) lines.push('skills_roots = [' + sl.skills_roots.filter(Boolean).map(q).join(', ') + ']');
         lines.push('');
     }
 
@@ -1350,9 +1360,16 @@
 
 
     function skillsToYaml(lines) {
-        if (!hasItems(state.skills_roots)) return;
-        lines.push('skills_roots:');
-        state.skills_roots.filter(Boolean).forEach(function (s) { lines.push('  - ' + yq(s)); });
+        var sl = state.skill_load;
+        var hasRoots = hasItems(sl.skills_roots);
+        var hasCustomMax = sl.max_loaded_skills && sl.max_loaded_skills !== 3;
+        if (!hasRoots && !hasCustomMax) return;
+        lines.push('skill_load:');
+        if (hasCustomMax) lines.push('  max_loaded_skills: ' + sl.max_loaded_skills);
+        if (hasRoots) {
+            lines.push('  skills_roots:');
+            sl.skills_roots.filter(Boolean).forEach(function (s) { lines.push('    - ' + yq(s)); });
+        }
         lines.push('');
     }
 

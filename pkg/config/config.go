@@ -21,6 +21,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/pii"
+	"github.com/stackgenhq/genie/pkg/tools"
 
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/tools/email"
@@ -50,8 +51,7 @@ type GenieConfig struct {
 	// writes to this single file (no date rotation). Used for tests or custom paths.
 	AuditPath       string                    `yaml:"audit_path,omitempty" toml:"audit_path,omitempty"`
 	ModelConfig     modelprovider.ModelConfig `yaml:"model_config,omitempty" toml:"model_config,omitempty"`
-	SkillsRoots     []string                  `yaml:"skills_roots,omitempty" toml:"skills_roots,omitempty"` // Supports multiple roots including HTTPS URLs
-	MaxLoadedSkills int                       `yaml:"max_loaded_skills,omitempty" toml:"max_loaded_skills,omitempty"`
+	SkillLoadConfig tools.SkillLoadConfig     `yaml:"skill_load,omitempty" toml:"skill_load,omitempty"`
 	MCP             mcp.MCPConfig             `yaml:"mcp,omitempty" toml:"mcp,omitempty"`
 	WebSearch       websearch.Config          `yaml:"web_search,omitempty" toml:"web_search,omitempty"`
 	VectorMemory    vector.Config             `yaml:"vector_memory,omitempty" toml:"vector_memory,omitempty"`
@@ -117,7 +117,7 @@ func LoadGenieConfig(ctx context.Context, sp security.SecretProvider, path strin
 			GoogleCX:     get("GOOGLE_CSE_ID"),
 			BingAPIKey:   get("BING_API_KEY"),
 		},
-		MaxLoadedSkills:       3,
+		SkillLoadConfig:       tools.DefaultSkillLoadConfig(),
 		VectorMemory:          vector.DefaultConfig(ctx, sp),
 		PersonaTokenThreshold: 2000,
 		Messenger: messenger.Config{
@@ -147,7 +147,7 @@ func LoadGenieConfig(ctx context.Context, sp security.SecretProvider, path strin
 	if path == "" {
 		// If no config file, check for SKILLS_ROOT environment variable
 		if skillsRoot := get("SKILLS_ROOT"); skillsRoot != "" {
-			cfg.SkillsRoots = []string{skillsRoot}
+			cfg.SkillLoadConfig.SkillsRoots = []string{skillsRoot}
 		}
 		return cfg, nil
 	}
@@ -181,16 +181,16 @@ func LoadGenieConfig(ctx context.Context, sp security.SecretProvider, path strin
 	// This ensures "./skills" in a config at qa/demo/genie.toml resolves to
 	// qa/demo/skills, not <cwd>/skills.
 	configDir := filepath.Dir(path)
-	for i, root := range cfg.SkillsRoots {
+	for i, root := range cfg.SkillLoadConfig.SkillsRoots {
 		if root != "" && !filepath.IsAbs(root) && !strings.HasPrefix(root, "http") {
-			cfg.SkillsRoots[i] = filepath.Join(configDir, root)
+			cfg.SkillLoadConfig.SkillsRoots[i] = filepath.Join(configDir, root)
 		}
 	}
 
 	// If skills roots not set in config, check environment variable
-	if len(cfg.SkillsRoots) == 0 {
+	if len(cfg.SkillLoadConfig.SkillsRoots) == 0 {
 		if skillsRoot := get("SKILLS_ROOT"); skillsRoot != "" {
-			cfg.SkillsRoots = []string{skillsRoot}
+			cfg.SkillLoadConfig.SkillsRoots = []string{skillsRoot}
 		}
 	}
 

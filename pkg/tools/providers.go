@@ -93,6 +93,17 @@ func (p *PensieveToolProvider) GetTools() []tool.Tool {
 	return ctxtools.Tools()
 }
 
+type SkillLoadConfig struct {
+	MaxLoadedSkills int      `yaml:"max_loaded_skills,omitempty" toml:"max_loaded_skills,omitempty"`
+	SkillsRoots     []string `yaml:"skills_roots,omitempty" toml:"skills_roots,omitempty"`
+}
+
+func DefaultSkillLoadConfig() SkillLoadConfig {
+	return SkillLoadConfig{
+		MaxLoadedSkills: 3,
+	}
+}
+
 // SkillToolProvider wraps the skill loading tools (skill_list_docs, skill_load, skill_run).
 type SkillToolProvider struct {
 	repo   skill.Repository
@@ -101,8 +112,8 @@ type SkillToolProvider struct {
 }
 
 // NewSkillToolProvider creates a ToolProvider containing skill discovery tools.
-func NewSkillToolProvider(workingDir string, maxLoadedSkills int, skillRoots ...string) (*SkillToolProvider, error) {
-	repo, err := skill.NewFSRepository(skillRoots...)
+func NewSkillToolProvider(workingDir string, config SkillLoadConfig) (*SkillToolProvider, error) {
+	repo, err := skill.NewFSRepository(config.SkillsRoots...)
 	if err != nil {
 		return nil, fmt.Errorf("error creating skill repository: %w", err)
 	}
@@ -114,9 +125,20 @@ func NewSkillToolProvider(workingDir string, maxLoadedSkills int, skillRoots ...
 
 	p := &SkillToolProvider{repo: repo, exec: exec}
 	// The provider implements SkillRegistry natively, so it passes itself as the registry
-	p.loader = dynamicskills.NewDynamicSkillLoader(p, maxLoadedSkills)
+	p.loader = dynamicskills.NewDynamicSkillLoader(p, config.MaxLoadedSkills)
 
 	return p, nil
+}
+
+// Clone returns a new SkillToolProvider with a fresh DynamicSkillLoader (empty
+// loaded-skills state) but sharing the same skill repository and code executor.
+// This implements CloneableToolProvider so that CloneWithEphemeralProviders()
+// can isolate dynamic-skill state per sub-agent — without this, skill
+// load/unload state would be shared across all sub-agents.
+func (p *SkillToolProvider) Clone() ToolProviders {
+	cloned := &SkillToolProvider{repo: p.repo, exec: p.exec}
+	cloned.loader = dynamicskills.NewDynamicSkillLoader(cloned, p.loader.MaxSkills())
+	return cloned
 }
 
 // GetTools returns the tools needed for agents to dynamically discover and load skills.

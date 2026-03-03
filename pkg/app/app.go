@@ -748,9 +748,8 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 	}
 
 	// --- Skills ---
-	if len(a.cfg.SkillsRoots) != 0 {
-		var err error
-		skillProvider, err := tools.NewSkillToolProvider(a.workingDir, a.cfg.MaxLoadedSkills, a.cfg.SkillsRoots...)
+	if len(a.cfg.SkillLoadConfig.SkillsRoots) != 0 {
+		skillProvider, err := tools.NewSkillToolProvider(a.workingDir, a.cfg.SkillLoadConfig)
 		if err != nil {
 			log.Warn("failed to initialize skills tool provider", "error", err)
 		} else {

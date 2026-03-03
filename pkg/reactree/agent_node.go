@@ -210,32 +210,37 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 			"task_completed", taskCompleted,
 		)
 
-		// The easiest way to get the usage is to sum up from all choices returned (since we loop over them below)
-		var lastUsage *model.Usage
-		if resp.Usage != nil {
-			lastUsage = resp.Usage
-		}
-
-		var budgetEvt hooks.ContextBudgetEvent
-		if lastUsage != nil {
-			budgetEvt = hooks.ContextBudgetEvent{
-				PersonaTokens:    0,
-				ToolSchemaTokens: 0,
-				HistoryTokens:    lastUsage.PromptTokens,
-				TotalTokens:      lastUsage.TotalTokens,
-				// maxTokens is harder to get here but we can default
-				MaxTokens:      128000,
-				UtilizationPct: float64(lastUsage.TotalTokens) / 128000.0,
-			}
-		}
-
-		return graph.State{
+		// Forward usage from the response when available.
+		newState := graph.State{
 			StateKeyNodeStatus:     Success,
 			StateKeyOutput:         output,
 			StateKeyTaskCompleted:  taskCompleted,
 			StateKeyToolCallCounts: toolCallCounts,
-			StateKeyContextBudget:  budgetEvt, // Passed via state map
-		}, nil
+		}
+
+		if resp.Usage != nil {
+			usage := resp.Usage
+			budgetEvt := hooks.ContextBudgetEvent{
+				PersonaTokens:    0,
+				ToolSchemaTokens: 0,
+				HistoryTokens:    usage.PromptTokens,
+				TotalTokens:      usage.TotalTokens,
+				// maxTokens is harder to get here but we can default
+				MaxTokens:      128000,
+				UtilizationPct: float64(usage.TotalTokens) / 128000.0,
+			}
+			newState[StateKeyContextBudget] = budgetEvt
+
+			// Emit ContextBudget telemetry for the full-expert path as well.
+			if cfg.Hooks != nil {
+				cfg.Hooks.OnContextBudget(ctx, budgetEvt)
+			}
+		} else if existingBudget, ok := state[StateKeyContextBudget]; ok {
+			// Preserve any previously recorded context budget when no new usage is available.
+			newState[StateKeyContextBudget] = existingBudget
+		}
+
+		return newState, nil
 	}
 }
 
