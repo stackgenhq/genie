@@ -64,7 +64,8 @@
         cron: { enabled: false, tasks: [] },
         security: { secrets: [] },
         pii: { salt: '', entropy_threshold: 4.2, min_secret_length: 12, sensitive_keys: [] },
-        disable_pensieve: false
+        disable_pensieve: false,
+        persona_file: ''
     };
 
     var PROVIDERS = ['openai', 'gemini', 'anthropic'];
@@ -735,11 +736,13 @@
         c.appendChild(el('p', { className: 'text-xs text-gray-400 mt-2' },
             'Powered by <a href="https://github.com/aragossa/pii-shield" class="text-purple-500 hover:underline" target="_blank">pii-shield</a> — entropy-based detection with Luhn CC validation, bigram analysis, and deterministic HMAC hashing.'));
 
-        // Pensieve toggle lives in PII section for proximity to security settings.
+        // Pensieve toggle and persona file live in PII section for proximity to security settings.
         c.appendChild(el('div', { className: 'mt-6 pt-4', style: 'border-top: 1px solid rgba(0,0,0,0.06)' }, [
             fieldToggle('Disable Pensieve Tools', state.disable_pensieve, function (v) { state.disable_pensieve = v; renderOutput(); },
                 'Disable context self-management tools (delete_context, check_budget, note, read_notes). ' +
-                'delete_context and note require HITL approval. Based on the StateLM paper (arXiv:2602.12108).')
+                'delete_context and note require HITL approval. Based on the StateLM paper (arXiv:2602.12108).'),
+            fieldText('Persona File', state.persona_file, function (v) { state.persona_file = v; renderOutput(); }, './STANDARDS.md',
+                'Path to a file whose contents are appended to the agent system prompt as project-level coding standards. Supports absolute paths or paths relative to the working directory.')
         ]));
     }
 
@@ -998,6 +1001,7 @@
     function toToml() {
         var lines = [];
         // Root-level keys must come before any [section] headers in TOML.
+        personaFileToToml(lines);
         pensieveToToml(lines);
         if (state.providers.length > 0) providersToToml(lines);
 
@@ -1272,6 +1276,12 @@
         lines.push('');
     }
 
+    function personaFileToToml(lines) {
+        if (!state.persona_file) return;
+        lines.push('persona_file = ' + q(state.persona_file));
+        lines.push('');
+    }
+
     function pensieveToToml(lines) {
         if (!state.disable_pensieve) return;
         lines.push('disable_pensieve = true');
@@ -1514,6 +1524,7 @@
     function toYaml() {
         var lines = [];
         // Root-level keys first for consistency with TOML output.
+        personaFileToYaml(lines);
         pensieveToYaml(lines);
         if (state.providers.length > 0) providersToYaml(lines);
         langfuseToYaml(lines);
@@ -1795,6 +1806,12 @@
                 lines.push('    - ' + yq(k));
             });
         }
+        lines.push('');
+    }
+
+    function personaFileToYaml(lines) {
+        if (!state.persona_file) return;
+        lines.push('persona_file: ' + yq(state.persona_file));
         lines.push('');
     }
 

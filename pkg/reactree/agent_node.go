@@ -9,6 +9,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/clarify"
 	"github.com/stackgenhq/genie/pkg/expert"
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
+	"github.com/stackgenhq/genie/pkg/hooks"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/reactree/memory"
@@ -55,6 +56,9 @@ type AgentNodeConfig struct {
 	// ModelProvider is used to resolve the model when SystemInstruction
 	// is set (lightweight mode). Ignored when using Expert.
 	ModelProvider modelprovider.ModelProvider
+
+	// Hooks provides access to the execution lifecycle events
+	Hooks hooks.ExecutionHook
 }
 
 // NewAgentNodeFunc creates a graph.NodeFunc that wraps an expert.Expert call.
@@ -92,11 +96,42 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 		// Build prompt enriched with memory and previous stage context
 		prompt := buildAgentPrompt(ctx, goal, wm, ep, prevOutput, iterationCtx, iterationCount, cfg.BudgetExhaustedTools)
 
+		// Context Budget Calculation
+		personaText := cfg.SystemInstruction
+		if cfg.Expert != nil {
+			personaText = cfg.Expert.GetBio().Personality
+		}
+		personaTokens := hooks.EstimatePersonaTokens(personaText)
+
+		names := make([]string, len(cfg.Tools))
+		descs := make([]string, len(cfg.Tools))
+		for i, tl := range cfg.Tools {
+			d := tl.Declaration()
+			names[i] = d.Name
+			descs[i] = d.Description
+		}
+		toolSchemaTokens := hooks.EstimateToolSchemaTokens(names, descs)
+		historyTokens := hooks.EstimateHistoryTokens(prompt)
+
+		budgetEvt := hooks.NewContextBudgetEvent(personaTokens, toolSchemaTokens, historyTokens)
+
+		if cfg.Hooks != nil {
+			cfg.Hooks.OnContextBudget(ctx, budgetEvt)
+		}
+
+		if budgetEvt.IsOverBudget() {
+			logr.Warn(fmt.Sprintf("context budget at %d%%, consider reducing persona or compacting history", int(budgetEvt.UtilizationPct*100)),
+				"total_tokens", budgetEvt.TotalTokens,
+				"max_tokens", budgetEvt.MaxTokens,
+			)
+		}
+
 		logr.Info("agent node calling expert",
 			"prompt_length", len(prompt),
 			"iteration", iterationCount,
 			"has_prev_output", prevOutput != "",
 			"has_iteration_ctx", iterationCtx != "",
+			"total_tokens", budgetEvt.TotalTokens,
 		)
 
 		// Inject the goal into the context so downstream tools (e.g.
