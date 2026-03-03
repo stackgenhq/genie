@@ -6,11 +6,11 @@ This document outlines the steps to verify that a user can asynchronously provid
 
 1.  Genie backend must be running locally:
     ```bash
-    export AWS_PROFILE=339712749745_AdministratorAccess
+    export AWS_PROFILE=<your_aws_profile>
     make go/tv
     go run ./main.go --log-level debug
     ```
-2.  Open the local browser UI at: `file:///Users/sabithks/src/github.com/stackgenhq/genie/docs/chat.html`
+2.  Open the local browser UI at: `./docs/chat.html`
 3.  Connect to the active endpoint (usually `http://localhost:9876`).
 
 ## Test Case 1: Mid-Run Course Correction

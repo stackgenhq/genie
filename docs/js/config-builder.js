@@ -46,7 +46,7 @@
         email: { provider: '', host: '', port: 587, username: '', password: '', imap_host: '', imap_port: 993 },
         hitl: { always_allowed: [], denied_tools: [], cache_ttl: '' },
         toolwrap: {
-            context_mode: { disabled: false, threshold: 20000, max_chunks: 10, chunk_size: 800 },
+            context_mode: { disabled: false, threshold: 20000, max_chunks: 10, chunk_size: 800, min_term_len: 3, per_tool: '' },
             timeout: { enabled: false, default_timeout: '30s', per_tool: '' },
             rate_limit: { enabled: false, global_rate_per_minute: 60, per_tool_rate_per_minute: '' },
             circuit_breaker: { enabled: false, failure_threshold: 5, open_duration: '30s' },
@@ -64,7 +64,8 @@
         cron: { enabled: false, tasks: [] },
         security: { secrets: [] },
         pii: { salt: '', entropy_threshold: 4.2, min_secret_length: 12, sensitive_keys: [] },
-        disable_pensieve: false
+        disable_pensieve: false,
+        persona_file: ''
     };
 
     var PROVIDERS = ['openai', 'gemini', 'anthropic'];
@@ -609,7 +610,9 @@
                 fieldToggle('Disabled', tw.context_mode.disabled, function (v) { tw.context_mode.disabled = v; renderAll(); }, 'Local BM25 compression for large tool outputs — reduces token usage without LLM calls. Enabled by default.'),
                 !tw.context_mode.disabled ? fieldNumber('Threshold (chars)', tw.context_mode.threshold, function (v) { tw.context_mode.threshold = v; renderOutput(); }, 1000, 500000, 'Character count above which responses are compressed (default 20000 ≈ 5k tokens)') : null,
                 !tw.context_mode.disabled ? fieldNumber('Max Chunks', tw.context_mode.max_chunks, function (v) { tw.context_mode.max_chunks = v; renderOutput(); }, 1, 100, 'Maximum number of top-scored chunks returned (default 10)') : null,
-                !tw.context_mode.disabled ? fieldNumber('Chunk Size (chars)', tw.context_mode.chunk_size, function (v) { tw.context_mode.chunk_size = v; renderOutput(); }, 100, 10000, 'Target character count per chunk (default 800)') : null
+                !tw.context_mode.disabled ? fieldNumber('Chunk Size (chars)', tw.context_mode.chunk_size, function (v) { tw.context_mode.chunk_size = v; renderOutput(); }, 100, 10000, 'Target character count per chunk (default 800)') : null,
+                !tw.context_mode.disabled ? fieldNumber('Min Term Length', tw.context_mode.min_term_len, function (v) { tw.context_mode.min_term_len = v; renderOutput(); }, 1, 10, 'Minimum character length for query terms used in BM25 scoring (default 3). Lower values keep short IDs like pod hashes.') : null,
+                !tw.context_mode.disabled ? fieldText('Per-Tool Overrides', tw.context_mode.per_tool, function (v) { tw.context_mode.per_tool = v; renderOutput(); }, 'run_shell:40000/15/800/2', 'Tool-specific overrides (name:threshold/max_chunks/chunk_size/min_term_len, comma-separated). Omit trailing values to keep defaults.') : null
             ].filter(Boolean))
         ]));
 
@@ -733,11 +736,13 @@
         c.appendChild(el('p', { className: 'text-xs text-gray-400 mt-2' },
             'Powered by <a href="https://github.com/aragossa/pii-shield" class="text-purple-500 hover:underline" target="_blank">pii-shield</a> — entropy-based detection with Luhn CC validation, bigram analysis, and deterministic HMAC hashing.'));
 
-        // Pensieve toggle lives in PII section for proximity to security settings.
+        // Pensieve toggle and persona file live in PII section for proximity to security settings.
         c.appendChild(el('div', { className: 'mt-6 pt-4', style: 'border-top: 1px solid rgba(0,0,0,0.06)' }, [
             fieldToggle('Disable Pensieve Tools', state.disable_pensieve, function (v) { state.disable_pensieve = v; renderOutput(); },
                 'Disable context self-management tools (delete_context, check_budget, note, read_notes). ' +
-                'delete_context and note require HITL approval. Based on the StateLM paper (arXiv:2602.12108).')
+                'delete_context and note require HITL approval. Based on the StateLM paper (arXiv:2602.12108).'),
+            fieldText('Persona File', state.persona_file, function (v) { state.persona_file = v; renderOutput(); }, './STANDARDS.md',
+                'Path to a file whose contents are appended to the agent system prompt as project-level coding standards. Supports absolute paths or paths relative to the working directory.')
         ]));
     }
 
@@ -996,6 +1001,7 @@
     function toToml() {
         var lines = [];
         // Root-level keys must come before any [section] headers in TOML.
+        personaFileToToml(lines);
         pensieveToToml(lines);
         if (state.providers.length > 0) providersToToml(lines);
 
@@ -1101,6 +1107,25 @@
         return result;
     }
 
+    /** Parse context_mode per-tool overrides: "run_shell:40000/15/800/2, web_fetch:30000" */
+    function parseContextModePerTool(str) {
+        if (!str) return {};
+        var result = {};
+        str.split(',').forEach(function (entry) {
+            var parts = entry.trim().split(':');
+            if (parts.length === 2 && parts[0].trim()) {
+                var vals = parts[1].trim().split('/');
+                var o = {};
+                if (vals[0]) o.threshold = parseInt(vals[0], 10) || 0;
+                if (vals[1]) o.max_chunks = parseInt(vals[1], 10) || 0;
+                if (vals[2]) o.chunk_size = parseInt(vals[2], 10) || 0;
+                if (vals[3]) o.min_term_len = parseInt(vals[3], 10) || 0;
+                result[parts[0].trim()] = o;
+            }
+        });
+        return result;
+    }
+
     function parseSanitizePerTool(str) {
         if (!str) return {};
         var result = {};
@@ -1115,7 +1140,10 @@
 
     function toolwrapToToml(lines) {
         var tw = state.toolwrap;
-        var any = tw.context_mode.disabled || tw.timeout.enabled || tw.rate_limit.enabled || tw.circuit_breaker.enabled ||
+        var cmNonDefault = tw.context_mode.disabled || tw.context_mode.threshold !== 20000 ||
+            tw.context_mode.max_chunks !== 10 || tw.context_mode.chunk_size !== 800 ||
+            tw.context_mode.min_term_len !== 3 || tw.context_mode.per_tool;
+        var any = cmNonDefault || tw.timeout.enabled || tw.rate_limit.enabled || tw.circuit_breaker.enabled ||
             tw.concurrency.enabled || tw.retry.enabled || tw.metrics.enabled ||
             tw.tracing.enabled || tw.sanitize.enabled || tw.validation.enabled;
         if (!any) return;
@@ -1124,6 +1152,29 @@
             lines.push('[toolwrap.context_mode]');
             lines.push('disabled = true');
             lines.push('');
+        } else {
+            var cmChanged = tw.context_mode.threshold !== 20000 ||
+                tw.context_mode.max_chunks !== 10 ||
+                tw.context_mode.chunk_size !== 800 ||
+                tw.context_mode.min_term_len !== 3 ||
+                tw.context_mode.per_tool;
+            if (cmChanged) {
+                lines.push('[toolwrap.context_mode]');
+                if (tw.context_mode.threshold !== 20000) lines.push('threshold = ' + tw.context_mode.threshold);
+                if (tw.context_mode.max_chunks !== 10) lines.push('max_chunks = ' + tw.context_mode.max_chunks);
+                if (tw.context_mode.chunk_size !== 800) lines.push('chunk_size = ' + tw.context_mode.chunk_size);
+                if (tw.context_mode.min_term_len !== 3) lines.push('min_term_len = ' + tw.context_mode.min_term_len);
+                var cmPerTool = parseContextModePerTool(tw.context_mode.per_tool);
+                Object.keys(cmPerTool).forEach(function (tool) {
+                    var o = cmPerTool[tool];
+                    lines.push('[toolwrap.context_mode.per_tool.' + tool + ']');
+                    if (o.threshold) lines.push('threshold = ' + o.threshold);
+                    if (o.max_chunks) lines.push('max_chunks = ' + o.max_chunks);
+                    if (o.chunk_size) lines.push('chunk_size = ' + o.chunk_size);
+                    if (o.min_term_len) lines.push('min_term_len = ' + o.min_term_len);
+                });
+                lines.push('');
+            }
         }
 
         if (tw.timeout.enabled) {
@@ -1222,6 +1273,12 @@
         lines.push('rate_burst = ' + a.rate_burst);
         lines.push('max_concurrent = ' + a.max_concurrent);
         lines.push('max_body_bytes = ' + a.max_body_bytes);
+        lines.push('');
+    }
+
+    function personaFileToToml(lines) {
+        if (!state.persona_file) return;
+        lines.push('persona_file = ' + q(state.persona_file));
         lines.push('');
     }
 
@@ -1467,6 +1524,7 @@
     function toYaml() {
         var lines = [];
         // Root-level keys first for consistency with TOML output.
+        personaFileToYaml(lines);
         pensieveToYaml(lines);
         if (state.providers.length > 0) providersToYaml(lines);
         langfuseToYaml(lines);
@@ -1566,7 +1624,10 @@
 
     function toolwrapToYaml(lines) {
         var tw = state.toolwrap;
-        var any = tw.context_mode.disabled || tw.timeout.enabled || tw.rate_limit.enabled || tw.circuit_breaker.enabled ||
+        var cmNonDefault = tw.context_mode.disabled || tw.context_mode.threshold !== 20000 ||
+            tw.context_mode.max_chunks !== 10 || tw.context_mode.chunk_size !== 800 ||
+            tw.context_mode.min_term_len !== 3 || tw.context_mode.per_tool;
+        var any = cmNonDefault || tw.timeout.enabled || tw.rate_limit.enabled || tw.circuit_breaker.enabled ||
             tw.concurrency.enabled || tw.retry.enabled || tw.metrics.enabled ||
             tw.tracing.enabled || tw.sanitize.enabled || tw.validation.enabled;
         if (!any) return;
@@ -1575,6 +1636,31 @@
         if (tw.context_mode.disabled) {
             lines.push('  context_mode:');
             lines.push('    disabled: true');
+        } else {
+            var cmChanged = tw.context_mode.threshold !== 20000 ||
+                tw.context_mode.max_chunks !== 10 ||
+                tw.context_mode.chunk_size !== 800 ||
+                tw.context_mode.min_term_len !== 3 ||
+                tw.context_mode.per_tool;
+            if (cmChanged) {
+                lines.push('  context_mode:');
+                if (tw.context_mode.threshold !== 20000) lines.push('    threshold: ' + tw.context_mode.threshold);
+                if (tw.context_mode.max_chunks !== 10) lines.push('    max_chunks: ' + tw.context_mode.max_chunks);
+                if (tw.context_mode.chunk_size !== 800) lines.push('    chunk_size: ' + tw.context_mode.chunk_size);
+                if (tw.context_mode.min_term_len !== 3) lines.push('    min_term_len: ' + tw.context_mode.min_term_len);
+                var cmPerTool = parseContextModePerTool(tw.context_mode.per_tool);
+                if (Object.keys(cmPerTool).length > 0) {
+                    lines.push('    per_tool:');
+                    Object.keys(cmPerTool).forEach(function (tool) {
+                        var o = cmPerTool[tool];
+                        lines.push('      ' + tool + ':');
+                        if (o.threshold) lines.push('        threshold: ' + o.threshold);
+                        if (o.max_chunks) lines.push('        max_chunks: ' + o.max_chunks);
+                        if (o.chunk_size) lines.push('        chunk_size: ' + o.chunk_size);
+                        if (o.min_term_len) lines.push('        min_term_len: ' + o.min_term_len);
+                    });
+                }
+            }
         }
 
         if (tw.timeout.enabled) {
@@ -1720,6 +1806,12 @@
                 lines.push('    - ' + yq(k));
             });
         }
+        lines.push('');
+    }
+
+    function personaFileToYaml(lines) {
+        if (!state.persona_file) return;
+        lines.push('persona_file: ' + yq(state.persona_file));
         lines.push('');
     }
 

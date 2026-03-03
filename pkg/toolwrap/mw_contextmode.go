@@ -483,7 +483,12 @@ func (chunks chunkedStrings) scoreChunks(queryTerms []string) scoredChunks {
 			score += 0.1 * (1 - pos/headWindow) // decays from 0.1→0
 		}
 		if lastIdx > 0 && pos >= tailStart {
-			score += 0.1 * ((pos - tailStart) / (lastIdx - tailStart + 1)) // grows 0→0.1
+			tailRange := lastIdx - tailStart
+			if tailRange > 0 {
+				score += 0.1 * ((pos - tailStart) / tailRange) // grows 0→0.1
+			} else {
+				score += 0.1 // single-element tail window gets full boost
+			}
 		}
 
 		scored[i] = scoredChunk{

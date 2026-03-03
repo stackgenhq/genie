@@ -11,6 +11,9 @@
 # Name of your agent. Set during `genie setup`; gives the agent a personality
 # and controls the default audit log path: ~/.genie/{agent_name}.<yyyy_mm_dd>.ndjson
 # agent_name = "Genie"
+# Optional: load persona/coding-standards from a custom file instead of Agents.md.
+# Supports absolute paths or paths relative to the working directory.
+# persona_file = "./STANDARDS.md"
 
 # ── Model Providers ────────────────────────────────────────
 # Configure one or more LLM providers. Genie routes each task
@@ -224,3 +227,13 @@ always_allowed = ["read_file", "list_file"]
 
 # [toolwrap.tracing]
 # enabled = true
+
+# [toolwrap.context_mode]
+# threshold = 20000         # global char threshold for compression (default 20000)
+# max_chunks = 10           # max chunks to keep globally (default 10)
+# chunk_size = 800          # target chars per chunk (default 800)
+# min_term_len = 3          # min chars for a query term (default 3)
+# [toolwrap.context_mode.per_tool.run_shell]
+# threshold = 40000         # shell output: higher threshold before compressing
+# max_chunks = 15           # keep more chunks for shell output
+# min_term_len = 2          # shorter tokens match IDs in shell output

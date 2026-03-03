@@ -52,6 +52,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/report/activityreport"
 
 	"github.com/stackgenhq/genie/pkg/security"
+
 	"github.com/stackgenhq/genie/pkg/tools"
 	"github.com/stackgenhq/genie/pkg/tools/codeskim"
 	"github.com/stackgenhq/genie/pkg/tools/datetime"
@@ -175,10 +176,11 @@ func (a *Application) persona() string {
 		return ""
 	}
 
-	if !filepath.IsAbs(a.cfg.PersonaFile) && a.workingDir != "" {
-		a.cfg.PersonaFile = filepath.Join(a.workingDir, a.cfg.PersonaFile)
+	personaPath := a.cfg.PersonaFile
+	if !filepath.IsAbs(personaPath) && a.workingDir != "" {
+		personaPath = filepath.Join(a.workingDir, personaPath)
 	}
-	data, err := os.ReadFile(a.cfg.PersonaFile)
+	data, err := os.ReadFile(personaPath)
 	if err != nil {
 		return ""
 	}
@@ -726,11 +728,11 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 
 	// --- Skills ---
 	if len(a.cfg.SkillsRoots) != 0 {
-		stp, err := tools.NewSkillToolProvider(a.workingDir, a.cfg.SkillsRoots...)
+		skillProvider, err := tools.NewSkillToolProvider(a.workingDir, a.cfg.SkillsRoots...)
 		if err != nil {
-			log.Warn("failed to initialize skills repository", "error", err)
+			log.Warn("failed to initialize skills tool provider", "error", err)
 		} else {
-			providers = append(providers, stp)
+			providers = append(providers, skillProvider)
 			log.Info("Skills tool provider added")
 		}
 	}

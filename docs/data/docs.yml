@@ -583,6 +583,8 @@ config_sections:
           - ["context_mode.threshold", "int", "`20000`", "Character count above which responses are compressed (≈ 5k tokens)"]
           - ["context_mode.max_chunks", "int", "`10`", "Maximum number of top-scored chunks returned"]
           - ["context_mode.chunk_size", "int", "`800`", "Target character count per chunk (split on paragraph boundaries)"]
+          - ["context_mode.min_term_len", "int", "`3`", "Minimum character length for BM25 query terms. Lower values keep short IDs like pod hashes."]
+          - ["context_mode.per_tool.<name>", "table", "—", "Per-tool overrides for `threshold`, `max_chunks`, `chunk_size`, `min_term_len`. Non-zero values override globals."]
       - label: Resilience Configuration
         columns: [Key, Type, Default, Description]
         rows:
@@ -622,7 +624,7 @@ config_sections:
           - ["Zero-config defaults", "Core middlewares run out of the box — no configuration needed for context mode, panic recovery, loop detection, caching, audit, and HITL"]
           - ["Config-driven", "Enable any opt-in middleware with a single `enabled = true` — no code changes, no recompilation"]
           - ["Composable", "Mix and match middlewares, or build custom chains with `CompositeMiddleware`"]
-          - ["Per-tool granularity", "Timeout, rate limit, concurrency, circuit breaker, and sanitize all support per-tool overrides"]
+          - ["Per-tool granularity", "Timeout, rate limit, concurrency, circuit breaker, context mode, and sanitize all support per-tool overrides"]
           - ["Battle-tested libraries", "Rate limiting via `x/time/rate`, semaphores via `x/sync/semaphore`, circuit breaking via `sony/gobreaker`, retries via `cenkalti/backoff`"]
           - ["Observable", "OpenTelemetry metrics and tracing integrate with Datadog, Grafana, Jaeger, or any OTel-compatible backend"]
     code_example:
@@ -638,6 +640,11 @@ config_sections:
         # threshold = 20000        # chars above which compression kicks in
         # max_chunks = 10          # top-K chunks to keep
         # chunk_size = 800         # target chars per chunk
+        # min_term_len = 3         # min chars for BM25 query terms
+        # [toolwrap.context_mode.per_tool.run_shell]
+        # threshold = 40000        # higher threshold for shell output
+        # max_chunks = 15
+        # min_term_len = 2         # keep short pod IDs / commit SHAs
 
         # Resilience
         [toolwrap.timeout]

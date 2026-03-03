@@ -796,12 +796,13 @@ type InjectFeedbackRequest struct {
 func (s *Server) handleInjectFeedback(w http.ResponseWriter, r *http.Request) {
 	logr := logger.GetLogger(r.Context()).With("fn", "agui.Server.handleInjectFeedback")
 
+	defer r.Body.Close()
+
 	var req InjectFeedbackRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"invalid request body: %s"}`, err), http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
 
 	if req.ThreadID == "" || req.Message == "" {
 		http.Error(w, `{"error":"threadId and message are required"}`, http.StatusBadRequest)
@@ -810,13 +811,7 @@ func (s *Server) handleInjectFeedback(w http.ResponseWriter, r *http.Request) {
 
 	logr.Info("Received mid-run feedback", "threadId", req.ThreadID, "messageLen", len(req.Message))
 
-	// Reconstruct context identically to handleRun
 	ctx := r.Context()
-	ctx = messenger.WithMessageOrigin(ctx, messenger.MessageOrigin{
-		Platform: messenger.PlatformAGUI,
-		Channel:  messenger.Channel{ID: req.ThreadID},
-		Sender:   messenger.Sender{ID: "agui-user"},
-	})
 
 	if s.agentName != "" {
 		ctx = orchestratorcontext.WithAgent(ctx, orchestratorcontext.Agent{Name: s.agentName})

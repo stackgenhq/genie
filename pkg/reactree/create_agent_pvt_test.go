@@ -7,6 +7,11 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/memory/vector"
+	"github.com/stackgenhq/genie/pkg/memory/vector/vectorfakes"
+	"github.com/stackgenhq/genie/pkg/tools"
+	"github.com/stackgenhq/genie/pkg/tools/toolsfakes"
+	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
 var _ = Describe("CreateAgentRequest", func() {
@@ -77,22 +82,22 @@ var _ = Describe("CreateAgentRequest", func() {
 		const agentName = "test-agent"
 
 		DescribeTable("determines status and output from execution outcome",
-			func(timedOut bool, lastErr, result, expectedStatus string, outputMatcher OmegaMatcher) {
+			func(timedOut bool, lastErr, result, partialToolResults, expectedStatus string, outputMatcher OmegaMatcher) {
 				req := CreateAgentRequest{AgentName: agentName}
-				status, output := req.resolveStatus(timedOut, lastErr, result)
+				status, output := req.resolveStatus(timedOut, lastErr, result, partialToolResults)
 				Expect(status).To(Equal(expectedStatus))
 				Expect(output).To(outputMatcher)
 			},
 			Entry("success with output",
-				false, "", "all good",
+				false, "", "all good", "",
 				"success", Equal("all good"),
 			),
 			Entry("success with empty output and no error",
-				false, "", "",
+				false, "", "", "",
 				"success", BeEmpty(),
 			),
 			Entry("timeout with partial output",
-				true, "", "partial data",
+				true, "", "partial data", "",
 				"partial", And(
 					ContainSubstring("[TIME LIMIT REACHED]"),
 					ContainSubstring(agentName),
@@ -100,24 +105,139 @@ var _ = Describe("CreateAgentRequest", func() {
 				),
 			),
 			Entry("timeout with no output",
-				true, "", "",
+				true, "", "", "",
 				"partial", And(
 					ContainSubstring("[TIME LIMIT REACHED]"),
 					ContainSubstring("No output was captured"),
 				),
 			),
 			Entry("error with no output",
-				false, "connection refused", "",
+				false, "connection refused", "", "",
 				"error", Equal(fmt.Sprintf("sub-agent error: %s", "connection refused")),
 			),
 			Entry("error is ignored when output exists",
-				false, "some warning", "valid result",
+				false, "some warning", "valid result", "",
 				"success", Equal("valid result"),
 			),
 			Entry("timeout takes precedence over lastErr",
-				true, "some error", "",
+				true, "some error", "", "",
 				"partial", ContainSubstring("[TIME LIMIT REACHED]"),
 			),
+			Entry("error with no output but has partial tool results",
+				false, "max LLM calls (10) exceeded", "", "file contents found\n---\nsearch results here",
+				"partial", And(
+					ContainSubstring("[BUDGET EXCEEDED]"),
+					ContainSubstring(agentName),
+					ContainSubstring("file contents found"),
+					ContainSubstring("search results here"),
+					ContainSubstring("max LLM calls (10) exceeded"),
+				),
+			),
+			Entry("timeout with no output but has partial tool results",
+				true, "", "", "partial findings from tools",
+				"partial", And(
+					ContainSubstring("[TIME LIMIT REACHED]"),
+					ContainSubstring("partial findings from tools"),
+				),
+			),
+			Entry("error ignored when output exists even with tool results",
+				false, "some warning", "valid result", "tool results here",
+				"success", Equal("valid result"),
+			),
 		)
+	})
+})
+
+var _ = Describe("createAgentTool guard helpers", func() {
+	// stubTool creates a minimal tool.Tool with a given name using counterfeiter.
+	stubTool := func(name string) tool.Tool {
+		fake := &toolsfakes.FakeCallableTool{}
+		fake.DeclarationReturns(&tool.Declaration{Name: name})
+		return fake
+	}
+
+	// makeRegistry builds a tools.Registry from tool names.
+	makeRegistry := func(names ...string) *tools.Registry {
+		var tt tools.Tools
+		for _, n := range names {
+			tt = append(tt, stubTool(n))
+		}
+		return tools.NewRegistry(context.Background(), tt)
+	}
+
+	Describe("isRetrievalOnly", func() {
+		cat := &createAgentTool{}
+
+		It("returns true when all tools are retrieval-only", func() {
+			reg := makeRegistry("memory_search", "graph_query")
+			Expect(cat.isRetrievalOnly(reg)).To(BeTrue())
+		})
+
+		It("returns true for a single retrieval tool", func() {
+			reg := makeRegistry("memory_search")
+			Expect(cat.isRetrievalOnly(reg)).To(BeTrue())
+		})
+
+		It("returns false when any non-retrieval tool is present", func() {
+			reg := makeRegistry("memory_search", "run_shell")
+			Expect(cat.isRetrievalOnly(reg)).To(BeFalse())
+		})
+
+		It("returns false for an empty registry", func() {
+			reg := makeRegistry()
+			Expect(cat.isRetrievalOnly(reg)).To(BeFalse())
+		})
+
+		It("returns true for all four retrieval tools", func() {
+			reg := makeRegistry("memory_search", "graph_query", "graph_get_entity", "graph_shortest_path")
+			Expect(cat.isRetrievalOnly(reg)).To(BeTrue())
+		})
+	})
+
+	Describe("hasVectorBackedTools", func() {
+		cat := &createAgentTool{}
+
+		It("returns true when memory_search is present", func() {
+			reg := makeRegistry("memory_search", "graph_query")
+			Expect(cat.hasVectorBackedTools(reg)).To(BeTrue())
+		})
+
+		It("returns false for graph-only tools", func() {
+			reg := makeRegistry("graph_query", "graph_get_entity")
+			Expect(cat.hasVectorBackedTools(reg)).To(BeFalse())
+		})
+
+		It("returns false for empty registry", func() {
+			reg := makeRegistry()
+			Expect(cat.hasVectorBackedTools(reg)).To(BeFalse())
+		})
+	})
+
+	Describe("isMemoryEmpty", func() {
+		It("returns true when vectorStore is nil", func() {
+			cat := &createAgentTool{vectorStore: nil}
+			Expect(cat.isMemoryEmpty(context.Background())).To(BeTrue())
+		})
+
+		It("returns true when Search returns no results", func() {
+			fakeStore := &vectorfakes.FakeIStore{}
+			fakeStore.SearchReturns(nil, nil)
+			cat := &createAgentTool{vectorStore: fakeStore}
+			Expect(cat.isMemoryEmpty(context.Background())).To(BeTrue())
+		})
+
+		It("returns false when Search returns results", func() {
+			fakeStore := &vectorfakes.FakeIStore{}
+			fakeStore.SearchReturns([]vector.SearchResult{{ID: "1", Content: "x"}}, nil)
+			cat := &createAgentTool{vectorStore: fakeStore}
+			Expect(cat.isMemoryEmpty(context.Background())).To(BeFalse())
+		})
+
+		It("returns false when Search errors (safe fallback)", func() {
+			fakeStore := &vectorfakes.FakeIStore{}
+			fakeStore.SearchReturns(nil, fmt.Errorf("connection refused"))
+			cat := &createAgentTool{vectorStore: fakeStore}
+			Expect(cat.isMemoryEmpty(context.Background())).To(BeFalse())
+		})
 	})
 })
