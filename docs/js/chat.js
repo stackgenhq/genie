@@ -423,7 +423,6 @@
 
     // Updates all UI labels that reference the agent name.
     function updateAgentLabels(name) {
-        const safeN = escapeHtml(name);
         document.title = 'Chat — ' + name + ' by Stackgen';
         const headerEl = document.getElementById('header-title');
         if (headerEl) headerEl.textContent = name + ' Chat';

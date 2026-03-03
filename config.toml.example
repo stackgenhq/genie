@@ -132,7 +132,7 @@ skills_roots = ["./skills"]
 # AG-UI server settings (default messenger when no platform is set)
 [messenger.agui]
 port = 9876
-cors_origins = ["*"]            # Restrict in production
+cors_origins = ["https://stackgenhq.github.io"]  # Restrict to your chat UI origin(s); avoid ["*"] except for local, non-sensitive testing
 rate_limit = 0.5                # requests/sec per IP
 rate_burst = 3
 max_concurrent = 5

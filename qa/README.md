@@ -20,7 +20,7 @@ Each test follows the **Arrange / Act / Assert** pattern and documents:
 | Build the binary | `make only-build` (produces `build/genie`) |
 | API keys | Ensure `.env` exists with at least `OPENAI_API_KEY` and one LLM key (`GEMINI_API_KEY` or `ANTHROPIC_API_KEY`) |
 | Export env vars | `set -a && source .env && set +a` — plain `source .env` does **not** export vars to child processes |
-| Config file | Create `genie.toml` in the repo root with `[agui]` section, `port = 9876`, `cors_origins = ["*"]` |
+| Config file | Create `.genie.toml` in the repo root with `[messenger.agui]` section, `port = 9876`, `cors_origins = ["*"]` |
 | Chat UI | Open `docs/chat.html` in a browser |
 
 ### Minimal Config

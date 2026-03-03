@@ -385,6 +385,26 @@ var _ = Describe("AG-UI Server", func() {
 			var result map[string]string
 			Expect(json.NewDecoder(recorder.Body).Decode(&result)).To(Succeed())
 			Expect(result["status"]).To(Equal("ok"))
+			Expect(result["agent_name"]).To(Equal("Genie"))
+		})
+
+		It("should return configured agent_name in health check", func() {
+			handler := agui.NewChatHandler(
+				func(_ context.Context) string { return "" },
+				func(_ context.Context, _ string, _ chan<- interface{}) error { return nil },
+			)
+			bgw := agui.NewBackgroundWorker(handler, 2)
+			customServer := agui.NewServer(messenger.AGUIConfig{}, handler, nil, nil, bgw, nil, nil, "qa_agent")
+
+			req := httptest.NewRequest(http.MethodGet, "/health", nil)
+			recorder := httptest.NewRecorder()
+
+			customServer.Handler().ServeHTTP(recorder, req)
+			Expect(recorder.Code).To(Equal(http.StatusOK))
+
+			var result map[string]string
+			Expect(json.NewDecoder(recorder.Body).Decode(&result)).To(Succeed())
+			Expect(result["agent_name"]).To(Equal("qa_agent"))
 		})
 
 		It("should accept valid events at /api/v1/events", func() {

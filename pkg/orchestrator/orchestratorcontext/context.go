@@ -42,7 +42,7 @@ func agentFromContext(ctx context.Context) (Agent, bool) {
 }
 
 // AgentFromContext extracts the Agent from ctx.
-// Returns the zero-value Agent and false if none was set.
+// If no Agent was set on the context, it returns an Agent whose Name is DefaultAgentName.
 func AgentFromContext(ctx context.Context) Agent {
 	a, ok := agentFromContext(ctx)
 	if !ok {
@@ -51,4 +51,10 @@ func AgentFromContext(ctx context.Context) Agent {
 		}
 	}
 	return a
+}
+
+// AgentNameFromContext is a convenience function that returns the
+// agent's Name from ctx, defaulting to DefaultAgentName.
+func AgentNameFromContext(ctx context.Context) string {
+	return AgentFromContext(ctx).Name
 }

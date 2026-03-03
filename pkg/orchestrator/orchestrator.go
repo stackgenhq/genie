@@ -906,13 +906,18 @@ func (c *orchestrator) episodicMemoryForSender(ctx context.Context) rtmemory.Epi
 
 // conversationKeyFromContext returns the appropriate memory key for
 // conversation history isolation. In group chats, all members share
-// history (keyed by channel ID). In DMs, each sender has private history.
+// history (keyed by channel ID). In DMs/AG-UI, each thread has its
+// own history (keyed by sender + channel/thread ID).
+//
+// Uses DeriveConversationKey (not DeriveVisibility) because conversation
+// recall needs per-thread isolation: each AG-UI chat session creates a
+// fresh threadId, and we must not leak prior threads' context into new ones.
 //
 // When running under GUILD with multiple agents, the key is prefixed
 // with the agent name so agents sharing a channel have isolated memory.
 func (c *orchestrator) conversationKeyFromContext(ctx context.Context) string {
 	origin := messenger.MessageOriginFrom(ctx)
-	key := origin.DeriveVisibility()
+	key := origin.DeriveConversationKey()
 	if agentName := audit.AgentNameFromContext(ctx); agentName != "" {
 		key = agentName + ":" + key
 	}

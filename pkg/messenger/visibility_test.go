@@ -7,118 +7,126 @@ import (
 )
 
 var _ = Describe("Visibility", func() {
-	Describe("DeriveVisibility", func() {
-		It("returns global for zero-value origin", func() {
-			origin := messenger.MessageOrigin{}
-			Expect(origin.DeriveVisibility()).To(Equal("global"))
-		})
-
-		It("returns private for WhatsApp DM", func() {
-			origin := messenger.MessageOrigin{
+	DescribeTable("DeriveVisibility",
+		func(origin messenger.MessageOrigin, expected string) {
+			Expect(origin.DeriveVisibility()).To(Equal(expected))
+		},
+		Entry("zero-value → global",
+			messenger.MessageOrigin{}, "global"),
+		Entry("WhatsApp DM → private:sender",
+			messenger.MessageOrigin{
 				Platform: "whatsapp",
 				Sender:   messenger.Sender{ID: "5551234567"},
 				Channel:  messenger.Channel{ID: "5551234567", Type: messenger.ChannelTypeDM},
-			}
-			Expect(origin.DeriveVisibility()).To(Equal("private:5551234567"))
-		})
-
-		It("returns group for WhatsApp group chat", func() {
-			origin := messenger.MessageOrigin{
+			}, "private:5551234567"),
+		Entry("WhatsApp group → group:channel",
+			messenger.MessageOrigin{
 				Platform: "whatsapp",
 				Sender:   messenger.Sender{ID: "5551234567"},
 				Channel:  messenger.Channel{ID: "120363123456789", Type: messenger.ChannelTypeGroup},
-			}
-			Expect(origin.DeriveVisibility()).To(Equal("group:120363123456789"))
-		})
-
-		It("returns private for Slack DM", func() {
-			origin := messenger.MessageOrigin{
+			}, "group:120363123456789"),
+		Entry("Slack DM → private:sender",
+			messenger.MessageOrigin{
 				Platform: "slack",
 				Sender:   messenger.Sender{ID: "U12345"},
 				Channel:  messenger.Channel{ID: "D67890", Type: messenger.ChannelTypeDM},
-			}
-			Expect(origin.DeriveVisibility()).To(Equal("private:U12345"))
-		})
-
-		It("returns group for Slack channel", func() {
-			origin := messenger.MessageOrigin{
+			}, "private:U12345"),
+		Entry("Slack channel → group:channel",
+			messenger.MessageOrigin{
 				Platform: "slack",
 				Sender:   messenger.Sender{ID: "U12345"},
 				Channel:  messenger.Channel{ID: "C67890", Type: messenger.ChannelTypeChannel},
-			}
-			Expect(origin.DeriveVisibility()).To(Equal("group:C67890"))
-		})
-
-		It("returns group for Slack group DM", func() {
-			origin := messenger.MessageOrigin{
+			}, "group:C67890"),
+		Entry("Slack group DM → group:channel",
+			messenger.MessageOrigin{
 				Platform: "slack",
 				Sender:   messenger.Sender{ID: "U12345"},
 				Channel:  messenger.Channel{ID: "G11111", Type: messenger.ChannelTypeGroup},
-			}
-			Expect(origin.DeriveVisibility()).To(Equal("group:G11111"))
-		})
-
-		It("returns private for AG-UI (no channel type)", func() {
-			origin := messenger.MessageOrigin{
+			}, "group:G11111"),
+		Entry("AG-UI (no channel type) → private:sender",
+			messenger.MessageOrigin{
 				Platform: "agui",
 				Sender:   messenger.Sender{ID: "http-user"},
 				Channel:  messenger.Channel{ID: "http"},
+			}, "private:http-user"),
+	)
+
+	Describe("DeriveConversationKey", func() {
+		DescribeTable("maps origin to conversation key",
+			func(origin messenger.MessageOrigin, expected string) {
+				Expect(origin.DeriveConversationKey()).To(Equal(expected))
+			},
+			Entry("zero-value → global",
+				messenger.MessageOrigin{}, "global"),
+			Entry("AG-UI with threadId → private:sender:thread",
+				messenger.MessageOrigin{
+					Platform: "agui",
+					Sender:   messenger.Sender{ID: "agui-user"},
+					Channel:  messenger.Channel{ID: "thread-abc-123"},
+				}, "private:agui-user:thread-abc-123"),
+			Entry("no channel ID → private:sender",
+				messenger.MessageOrigin{
+					Platform: "agui",
+					Sender:   messenger.Sender{ID: "agui-user"},
+				}, "private:agui-user"),
+			Entry("WhatsApp DM → private:sender:channel",
+				messenger.MessageOrigin{
+					Platform: "whatsapp",
+					Sender:   messenger.Sender{ID: "5551234567"},
+					Channel:  messenger.Channel{ID: "5551234567", Type: messenger.ChannelTypeDM},
+				}, "private:5551234567:5551234567"),
+			Entry("WhatsApp group → group:channel",
+				messenger.MessageOrigin{
+					Platform: "whatsapp",
+					Sender:   messenger.Sender{ID: "5551234567"},
+					Channel:  messenger.Channel{ID: "120363123456789", Type: messenger.ChannelTypeGroup},
+				}, "group:120363123456789"),
+			Entry("Slack channel → group:channel",
+				messenger.MessageOrigin{
+					Platform: "slack",
+					Sender:   messenger.Sender{ID: "U12345"},
+					Channel:  messenger.Channel{ID: "C67890", Type: messenger.ChannelTypeChannel},
+				}, "group:C67890"),
+		)
+
+		It("isolates different AG-UI threads from same sender", func() {
+			thread1 := messenger.MessageOrigin{
+				Platform: "agui",
+				Sender:   messenger.Sender{ID: "agui-user"},
+				Channel:  messenger.Channel{ID: "thread-1"},
 			}
-			Expect(origin.DeriveVisibility()).To(Equal("private:http-user"))
+			thread2 := messenger.MessageOrigin{
+				Platform: "agui",
+				Sender:   messenger.Sender{ID: "agui-user"},
+				Channel:  messenger.Channel{ID: "thread-2"},
+			}
+			Expect(thread1.DeriveConversationKey()).ToNot(Equal(thread2.DeriveConversationKey()))
 		})
 	})
 
-	Describe("IsPrivateContext", func() {
-		It("returns true for zero-value origin", func() {
-			origin := messenger.MessageOrigin{}
-			Expect(origin.IsPrivateContext()).To(BeTrue())
-		})
+	DescribeTable("IsPrivateContext",
+		func(origin messenger.MessageOrigin, expected bool) {
+			Expect(origin.IsPrivateContext()).To(Equal(expected))
+		},
+		Entry("zero-value (empty channel type) → true",
+			messenger.MessageOrigin{}, true),
+		Entry("DM channel type → true",
+			messenger.MessageOrigin{Channel: messenger.Channel{Type: messenger.ChannelTypeDM}}, true),
+		Entry("group channel type → false",
+			messenger.MessageOrigin{Channel: messenger.Channel{Type: messenger.ChannelTypeGroup}}, false),
+		Entry("channel type → false",
+			messenger.MessageOrigin{Channel: messenger.Channel{Type: messenger.ChannelTypeChannel}}, false),
+	)
 
-		It("returns true for DM channel type", func() {
-			origin := messenger.MessageOrigin{
-				Channel: messenger.Channel{Type: messenger.ChannelTypeDM},
-			}
-			Expect(origin.IsPrivateContext()).To(BeTrue())
-		})
-
-		It("returns true for empty channel type", func() {
-			origin := messenger.MessageOrigin{}
-			Expect(origin.IsPrivateContext()).To(BeTrue())
-		})
-
-		It("returns false for group channel type", func() {
-			origin := messenger.MessageOrigin{
-				Channel: messenger.Channel{Type: messenger.ChannelTypeGroup},
-			}
-			Expect(origin.IsPrivateContext()).To(BeFalse())
-		})
-
-		It("returns false for channel type", func() {
-			origin := messenger.MessageOrigin{
-				Channel: messenger.Channel{Type: messenger.ChannelTypeChannel},
-			}
-			Expect(origin.IsPrivateContext()).To(BeFalse())
-		})
-	})
-
-	Describe("IsGroupContext", func() {
-		It("returns false for zero-value origin", func() {
-			origin := messenger.MessageOrigin{}
-			Expect(origin.IsGroupContext()).To(BeFalse())
-		})
-
-		It("returns true for group", func() {
-			origin := messenger.MessageOrigin{
-				Channel: messenger.Channel{Type: messenger.ChannelTypeGroup},
-			}
-			Expect(origin.IsGroupContext()).To(BeTrue())
-		})
-
-		It("returns true for channel", func() {
-			origin := messenger.MessageOrigin{
-				Channel: messenger.Channel{Type: messenger.ChannelTypeChannel},
-			}
-			Expect(origin.IsGroupContext()).To(BeTrue())
-		})
-	})
+	DescribeTable("IsGroupContext",
+		func(origin messenger.MessageOrigin, expected bool) {
+			Expect(origin.IsGroupContext()).To(Equal(expected))
+		},
+		Entry("zero-value → false",
+			messenger.MessageOrigin{}, false),
+		Entry("group → true",
+			messenger.MessageOrigin{Channel: messenger.Channel{Type: messenger.ChannelTypeGroup}}, true),
+		Entry("channel → true",
+			messenger.MessageOrigin{Channel: messenger.Channel{Type: messenger.ChannelTypeChannel}}, true),
+	)
 })

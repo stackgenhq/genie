@@ -23,6 +23,33 @@ func (origin MessageOrigin) DeriveVisibility() string {
 	}
 }
 
+// DeriveConversationKey returns a memory key for conversation history isolation.
+// Unlike DeriveVisibility (which scopes by sender for privacy/access-control),
+// this method includes the Channel.ID so each chat thread gets isolated
+// conversation memory. Without this, all AG-UI threads from the same sender
+// would share conversation history, causing the agent to confuse questions
+// across separate chat sessions.
+//
+// Conversation key values:
+//   - "private:{senderID}:{channelID}" — per-thread history (AG-UI, DMs with channel)
+//   - "private:{senderID}"             — fallback when no channel is set (TUI)
+//   - "group:{channelID}"              — shared history within a group/channel
+//   - "global"                         — no restriction (system content)
+func (origin MessageOrigin) DeriveConversationKey() string {
+	if origin.IsZero() {
+		return "global"
+	}
+
+	switch {
+	case origin.IsGroupContext():
+		return "group:" + origin.Channel.ID
+	case origin.Channel.ID != "":
+		return "private:" + origin.Sender.ID + ":" + origin.Channel.ID
+	default:
+		return "private:" + origin.Sender.ID
+	}
+}
+
 // IsPrivateContext returns true when the message is from a 1:1 / DM context
 // where memory should not be shared with other users.
 //

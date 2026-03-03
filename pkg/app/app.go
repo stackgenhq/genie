@@ -635,6 +635,7 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 	return func(ctx context.Context, message string, agentsMessage chan<- interface{}) error {
 		if a.cfg.AgentName != "" {
 			ctx = audit.WithAgentName(ctx, a.cfg.AgentName)
+			ctx = orchestratorcontext.WithAgent(ctx, orchestratorcontext.Agent{Name: a.cfg.AgentName})
 		}
 		logger := logger.GetLogger(ctx).With("fn", "app.buildChatHandler")
 		outputChan := make(chan string)
