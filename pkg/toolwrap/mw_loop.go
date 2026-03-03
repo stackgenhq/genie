@@ -208,13 +208,15 @@ func isEmptyResult(result any) bool {
 		return false
 	}
 
-	// Check "count" field — zero means empty.
-	if c := gjson.GetBytes(raw, "count"); c.Exists() && c.Int() == 0 {
-		return true
-	}
-
-	// Check "results" field — empty array means empty.
-	if r := gjson.GetBytes(raw, "results"); r.Exists() && r.IsArray() && len(r.Array()) == 0 {
+	// Check "count" AND "results" fields. Some APIs use count=0 but still return results.
+	c := gjson.GetBytes(raw, "count")
+	r := gjson.GetBytes(raw, "results")
+	if c.Exists() && c.Int() == 0 {
+		// Only consider empty if results is also empty or missing
+		if !r.Exists() || (r.IsArray() && len(r.Array()) == 0) {
+			return true
+		}
+	} else if r.Exists() && r.IsArray() && len(r.Array()) == 0 {
 		return true
 	}
 

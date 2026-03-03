@@ -626,12 +626,12 @@ func (c *orchestrator) InjectFeedback(ctx context.Context, message string) error
 	// Format as a clear directive
 	feedback := fmt.Sprintf("INTERRUPT: New User Instruction Received: %s", message)
 
-	// Add an ISO timestamp to ensure the key is unique even for rapid injections
+	// Add a Unix nanosecond timestamp to ensure the key is unique even for rapid injections
 	key := fmt.Sprintf("user_feedback_%d", time.Now().UnixNano())
 
 	wm.Store(key, feedback)
 
-	logger.GetLogger(ctx).Info("Injected user feedback into working memory", "key", key)
+	logger.GetLogger(ctx).Info("injected user feedback into working memory", "key", key)
 	return nil
 }
 

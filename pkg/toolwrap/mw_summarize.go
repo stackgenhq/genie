@@ -78,10 +78,28 @@ func AutoSummarizeMiddleware(summarize SummarizeFunc, threshold int) Middleware 
 	if threshold <= 0 {
 		threshold = defaultSummarizeThreshold
 	}
-	return &summarizeMiddleware{
+	m := &summarizeMiddleware{
 		summarize: summarize,
 		threshold: threshold,
 		cacheTTL:  defaultSummarizeCacheTTL,
+	}
+	// Start a background goroutine to periodically clean up expired cache entries.
+	// This prevents unbounded memory growth in long-running processes.
+	go m.cleanupLoop()
+	return m
+}
+
+func (m *summarizeMiddleware) cleanupLoop() {
+	ticker := time.NewTicker(15 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		now := time.Now()
+		m.cache.Range(func(key, value any) bool {
+			if cs, ok := value.(cachedSummary); ok && now.After(cs.expiresAt) {
+				m.cache.Delete(key)
+			}
+			return true
+		})
 	}
 }
 
@@ -142,7 +160,7 @@ func (m *summarizeMiddleware) Wrap(next Handler) Handler {
 			}
 			return fmt.Sprintf(
 				"[Response contained %d chars but only %d chars of meaningful content after stripping. "+
-					"The output was mostly whitespace, escape sequences, or repetitive data with no useful information to summarize.]",
+					"The output was mostly whitespace, escape sequences, or repetitive data. It does not contain useful text to summarize.]",
 				len(responseStr), len(inputForSummary),
 			), nil
 		}

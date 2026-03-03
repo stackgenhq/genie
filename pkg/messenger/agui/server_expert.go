@@ -5,7 +5,6 @@ import (
 
 	aguitypes "github.com/stackgenhq/genie/pkg/agui"
 	"github.com/stackgenhq/genie/pkg/logger"
-	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 )
 
@@ -82,12 +81,8 @@ func (e serverExpert) InjectFeedback(ctx context.Context, threadID, message stri
 		return nil
 	}
 
-	// Reconstruct the MessageOrigin context so the orchestrator can find the right WorkingMemory
-	ctx = messenger.WithMessageOrigin(ctx, messenger.MessageOrigin{
-		Platform: messenger.PlatformAGUI,
-		Channel:  messenger.Channel{ID: threadID},
-		Sender:   messenger.Sender{ID: "agui-user"},
-	})
+	// server.go already constructs the MessageOrigin (including agui-user)
+	// so the orchestrator will find the right WorkingMemory.
 
 	return e.injectFunc(ctx, message)
 }

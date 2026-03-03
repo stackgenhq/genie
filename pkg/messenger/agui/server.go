@@ -809,7 +809,7 @@ func (s *Server) handleInjectFeedback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logr.Info("Received mid-run feedback", "threadId", req.ThreadID, "messageLen", len(req.Message))
+	logr.Info("received mid-run feedback", "threadId", req.ThreadID, "messageLen", len(req.Message))
 
 	ctx := r.Context()
 
@@ -819,7 +819,7 @@ func (s *Server) handleInjectFeedback(w http.ResponseWriter, r *http.Request) {
 
 	// Try injecting using the regular Expert pipeline if it natively supports it
 	if err := s.chatHandler.InjectFeedback(ctx, req.ThreadID, req.Message); err != nil {
-		logr.Error("Failed to inject feedback via chatHandler", "error", err)
+		logr.Error("failed to inject feedback via chatHandler", "error", err)
 		http.Error(w, fmt.Sprintf(`{"error":"failed to inject feedback: %v"}`, err), http.StatusInternalServerError)
 		return
 	}
