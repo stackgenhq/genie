@@ -23,6 +23,16 @@ type FakeExpert struct {
 		result1 expert.Response
 		result2 error
 	}
+	GetBioStub        func() expert.ExpertBio
+	getBioMutex       sync.RWMutex
+	getBioArgsForCall []struct {
+	}
+	getBioReturns struct {
+		result1 expert.ExpertBio
+	}
+	getBioReturnsOnCall map[int]struct {
+		result1 expert.ExpertBio
+	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
 }
@@ -90,6 +100,59 @@ func (fake *FakeExpert) DoReturnsOnCall(i int, result1 expert.Response, result2 
 		result1 expert.Response
 		result2 error
 	}{result1, result2}
+}
+
+func (fake *FakeExpert) GetBio() expert.ExpertBio {
+	fake.getBioMutex.Lock()
+	ret, specificReturn := fake.getBioReturnsOnCall[len(fake.getBioArgsForCall)]
+	fake.getBioArgsForCall = append(fake.getBioArgsForCall, struct {
+	}{})
+	stub := fake.GetBioStub
+	fakeReturns := fake.getBioReturns
+	fake.recordInvocation("GetBio", []interface{}{})
+	fake.getBioMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeExpert) GetBioCallCount() int {
+	fake.getBioMutex.RLock()
+	defer fake.getBioMutex.RUnlock()
+	return len(fake.getBioArgsForCall)
+}
+
+func (fake *FakeExpert) GetBioCalls(stub func() expert.ExpertBio) {
+	fake.getBioMutex.Lock()
+	defer fake.getBioMutex.Unlock()
+	fake.GetBioStub = stub
+}
+
+func (fake *FakeExpert) GetBioReturns(result1 expert.ExpertBio) {
+	fake.getBioMutex.Lock()
+	defer fake.getBioMutex.Unlock()
+	fake.GetBioStub = nil
+	fake.getBioReturns = struct {
+		result1 expert.ExpertBio
+	}{result1}
+}
+
+func (fake *FakeExpert) GetBioReturnsOnCall(i int, result1 expert.ExpertBio) {
+	fake.getBioMutex.Lock()
+	defer fake.getBioMutex.Unlock()
+	fake.GetBioStub = nil
+	if fake.getBioReturnsOnCall == nil {
+		fake.getBioReturnsOnCall = make(map[int]struct {
+			result1 expert.ExpertBio
+		})
+	}
+	fake.getBioReturnsOnCall[i] = struct {
+		result1 expert.ExpertBio
+	}{result1}
 }
 
 func (fake *FakeExpert) Invocations() map[string][][]interface{} {
