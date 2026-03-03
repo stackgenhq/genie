@@ -13,6 +13,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/expert"
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
 	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/reactree/memory"
 	"github.com/stackgenhq/genie/pkg/retrier"
@@ -145,7 +146,11 @@ type createAgentTool struct {
 	toolWrapSvc   *toolwrap.Service
 	workingMemory *memory.WorkingMemory
 	episodic      memory.EpisodicMemory
-	description   string
+	// vectorStore is the vector memory store. Used to probe for emptiness
+	// so retrieval-only sub-agents (memory_search, graph_*) can be skipped
+	// when the store has no documents, avoiding futile LLM calls.
+	vectorStore vector.IStore
+	description string
 
 	// inflight deduplicates identical parallel create_agent calls
 	// from the LLM (same agent_name + goal). Backed by singleflight.
@@ -171,6 +176,7 @@ func NewCreateAgentTool(
 	workingMemory *memory.WorkingMemory,
 	episodic memory.EpisodicMemory,
 	toolWrapSvc *toolwrap.Service,
+	vectorStore vector.IStore,
 ) *createAgentTool {
 	// Build a sub-agent registry that excludes orchestration-only tools.
 	// Sub-agents must not call create_agent (no recursive spawning) or
@@ -189,6 +195,7 @@ func NewCreateAgentTool(
 		toolWrapSvc:      toolWrapSvc,
 		workingMemory:    workingMemory,
 		episodic:         episodic,
+		vectorStore:      vectorStore,
 	}
 
 	t.description = fmt.Sprintf(
@@ -263,6 +270,23 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	if len(req.ToolNames) > 0 {
 		scopedRegistry = scopedRegistry.Include(req.ToolNames...)
 	}
+
+	// Empty-memory guard: if all requested tools are retrieval-only
+	// (memory_search, graph_*), probe the vector store — if it's empty,
+	// skip this sub-agent entirely. Prevents burning LLM budget searching
+	// a store that has no documents to return.
+	if t.isRetrievalOnly(scopedRegistry) && t.isMemoryEmpty(ctx) {
+		logr.Info("skipping retrieval-only sub-agent: memory store is empty",
+			"agent_name", req.AgentName,
+			"tools", scopedRegistry.ToolNames())
+		return CreateAgentResponse{
+			Status: "success",
+			Output: "No relevant data found — the memory store is empty. " +
+				"No knowledge base entries exist to search. " +
+				"Consider using other tools to gather information.",
+		}, nil
+	}
+
 	selectedTools := t.toolWrapSvc.Wrap(scopedRegistry.AllTools(), toolwrap.WrapRequest{
 		AgentName: req.AgentName,
 	})
@@ -337,8 +361,15 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	defer cancelTimeout()
 	logr.Info("sub-agent timeout set", "timeout", req.timeout().String())
 
+	// Wrap with CancelCause so loop-detection and empty-results middlewares
+	// can terminate the sub-agent run immediately when they detect futile
+	// loops or fruitless search calls.
+	cancelCtx, cancelCause := context.WithCancelCause(timeoutCtx)
+	defer cancelCause(nil)
+	runCtx := toolwrap.WithCancelCause(cancelCtx, cancelCause)
+
 	tracer := otel.Tracer("genie")
-	runCtx, span := tracer.Start(timeoutCtx, req.AgentName+" execution")
+	runCtx, span := tracer.Start(runCtx, req.AgentName+" execution")
 	defer span.End()
 
 	// Retry transient upstream LLM errors (503 / rate-limit / overloaded)
@@ -572,4 +603,50 @@ func (t *createAgentTool) executePlan(ctx context.Context, req CreateAgentReques
 		Output: output,
 		Status: status,
 	}, nil
+}
+
+// retrievalOnlyTools lists tool names that only read from the memory/graph
+// stores. When a sub-agent has only these tools, it can be skipped if the
+// stores are empty.
+var retrievalOnlyTools = map[string]bool{
+	"memory_search":       true,
+	"graph_query":         true,
+	"graph_get_entity":    true,
+	"graph_shortest_path": true,
+}
+
+// isRetrievalOnly returns true when every tool in the registry is a
+// retrieval-only tool (memory_search, graph_*). Sub-agents with only
+// these tools are guaranteed to find nothing if the store is empty.
+func (t *createAgentTool) isRetrievalOnly(registry *tools.Registry) bool {
+	names := registry.ToolNames()
+	if len(names) == 0 {
+		return false
+	}
+	for _, name := range names {
+		if !retrievalOnlyTools[name] {
+			return false
+		}
+	}
+	return true
+}
+
+// isMemoryEmpty probes the vector store with a broad search to check if
+// it contains any documents. Returns true if the store is nil or returns
+// zero results. Uses Search("", 1) as a lightweight probe — the empty
+// query matches any document, so a 0-result response means the store is
+// truly empty. Without this check, retrieval-only sub-agents would burn
+// their entire LLM call budget rephrasing fruitless queries.
+func (t *createAgentTool) isMemoryEmpty(ctx context.Context) bool {
+	if t.vectorStore == nil {
+		return true
+	}
+	results, err := t.vectorStore.Search(ctx, "", 1)
+	if err != nil {
+		// If the probe fails, assume memory is non-empty to avoid
+		// false positives — better to run a possibly-futile sub-agent
+		// than to silently skip a sub-agent that might succeed.
+		return false
+	}
+	return len(results) == 0
 }
