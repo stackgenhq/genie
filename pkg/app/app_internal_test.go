@@ -280,7 +280,7 @@ var _ = Describe("truncateForLog", func() {
 })
 
 var _ = Describe("persona", func() {
-	It("should load from custom persona file (relative path)", func() {
+	It("should load from custom persona file (relative path)", func(ctx context.Context) {
 		tmpDir := GinkgoT().TempDir()
 		content := "# Custom Standards"
 		err := os.WriteFile(filepath.Join(tmpDir, "STANDARDS.md"), []byte(content), 0644)
@@ -292,11 +292,11 @@ var _ = Describe("persona", func() {
 			workingDir: tmpDir,
 		}
 
-		result := a.persona()
+		result := a.persona(ctx)
 		Expect(result).To(Equal(content))
 	})
 
-	It("should load from custom persona file (absolute path)", func() {
+	It("should load from custom persona file (absolute path)", func(ctx context.Context) {
 		tmpDir := GinkgoT().TempDir()
 		content := "# Absolute Custom Standards"
 		absPath := filepath.Join(tmpDir, "custom.md")
@@ -308,13 +308,13 @@ var _ = Describe("persona", func() {
 			},
 		}
 
-		result := a.persona()
+		result := a.persona(ctx)
 		Expect(result).To(Equal(content))
 	})
 
-	It("should return empty string when custom persona file does not exist", func() {
+	It("should return empty string when custom persona file does not exist", func(ctx context.Context) {
 		a := &Application{}
-		result := a.persona()
+		result := a.persona(ctx)
 		Expect(result).To(BeEmpty())
 	})
 })

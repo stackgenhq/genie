@@ -171,7 +171,7 @@ func (a *Application) displayName() string {
 // relative to dir if not absolute).
 // Returns an empty string if the file does not exist or cannot be read
 // (best-effort, non-fatal).
-func (a *Application) persona() string {
+func (a *Application) persona(ctx context.Context) string {
 	if a.cfg.PersonaFile == "" {
 		return ""
 	}
@@ -194,7 +194,7 @@ func (a *Application) persona() string {
 		threshold = 2000 // Fallback if defaults weren't applied
 	}
 	if approxTokens > threshold {
-		logger.GetLogger(context.TODO()).Warn(
+		logger.GetLogger(ctx).Warn(
 			"persona exceeds threshold tokens — consider moving domain knowledge to skills",
 			"approx_tokens", approxTokens,
 			"threshold", threshold,
@@ -351,7 +351,7 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 		a.approvalStore,
 		memorySvc,
 		sessionStore,
-		a.persona(),
+		a.persona(ctx),
 		orchestratorOpts...,
 	)
 	if err != nil {
@@ -748,10 +748,9 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 	}
 
 	// --- Skills ---
-	var skillProvider *tools.SkillToolProvider
 	if len(a.cfg.SkillsRoots) != 0 {
 		var err error
-		skillProvider, err = tools.NewSkillToolProvider(a.workingDir, a.cfg.MaxLoadedSkills, a.cfg.SkillsRoots...)
+		skillProvider, err := tools.NewSkillToolProvider(a.workingDir, a.cfg.MaxLoadedSkills, a.cfg.SkillsRoots...)
 		if err != nil {
 			log.Warn("failed to initialize skills tool provider", "error", err)
 		} else {
