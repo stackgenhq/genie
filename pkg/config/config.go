@@ -177,6 +177,16 @@ func LoadGenieConfig(ctx context.Context, sp security.SecretProvider, path strin
 		return GenieConfig{}, fmt.Errorf("unsupported config file extension: %s", ext)
 	}
 
+	// Resolve relative skills_roots paths relative to config file directory.
+	// This ensures "./skills" in a config at qa/demo/genie.toml resolves to
+	// qa/demo/skills, not <cwd>/skills.
+	configDir := filepath.Dir(path)
+	for i, root := range cfg.SkillsRoots {
+		if root != "" && !filepath.IsAbs(root) && !strings.HasPrefix(root, "http") {
+			cfg.SkillsRoots[i] = filepath.Join(configDir, root)
+		}
+	}
+
 	// If skills roots not set in config, check environment variable
 	if len(cfg.SkillsRoots) == 0 {
 		if skillsRoot := get("SKILLS_ROOT"); skillsRoot != "" {

@@ -103,6 +103,51 @@ func (m *summarizeMiddleware) cleanupLoop() {
 	}
 }
 
+// sanitizeInput checks whether the pre-processed content is worth
+// summarizing and applies a safety-net cap. It returns the (possibly
+// truncated) input, an optional early-return message, and a boolean
+// indicating the caller should short-circuit.
+func (m *summarizeMiddleware) sanitizeInput(ctx context.Context, responseStr, inputForSummary string) (string, string, bool) {
+	logr := logger.GetLogger(ctx).With(
+		"fn", "summarizeMiddleware.sanitizeInput",
+	)
+	// Low-content detection: if a large response strips down to almost
+	// nothing, skip the summarizer and return a clear signal.
+	if len(inputForSummary) < lowContentThreshold {
+		isHTML := looksLikeHTML(responseStr)
+		logr.Debug("low-content result detected",
+			"original_chars", len(responseStr),
+			"stripped_chars", len(inputForSummary),
+			"is_html", isHTML,
+		)
+		if isHTML {
+			return "", fmt.Sprintf(
+				"[Page returned %d chars of HTML but only %d chars of text content. "+
+					"This page likely requires JavaScript rendering and cannot be read via http_request. "+
+					"Do NOT retry this URL — try a different source, a search engine, or a site that serves server-rendered HTML.]",
+				len(responseStr), len(inputForSummary),
+			), true
+		}
+		return "", fmt.Sprintf(
+			"[Response contained %d chars but only %d chars of meaningful content after stripping. "+
+				"The output was mostly whitespace, escape sequences, or repetitive data. It does not contain useful text.]",
+			len(responseStr), len(inputForSummary),
+		), true
+	}
+
+	// Safety-net cap. After stripping this should rarely be hit, but
+	// protects against non-HTML mega-responses (e.g. huge JSON blobs).
+	if len(inputForSummary) > maxSummarizeInput {
+		inputForSummary = inputForSummary[:maxSummarizeInput] +
+			fmt.Sprintf("\n\n... [truncated: showing %d of %d chars for summarization]",
+				maxSummarizeInput, len(inputForSummary))
+		logr.Info("capped summarizer input after stripping",
+			"capped_chars", maxSummarizeInput)
+	}
+
+	return inputForSummary, "", false
+}
+
 func (m *summarizeMiddleware) Wrap(next Handler) Handler {
 	// No summarizer → pass-through.
 	if m.summarize == nil {
@@ -141,39 +186,11 @@ func (m *summarizeMiddleware) Wrap(next Handler) Handler {
 			"reduction", fmt.Sprintf("%.0f%%", (1-float64(len(inputForSummary))/float64(len(responseStr)))*100),
 		)
 
-		// Detect low-content results: if a large response (>100K) strips down
-		// to almost nothing, skip the summarizer and return a clear signal.
-		if len(inputForSummary) < lowContentThreshold {
-			isHTML := looksLikeHTML(responseStr)
-			logr.Info("low-content result detected",
-				"original_chars", len(responseStr),
-				"stripped_chars", len(inputForSummary),
-				"is_html", isHTML,
-			)
-			if isHTML {
-				return fmt.Sprintf(
-					"[Page returned %d chars of HTML but only %d chars of text content. "+
-						"This page likely requires JavaScript rendering and cannot be read via http_request. "+
-						"Do NOT retry this URL — try a different source, a search engine, or a site that serves server-rendered HTML.]",
-					len(responseStr), len(inputForSummary),
-				), nil
-			}
-			return fmt.Sprintf(
-				"[Response contained %d chars but only %d chars of meaningful content after stripping. "+
-					"The output was mostly whitespace, escape sequences, or repetitive data. It does not contain useful text to summarize.]",
-				len(responseStr), len(inputForSummary),
-			), nil
-		}
-
-		// Step 2: Safety-net cap. After stripping this should rarely
-		// be hit, but protects against non-HTML mega-responses (e.g. huge
-		// JSON blobs from an API).
-		if len(inputForSummary) > maxSummarizeInput {
-			inputForSummary = inputForSummary[:maxSummarizeInput] +
-				fmt.Sprintf("\n\n... [truncated: showing %d of %d chars for summarization]",
-					maxSummarizeInput, len(inputForSummary))
-			logr.Info("capped summarizer input after stripping",
-				"capped_chars", maxSummarizeInput)
+		// Validate and cap the pre-processed input; short-circuit on
+		// low-content results that aren't worth summarizing.
+		inputForSummary, earlyMsg, done := m.sanitizeInput(ctx, responseStr, inputForSummary)
+		if done {
+			return earlyMsg, nil
 		}
 
 		// Step 3: Check content-hash cache. Identical tool outputs
@@ -196,12 +213,10 @@ func (m *summarizeMiddleware) Wrap(next Handler) Handler {
 			m.cache.Delete(cacheKey)
 		}
 
-		summary, sErr := m.summarize(ctx, inputForSummary)
+		summary, sErr := m.summarize(ctx, fmt.Sprintf("Tool with the name %q was invoked with arguments %v, and the following was the response:\n\n%s", tc.ToolName, tc.Args, inputForSummary))
 		if sErr != nil {
-			logr.Warn("summarization failed, returning truncated response", "error", sErr)
-			// Fall back to hard truncation rather than blowing up the context.
-			truncated, _ := truncateResponse(responseStr)
-			return truncated, nil
+			logr.Warn("summarization failed, returning original response", "error", sErr)
+			return inputForSummary, nil
 		}
 
 		// Store in cache for future identical content.

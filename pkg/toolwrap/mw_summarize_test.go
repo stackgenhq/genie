@@ -31,7 +31,7 @@ var _ = Describe("AutoSummarizeMiddleware", func() {
 		Expect(result).To(Equal(small))
 	})
 
-	It("summarizes responses exceeding the threshold", func() {
+	It("summarizes responses exceeding the threshold", func(ctx context.Context) {
 		largeResponse := strings.Repeat("x", 600) // 600 chars, well above lowContentThreshold (500)
 		var capturedContent string
 		mw := toolwrap.AutoSummarizeMiddleware(
@@ -42,10 +42,10 @@ var _ = Describe("AutoSummarizeMiddleware", func() {
 			100,
 		)
 		handler := mw.Wrap(passthrough(largeResponse))
-		result, err := handler(context.Background(), makeTC("http_request"))
+		result, err := handler(ctx, makeTC("http_request"))
 
 		Expect(err).NotTo(HaveOccurred())
-		Expect(capturedContent).To(Equal(largeResponse))
+		Expect(capturedContent).To(ContainSubstring(`Tool with the name "http_request" was invoked with arguments [123 125], and the following was the response:`))
 		resultStr, ok := result.(string)
 		Expect(ok).To(BeTrue())
 		Expect(resultStr).To(ContainSubstring("Auto-summarized"))

@@ -14,10 +14,10 @@ import (
 )
 
 // maxConsecutiveRepeatCalls is the number of consecutive identical tool calls
-// that triggers loop detection. Set to 3 so that the third identical call is
-// blocked — a single duplicate execution is tolerated for models that retry tools,
-// but a third indicates the model is truly trapped in a loop.
-const maxConsecutiveRepeatCalls = 3
+// that triggers loop detection. Set to 2 so that the second identical call is
+// blocked — a single successful execution should be enough; a duplicate
+// indicates the model failed to recognise the tool's success response.
+const maxConsecutiveRepeatCalls = 2
 
 // maxConsecutiveEmptyResults is the number of consecutive empty results from
 // a retrieval tool (even with different arguments) that triggers cancellation.
