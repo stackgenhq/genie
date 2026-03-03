@@ -271,11 +271,13 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 		scopedRegistry = scopedRegistry.Include(req.ToolNames...)
 	}
 
-	// Empty-memory guard: if all requested tools are retrieval-only
-	// (memory_search, graph_*), probe the vector store — if it's empty,
-	// skip this sub-agent entirely. Prevents burning LLM budget searching
-	// a store that has no documents to return.
-	if t.isRetrievalOnly(scopedRegistry) && t.isMemoryEmpty(ctx) {
+	// Empty-memory guard: if all requested tools are retrieval-only AND
+	// at least one is vector-backed (memory_search), probe the vector
+	// store — if it's empty, skip this sub-agent entirely. Prevents
+	// burning LLM budget searching a store that has no documents.
+	// Graph-only agents are NOT guarded because we can't probe graph
+	// emptiness from the vector store.
+	if t.isRetrievalOnly(scopedRegistry) && t.hasVectorBackedTools(scopedRegistry) && t.isMemoryEmpty(ctx) {
 		logr.Info("skipping retrieval-only sub-agent: memory store is empty",
 			"agent_name", req.AgentName,
 			"tools", scopedRegistry.ToolNames())
@@ -417,12 +419,23 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 		}
 	}
 
-	// Check if the context deadline caused the sub-agent to stop.
+	// Check if the context was cancelled. Distinguish timeouts from
+	// middleware-triggered cancellations (loop detection, empty results)
+	// so the output message is accurate.
 	if runCtx.Err() != nil {
-		timedOut = true
-		logr.Warn("sub-agent context expired, returning partial results",
-			"error", runCtx.Err().Error(),
-			"partial_output_length", sb.Len())
+		cause := context.Cause(runCtx)
+		if cause != nil && cause != runCtx.Err() {
+			// Middleware-triggered cancel (loop detection or empty results).
+			// Not a timeout — the sub-agent was deliberately stopped.
+			logr.Warn("sub-agent cancelled by middleware",
+				"cause", cause.Error(),
+				"partial_output_length", sb.Len())
+		} else {
+			timedOut = true
+			logr.Warn("sub-agent context expired, returning partial results",
+				"error", runCtx.Err().Error(),
+				"partial_output_length", sb.Len())
+		}
 	}
 
 	result := sb.String()
@@ -605,30 +618,40 @@ func (t *createAgentTool) executePlan(ctx context.Context, req CreateAgentReques
 	}, nil
 }
 
-// retrievalOnlyTools lists tool names that only read from the memory/graph
-// stores. When a sub-agent has only these tools, it can be skipped if the
-// stores are empty.
-var retrievalOnlyTools = map[string]bool{
-	"memory_search":       true,
-	"graph_query":         true,
-	"graph_get_entity":    true,
-	"graph_shortest_path": true,
+// vectorBackedTools is the subset of retrieval tools backed by the vector
+// store. The isMemoryEmpty guard only applies when the sub-agent uses
+// these tools. Graph-only agents are not guarded because the vector store
+// probe cannot determine graph store emptiness.
+var vectorBackedTools = map[string]bool{
+	"memory_search": true,
 }
 
 // isRetrievalOnly returns true when every tool in the registry is a
-// retrieval-only tool (memory_search, graph_*). Sub-agents with only
-// these tools are guaranteed to find nothing if the store is empty.
+// retrieval-only tool (per toolwrap.RetrievalTools). Sub-agents with only
+// these tools are candidates for the empty-memory guard.
 func (t *createAgentTool) isRetrievalOnly(registry *tools.Registry) bool {
 	names := registry.ToolNames()
 	if len(names) == 0 {
 		return false
 	}
 	for _, name := range names {
-		if !retrievalOnlyTools[name] {
+		if !toolwrap.RetrievalTools[name] {
 			return false
 		}
 	}
 	return true
+}
+
+// hasVectorBackedTools returns true if any tool in the registry is backed
+// by the vector store. Only these tools can be short-circuited by the
+// isMemoryEmpty probe.
+func (t *createAgentTool) hasVectorBackedTools(registry *tools.Registry) bool {
+	for _, name := range registry.ToolNames() {
+		if vectorBackedTools[name] {
+			return true
+		}
+	}
+	return false
 }
 
 // isMemoryEmpty probes the vector store with a broad search to check if

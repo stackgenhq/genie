@@ -192,7 +192,7 @@ func (c ContextModeToolOverride) clone() ContextModeToolOverride {
 // resolveSettings returns the effective (threshold, maxChunks, chunkSize,
 // minTermLen) for the given tool, applying per-tool overrides where set.
 func (m *contextModeMiddleware) resolveSettings(toolName string) ContextModeToolOverride {
-	override := m.ContextModeToolOverride.clone()
+	override := m.clone()
 
 	result, ok := m.perTool[toolName]
 	if !ok {

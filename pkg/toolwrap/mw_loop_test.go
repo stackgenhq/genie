@@ -2,7 +2,9 @@ package toolwrap_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"sync/atomic"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -92,6 +94,80 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 		Expect(err.Error()).To(ContainSubstring("loop detected"))
 
 		// Context should NOT be cancelled — no cancel function available.
+		Expect(ctx.Err()).NotTo(HaveOccurred())
+	})
+
+	It("should cancel context after 3 consecutive empty retrieval results", func() {
+		mw := toolwrap.LoopDetectionMiddleware()
+		handler := mw.Wrap(func(_ context.Context, _ *toolwrap.ToolCallContext) (any, error) {
+			return json.RawMessage(`{"results":[],"count":0}`), nil
+		})
+
+		ctx, cancel := context.WithCancelCause(context.Background())
+		defer cancel(nil)
+		ctx = toolwrap.WithCancelCause(ctx, cancel)
+
+		// 3 different queries, all returning empty — result loop
+		for i := 0; i < 3; i++ {
+			tc := &toolwrap.ToolCallContext{
+				ToolName: "memory_search",
+				Args:     []byte(fmt.Sprintf(`{"query":"attempt_%d"}`, i)),
+			}
+			_, err := handler(ctx, tc)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		Expect(ctx.Err()).To(HaveOccurred())
+		Expect(context.Cause(ctx).Error()).To(ContainSubstring("result loop"))
+	})
+
+	It("should reset empty streak on non-empty retrieval result", func() {
+		mw := toolwrap.LoopDetectionMiddleware()
+		callNum := 0
+		handler := mw.Wrap(func(_ context.Context, _ *toolwrap.ToolCallContext) (any, error) {
+			callNum++
+			if callNum == 2 {
+				return json.RawMessage(`{"results":[{"data":"x"}],"count":1}`), nil
+			}
+			return json.RawMessage(`{"results":[],"count":0}`), nil
+		})
+
+		ctx, cancel := context.WithCancelCause(context.Background())
+		defer cancel(nil)
+		ctx = toolwrap.WithCancelCause(ctx, cancel)
+
+		for i := 0; i < 4; i++ {
+			tc := &toolwrap.ToolCallContext{
+				ToolName: "memory_search",
+				Args:     []byte(fmt.Sprintf(`{"query":"q%d"}`, i)),
+			}
+			_, err := handler(ctx, tc)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		// Counter was reset at call 2 (non-empty), so only 2 consecutive empties at end.
+		Expect(ctx.Err()).NotTo(HaveOccurred())
+	})
+
+	It("should not track empty results for non-retrieval tools", func() {
+		mw := toolwrap.LoopDetectionMiddleware()
+		handler := mw.Wrap(func(_ context.Context, _ *toolwrap.ToolCallContext) (any, error) {
+			return json.RawMessage(`{"results":[],"count":0}`), nil
+		})
+
+		ctx, cancel := context.WithCancelCause(context.Background())
+		defer cancel(nil)
+		ctx = toolwrap.WithCancelCause(ctx, cancel)
+
+		for i := 0; i < 5; i++ {
+			tc := &toolwrap.ToolCallContext{
+				ToolName: "run_shell",
+				Args:     []byte(fmt.Sprintf(`{"cmd":"cmd_%d"}`, i)),
+			}
+			_, err := handler(ctx, tc)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
 		Expect(ctx.Err()).NotTo(HaveOccurred())
 	})
 })

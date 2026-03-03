@@ -2,6 +2,7 @@ package toolwrap
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -15,27 +16,55 @@ import (
 // indicates the model failed to recognise the tool's success response.
 const maxConsecutiveRepeatCalls = 2
 
+// maxConsecutiveEmptyResults is the number of consecutive empty results from
+// a retrieval tool (even with different arguments) that triggers cancellation.
+// This catches the case where the agent rephrases queries but the backing
+// store has no relevant data.
+const maxConsecutiveEmptyResults = 3
+
 // maxConsecutiveToolFailures is the number of consecutive failures for the same
 // tool that triggers a hard block.
 const maxConsecutiveToolFailures = 3
 
+// RetrievalTools lists tool names that are retrieval-only. Used by:
+//   - Loop detection: tracks consecutive empty results for these tools
+//   - create_agent: decides if a sub-agent can be skipped when store is empty
+//
+// Keep this as the single source of truth for retrieval tool classification.
+var RetrievalTools = map[string]bool{
+	"memory_search":       true,
+	"graph_query":         true,
+	"graph_get_entity":    true,
+	"graph_shortest_path": true,
+}
+
 // --- Loop Detection ---
 
-// loopDetectionMiddleware detects consecutive identical tool calls and
-// blocks the call when the threshold is reached. Each Wrapper gets its
-// own instance so per-tool history is isolated. Concurrency-safe via mutex.
+// loopDetectionMiddleware detects two kinds of loops:
+//  1. Argument loops: same tool + same args called consecutively
+//     (maxConsecutiveRepeatCalls threshold, any tool)
+//  2. Result loops: same retrieval tool returns empty results consecutively,
+//     even with different args (maxConsecutiveEmptyResults threshold,
+//     retrieval tools only)
+//
+// Each Wrapper gets its own instance so per-tool history is isolated.
+// Concurrency-safe via mutex.
 type loopDetectionMiddleware struct {
-	mu      sync.Mutex
-	history []string // bounded ring of "toolName:args" fingerprints
+	mu           sync.Mutex
+	history      []string       // bounded ring of "toolName:args" fingerprints
+	emptyStreaks map[string]int // toolName → consecutive empty result count
 }
 
 // LoopDetectionMiddleware returns a Middleware that blocks a tool after
 // maxConsecutiveRepeatCalls identical (same name + args) consecutive
-// calls. This prevents infinite agent loops where the LLM keeps issuing
-// the same call. Without this middleware, a stuck agent could exhaust
-// token budgets or rate limits by re-executing the same tool call.
+// calls, and cancels the sub-agent after maxConsecutiveEmptyResults
+// consecutive empty results from retrieval tools. This prevents infinite
+// agent loops where the LLM keeps issuing the same call or rephrasing
+// queries against an empty store.
 func LoopDetectionMiddleware() Middleware {
-	return &loopDetectionMiddleware{}
+	return &loopDetectionMiddleware{
+		emptyStreaks: make(map[string]int),
+	}
 }
 
 func (m *loopDetectionMiddleware) Wrap(next Handler) Handler {
@@ -67,7 +96,53 @@ func (m *loopDetectionMiddleware) Wrap(next Handler) Handler {
 
 			return nil, loopErr
 		}
-		return next(ctx, tc)
+
+		result, err := next(ctx, tc)
+		if err != nil {
+			return result, err
+		}
+
+		// Track consecutive empty results for retrieval tools.
+		// This catches agents that rephrase queries but always get empty
+		// results because the backing store has no relevant data.
+		if RetrievalTools[tc.ToolName] {
+			m.trackEmptyResult(ctx, tc.ToolName, result)
+		}
+
+		return result, nil
+	}
+}
+
+// trackEmptyResult updates the consecutive-empty streak for a retrieval tool
+// and cancels the sub-agent context when the threshold is reached.
+func (m *loopDetectionMiddleware) trackEmptyResult(ctx context.Context, toolName string, result any) {
+	empty := isEmptyResult(result)
+
+	m.mu.Lock()
+	if empty {
+		m.emptyStreaks[toolName]++
+	} else {
+		delete(m.emptyStreaks, toolName)
+	}
+	count := m.emptyStreaks[toolName]
+	m.mu.Unlock()
+
+	if count >= maxConsecutiveEmptyResults {
+		logr := logger.GetLogger(ctx).With(
+			"fn", "LoopDetectionMiddleware",
+			"tool", toolName,
+			"consecutive_empty", count,
+		)
+		logr.Warn("consecutive empty results threshold reached, cancelling sub-agent context")
+
+		cancelErr := fmt.Errorf(
+			"result loop: tool %s returned empty results %d times consecutively. "+
+				"The backing store or data source likely has no relevant data. Stopping to avoid wasting budget",
+			toolName, count)
+
+		if cancel := cancelCauseFromContext(ctx); cancel != nil {
+			cancel(cancelErr)
+		}
 	}
 }
 
@@ -95,6 +170,63 @@ func (m *loopDetectionMiddleware) recordCall(fingerprint string) {
 	if len(m.history) > maxHistory {
 		m.history = m.history[len(m.history)-maxHistory:]
 	}
+}
+
+// isEmptyResult inspects a tool result to determine if it represents
+// an empty/zero-result response. It supports typed responses via a
+// GetCount() int interface and, for other values, JSON introspection
+// of "count" and "results" fields.
+func isEmptyResult(result any) bool {
+	if result == nil {
+		return true
+	}
+
+	// Try typed struct with Count field (e.g. MemorySearchResponse).
+	type hasCount interface{ GetCount() int }
+	if c, ok := result.(hasCount); ok {
+		return c.GetCount() == 0
+	}
+
+	// Fall back to JSON introspection for marshaled responses.
+	var raw []byte
+	switch v := result.(type) {
+	case json.RawMessage:
+		raw = v
+	case []byte:
+		raw = v
+	case string:
+		raw = []byte(v)
+	default:
+		// Marshal the result to inspect it.
+		var err error
+		raw, err = json.Marshal(result)
+		if err != nil {
+			return false
+		}
+	}
+
+	var parsed map[string]json.RawMessage
+	if json.Unmarshal(raw, &parsed) != nil {
+		return false
+	}
+
+	// Check "count" field.
+	if countRaw, ok := parsed["count"]; ok {
+		var count int
+		if json.Unmarshal(countRaw, &count) == nil && count == 0 {
+			return true
+		}
+	}
+
+	// Check "results" field (empty array).
+	if resultsRaw, ok := parsed["results"]; ok {
+		var results []json.RawMessage
+		if json.Unmarshal(resultsRaw, &results) == nil && len(results) == 0 {
+			return true
+		}
+	}
+
+	return false
 }
 
 // --- Failure Limit ---
@@ -163,4 +295,26 @@ func PanicRecoveryMiddleware() Middleware {
 			return next(ctx, tc)
 		}
 	})
+}
+
+// --- Context helpers ---
+
+type cancelCauseKeyType struct{}
+
+var cancelCauseKey = cancelCauseKeyType{}
+
+// WithCancelCause stores a context.CancelCauseFunc in the context so that
+// middleware (loop detection) can terminate the sub-agent run. Only sub-agents
+// set this; the parent agent's context has no cancel function, preserving
+// backward compatibility.
+func WithCancelCause(ctx context.Context, fn context.CancelCauseFunc) context.Context {
+	return context.WithValue(ctx, cancelCauseKey, fn)
+}
+
+// cancelCauseFromContext retrieves the CancelCauseFunc stored by
+// WithCancelCause. Returns nil if no cancel function is present
+// (e.g. parent agent context).
+func cancelCauseFromContext(ctx context.Context) context.CancelCauseFunc {
+	fn, _ := ctx.Value(cancelCauseKey).(context.CancelCauseFunc)
+	return fn
 }
