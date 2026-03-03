@@ -865,10 +865,10 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 				duration := time.Duration(req.AllowForMins) * time.Minute
 				if len(req.AllowWhenArgsContain) > 0 {
 					s.approveList.AddWithArgsFilter(approval.ToolName, req.AllowWhenArgsContain, duration)
-					logr.Info("added to approve list (with args filter)", "tool", approval.ToolName, "duration", duration, "substrings", req.AllowWhenArgsContain)
+					logr.Info("added to approve list (with args filter)", "tool", approval.ToolName, "duration", duration.String(), "substrings", req.AllowWhenArgsContain)
 				} else {
 					s.approveList.AddBlind(approval.ToolName, duration)
-					logr.Info("added to approve list (blind)", "tool", approval.ToolName, "duration", duration)
+					logr.Info("added to approve list (blind)", "tool", approval.ToolName, "duration", duration.String())
 				}
 			}
 		}
