@@ -44,11 +44,23 @@ type Result struct {
 	Detail  string
 }
 
+type Results []Result
+
+// GetSection returns the first result with the given section, or nil if none.
+func (r Results) GetSection(section string) *Result {
+	for i := range r {
+		if r[i].Section == section {
+			return &r[i]
+		}
+	}
+	return nil
+}
+
 // Run runs all doctor checks against the loaded config and secret provider.
 // cfgPath is the config file path used for loading (may be empty).
 // It returns a slice of results; callers should report errors for any Result with Level == SeverityError.
-func Run(ctx context.Context, cfg config.GenieConfig, cfgPath string, sp security.SecretProvider) []Result {
-	var out []Result
+func Run(ctx context.Context, cfg config.GenieConfig, cfgPath string, sp security.SecretProvider) Results {
+	var out Results
 	logr := logger.GetLogger(ctx).With("fn", "doctor.Run")
 
 	// ─── Config ─────────────────────────────────────────────────────────
