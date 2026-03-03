@@ -14,7 +14,7 @@ var _ = Describe("CreateAgentRequest", func() {
 		DescribeTable("clamps the timeout to [minTimeout, maxTimeout] with a default",
 			func(input float64, expected float64) {
 				req := CreateAgentRequest{TimeoutSeconds: input}
-				Expect(req.timeoutSeconds()).To(Equal(expected))
+				Expect(req.timeout()).To(Equal(expected))
 			},
 			Entry("zero uses default (5 min)", 0.0, defaultTimeout.Seconds()),
 			Entry("negative uses default (5 min)", -10.0, defaultTimeout.Seconds()),

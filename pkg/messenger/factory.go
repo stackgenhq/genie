@@ -112,7 +112,7 @@ func newGoogleChatFromConfig(_ GoogleChatConfig, opts ...Option) (Messenger, err
 	return f(map[string]string{}, opts...)
 }
 
-func newWhatsAppFromConfig(cfg WhatsAppConfig, opts ...Option) (Messenger, error) {
+func newWhatsAppFromConfig(_ WhatsAppConfig, opts ...Option) (Messenger, error) {
 	f, ok := adapterFactories[PlatformWhatsApp]
 	if !ok {
 		return nil, fmt.Errorf("messenger: whatsapp adapter not registered (import _ \"...messenger/whatsapp\")")
