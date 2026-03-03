@@ -279,7 +279,7 @@ var _ = Describe("truncateForLog", func() {
 	})
 })
 
-var _ = Describe("loadAgentsGuide", func() {
+var _ = Describe("persona", func() {
 	It("should load from custom persona file (relative path)", func() {
 		tmpDir := GinkgoT().TempDir()
 		content := "# Custom Standards"

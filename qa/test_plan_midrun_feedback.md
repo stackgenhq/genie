@@ -10,7 +10,7 @@ This document outlines the steps to verify that a user can asynchronously provid
     make go/tv
     go run ./main.go --log-level debug
     ```
-2.  Open the local browser UI at: `./docs/chat.html`
+2.  From your cloned `genie` repository, open `docs/chat.html` in your browser.
 3.  Connect to the active endpoint (usually `http://localhost:9876`).
 
 ## Test Case 1: Mid-Run Course Correction

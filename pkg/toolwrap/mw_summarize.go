@@ -123,19 +123,26 @@ func (m *summarizeMiddleware) Wrap(next Handler) Handler {
 			"reduction", fmt.Sprintf("%.0f%%", (1-float64(len(inputForSummary))/float64(len(responseStr)))*100),
 		)
 
-		// Detect JS-rendered SPAs: if a large page (>100K) strips down to
-		// almost nothing, the page requires a browser to render. Skip the
-		// summarizer (which would produce a useless 90-char summary) and
-		// return a clear signal so the LLM doesn't retry this URL.
+		// Detect low-content results: if a large response (>100K) strips down
+		// to almost nothing, skip the summarizer and return a clear signal.
 		if len(inputForSummary) < lowContentThreshold {
-			logr.Info("low-content page detected — likely JS-rendered SPA",
+			isHTML := looksLikeHTML(responseStr)
+			logr.Info("low-content result detected",
 				"original_chars", len(responseStr),
 				"stripped_chars", len(inputForSummary),
+				"is_html", isHTML,
 			)
+			if isHTML {
+				return fmt.Sprintf(
+					"[Page returned %d chars of HTML but only %d chars of text content. "+
+						"This page likely requires JavaScript rendering and cannot be read via http_request. "+
+						"Do NOT retry this URL — try a different source, a search engine, or a site that serves server-rendered HTML.]",
+					len(responseStr), len(inputForSummary),
+				), nil
+			}
 			return fmt.Sprintf(
-				"[Page returned %d chars of HTML but only %d chars of text content. "+
-					"This page likely requires JavaScript rendering and cannot be read via http_request. "+
-					"Do NOT retry this URL — try a different source, a search engine, or a site that serves server-rendered HTML.]",
+				"[Response contained %d chars but only %d chars of meaningful content after stripping. "+
+					"The output was mostly whitespace, escape sequences, or repetitive data with no useful information to summarize.]",
 				len(responseStr), len(inputForSummary),
 			), nil
 		}
