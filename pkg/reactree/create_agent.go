@@ -224,7 +224,10 @@ func NewCreateAgentTool(
 			"MULTI-STEP PLANS: For complex tasks, provide 'steps' with subgoals "+
 			"and 'flow_type' (sequence/parallel/fallback). Each step becomes an "+
 			"independent agent node coordinated by the chosen flow. Use parallel "+
-			"for independent tasks, sequence for dependent steps.\n\n"+
+			"for independent tasks, but AVOID sequence flow for strictly sequential "+
+			"reasoning tasks as multi-agent handoffs degrade performance—instead, "+
+			"use a single agent to handle all sequential steps. Batch related work into one "+
+			"agent to avoid multi-agent coordination overhead, especially for tool-heavy tasks.\n\n"+
 			"Set max_tool_iterations and max_llm_calls based on task complexity: "+
 			"simple lookups: 5-10, file edits: 15-25, multi-step/infrastructure: 30-50. "+
 			"Use higher values for infrastructure tasks that involve discovery and retries. "+

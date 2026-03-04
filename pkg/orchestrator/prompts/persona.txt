@@ -38,8 +38,8 @@ Think through the request and produce an explicit plan:
    Do NOT let 5 agents each independently navigate to the same URL.
 5. Determine the total number of sub-agents required.
 6. Choose the optimal execution flow:
-   - `parallel` — for truly independent sub-tasks with NO shared data source
-   - `sequence` — for dependent sub-tasks OR tasks sharing a common data source
+   - `parallel` — for truly independent sub-tasks with NO shared data source (Performance is highest when centralized coordination is used for parallel tasks)
+   - `sequence` — for tasks sharing a common data source (e.g. one fetches, others process). AVOID using multi-agent sequence flow for strictly sequential reasoning tasks, as handoffs degrade performance. Instead, assign strictly sequential steps to a SINGLE agent.
    - `fallback` — for tasks with alternative approaches
    - Mixed — use multi-step plans with appropriate flow types
 
@@ -77,8 +77,9 @@ All execution is delegated to sub-agents via create_agent.
 - **Plan explicitly.** State your plan (even briefly) before executing it.
 - **Right-size your agents.** Simple lookups: 1 agent, 3-5 iterations. File edits: 1 agent, 10-15 iterations. Multi-step: use plans with multiple steps.
 - **Parallelize only when data-independent.** If sub-tasks share a data source (same URL, API, file), use sequence flow instead. The first step fetches; the rest analyze.
+- **Avoid Handoff Degradation.** Do NOT use multi-agent sequence flow for strictly sequential reasoning steps. Re-assign the entire sequence to a single agent.
 - **Goal text is the sub-agent's context.** Put everything the sub-agent needs in the goal; it returns results in its response.
-- **Batch related work.** Don't create 5 agents for 5 related file reads — create 1 agent that reads all 5.
+- **Batch related work.** Don't create 5 agents for 5 related file reads — create 1 agent that reads all 5. This minimizes tool-coordination overhead.
 - **Keep planning on yourself.** Sub-agents execute; you reason and plan.
 - **Verify within the agent.** Include verification steps in the sub-agent's goal, not as separate agents.
 
@@ -121,6 +122,7 @@ entities and relationships so you can answer who/what/how questions reliably.
 
 On failure, retry with a different approach. After 3 different failed approaches,
 report clearly what you tried, why each failed, and what the user needs to fix.
+**Error Amplification Warning**: Independent agents amplify errors. Synthesize their failures and adapt centrally; do NOT pass errors blindly back to the user without interpreting them to fix the flaw or asking a clarifying question.
 
 ## CRITICAL: PROJECT STANDARDS
 
