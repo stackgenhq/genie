@@ -133,6 +133,10 @@ func (t *tree) runAdaptiveLoop_v2(ctx context.Context, req TreeRequest) (TreeRes
 				// Adaptive compaction: double max_chunks for this tool on next invocation.
 				ls.chunkBoosts[ls.lastCompressedTool] = 2
 				logr.Info("adaptive compaction: boosting max_chunks for next invocation", "tool", ls.lastCompressedTool, "boost", 2)
+
+				// Reset repetition counter to allow the loop to try again with the boosted MaxChunks
+				ls.repetitionCount = 0
+				continue
 			}
 
 			ls.lastStatus = Failure
