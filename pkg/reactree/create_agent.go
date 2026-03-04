@@ -268,21 +268,6 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 		return t.executePlan(ctx, req)
 	}
 
-	// De-duplicate across orchestrator re-plan iterations: if this named
-	// sub-agent already ran and stored its result in working memory, return
-	// it immediately without re-executing.  This is the primary defence
-	// against the "orchestrator re-plan loop" where the parent LLM spawns
-	// the same sub-agent again on its second (or third) turn instead of
-	// synthesising the results it already received.
-	if t.workingMemory != nil {
-		wmKey := fmt.Sprintf("subagent:%s:result", req.AgentName)
-		if cached, ok := t.workingMemory.Recall(wmKey); ok && cached != "" {
-			logr.Warn("sub-agent result already in working memory — returning cached result to break re-plan loop",
-				"key", wmKey, "cached_length", len(cached))
-			return CreateAgentResponse{Output: cached}, nil
-		}
-	}
-
 	// Wrap sub-agent tools with HITL approval, audit logging, and caching.
 	// This ensures every sub-agent tool call (run_shell, save_file, etc.)
 	// goes through the same approval gate as parent-agent tools.

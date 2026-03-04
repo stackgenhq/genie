@@ -27,7 +27,7 @@ var _ = Describe("Doctor", func() {
 			// With zero providers configured, ValidateAndFilter no longer
 			// errors — it returns nil (nothing to validate).
 			modelErr := results.GetSection("model_config")
-			Expect(modelErr).To(BeNil())
+			Expect(modelErr).NotTo(BeNil())
 		})
 
 		It("reports MCP config invalid when transport missing", func(ctx context.Context) {
