@@ -54,37 +54,9 @@
             <!-- Contact Form -->
             <div class="fade-in">
                 <div class="feature-card p-8">
-                    <h2 class="text-xl font-bold mb-6">Send us a message</h2>
-                    <form id="contact-form" class="contact-form space-y-5">
-                        <div>
-                            <label for="name" class="form-label">Name</label>
-                            <input type="text" id="name" name="name" placeholder="Your name" required>
-                        </div>
-                        <div>
-                            <label for="email" class="form-label">Email</label>
-                            <input type="email" id="email" name="email" placeholder="you@company.com" required>
-                        </div>
-                        <div>
-                            <label for="subject" class="form-label">Subject</label>
-                            <input type="text" id="subject" name="subject" placeholder="What's this about?">
-                        </div>
-                        <div>
-                            <label for="message" class="form-label">Message</label>
-                            <textarea id="message" name="message" placeholder="Tell us more…" required></textarea>
-                        </div>
-                        <button type="submit" class="btn-primary text-base w-full justify-center">
-                            Send Message
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                            </svg>
-                        </button>
-                    </form>
-                    <!-- Success -->
-                    <div id="form-success"
-                        class="hidden mt-6 p-4 bg-green-50 border border-green-200 rounded-xl text-center">
-                        <p class="text-green-700 font-medium">✅ Message sent! We'll get back to you soon.</p>
-                    </div>
+                    <iframe
+                        src="https://docs.google.com/forms/d/e/1FAIpQLSeFgYKDnbhlVn6xXiOew5-Jd3mzqGcFcUO6GmqUluV6FJTr3A/viewform?embedded=true"
+                        width="100%" height="900" frameborder="0" marginheight="0" marginwidth="0">Loading…</iframe>
                 </div>
             </div>
 
@@ -150,17 +122,7 @@
     <div id="footer-container" class="mt-12"></div>
 
     <script src="js/nav.js"></script>
-    <script>
-        // Simple form handler (no real backend — shows success message)
-        document.getElementById('contact-form').addEventListener('submit', function (e) {
-            e.preventDefault();
-            var form = this;
-            var success = document.getElementById('form-success');
-            // In a real deployment, you'd POST to a form backend (Formspree, Netlify Forms, etc.)
-            form.style.display = 'none';
-            success.classList.remove('hidden');
-        });
-    </script>
+
 </body>
 
 </html>
