@@ -306,7 +306,7 @@ func NewOrchestrator(
 		if t, err := availableTools.GetTool(toolName); err == nil {
 			orchestratorToolSlice = append(orchestratorToolSlice, t)
 		} else {
-			logger.Error("Failed to get tool", "tool_name", toolName, "error", err)
+			logger.Debug("Failed to get tool", "tool_name", toolName, "error", err)
 		}
 	}
 	orchestratorTools := tools.NewRegistry(ctx, orchestratorToolSlice)

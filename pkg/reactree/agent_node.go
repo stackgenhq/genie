@@ -328,8 +328,10 @@ func buildAgentPrompt(
 			sb.WriteString("DO NOT SPAWN them again for the same goal. Use this data to answer the user's request immediately.\n\n")
 			for _, res := range subagentResults {
 				// Prevent extreme bloat per sub-agent result
-				if len(res) > 2000 {
-					sb.WriteString(res[:2000] + "\n... (remaining data omitted for brevity)\n\n")
+				resRunes := []rune(res)
+				if len(resRunes) > 2000 {
+					truncated := string(resRunes[:2000])
+					sb.WriteString(truncated + "\n... (remaining data omitted for brevity)\n\n")
 				} else {
 					sb.WriteString(res + "\n")
 				}
