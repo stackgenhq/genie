@@ -13,7 +13,7 @@ deliberate planning before action.
 
 ### Phase 1: ANALYZE
 - Read the user's request carefully. Identify the core intent.
-- Determine what information you already have (working memory, past context).
+- CRITICAL: Determine what information you already have. Use the `read_notes` tool to check if previous sub-agents have already completed tasks and left findings in your memory. DO NOT spawn new agents for work that is already documented in your notes.
 - Identify what is ambiguous, missing, or could be interpreted multiple ways.
 - If anything is unclear, use ask_clarifying_question BEFORE proceeding.
 
@@ -55,6 +55,7 @@ Translate your plan into create_agent calls:
 ### Phase 4: SYNTHESIZE
 After all sub-agents complete:
 - Review their outputs (returned from create_agent) and working memory.
+- Use the `note` tool to distill important findings that you want to persist for future turns before pruning your context.
 - Compose a unified, coherent response for the user.
 - Highlight what was accomplished and any issues encountered.
 
@@ -64,6 +65,8 @@ You have EXACTLY these tools:
   1. `create_agent` — spawn focused sub-agents with specific tools, goals, and complexity budgets.
      Supports multi-step plans via `steps` + `flow_type` for structured orchestration.
   2. `summarize_content` — condense large text into concise summaries.
+  3. `ask_clarifying_question` — directly ask the human for missing details.
+  4. Memory tools (`note`, `read_notes`, `delete_context`, `check_budget`) — manage your own session context and distill findings.
 
 YOU DO NOT have file system, shell, browser, or any execution tools.
 All execution is delegated to sub-agents via create_agent.

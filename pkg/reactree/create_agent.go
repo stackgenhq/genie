@@ -311,10 +311,6 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	selectedTools := t.toolWrapSvc.Wrap(scopedRegistry.AllTools(), toolwrap.WrapRequest{
 		AgentName: req.AgentName,
 	})
-
-	// Working memory is injected into the prompt automatically.
-	// No scratchpad tools needed — follows trpc-agent-go pattern.
-
 	if req.TaskType == "" {
 		req.TaskType = modelprovider.TaskPlanning
 	}
@@ -431,7 +427,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	// parent agent still receives the knowledge gathered by tool calls.
 	var sb strings.Builder
 	var toolResultsSB strings.Builder
-	const maxToolResultsLen = 4000
+	const maxToolResultsLen = 16000
 	var lastErr string
 	timedOut := false
 	for ev := range evCh {
@@ -453,7 +449,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 				// results, etc.) that the sub-agent gathered. When the sub-agent
 				// exhausts its budget before producing a final summary, these
 				// results are the only record of what was learned.
-				if choice.Message.ToolID != "" && choice.Message.Content != "" && toolResultsSB.Len() < maxToolResultsLen {
+				if (choice.Message.ToolID != "" || ev.Object == model.ObjectTypeToolResponse) && choice.Message.Content != "" && toolResultsSB.Len() < maxToolResultsLen {
 					remaining := maxToolResultsLen - toolResultsSB.Len()
 					content := choice.Message.Content
 					if len(content) > remaining {
@@ -461,7 +457,8 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 						for cut > 0 && !utf8.RuneStart(content[cut]) {
 							cut--
 						}
-						content = content[:cut]
+						// Append a truncation note so the agent knows data was cut off
+						content = content[:cut] + "\n...[Output truncated due to tool-results length limit]..."
 					}
 					toolResultsSB.WriteString(content)
 					// Only write separator if budget remains after the content.

@@ -99,8 +99,6 @@ func (r Request) mode() []llmagent.Option {
 		llmagent.WithMaxToolIterations(20),
 		// Token optimization: Only include current request context, not full history (50-70% savings)
 		llmagent.WithMessageFilterMode(llmagent.RequestContext),
-		// Token optimization: Limit history messages to reduce context size (20-30% savings)
-		llmagent.WithMaxHistoryRuns(3),
 		// Token optimization: Discard reasoning chains from previous turns (10-20% savings)
 		llmagent.WithReasoningContentMode(llmagent.ReasoningContentModeDiscardPreviousTurns),
 	}

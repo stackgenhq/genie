@@ -199,6 +199,7 @@ var defaultReadOnlyTools = []string{
 	"read_file",
 	"read_multiple_files",
 	"read_notes",
+	"note",
 	"search_content",
 	"search_file",
 	"skill_load",

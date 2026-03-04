@@ -102,9 +102,13 @@ type compactionTrackerKey struct{}
 // CompactionTrackerKey is the context key for passing a CompactionTracker.
 var CompactionTrackerKey = compactionTrackerKey{}
 
-// CompactionTracker allows middlewares to signal that compaction occurred.
+// CompactionTracker allows middlewares to signal that compaction occurred
+// and to query adaptive chunk-boost hints set by the loop on compaction misses.
 type CompactionTracker interface {
 	MarkCompressed(toolName string, originalSize, compressedSize int)
+	// GetChunkBoost returns a multiplier (>1) for max_chunks on a tool that
+	// previously caused a compaction miss, or 0 if no boost is needed.
+	GetChunkBoost(toolName string) int
 }
 
 // IterationEndEvent is fired at the end of each adaptive loop iteration.

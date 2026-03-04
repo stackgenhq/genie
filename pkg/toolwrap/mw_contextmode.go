@@ -135,6 +135,19 @@ func (m *contextModeMiddleware) Wrap(next Handler) Handler {
 		// Resolve effective settings (per-tool overrides win).
 		resolveSettings := m.resolveSettings(tc.ToolName)
 
+		// Adaptive compaction: if a prior iteration flagged this tool
+		// for a chunk boost (compaction miss), increase MaxChunks.
+		if tracker, ok := ctx.Value(hooks.CompactionTrackerKey).(hooks.CompactionTracker); ok {
+			if boost := tracker.GetChunkBoost(tc.ToolName); boost > 1 {
+				resolveSettings.MaxChunks *= boost
+				logr := logger.GetLogger(ctx).With(
+					"fn", "ContextModeMiddleware",
+					"tool", tc.ToolName,
+				)
+				logr.Info("adaptive compaction: boosted max_chunks", "boost", boost, "effective_max_chunks", resolveSettings.MaxChunks)
+			}
+		}
+
 		responseStr := fmt.Sprintf("%v", output)
 		if len(responseStr) < resolveSettings.Threshold {
 			return output, nil

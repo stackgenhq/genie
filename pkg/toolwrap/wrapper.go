@@ -202,13 +202,13 @@ func (deps MiddlewareDeps) DefaultMiddlewares(
 		FailureLimitMiddleware(),
 	)
 
-	if cfg.ContextModeConfig.Enabled {
-		mws = append(mws, ContextModeMiddleware(cfg.ContextModeConfig))
-	}
-
 	if cfg.Sanitize.Enabled {
 		mws = append(mws, OutputSanitizationMiddleware(
 			cfg.Sanitize.PerTool, cfg.Sanitize.Replacement))
+	}
+
+	if cfg.ContextModeConfig.Enabled {
+		mws = append(mws, ContextModeMiddleware(cfg.ContextModeConfig))
 	}
 
 	mws = append(mws,

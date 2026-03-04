@@ -397,11 +397,85 @@ var _ = Describe("ContextModeMiddleware", func() {
 		// "xy" should be extracted as a query term and match the relevant chunk.
 		Expect(resultStr).To(ContainSubstring("xy data"))
 	})
+
+	// --- Adaptive compaction boost tests ---
+
+	It("applies adaptive chunk boost from CompactionTracker", func() {
+		// Build a large response: 30 distinct paragraphs with query-relevant terms.
+		var parts []string
+		for i := 0; i < 30; i++ {
+			if i%3 == 0 {
+				parts = append(parts, strings.Repeat("authentication security token ", 20))
+			} else {
+				parts = append(parts, strings.Repeat("unrelated filler content padding ", 20))
+			}
+		}
+		largeResponse := strings.Join(parts, "\n\n")
+
+		mw := toolwrap.ContextModeMiddleware(toolwrap.ContextModeConfig{
+			Threshold: 500,
+			MaxChunks: 3,
+			ChunkSize: 200,
+		})
+
+		tc := makeTC("http_request", `{"url":"https://example.com/auth","method":"GET"}`)
+
+		// Run WITHOUT adaptive boost (baseline).
+		baselineResult, err := mw.Wrap(passthrough(largeResponse))(context.Background(), tc)
+		Expect(err).NotTo(HaveOccurred())
+		baselineStr := resultToString(baselineResult)
+		Expect(baselineStr).To(ContainSubstring("Context Mode: compressed"))
+
+		// Run WITH adaptive boost = 2 (should double max_chunks: 3 → 6).
+		tracker := &fakeCompactionTracker{
+			boost: map[string]int{"http_request": 2},
+		}
+		ctx := context.WithValue(context.Background(), hooks.CompactionTrackerKey, tracker)
+		boostedResult, err := mw.Wrap(passthrough(largeResponse))(ctx, tc)
+		Expect(err).NotTo(HaveOccurred())
+		boostedStr := resultToString(boostedResult)
+		Expect(boostedStr).To(ContainSubstring("Context Mode: compressed"))
+
+		// The boosted result should retain more content (more chunks kept).
+		Expect(len(boostedStr)).To(BeNumerically(">", len(baselineStr)))
+	})
+
+	It("does not apply adaptive boost when GetChunkBoost returns 0", func() {
+		// Build a large response.
+		var parts []string
+		for i := 0; i < 30; i++ {
+			parts = append(parts, strings.Repeat("data content ", 20))
+		}
+		largeResponse := strings.Join(parts, "\n\n")
+
+		mw := toolwrap.ContextModeMiddleware(toolwrap.ContextModeConfig{
+			Threshold: 500,
+			MaxChunks: 3,
+			ChunkSize: 200,
+		})
+
+		// Tracker with no boosts (returns 0 for all tools).
+		tracker := &fakeCompactionTracker{}
+		ctx := context.WithValue(context.Background(), hooks.CompactionTrackerKey, tracker)
+
+		tc := makeTC("read_file", `{"path":"/tmp/foo"}`)
+
+		withTracker, err := mw.Wrap(passthrough(largeResponse))(ctx, tc)
+		Expect(err).NotTo(HaveOccurred())
+
+		without, err := mw.Wrap(passthrough(largeResponse))(context.Background(), tc)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Both should produce the same result — no boost applied.
+		Expect(resultToString(withTracker)).To(Equal(resultToString(without)))
+	})
 })
 
-// fakeCompactionTracker records calls to MarkCompressed for test assertions.
+// fakeCompactionTracker records calls to MarkCompressed and returns
+// configurable chunk boost values for test assertions.
 type fakeCompactionTracker struct {
 	calls []compactionCall
+	boost map[string]int // per-tool boost multiplier (0 = no boost)
 }
 
 type compactionCall struct {
@@ -412,6 +486,13 @@ type compactionCall struct {
 
 func (f *fakeCompactionTracker) MarkCompressed(toolName string, originalSize, compressedSize int) {
 	f.calls = append(f.calls, compactionCall{toolName, originalSize, compressedSize})
+}
+
+func (f *fakeCompactionTracker) GetChunkBoost(toolName string) int {
+	if f.boost == nil {
+		return 0
+	}
+	return f.boost[toolName]
 }
 
 func resultToString(result any) string {

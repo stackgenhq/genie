@@ -23,7 +23,6 @@ func DefaultExpertConfig() ExpertConfig {
 	return ExpertConfig{
 		MaxLLMCalls:           15,
 		MaxToolIterations:     20,
-		MaxHistoryRuns:        3,
 		PersonaTokenThreshold: 2000,
 	}
 }
@@ -34,7 +33,6 @@ func HighPerformanceConfig() ExpertConfig {
 	return ExpertConfig{
 		MaxLLMCalls:           25,
 		MaxToolIterations:     20,
-		MaxHistoryRuns:        8,
 		PersonaTokenThreshold: 3000,
 	}
 }
@@ -45,7 +43,6 @@ func CostOptimizedConfig() ExpertConfig {
 	return ExpertConfig{
 		MaxLLMCalls:           8,
 		MaxToolIterations:     6,
-		MaxHistoryRuns:        3,
 		PersonaTokenThreshold: 1000,
 	}
 }

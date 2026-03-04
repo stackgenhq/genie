@@ -1,0 +1,178 @@
+# DevOps Copilot Configuration
+# Configure the MCP servers and skills relevant to your infrastructure.
+# Comment out or remove sections you don't need.
+
+skills_roots = ["./skills"]
+persona_file = "./AGENTS.md"
+
+[db_config]
+db_file = "${PWD}/.genie.db"
+
+# ── Model Configuration ─────────────────────────────────────────────
+[model_config]
+
+[[model_config.providers]]
+provider = "anthropic"
+model_name = "claude-opus-4-5"
+token = "${ANTHROPIC_API_KEY}"
+good_for_task = "planning"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-pro-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "tool_calling"
+
+[[model_config.providers]]
+provider = "anthropic"
+model_name = "claude-sonnet-4-5-20250929"
+token = "${ANTHROPIC_API_KEY}"
+good_for_task = "terminal_calling"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "frontdesk"
+
+# ── MCP Servers ─────────────────────────────────────────────────────
+# Each MCP server gives Genie structured access to a DevOps platform.
+# Enable only the servers you have credentials for.
+
+[mcp]
+
+# ── Observability ───────────────────────────────────────────────────
+
+# Grafana: dashboards, alerts, datasources, explore queries
+[[mcp.servers]]
+name = "grafana"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@anthropic/grafana-mcp-server"]
+env = { GRAFANA_URL = "${GRAFANA_URL}", GRAFANA_API_KEY = "${GRAFANA_API_KEY}" }
+
+# Datadog: metrics, logs, traces, incidents, dashboards, monitors
+# [[mcp.servers]]
+# name = "datadog"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@anthropic/datadog-mcp-server"]
+# env = { DD_API_KEY = "${DD_API_KEY}", DD_APP_KEY = "${DD_APP_KEY}" }
+
+# Sentry: error tracking, issues, events
+# [[mcp.servers]]
+# name = "sentry"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@anthropic/sentry-mcp-server"]
+# env = { SENTRY_AUTH_TOKEN = "${SENTRY_AUTH_TOKEN}" }
+
+# ── Source Control & CI/CD ──────────────────────────────────────────
+
+# GitHub: repos, PRs, issues, actions, code search
+[[mcp.servers]]
+name = "github"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@anthropic/github-mcp-server"]
+env = { GITHUB_TOKEN = "${GITHUB_TOKEN}" }
+
+# GitLab (uncomment if using GitLab instead)
+# [[mcp.servers]]
+# name = "gitlab"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@anthropic/gitlab-mcp-server"]
+# env = { GITLAB_TOKEN = "${GITLAB_TOKEN}" }
+
+# ── Infrastructure ──────────────────────────────────────────────────
+
+# Terraform: validate, plan, state inspection
+[[mcp.servers]]
+name = "terraform"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@anthropic/terraform-mcp-server"]
+
+# Kubernetes: pods, services, deployments, namespaces
+# [[mcp.servers]]
+# name = "kubernetes"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@anthropic/kubernetes-mcp-server"]
+# env = { KUBECONFIG = "${KUBECONFIG}" }
+
+# ── Collaboration ───────────────────────────────────────────────────
+
+# Atlassian (Jira + Confluence)
+# [[mcp.servers]]
+# name = "atlassian"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@anthropic/atlassian-mcp-server"]
+# env = { ATLASSIAN_URL = "${ATLASSIAN_URL}", ATLASSIAN_EMAIL = "${ATLASSIAN_EMAIL}", ATLASSIAN_API_TOKEN = "${ATLASSIAN_API_TOKEN}" }
+
+# PagerDuty: incidents, services, escalation policies
+# [[mcp.servers]]
+# name = "pagerduty"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@anthropic/pagerduty-mcp-server"]
+# env = { PAGERDUTY_API_KEY = "${PAGERDUTY_API_KEY}" }
+
+# ── Databases ───────────────────────────────────────────────────────
+
+# PostgreSQL: query execution, schema inspection
+# [[mcp.servers]]
+# name = "postgres"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@anthropic/postgres-mcp-server"]
+# env = { DATABASE_URL = "${DATABASE_URL}" }
+
+# ── Application Settings ────────────────────────────────────────────
+
+[ops]
+max_pages = 5
+enable_verification = true
+max_verification_runs = 3
+
+# ── GitHub (SCM) ────────────────────────────────────────────────────
+[scm]
+provider = "github"
+token = "${GITHUB_TOKEN}"
+
+# ── Vector Memory ───────────────────────────────────────────────────
+[vector_memory]
+embedding_provider = "ollama"
+ollama_url = "http://localhost:11434"
+ollama_model = "nomic-embed-text"
+persistence_dir = "${PWD}/.genie/vector_store"
+
+# ── AG-UI Server ────────────────────────────────────────────────────
+[messenger.agui]
+port = 9876
+cors_origins = ["https://stackgenhq.github.io", "http://localhost:8123"]
+
+[hitl]
+always_allowed = ["run_shell"]
+
+# ── PII Redaction ───────────────────────────────────────────────────
+# Use SafeRegexes to prevent AWS specific IDs, ARNs, and Profiles from
+# being obscured, while still allowing emails to be redacted.
+[pii]
+[[pii.safe_regexes]]
+name = "aws_profile"
+pattern = '\b[0-9]{12}_[A-Za-z0-9_-]+\b'
+
+[[pii.safe_regexes]]
+name = "aws_arn"
+pattern = '(?i)arn:aws:[a-z0-9-]+:[a-z0-9-]*:[0-9]{12}:[a-zA-Z0-9-/_]+'
+
+[[pii.safe_regexes]]
+name = "aws_resource_id"
+pattern = '(?i)(i|vol|snap|ami|subnet|vpc|igw|nat|eni|sg|rtb|eipalloc)-[0-9a-f]{8,17}'
+
+[[pii.safe_regexes]]
+name = "s3_bucket"
+pattern = '(?i)[a-z0-9.-]+\.s3\.[a-z0-9-]+\.amazonaws\.com'

@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mid-run feedback injection — users can send asynchronous messages to the agent while it is processing via `POST /api/v1/inject`; feedback is stored in working memory with an `INTERRUPT` prefix
 - Feedback input UI in chat.js (textarea + send button) — shown/hidden during active agent processing
 - Caching for summarization middleware to avoid redundant LLM calls on repeated tool outputs
+- Telemetry for prompt and completion tokens in expert metrics
+
+### Fixed
+
+- Sub-agent output extraction to properly capture `ObjectTypeToolResponse` events (essential for AWS CLI outputs)
+- Orchestrator re-plan loops by de-duplicating sub-agent calls using exact working memory matching
+- PII redaction logic to strip prefixes correctly when filtering messages
+- Sub-agent output truncation limit increased from 4,000 to 16,000 characters to better accommodate large JSON dumps
 
 ## [0.1.6-rc.1] - 2026-03-02
 
