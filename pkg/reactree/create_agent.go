@@ -268,6 +268,21 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 		return t.executePlan(ctx, req)
 	}
 
+	// De-duplicate across orchestrator re-plan iterations: if this named
+	// sub-agent already ran and stored its result in working memory, return
+	// it immediately without re-executing.  This is the primary defence
+	// against the "orchestrator re-plan loop" where the parent LLM spawns
+	// the same sub-agent again on its second (or third) turn instead of
+	// synthesising the results it already received.
+	if t.workingMemory != nil {
+		wmKey := fmt.Sprintf("subagent:%s:result", req.AgentName)
+		if cached, ok := t.workingMemory.Recall(wmKey); ok && cached != "" {
+			logr.Warn("sub-agent result already in working memory — returning cached result to break re-plan loop",
+				"key", wmKey, "cached_length", len(cached))
+			return CreateAgentResponse{Output: cached}, nil
+		}
+	}
+
 	// Wrap sub-agent tools with HITL approval, audit logging, and caching.
 	// This ensures every sub-agent tool call (run_shell, save_file, etc.)
 	// goes through the same approval gate as parent-agent tools.
@@ -311,10 +326,6 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	selectedTools := t.toolWrapSvc.Wrap(scopedRegistry.AllTools(), toolwrap.WrapRequest{
 		AgentName: req.AgentName,
 	})
-
-	// Working memory is injected into the prompt automatically.
-	// No scratchpad tools needed — follows trpc-agent-go pattern.
-
 	if req.TaskType == "" {
 		req.TaskType = modelprovider.TaskPlanning
 	}
@@ -431,7 +442,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	// parent agent still receives the knowledge gathered by tool calls.
 	var sb strings.Builder
 	var toolResultsSB strings.Builder
-	const maxToolResultsLen = 4000
+	const maxToolResultsLen = 16000
 	var lastErr string
 	timedOut := false
 	for ev := range evCh {
@@ -453,7 +464,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 				// results, etc.) that the sub-agent gathered. When the sub-agent
 				// exhausts its budget before producing a final summary, these
 				// results are the only record of what was learned.
-				if choice.Message.ToolID != "" && choice.Message.Content != "" && toolResultsSB.Len() < maxToolResultsLen {
+				if (choice.Message.ToolID != "" || ev.Object == model.ObjectTypeToolResponse) && choice.Message.Content != "" && toolResultsSB.Len() < maxToolResultsLen {
 					remaining := maxToolResultsLen - toolResultsSB.Len()
 					content := choice.Message.Content
 					if len(content) > remaining {
@@ -461,7 +472,8 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 						for cut > 0 && !utf8.RuneStart(content[cut]) {
 							cut--
 						}
-						content = content[:cut]
+						// Append a truncation note so the agent knows data was cut off
+						content = content[:cut] + "\n...[Output truncated due to tool-results length limit]..."
 					}
 					toolResultsSB.WriteString(content)
 					// Only write separator if budget remains after the content.

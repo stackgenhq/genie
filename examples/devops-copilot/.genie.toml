@@ -3,6 +3,7 @@
 # Comment out or remove sections you don't need.
 
 skills_roots = ["./skills"]
+persona_file = "./AGENTS.md"
 
 [db_config]
 db_file = "${PWD}/.genie.db"
@@ -12,13 +13,13 @@ db_file = "${PWD}/.genie.db"
 
 [[model_config.providers]]
 provider = "anthropic"
-model_name = "claude-sonnet-4-5-20250929"
+model_name = "claude-opus-4-5"
 token = "${ANTHROPIC_API_KEY}"
 good_for_task = "planning"
 
 [[model_config.providers]]
 provider = "gemini"
-model_name = "gemini-3-flash-preview"
+model_name = "gemini-3-pro-preview"
 token = "${GEMINI_API_KEY}"
 good_for_task = "tool_calling"
 
@@ -155,3 +156,23 @@ cors_origins = ["https://stackgenhq.github.io", "http://localhost:8123"]
 
 [hitl]
 always_allowed = ["run_shell"]
+
+# ── PII Redaction ───────────────────────────────────────────────────
+# Use SafeRegexes to prevent AWS specific IDs, ARNs, and Profiles from
+# being obscured, while still allowing emails to be redacted.
+[pii]
+[[pii.safe_regexes]]
+name = "aws_profile"
+pattern = '\b[0-9]{12}_[A-Za-z0-9_-]+\b'
+
+[[pii.safe_regexes]]
+name = "aws_arn"
+pattern = '(?i)arn:aws:[a-z0-9-]+:[a-z0-9-]*:[0-9]{12}:[a-zA-Z0-9-/_]+'
+
+[[pii.safe_regexes]]
+name = "aws_resource_id"
+pattern = '(?i)(i|vol|snap|ami|subnet|vpc|igw|nat|eni|sg|rtb|eipalloc)-[0-9a-f]{8,17}'
+
+[[pii.safe_regexes]]
+name = "s3_bucket"
+pattern = '(?i)[a-z0-9.-]+\.s3\.[a-z0-9-]+\.amazonaws\.com'

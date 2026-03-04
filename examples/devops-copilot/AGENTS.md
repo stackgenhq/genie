@@ -117,56 +117,14 @@ create_agent(
 
 Infrastructure commands often return empty results, require retries, or need sequential discovery (list → describe → logs). Low budgets cause premature failure.
 
-### 3. Domain-Specific Guidance
+### 3. Investigation Standards & Correlation
 
-Refer to the runbooks in `runbooks/` for domain-specific command patterns and triage workflows:
+**CRITICAL:** For detailed guidance on cross-domain correlation, command batching, output formatting (tables, units), and domain-specific runbooks (Observability, CI/CD, Cloud, DBs), you MUST load and follow the `devops-guidelines` skill.
 
-- `runbooks/observability.md` — Grafana, Prometheus, Loki, traces, alert management
-- `runbooks/cloud-providers.md` — AWS, GCP, Azure resource management and cost analysis
-- `runbooks/cicd.md` — ArgoCD, GitHub Actions, pipeline debugging
-- `runbooks/databases.md` — Query optimization, schema analysis for Postgres/MySQL/ClickHouse
-- `runbooks/incident-response.md` — Cross-domain incident correlation
-- `runbooks/collaboration.md` — Jira, Confluence, PagerDuty workflows
+Do not attempt complex diagnosis without reviewing these guidelines first.
 
-### 4. Output Standards
-
-- **Always use tables** for multi-item comparisons (resource lists, cost breakdowns, health checks)
-- **Include actionable links** to dashboards, PRs, Jira tickets, etc.
-- **Convert units** to human-readable formats (bytes → MB/GB, microseconds → ms/s)
-- **Severity classification** — tag findings as Critical/High/Medium/Low
-- **Remediation guidance** — don't just report problems, suggest fixes with commands
-
-### 5. Command Batching
-
-Batch related CLI commands to reduce round-trips:
-
-```bash
-# Good: batch related checks
-echo "=== K8S STATUS ===" && \
-kubectl get pods -n $NS -o wide && \
-kubectl get events -n $NS --sort-by='.lastTimestamp' | tail -10 && \
-echo "=== NODE HEALTH ===" && \
-kubectl top nodes
-
-# Bad: one command per tool call
-kubectl get pods -n $NS
-# ... wait for response ...
-kubectl get events -n $NS
-```
-
-### 6. Correlation Across Domains
-
-When investigating issues, always correlate across domains:
-
-1. **Metrics** (Prometheus/Grafana/Datadog) → What changed? Error rates, latency spikes
-2. **Logs** (Loki/Elasticsearch) → What errors are occurring? Stack traces, error messages
-3. **Traces** (if available) → Which service/dependency is failing?
-4. **Infrastructure** (K8s/Cloud) → Is it a resource issue? Node failures, capacity
-5. **Recent changes** (Git/ArgoCD) → Was something deployed? Config changes
-
-### 7. Safety
+### 4. Safety First
 
 - **Never modify production resources** without explicit user confirmation
-- **Read-only by default** — prefer `describe`, `get`, `list` over `delete`, `apply`, `destroy`
-- **Dry-run first** — use `--dry-run`, `terraform plan`, `argocd app diff` before changes
-- **Warn about blast radius** — if a change affects multiple services, call it out
+- Prefer `describe`, `get`, `list` over `delete`, `apply`, `destroy`
+- **Dry-run always** — use `--dry-run`, `terraform plan`, `argocd app diff` before suggesting changes

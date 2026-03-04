@@ -299,7 +299,6 @@ func buildAgentPrompt(
 			"Use sensible defaults for any remaining unknowns and proceed to complete the task immediately.\n\n")
 	}
 
-	// Include working memory context if available (capped to prevent prompt bloat)
 	snapshot := wm.Snapshot()
 	logger.GetLogger(ctx).Debug("buildAgentPrompt: memory context",
 		"working_memory_keys", len(snapshot),
@@ -307,25 +306,56 @@ func buildAgentPrompt(
 		"has_prev_output", previousStageOutput != "",
 	)
 	if len(snapshot) > 0 {
-		sb.WriteString("## Working Memory (shared observations)\n")
-		const maxSnapshotSize = 2000
-		const maxEntrySize = 300
-		snapshotLen := 0
+		var subagentResults []string
+		var otherMemories []string
+
 		for k, v := range snapshot {
 			vs := fmt.Sprintf("%v", v)
-			entry := fmt.Sprintf("- %s: %s\n", k, vs)
-			entryRunes := []rune(entry)
-			if len(entryRunes) > maxEntrySize {
-				entry = string(entryRunes[:maxEntrySize-len("...\n")]) + "...\n"
+			if strings.HasPrefix(k, "subagent:") && strings.HasSuffix(k, ":result") {
+				name := strings.TrimSuffix(strings.TrimPrefix(k, "subagent:"), ":result")
+				subagentResults = append(subagentResults, fmt.Sprintf("### Data from Sub-Agent %q:\n%s\n", name, vs))
+			} else if strings.HasPrefix(k, "plan_step:") && strings.HasSuffix(k, ":result") {
+				name := strings.TrimSuffix(strings.TrimPrefix(k, "plan_step:"), ":result")
+				subagentResults = append(subagentResults, fmt.Sprintf("### Data from Plan Step %q:\n%s\n", name, vs))
+			} else {
+				otherMemories = append(otherMemories, fmt.Sprintf("- %s: %s\n", k, vs))
 			}
-			if snapshotLen+len(entry) > maxSnapshotSize {
-				sb.WriteString("- ... (additional entries omitted for brevity)\n")
-				break
-			}
-			sb.WriteString(entry)
-			snapshotLen += len(entry)
 		}
-		sb.WriteString("\n")
+
+		if len(subagentResults) > 0 {
+			sb.WriteString("## Sub-Agent Results\n")
+			sb.WriteString("The following sub-agents have ALREADY RUN and gathered this information. ")
+			sb.WriteString("DO NOT SPAWN them again for the same goal. Use this data to answer the user's request immediately.\n\n")
+			for _, res := range subagentResults {
+				// Prevent extreme bloat per sub-agent result
+				if len(res) > 2000 {
+					sb.WriteString(res[:2000] + "\n... (remaining data omitted for brevity)\n\n")
+				} else {
+					sb.WriteString(res + "\n")
+				}
+			}
+		}
+
+		if len(otherMemories) > 0 {
+			sb.WriteString("## Working Memory (shared observations)\n")
+			const maxSnapshotSize = 2000
+			const maxEntrySize = 300
+			snapshotLen := 0
+
+			for _, entry := range otherMemories {
+				entryRunes := []rune(entry)
+				if len(entryRunes) > maxEntrySize {
+					entry = string(entryRunes[:maxEntrySize-len("...\n")]) + "...\n"
+				}
+				if snapshotLen+len(entry) > maxSnapshotSize {
+					sb.WriteString("- ... (additional entries omitted for brevity)\n")
+					break
+				}
+				sb.WriteString(entry)
+				snapshotLen += len(entry)
+			}
+			sb.WriteString("\n")
+		}
 	}
 
 	// Include episodic memory (past similar experiences)

@@ -270,7 +270,9 @@ func NewOrchestrator(
 	)
 	// Log tool counts so operators can verify email, gmail, etc. are wired for sub-agents.
 	n := len(availableTools.ToolNames())
-	logger.GetLogger(ctx).Info("create_agent sub-agent tools wired",
+	logger := logger.GetLogger(ctx).With("fn", "createOrchestrator")
+
+	logger.Info("create_agent sub-agent tools wired",
 		"registry_total", n,
 		"sub_agent_tools", n-2, // exclude create_agent and send_message
 	)
@@ -278,6 +280,9 @@ func NewOrchestrator(
 	// Build the main agent's tool registry:
 	//   - create_agent: to delegate detailed work to sub-agents
 	//   - ask_clarifying_question: to ask users for clarification directly
+	//   - note / read_notes: Pensieve context-management tools so the
+	//     orchestrator can maintain persistent notes across its own turns
+	//     (e.g. summarise sub-agent results before synthesising a reply).
 	//
 	// Sub-agent tool scoping (excluding create_agent + send_message) is
 	// handled inside create_agent.go via subAgentRegistry, NOT here.
@@ -294,8 +299,17 @@ func NewOrchestrator(
 	if t, err := availableTools.GetTool(cron.ToolName); err == nil {
 		orchestratorToolSlice = append(orchestratorToolSlice, t)
 	}
+	// Lift Pensieve note tools so the orchestrator can write/read persistent
+	// notes across its own turns and distil sub-agent results into concise
+	// summaries before composing a final answer.
+	for _, toolName := range []string{"note", "read_notes", "delete_context", "check_budget"} {
+		if t, err := availableTools.GetTool(toolName); err == nil {
+			orchestratorToolSlice = append(orchestratorToolSlice, t)
+		} else {
+			logger.Error("Failed to get tool", "tool_name", toolName, "error", err)
+		}
+	}
 	orchestratorTools := tools.NewRegistry(ctx, orchestratorToolSlice)
-	logger := logger.GetLogger(ctx).With("fn", "createOrchestrator")
 	logger.Info("Orchestrator tool registry initialized", "count", len(orchestratorTools.ToolNames()))
 
 	orchestrator := &orchestrator{

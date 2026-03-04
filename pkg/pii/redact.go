@@ -62,7 +62,6 @@ type CustomRegexRule struct {
 	Name    string `yaml:"name,omitempty" toml:"name,omitempty" json:"name"`
 }
 
-// DefaultConfig returns a PII config with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
 		EntropyThreshold: 4.2,
