@@ -49,6 +49,11 @@ func buildSubAgentInstruction(toolNames []string) string {
 		"DO NOT ASSUME: If the goal is ambiguous, critical details are missing (e.g. which environment, branch, or target), " +
 		"or multiple valid approaches exist, use ask_clarifying_question to ask the user before proceeding. " +
 		"Never guess or fill in blanks — ask first, act second. " +
+		"GROUNDING: Your goal comes from a real user request. If your goal describes a hypothetical scenario, " +
+		"a role-play situation (e.g. 'You are an SRE...'), or fabricated data with no real systems to query, " +
+		"no real files to read, and no real data to process, STOP immediately and return: " +
+		"'HALLUCINATION DETECTED: This goal describes a fabricated scenario with no real data source. " +
+		"The parent agent should ask the user what they actually need.' " +
 		"CRITICAL: You may ONLY call tools that are in your available tool set. Do NOT attempt to call tools that are not listed. " +
 		"JUSTIFICATION: When calling any tool, include a \"_justification\" field in the arguments explaining why this action is necessary."
 
