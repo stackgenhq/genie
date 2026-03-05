@@ -67,7 +67,7 @@
         disable_pensieve: false,
         persona: { file: '', disable_resume: false },
         halguard: { enable_pre_check: true, enable_post_check: true, light_threshold_chars: 200, full_threshold_chars: 500, cross_model_samples: 3, max_blocks_to_judge: 20, pre_check_threshold: 0.4 },
-        semantic_router: { disabled: false, threshold: 0.85, enable_caching: true }
+        semantic_router: { disabled: false, threshold: 0.85, enable_caching: true, routes: [] }
     };
 
     var PROVIDERS = ['openai', 'gemini', 'anthropic'];
@@ -796,6 +796,22 @@
             fieldToggle('Enable Caching', sr.enable_caching, function (v) { sr.enable_caching = v; renderOutput(); }, 'Cache successful responses syntactically to bypass generating identical intent replies.'),
             fieldNumber('Threshold', sr.threshold, function (v) { sr.threshold = parseFloat(v) || 0.85; renderOutput(); }, 0, 1.0, 'Vector search threshold (0.0 to 1.0) above which routes match.')
         ]));
+
+        sr.routes.forEach(function (r, i) {
+            c.appendChild(el('div', { className: 'repeatable-item mt-4' }, [
+                el('div', { className: 'flex items-center justify-between mb-3' }, [
+                    el('span', { className: 'text-sm font-semibold text-gray-600' }, 'Route #' + (i + 1) + (r.name ? ' — ' + r.name : '')),
+                    el('button', { className: 'btn-remove', onClick: function () { sr.routes.splice(i, 1); renderAll(); } }, '✕')
+                ]),
+                el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+                    fieldText('Name', r.name, function (v) { r.name = v; renderOutput(); }, 'custom_route', 'Route identifier'),
+                    fieldText('Utterances (comma-separated)', (r.utterances || []).join(', '), function (v) { r.utterances = splitCSV(v); renderOutput(); }, 'Can you write code?, How do I code?', 'Examples to match intent')
+                ])
+            ]));
+        });
+        c.appendChild(
+            el('button', { className: 'btn-add mt-4', onClick: function () { sr.routes.push({ name: '', utterances: [] }); renderAll(); } }, '+ Add Custom Route')
+        );
     }
 
     // ── DB Config ──
@@ -1397,6 +1413,14 @@
         if (sr.disabled) lines.push('disabled = true');
         if (sr.threshold !== 0.85) lines.push('threshold = ' + sr.threshold);
         if (!sr.enable_caching) lines.push('enable_caching = false');
+
+        sr.routes.forEach(function (r) {
+            if (!r.name) return;
+            lines.push('[[semantic_router.routes]]');
+            lines.push('name = ' + q(r.name));
+            if (hasItems(r.utterances)) lines.push('utterances = [' + r.utterances.filter(Boolean).map(q).join(', ') + ']');
+            lines.push('');
+        });
         lines.push('');
     }
 
@@ -1945,6 +1969,20 @@
         if (sr.disabled) lines.push('  disabled: true');
         if (sr.threshold !== 0.85) lines.push('  threshold: ' + sr.threshold);
         if (!sr.enable_caching) lines.push('  enable_caching: false');
+
+        if (hasItems(sr.routes)) {
+            lines.push('  routes:');
+            sr.routes.forEach(function (r) {
+                if (!r.name) return;
+                lines.push('    - name: ' + r.name);
+                if (hasItems(r.utterances)) {
+                    lines.push('      utterances:');
+                    r.utterances.filter(Boolean).forEach(function (utt) {
+                        lines.push('        - ' + yq(utt));
+                    });
+                }
+            });
+        }
         lines.push('');
     }
 
