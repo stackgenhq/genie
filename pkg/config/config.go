@@ -13,6 +13,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/datasource"
 	"github.com/stackgenhq/genie/pkg/db"
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
+	"github.com/stackgenhq/genie/pkg/halguard"
 	"github.com/stackgenhq/genie/pkg/hitl"
 	"github.com/stackgenhq/genie/pkg/langfuse"
 	"github.com/stackgenhq/genie/pkg/logger"
@@ -91,6 +92,11 @@ type GenieConfig struct {
 	// delete_context and note require HITL approval; check_budget and
 	// read_notes are read-only and auto-approved.
 	DisablePensieve bool `yaml:"disable_pensieve,omitempty" toml:"disable_pensieve,omitempty"`
+
+	// HalGuard configures the hallucination guard that validates
+	// sub-agent goals (pre-check) and outputs (post-check).
+	// See halguard.DefaultConfig() for defaults.
+	HalGuard halguard.Config `yaml:"halguard,omitempty" toml:"halguard,omitempty"`
 }
 
 // LoadGenieConfig loads the Genie configuration from a file, resolving

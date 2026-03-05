@@ -26,6 +26,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/cron"
 	"github.com/stackgenhq/genie/pkg/expert"
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
+	"github.com/stackgenhq/genie/pkg/halguard"
 	"github.com/stackgenhq/genie/pkg/hitl"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
@@ -141,8 +142,9 @@ func (c *orchestrator) Resume(ctx context.Context) string {
 type OrchestratorOption func(*orchestratorOpts)
 
 type orchestratorOpts struct {
-	toolwrapOpts  []toolwrap.ServiceOption
-	disableResume bool
+	toolwrapOpts   []toolwrap.ServiceOption
+	disableResume  bool
+	halGuardConfig halguard.Config
 }
 
 // WithToolwrapOptions passes per-agent middleware configuration to the
@@ -158,6 +160,14 @@ func WithToolwrapOptions(opts ...toolwrap.ServiceOption) OrchestratorOption {
 func WithDisableResume(disable bool) OrchestratorOption {
 	return func(o *orchestratorOpts) {
 		o.disableResume = disable
+	}
+}
+
+// WithHalGuardConfig sets the hallucination guard configuration.
+// When not provided, halguard.DefaultConfig() is used.
+func WithHalGuardConfig(cfg halguard.Config) OrchestratorOption {
+	return func(o *orchestratorOpts) {
+		o.halGuardConfig = cfg
 	}
 }
 
@@ -273,11 +283,21 @@ func NewOrchestrator(
 		"hasApprovalStore", approvalStore != nil,
 		"hasSummarizer", true,
 	)
+	// Create the hallucination guard for sub-agent output verification.
+	// Uses the existing model provider to collect diverse models for
+	// cross-model consistency checking per Finch-Zk methodology.
+	// Config comes from [halguard] section in genie.toml; zero values
+	// are filled with sensible defaults by halguard.New.
+	halGuard := halguard.New(modelProvider,
+		halguard.WithConfig(oo.halGuardConfig),
+	)
+
 	createAgentTool := reactree.NewCreateAgentTool(
 		modelProvider, exp, summarizer, availableTools,
 		wm, episodicMem,
 		toolWrapSvc,
 		vectorStore,
+		halGuard,
 	)
 	// Log tool counts so operators can verify email, gmail, etc. are wired for sub-agents.
 	n := len(availableTools.ToolNames())

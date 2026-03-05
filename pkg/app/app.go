@@ -340,6 +340,7 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 			toolwrap.WithApproveList(a.approveList),
 		),
 		orchestrator.WithDisableResume(a.cfg.Persona.DisableResume),
+		orchestrator.WithHalGuardConfig(a.cfg.HalGuard),
 	}
 
 	// If a skill provider exists, we allow dynamic skills
