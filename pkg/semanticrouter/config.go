@@ -1,6 +1,8 @@
 package semanticrouter
 
-import "github.com/stackgenhq/genie/pkg/memory/vector"
+import (
+	"github.com/stackgenhq/genie/pkg/memory/vector"
+)
 
 const defaultThreshold = 0.85
 
@@ -19,6 +21,9 @@ type Config struct {
 	// VectorStore defines the embedding and storage backend used for
 	// the semantic routing and caching. If empty, uses dummy embedder.
 	VectorStore vector.Config `yaml:"vector_store,omitempty" toml:"vector_store,omitempty"`
+
+	// Routes allows injecting custom semantic routes or extending builtin ones.
+	Routes []Route `yaml:"routes,omitempty" toml:"routes,omitempty"`
 }
 
 // DefaultConfig provides sensible defaults.

@@ -44,6 +44,16 @@ type ClassificationResult struct {
 	BypassedLLM bool   // true if semantic router (L1) bypassed the LLM completely
 }
 
+//go:generate go tool counterfeiter -generate
+//counterfeiter:generate . IRouter
+
+// IRouter defines the interface for the semantic router, enabling mocking and testing.
+type IRouter interface {
+	Classify(ctx context.Context, question, resume string) (ClassificationResult, error)
+	CheckCache(ctx context.Context, query string) (string, bool)
+	SetCache(ctx context.Context, query string, response string) error
+}
+
 // Router provides semantic routing (intent classification), semantic caching,
 // and safety checks using a vector store for fast, embedding-based comparisons
 // and acts as the gatekeeper applying L1 Semantic rules and L2 LLM frontdesk rules.
@@ -56,13 +66,13 @@ type Router struct {
 
 // Route defines a semantic category alongside example utterances.
 type Route struct {
-	Name       string
-	Utterances []string
+	Name       string   `yaml:"name" toml:"name"`
+	Utterances []string `yaml:"utterances" toml:"utterances"`
 }
 
 // New creates a new Semantic Router. It initializes isolated vector stores
 // for caching and routing to prevent collision.
-func New(ctx context.Context, cfg Config, builtinRoutes []Route, provider modelprovider.ModelProvider) (*Router, error) {
+func New(ctx context.Context, cfg Config, provider modelprovider.ModelProvider) (*Router, error) {
 	if cfg.Threshold == 0 {
 		cfg.Threshold = defaultThreshold
 	}
@@ -77,19 +87,28 @@ func New(ctx context.Context, cfg Config, builtinRoutes []Route, provider modelp
 		return nil, fmt.Errorf("failed to initialize cache vector store: %w", err)
 	}
 
-	for _, r := range builtinRoutes {
+	// Merge builtin routes and config routes
+	mergedRoutes := make(map[string][]string)
+	for _, r := range builtinRoutes() {
+		mergedRoutes[r.Name] = append(mergedRoutes[r.Name], r.Utterances...)
+	}
+	for _, r := range cfg.Routes {
+		mergedRoutes[r.Name] = append(mergedRoutes[r.Name], r.Utterances...)
+	}
+
+	for name, utterances := range mergedRoutes {
 		var items []vector.BatchItem
-		for i, utt := range r.Utterances {
+		for i, utt := range utterances {
 			items = append(items, vector.BatchItem{
-				ID:   fmt.Sprintf("route_%s_%d", r.Name, i),
+				ID:   fmt.Sprintf("route_%s_%d", name, i),
 				Text: utt,
 				Metadata: map[string]string{
-					"route": r.Name,
+					"route": name,
 				},
 			})
 		}
 		if err := routeStore.Upsert(ctx, items...); err != nil {
-			return nil, fmt.Errorf("failed to index utterances for route %s: %w", r.Name, err)
+			return nil, fmt.Errorf("failed to index utterances for route %s: %w", name, err)
 		}
 	}
 
@@ -107,7 +126,7 @@ func New(ctx context.Context, cfg Config, builtinRoutes []Route, provider modelp
 func (r *Router) Classify(ctx context.Context, question, resume string) (ClassificationResult, error) {
 	// L1: Vector-based Semantic Routing (bypasses LLM)
 	if !r.cfg.Disabled {
-		if route, ok := r.Route(ctx, question); ok {
+		if route, ok := r.route(ctx, question); ok {
 			logger.GetLogger(ctx).Info("semantic route matched, bypassing LLM front-desk", "route", route)
 			res := ClassificationResult{
 				BypassedLLM: true,
@@ -237,9 +256,9 @@ func GetClassifyPrompt() string {
 	return classifyPrompt
 }
 
-// Route checks the input query against predefined routes and returns the name
+// route checks the input query against predefined routes and returns the name
 // of the matching route, or empty string if no route exceeds the threshold.
-func (r *Router) Route(ctx context.Context, query string) (string, bool) {
+func (r *Router) route(ctx context.Context, query string) (string, bool) {
 	if r.cfg.Disabled {
 		return "", false
 	}
@@ -255,12 +274,6 @@ func (r *Router) Route(ctx context.Context, query string) (string, bool) {
 		return results[0].Metadata["route"], true
 	}
 	return "", false
-}
-
-// CheckJailbreak evaluates whether the given query triggers a jailbreak semantic route.
-func (r *Router) CheckJailbreak(ctx context.Context, query string) bool {
-	route, ok := r.Route(ctx, query)
-	return ok && route == RouteJailbreak
 }
 
 // CheckCache looks up the input query in the semantic cache.
@@ -308,8 +321,8 @@ func (r *Router) SetCache(ctx context.Context, query string, response string) er
 	return nil
 }
 
-// BuiltinRoutes returns sensible defaults to replicate vllm-semantic-router out of the box.
-func BuiltinRoutes() []Route {
+// builtinRoutes returns sensible defaults to replicate vllm-semantic-router out of the box.
+func builtinRoutes() []Route {
 	return []Route{
 		{
 			Name: RouteJailbreak,

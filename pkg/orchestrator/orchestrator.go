@@ -104,7 +104,7 @@ type orchestrator struct {
 	resume        *ttlcache.Item[string]
 	resumeCancel  context.CancelFunc
 	vectorStore   vector.IStore
-	router        *semanticrouter.Router
+	router        semanticrouter.IRouter
 
 	// availableToolNames holds the names of all tools registered in the full
 	// tool registry (not just the orchestrator's own tools). This list is
@@ -138,10 +138,10 @@ func (c *orchestrator) Resume(ctx context.Context) string {
 type OrchestratorOption func(*orchestratorOpts)
 
 type orchestratorOpts struct {
-	toolwrapOpts         []toolwrap.ServiceOption
-	disableResume        bool
-	halGuardConfig       halguard.Config
-	semanticRouterConfig semanticrouter.Config
+	toolwrapOpts   []toolwrap.ServiceOption
+	disableResume  bool
+	halGuardConfig halguard.Config
+	semanticRouter semanticrouter.IRouter
 }
 
 // WithToolwrapOptions passes per-agent middleware configuration to the
@@ -168,11 +168,11 @@ func WithHalGuardConfig(cfg halguard.Config) OrchestratorOption {
 	}
 }
 
-// WithSemanticRouterConfig sets the semantic router config for fast
+// WithSemanticRouter sets the semantic router instance for fast
 // embedding-based routing and caching.
-func WithSemanticRouterConfig(cfg semanticrouter.Config) OrchestratorOption {
+func WithSemanticRouter(router semanticrouter.IRouter) OrchestratorOption {
 	return func(o *orchestratorOpts) {
-		o.semanticRouterConfig = cfg
+		o.semanticRouter = router
 	}
 }
 
@@ -336,13 +336,15 @@ func NewOrchestrator(
 	orchestratorTools := tools.NewRegistry(ctx, orchestratorToolSlice)
 	logger.Info("Orchestrator tool registry initialized", "count", len(orchestratorTools.ToolNames()))
 
-	var router *semanticrouter.Router
-	// Always instantiate the gatekeeper Router. It handles its own enablement toggle.
-	r, err := semanticrouter.New(ctx, oo.semanticRouterConfig, semanticrouter.BuiltinRoutes(), modelProvider)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize semantic router gatekeeper: %w", err)
+	var router semanticrouter.IRouter = oo.semanticRouter
+	if router == nil {
+		// Fallback in case not provided
+		r, err := semanticrouter.New(ctx, semanticrouter.Config{Disabled: true}, modelProvider)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize fallback semantic router: %w", err)
+		}
+		router = r
 	}
-	router = r
 
 	orchestrator := &orchestrator{
 		expert:             exp,

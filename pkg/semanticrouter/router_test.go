@@ -193,9 +193,9 @@ var _ = Describe("SemanticRouter", func() {
 		})
 	})
 
-	Describe("BuiltinRoutes and New Initialization", func() {
+	Describe("builtinRoutes and Initialization", func() {
 		It("should return expected builtin routes", func() {
-			routes := BuiltinRoutes()
+			routes := builtinRoutes()
 			Expect(len(routes)).To(BeNumerically(">", 0))
 		})
 
@@ -204,10 +204,14 @@ var _ = Describe("SemanticRouter", func() {
 				VectorStore: vector.Config{},
 				Disabled:    false,
 			}
-			rt, err := New(ctx, fakeCfg, BuiltinRoutes(), fakeProvider)
+			rt, err := New(ctx, fakeCfg, fakeProvider)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(rt).NotTo(BeNil())
 			Expect(rt.cfg.Threshold).To(Equal(defaultThreshold))
+		})
+
+		It("should return global prompt", func() {
+			Expect(len(GetClassifyPrompt())).To(BeNumerically(">", 0))
 		})
 	})
 
@@ -236,7 +240,7 @@ var _ = Describe("SemanticRouter", func() {
 					{Score: 0.95, Metadata: map[string]string{"route": RouteSalutation}},
 				}, nil)
 
-				route, ok := rt.Route(ctx, "hello query")
+				route, ok := rt.route(ctx, "hello query")
 				Expect(ok).To(BeTrue())
 				Expect(route).To(Equal(RouteSalutation))
 			})
@@ -246,23 +250,14 @@ var _ = Describe("SemanticRouter", func() {
 					{Score: 0.5, Metadata: map[string]string{"route": RouteSalutation}},
 				}, nil)
 
-				_, ok := rt.Route(ctx, "hello query")
+				_, ok := rt.route(ctx, "hello query")
 				Expect(ok).To(BeFalse())
 			})
 
 			It("should return false when disabled", func() {
 				rt.cfg.Disabled = true
-				_, ok := rt.Route(ctx, "query")
+				_, ok := rt.route(ctx, "query")
 				Expect(ok).To(BeFalse())
-			})
-		})
-
-		Describe("CheckJailbreak", func() {
-			It("should return true when jailbreak route matched", func() {
-				fakeRouteStore.SearchReturns([]vector.SearchResult{
-					{Score: 0.95, Metadata: map[string]string{"route": RouteJailbreak}},
-				}, nil)
-				Expect(rt.CheckJailbreak(ctx, "hax")).To(BeTrue())
 			})
 		})
 

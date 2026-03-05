@@ -50,6 +50,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/orchestrator"
 	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 	"github.com/stackgenhq/genie/pkg/report/activityreport"
+	"github.com/stackgenhq/genie/pkg/semanticrouter"
 
 	"github.com/stackgenhq/genie/pkg/security"
 
@@ -333,6 +334,12 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 
 	// In-memory approve list so users can "approve for X mins" from the chat UI.
 	a.approveList = toolwrap.NewApproveList()
+	modelProvider := a.cfg.ModelConfig.NewEnvBasedModelProvider()
+	// Always instantiate the gatekeeper Router. It handles its own enablement toggle.
+	semRouter, err := semanticrouter.New(ctx, a.cfg.SemanticRouter, modelProvider)
+	if err != nil {
+		return fmt.Errorf("failed to initialize semantic router gatekeeper: %w", err)
+	}
 
 	orchestratorOpts := []orchestrator.OrchestratorOption{
 		orchestrator.WithToolwrapOptions(
@@ -341,12 +348,13 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 		),
 		orchestrator.WithDisableResume(a.cfg.Persona.DisableResume),
 		orchestrator.WithHalGuardConfig(a.cfg.HalGuard),
+		orchestrator.WithSemanticRouter(semRouter),
 	}
 
 	// If a skill provider exists, we allow dynamic skills
 	a.codeOwner, err = orchestrator.NewOrchestrator(
 		ctx,
-		a.cfg.ModelConfig.NewEnvBasedModelProvider(),
+		modelProvider,
 		a.toolRegistry,
 		vectorStore,
 		a.auditor,

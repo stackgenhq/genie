@@ -215,6 +215,11 @@ func LoadGenieConfig(ctx context.Context, sp security.SecretProvider, path strin
 		}
 	}
 
+	// Fallback semantic router vector store to the main VectorMemory if not explicitly set
+	if !cfg.SemanticRouter.Disabled && cfg.SemanticRouter.VectorStore.EmbeddingProvider == "" {
+		cfg.SemanticRouter.VectorStore = cfg.VectorMemory
+	}
+
 	return cfg, nil
 }
 
