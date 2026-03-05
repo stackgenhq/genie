@@ -1303,7 +1303,7 @@ architecture:
         - ["2. Recall", "Search `memory.Service` for past turns relevant to the question (sender-scoped)"]
         - ["3. Execute", "For `COMPLEX` — run through the ReAcTree with working memory and tools"]
         - ["4. Store", "Persist the Q&A turn back into memory for future recall"]
-        - ["5. Persona", "Load project-level coding standards from `persona.file` (default: `Agents.md`) and append to persona"]
+        - ["5. Persona", "When `persona.file` is configured (commonly `Agents.md`), load project-level coding standards and append to persona"]
 
     - title: "🔧 Tool Middleware Pipeline (pkg/toolwrap)"
       desc: >
