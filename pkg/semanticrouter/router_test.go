@@ -210,6 +210,38 @@ var _ = Describe("SemanticRouter", func() {
 			Expect(rt.cfg.Threshold).To(Equal(defaultThreshold))
 		})
 
+		Describe("initializeStores", func() {
+			It("should skip initializing cache if EnableCaching is false", func() {
+				cfg := Config{
+					EnableCaching: false,
+					VectorStore: vector.Config{
+						VectorStoreProvider: "inmemory",
+					},
+				}
+				routeStore, cacheStore, err := initializeStores(ctx, cfg)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(routeStore).NotTo(BeNil())
+				Expect(cacheStore).To(BeNil())
+			})
+
+			It("should properly configure namespace suffixes when caching is enabled", func() {
+				cfg := Config{
+					EnableCaching: true,
+					VectorStore: vector.Config{
+						VectorStoreProvider: "inmemory",
+						PersistenceDir:      "/tmp/genie_test",
+						Milvus: vector.MilvusConfig{
+							CollectionName: "test_col",
+						},
+					},
+				}
+				routeStore, cacheStore, err := initializeStores(ctx, cfg)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(routeStore).NotTo(BeNil())
+				Expect(cacheStore).NotTo(BeNil())
+			})
+		})
+
 		It("should return global prompt", func() {
 			Expect(len(GetClassifyPrompt())).To(BeNumerically(">", 0))
 		})

@@ -142,11 +142,7 @@ func indexRoutes(ctx context.Context, routeStore vector.IStore, customRoutes []R
 	mergedRoutes := make(map[string][]string)
 
 	// Collect built-in routes
-	for _, r := range builtinRoutes() {
-		mergedRoutes[r.Name] = append(mergedRoutes[r.Name], r.Utterances...)
-	}
-	// Collect custom routes
-	for _, r := range customRoutes {
+	for _, r := range append(builtinRoutes(), customRoutes...) {
 		mergedRoutes[r.Name] = append(mergedRoutes[r.Name], r.Utterances...)
 	}
 
