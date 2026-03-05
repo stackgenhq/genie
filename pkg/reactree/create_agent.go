@@ -171,7 +171,8 @@ type createAgentTool struct {
 	// halGuard provides optional pre-delegation grounding checks and
 	// post-execution output verification. When nil, sub-agents execute
 	// without hallucination checks (backward compatible).
-	halGuard halguard.Guard
+	halGuard          halguard.Guard
+	halGuardThreshold float64 // PreCheckThreshold from config; 0 = use default (0.4)
 
 	// inflight deduplicates identical parallel create_agent calls
 	// from the LLM (same agent_name + goal). Backed by singleflight.
@@ -247,6 +248,14 @@ func NewCreateAgentTool(
 	return t
 }
 
+// SetHalGuardThreshold configures the pre-check confidence threshold.
+// Values ≤ 0 are ignored (the default 0.4 is used instead).
+func (t *createAgentTool) SetHalGuardThreshold(threshold float64) {
+	if threshold > 0 {
+		t.halGuardThreshold = threshold
+	}
+}
+
 func (t *createAgentTool) GetTool() tool.Tool {
 	return function.NewFunctionTool(
 		t.execute,
@@ -287,21 +296,29 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 		})
 		if preErr != nil {
 			logr.Warn("halguard pre-check error, proceeding anyway", "error", preErr)
-		} else if preResult.Confidence < 0.4 {
-			logr.Warn("halguard pre-check: low confidence, blocking sub-agent",
-				"confidence", preResult.Confidence,
-				"signals", preResult.Signals,
-				"summary", preResult.Summary)
-			return CreateAgentResponse{
-				Status: "error",
-				Output: fmt.Sprintf("GROUNDING CHECK FAILED (confidence=%.2f): %s. "+
-					"The goal appears to describe a fabricated scenario. "+
-					"Please rephrase with a real, actionable task.",
-					preResult.Confidence, preResult.Summary),
-			}, nil
 		} else {
-			logr.Debug("halguard pre-check passed",
-				"confidence", preResult.Confidence)
+			// Use configured pre-check threshold; fall back to 0.4 default.
+			threshold := 0.4
+			if t.halGuardThreshold > 0 {
+				threshold = t.halGuardThreshold
+			}
+
+			if preResult.Confidence < threshold {
+				logr.Warn("halguard pre-check: low confidence, blocking sub-agent",
+					"confidence", preResult.Confidence,
+					"signals", preResult.Signals,
+					"summary", preResult.Summary)
+				return CreateAgentResponse{
+					Status: "error",
+					Output: fmt.Sprintf("GROUNDING CHECK FAILED (confidence=%.2f): %s. "+
+						"The goal appears to describe a fabricated scenario. "+
+						"Please rephrase with a real, actionable task.",
+						preResult.Confidence, preResult.Summary),
+				}, nil
+			} else {
+				logr.Debug("halguard pre-check passed",
+					"confidence", preResult.Confidence)
+			}
 		}
 	}
 
@@ -473,6 +490,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	var lastErr string
 	timedOut := false
 	toolCallCount := 0
+	seenToolIDs := make(map[string]struct{})
 	for ev := range evCh {
 		if ev.Error != nil {
 			lastErr = ev.Error.Message
@@ -493,7 +511,14 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 				// exhausts its budget before producing a final summary, these
 				// results are the only record of what was learned.
 				if (choice.Message.ToolID != "" || ev.Object == model.ObjectTypeToolResponse) && choice.Message.Content != "" && toolResultsSB.Len() < maxToolResultsLen {
-					toolCallCount++
+					// Count unique tool calls (not per-chunk) to avoid over-counting
+					// when multiple streamed chunks arrive for a single tool response.
+					if tid := choice.Message.ToolID; tid != "" {
+						if _, seen := seenToolIDs[tid]; !seen {
+							seenToolIDs[tid] = struct{}{}
+							toolCallCount++
+						}
+					}
 					remaining := maxToolResultsLen - toolResultsSB.Len()
 					content := choice.Message.Content
 					if len(content) > remaining {

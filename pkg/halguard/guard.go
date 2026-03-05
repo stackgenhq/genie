@@ -36,9 +36,8 @@ type Guard interface {
 	// fabricated) and 1.0 (certainly genuine). The caller decides whether to
 	// proceed based on the score and a configurable threshold.
 	//
-	// Uses multi-signal analysis: structural indicators, semantic patterns,
-	// information density, and optionally a fast LLM classifier for
-	// ambiguous cases. This is more robust than brittle keyword matching.
+	// Uses multi-signal analysis based on structural indicators, semantic
+	// patterns, and information density rather than brittle keyword matching.
 	PreCheck(ctx context.Context, req PreCheckRequest) (PreCheckResult, error)
 
 	// PostCheck verifies sub-agent output after execution.

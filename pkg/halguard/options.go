@@ -31,8 +31,9 @@ type Config struct {
 	MaxBlocksToJudge int `yaml:"max_blocks_to_judge,omitempty" toml:"max_blocks_to_judge,omitempty"`
 
 	// PreCheckThreshold is the confidence score below which a sub-agent
-	// goal is rejected as likely fabricated. Range: 0.0–1.0. Default: 0.4.
-	// Lower = more permissive, higher = more strict.
+	// goal is rejected as likely fabricated. Range: (0.0–1.0]. Default: 0.4.
+	// Lower = more permissive, higher = more strict. A value of 0 (or an
+	// omitted field) is treated as "unset" and causes the default to be used.
 	PreCheckThreshold float64 `yaml:"pre_check_threshold,omitempty" toml:"pre_check_threshold,omitempty"`
 }
 
@@ -103,11 +104,17 @@ func WithConfig(cfg Config) Option {
 		if cfg.PreCheckThreshold > 0 {
 			c.PreCheckThreshold = cfg.PreCheckThreshold
 		}
-		// Bool fields: only override when the incoming config has them
-		// explicitly set. Since we can't distinguish "false" from "not set"
-		// for bools from TOML, we only apply when the source struct has at
-		// least one non-zero field (= user provided a [halguard] section).
-		if cfg != (Config{}) {
+		// Bool fields: only override when the incoming config has at least
+		// one non-bool field explicitly set (= user provided a [halguard]
+		// section with meaningful content). This prevents a config struct
+		// with only non-bool defaults (e.g. just cross_model_samples = 5)
+		// from accidentally disabling both checks via zero-value bools.
+		hasExplicitNonBool := cfg.LightThresholdChars > 0 ||
+			cfg.FullThresholdChars > 0 ||
+			cfg.CrossModelSamples > 0 ||
+			cfg.MaxBlocksToJudge > 0 ||
+			cfg.PreCheckThreshold > 0
+		if hasExplicitNonBool {
 			c.EnablePreCheck = cfg.EnablePreCheck
 			c.EnablePostCheck = cfg.EnablePostCheck
 		}

@@ -299,6 +299,7 @@ func NewOrchestrator(
 		vectorStore,
 		halGuard,
 	)
+	createAgentTool.SetHalGuardThreshold(oo.halGuardConfig.PreCheckThreshold)
 	// Log tool counts so operators can verify email, gmail, etc. are wired for sub-agents.
 	n := len(availableTools.ToolNames())
 	logger := logger.GetLogger(ctx).With("fn", "createOrchestrator")
