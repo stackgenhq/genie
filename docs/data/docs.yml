@@ -850,6 +850,89 @@ config_sections:
         pattern = 'v\d+\.\d+\.\d+'
         name = "semver"
 
+  - id: halguard
+    icon: "🛡️"
+    name: halguard
+    sidebar_desc: Hallucination Guard
+    detail_title: "🛡️ halguard"
+    detail_desc: >
+      <strong>Multi-Layer Hallucination Detection & Correction.</strong><br>
+      Genie's hallucination guard catches and corrects fabricated sub-agent outputs using a two-phase
+      approach: <strong>Pre-Check (P0)</strong> scores delegation goals for fabrication risk before
+      they reach a sub-agent, and <strong>Post-Check (P1)</strong> verifies sub-agent outputs using
+      tiered cross-model consistency checking after execution.<br><br>
+      <strong>Pre-Check</strong> uses weighted multi-signal grounding analysis — detecting role-play
+      assignments, fabrication patterns, invented metrics, and temporal urgency language. It returns a
+      confidence score (0.0–1.0) instead of a binary decision, giving the caller tunable sensitivity
+      via <code>pre_check_threshold</code>.<br><br>
+      <strong>Post-Check</strong> implements Finch-Zk cross-model verification: short tool-grounded
+      outputs skip verification entirely, medium outputs get a single-model sanity check, and long
+      outputs receive full cross-model consistency analysis with targeted block correction.<br><br>
+      Based on research from
+      <a href="https://arxiv.org/abs/2508.14314" target="_blank" class="text-purple-500 hover:text-purple-600">Finch-Zk (arXiv:2508.14314)</a>
+      for cross-model verification, and inspired by PCC (Prompt Confidence Calibration) and SINdex
+      (Semantic Information Density) methodologies for pre-check scoring.
+    tables:
+      - columns: [Key, Type, Default, Description]
+        rows:
+          - ["enable_pre_check", "bool", "`true`", "Enable multi-signal goal scoring before sub-agent delegation"]
+          - ["enable_post_check", "bool", "`true`", "Enable tiered cross-model output verification after sub-agent execution"]
+          - ["pre_check_threshold", "float", "`0.4`", "Fabrication confidence score (0.0–1.0) above which a goal is rejected. Lower = more permissive, higher = stricter"]
+          - ["light_threshold_chars", "int", "`200`", "Output length above which light (single-model) verification is applied"]
+          - ["full_threshold_chars", "int", "`500`", "Output length above which full cross-model verification is applied"]
+          - ["cross_model_samples", "int", "`3`", "Independent model samples for full verification. Per Finch-Zk §2.5, 3 samples with batch judging maintains accuracy at manageable cost"]
+          - ["max_blocks_to_judge", "int", "`20`", "Cap on output blocks sent for cross-consistency judging to limit cost"]
+    subsections:
+      - label: Pre-Check Grounding Signals
+        columns: [Signal, Weight, What It Detects]
+        rows:
+          - ["RolePlay", "`0.40`", "Role-play language: 'You are an SRE', 'Act as a database expert', 'Pretend to be'"]
+          - ["FabricationPattern", "`0.25`", "Invented facts: 'p99 latency spiked from 50ms to 2000ms', 'deployment at 3:42 AM caused'"]
+          - ["SecondPersonRole", "`0.15`", "Second-person role assignment: 'You are...', 'Your task is...'"]
+          - ["SpecificMetrics", "`0.15`", "Suspiciously precise numbers without tool backing: exact percentages, dates, metrics"]
+          - ["InformationDensity", "`0.10`", "Unusually high density of technical claims per sentence"]
+          - ["TemporalUrgency", "`0.10`", "Artificial time pressure: 'immediately', 'critical', 'ASAP', 'right now'"]
+      - label: Post-Check Verification Tiers
+        columns: [Tier, When Applied, What Happens]
+        rows:
+          - ["TierNone", "Short output + tool calls > 0", "Output is grounded in tool results — skip verification entirely"]
+          - ["TierLight", "Output ≥ light_threshold_chars", "Single-model sanity check for obvious fabrications"]
+          - ["TierFull", "Output ≥ full_threshold_chars", "Cross-model consistency: N independent samples are compared block-by-block. Contradictions are corrected with targeted rewrites"]
+      - label: Model Requirements
+        columns: [Requirement, Detail]
+        rows:
+          - ["Efficiency models", "Register at least one model with `good_for_task = \"efficiency\"` per provider for optimal cross-model diversity"]
+          - ["Cross-provider diversity", "3 efficiency models from different providers (e.g. OpenAI, Gemini, Anthropic) give the best verification — each model family has different failure modes"]
+          - ["Fallback", "If no efficiency models are registered, halguard falls back to whatever models are available"]
+    code_example:
+      label: Example TOML
+      code: |
+        [halguard]
+        enable_pre_check = true
+        enable_post_check = true
+        pre_check_threshold = 0.4      # 0-1, higher = stricter
+        cross_model_samples = 3
+
+        # For optimal cross-model verification, register efficiency
+        # models from different providers:
+        [[model_config.providers]]
+        provider = "openai"
+        model_name = "gpt-4.1-mini"
+        token = "${OPENAI_API_KEY}"
+        good_for_task = "efficiency"
+
+        [[model_config.providers]]
+        provider = "gemini"
+        model_name = "gemini-2.0-flash"
+        token = "${GEMINI_API_KEY}"
+        good_for_task = "efficiency"
+
+        [[model_config.providers]]
+        provider = "anthropic"
+        model_name = "claude-haiku-3-5"
+        token = "${ANTHROPIC_API_KEY}"
+        good_for_task = "efficiency"
+
   - id: pensieve
     icon: "🧠"
     name: disable_pensieve

@@ -65,7 +65,8 @@
         security: { secrets: [] },
         pii: { salt: '', entropy_threshold: 4.2, min_secret_length: 12, sensitive_keys: [] },
         disable_pensieve: false,
-        persona: { file: '', disable_resume: false }
+        persona: { file: '', disable_resume: false },
+        halguard: { enable_pre_check: true, enable_post_check: true, light_threshold_chars: 200, full_threshold_chars: 500, cross_model_samples: 3, max_blocks_to_judge: 20, pre_check_threshold: 0.4 }
     };
 
     var PROVIDERS = ['openai', 'gemini', 'anthropic'];
@@ -224,6 +225,7 @@
         renderDBConfig();
         renderAGUI();
         renderLangfuse();
+        renderHalGuard();
         renderCron();
         renderOutput();
     }
@@ -753,6 +755,34 @@
         ]));
     }
 
+    // ── Hallucination Guard ──
+    function renderHalGuard() {
+        var c = $('halguard-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var hg = state.halguard;
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+            fieldToggle('Enable Pre-Check', hg.enable_pre_check, function (v) { hg.enable_pre_check = v; renderOutput(); },
+                'Score sub-agent goals for fabrication risk before delegation. Uses multi-signal grounding analysis (role-play, fabrication patterns, temporal urgency). Based on PCC and SINdex research.'),
+            fieldToggle('Enable Post-Check', hg.enable_post_check, function (v) { hg.enable_post_check = v; renderOutput(); },
+                'Verify sub-agent outputs using cross-model consistency checking after execution. Based on Finch-Zk methodology (arXiv:2508.14314).'),
+            fieldNumber('Pre-Check Threshold', hg.pre_check_threshold * 100, function (v) { hg.pre_check_threshold = (parseInt(v, 10) || 40) / 100; renderOutput(); }, 0, 100,
+                'Confidence score (0-100%) below which a sub-agent goal is rejected as likely fabricated. Lower = more permissive, higher = more strict. Default: 40%'),
+            fieldNumber('Cross-Model Samples', hg.cross_model_samples, function (v) { hg.cross_model_samples = v; renderOutput(); }, 1, 10,
+                'Number of independent model samples for full verification. 3 samples with batch judging maintains accuracy at manageable cost (Finch-Zk §2.5).'),
+            fieldNumber('Light Threshold (chars)', hg.light_threshold_chars, function (v) { hg.light_threshold_chars = v; renderOutput(); }, 50, 5000,
+                'Output length above which light (single-model) verification is applied. Default: 200 chars.'),
+            fieldNumber('Full Threshold (chars)', hg.full_threshold_chars, function (v) { hg.full_threshold_chars = v; renderOutput(); }, 100, 10000,
+                'Output length above which full cross-model verification is applied. Default: 500 chars.'),
+            fieldNumber('Max Blocks to Judge', hg.max_blocks_to_judge, function (v) { hg.max_blocks_to_judge = v; renderOutput(); }, 1, 100,
+                'Cap on blocks sent for cross-consistency judging to limit cost on very long outputs. Default: 20.')
+        ]));
+        c.appendChild(el('p', { className: 'text-xs text-gray-400 mt-2' },
+            'Powered by multi-signal grounding analysis and Finch-Zk cross-model verification. ' +
+            'Requires at least one model with <code>good_for_task = "efficiency"</code> for optimal cross-model diversity. ' +
+            'Reference: <a href="https://arxiv.org/abs/2508.14314" class="text-purple-500 hover:underline" target="_blank">arXiv:2508.14314</a>.'));
+    }
+
     // ── DB Config ──
     function renderDBConfig() {
         var c = $('db-config-body');
@@ -1036,6 +1066,7 @@
         langfuseToToml(lines);
         securityToToml(lines);
         piiToToml(lines);
+        halguardToToml(lines);
 
         cronToToml(lines);
         return lines.join('\n');
@@ -1324,6 +1355,24 @@
         lines.push('');
     }
 
+    function halguardToToml(lines) {
+        var hg = state.halguard;
+        var isDefault = hg.enable_pre_check && hg.enable_post_check &&
+            hg.light_threshold_chars === 200 && hg.full_threshold_chars === 500 &&
+            hg.cross_model_samples === 3 && hg.max_blocks_to_judge === 20 &&
+            hg.pre_check_threshold === 0.4;
+        if (isDefault) return;
+        lines.push('[halguard]');
+        if (!hg.enable_pre_check) lines.push('enable_pre_check = false');
+        if (!hg.enable_post_check) lines.push('enable_post_check = false');
+        if (hg.light_threshold_chars !== 200) lines.push('light_threshold_chars = ' + hg.light_threshold_chars);
+        if (hg.full_threshold_chars !== 500) lines.push('full_threshold_chars = ' + hg.full_threshold_chars);
+        if (hg.cross_model_samples !== 3) lines.push('cross_model_samples = ' + hg.cross_model_samples);
+        if (hg.max_blocks_to_judge !== 20) lines.push('max_blocks_to_judge = ' + hg.max_blocks_to_judge);
+        if (hg.pre_check_threshold !== 0.4) lines.push('pre_check_threshold = ' + hg.pre_check_threshold);
+        lines.push('');
+    }
+
     function cronToToml(lines) {
         var cr = state.cron;
         if (!cr.enabled) return;
@@ -1566,6 +1615,7 @@
 
         securityToYaml(lines);
         piiToYaml(lines);
+        halguardToYaml(lines);
 
         cronToYaml(lines);
         return lines.join('\n');
@@ -1838,6 +1888,24 @@
     function pensieveToYaml(lines) {
         if (!state.disable_pensieve) return;
         lines.push('disable_pensieve: true');
+        lines.push('');
+    }
+
+    function halguardToYaml(lines) {
+        var hg = state.halguard;
+        var isDefault = hg.enable_pre_check && hg.enable_post_check &&
+            hg.light_threshold_chars === 200 && hg.full_threshold_chars === 500 &&
+            hg.cross_model_samples === 3 && hg.max_blocks_to_judge === 20 &&
+            hg.pre_check_threshold === 0.4;
+        if (isDefault) return;
+        lines.push('halguard:');
+        if (!hg.enable_pre_check) lines.push('  enable_pre_check: false');
+        if (!hg.enable_post_check) lines.push('  enable_post_check: false');
+        if (hg.light_threshold_chars !== 200) lines.push('  light_threshold_chars: ' + hg.light_threshold_chars);
+        if (hg.full_threshold_chars !== 500) lines.push('  full_threshold_chars: ' + hg.full_threshold_chars);
+        if (hg.cross_model_samples !== 3) lines.push('  cross_model_samples: ' + hg.cross_model_samples);
+        if (hg.max_blocks_to_judge !== 20) lines.push('  max_blocks_to_judge: ' + hg.max_blocks_to_judge);
+        if (hg.pre_check_threshold !== 0.4) lines.push('  pre_check_threshold: ' + hg.pre_check_threshold);
         lines.push('');
     }
 
