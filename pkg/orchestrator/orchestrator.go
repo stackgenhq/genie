@@ -550,22 +550,34 @@ func (c *orchestrator) classifyAndMaybeShortCircuit(ctx context.Context, req Cod
 			Metadata:  map[string]interface{}{"question": req.Question},
 		})
 	}
+	// emitShortCircuit sends the response to both the outputChan (for non-AGUI
+	// platforms like Slack/Discord) and the AG-UI event bus (for web UI clients).
+	// buildChatHandler intentionally skips re-emitting outputChan contents for
+	// AG-UI to avoid duplicating streamed EventAdapter text. But short-circuit
+	// paths bypass the EventAdapter entirely, so their responses must be emitted
+	// directly via the event bus.
+	agentName := orchestratorcontext.AgentFromContext(ctx).Name
+	emitShortCircuit := func(msg string) {
+		agui.EmitAgentMessage(ctx, agentName, msg)
+		outputChan <- msg
+	}
+
 	switch category {
 	case categoryRefuse:
-		outputChan <- "🚫 Whoa there! That's a no-go zone for me. " +
+		emitShortCircuit("🚫 Whoa there! That's a no-go zone for me. " +
 			"I'm here to build cool things, not blow them up! " +
-			"Got something constructive? I'm all ears 👂"
+			"Got something constructive? I'm all ears 👂")
 		return true, nil
 	case categoryOutOfScope:
 		reason := cr.Reason
 		if reason == "" {
 			reason = "That doesn't seem to be within my area of expertise."
 		}
-		outputChan <- fmt.Sprintf(
+		emitShortCircuit(fmt.Sprintf(
 			"🙈 Hmm, I can't help with that — %s\n\n"+
 				"Try me with something in my wheelhouse — I promise I'm great at it! 🚀",
 			reason,
-		)
+		))
 		return true, nil
 	case categorySalutation:
 		salutationMsg := fmt.Sprintf(
@@ -587,7 +599,7 @@ func (c *orchestrator) classifyAndMaybeShortCircuit(ctx context.Context, req Cod
 			return true, fmt.Errorf("front desk salutation response failed: %w", doErr)
 		}
 		output := extractTextFromChoices(resp.Choices)
-		outputChan <- output
+		emitShortCircuit(output)
 		c.storeConversation(ctx, req.Question, output)
 		return true, nil
 	default:

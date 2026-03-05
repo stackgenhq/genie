@@ -92,9 +92,17 @@ func scoreGoal(goal string) (penalty float64, signals GroundingSignals) {
 	}
 
 	// Signal 5: Information density — many specific claims per sentence.
+	// This is the primary safety net when fabrication regexes are bypassed by
+	// creative rephrasing. It combines:
+	//   (a) specific-term density (numbers, technical vocabulary)
+	//   (b) numeric cluster density (multiple numbers in a small window,
+	//       e.g. "from 50ms to 2000ms" reworded as "degraded by a factor of 40")
+	//   (c) narrative arc score (cause→effect→action packed in one message)
 	infoDensity := informationDensity(goal)
-	if infoDensity > 0.6 {
-		signals.InformationDensity = (infoDensity - 0.6) * weightInformationDensity / 0.4
+	narrative := narrativeArcScore(goal)
+	combinedDensity := math.Max(infoDensity, (infoDensity+narrative)/2)
+	if combinedDensity > 0.5 {
+		signals.InformationDensity = min(1.0, (combinedDensity-0.5)*2) * weightInformationDensity
 	}
 
 	// Signal 6: Temporal urgency.
@@ -146,23 +154,83 @@ func informationDensity(text string) float64 {
 
 // isSpecificTerm returns true for words that contribute to information density.
 func isSpecificTerm(word string) bool {
-	// Numbers.
+	// Numbers and version-like strings.
 	if len(word) > 0 && (word[0] >= '0' && word[0] <= '9') {
 		return true
 	}
-	// Technical/operational terms.
-	techTerms := []string{
-		"latency", "throughput", "error", "cpu", "memory", "disk",
-		"timeout", "spike", "alert", "incident", "outage", "deploy",
-		"rollback", "service", "pod", "container", "node", "cluster",
-		"database", "queue", "cache", "replica", "shard",
+	// "v2.8.4" style version strings.
+	if len(word) > 1 && (word[0] == 'v' || word[0] == 'V') && word[1] >= '0' && word[1] <= '9' {
+		return true
 	}
-	for _, t := range techTerms {
-		if word == t {
+	// Technical/operational terms — broad categories, not exhaustive matches.
+	// This catches variations: "latencies", "cpu-bound", etc.
+	techPrefixes := []string{
+		"latenc", "throughput", "error", "cpu", "memory", "mem",
+		"disk", "timeout", "spike", "alert", "incident", "outage",
+		"deploy", "rollback", "service", "pod", "container", "node",
+		"cluster", "database", "queue", "cache", "replica", "shard",
+		"degrad", "crash", "fail", "leak", "oom", "restart",
+		"metric", "monitor", "grafana", "prometheus", "dashboard",
+		"request", "response", "bandwidth", "saturat",
+	}
+	for _, p := range techPrefixes {
+		if strings.HasPrefix(word, p) {
 			return true
 		}
 	}
 	return false
+}
+
+// narrativeArcScore detects the cause→effect→action pattern typical of
+// fabricated incident scenarios. Fabricated goals tend to pack all three
+// phases into a single message, which is structurally unusual for genuine
+// requests. Returns [0, 1].
+func narrativeArcScore(text string) float64 {
+	lower := strings.ToLower(text)
+	score := 0.0
+
+	// Phase 1: Situation/State description ("X is/was/has been Y")
+	situationMarkers := []string{
+		"is down", "was down", "has been", "went down", "is failing",
+		"started to", "began to", "noticed that", "observed that",
+		"we detected", "we noticed", "we saw", "we observed",
+		"appears to be", "seems to", "looks like",
+	}
+	for _, m := range situationMarkers {
+		if strings.Contains(lower, m) {
+			score += 0.35
+			break
+		}
+	}
+
+	// Phase 2: Cause identification ("caused by", "due to", "because")
+	causeMarkers := []string{
+		"caused by", "due to", "because", "root cause",
+		"introduced in", "resulted from", "triggered by",
+		"following the", "after the", "since the",
+	}
+	for _, m := range causeMarkers {
+		if strings.Contains(lower, m) {
+			score += 0.35
+			break
+		}
+	}
+
+	// Phase 3: Action directive ("investigate", "fix", "check")
+	actionMarkers := []string{
+		"investigate", "fix", "check", "diagnose", "resolve",
+		"mitigate", "remediate", "troubleshoot", "debug",
+		"generate a report", "write a report", "create a report",
+		"find out why", "figure out", "determine why",
+	}
+	for _, m := range actionMarkers {
+		if strings.Contains(lower, m) {
+			score += 0.3
+			break
+		}
+	}
+
+	return min(1.0, score)
 }
 
 // countSentences counts approximate sentence boundaries in text.

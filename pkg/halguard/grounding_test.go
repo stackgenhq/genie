@@ -288,9 +288,90 @@ var _ = Describe("Grounding", func() {
 			Expect(isSpecificTerm("database")).To(BeTrue())
 		})
 
+		It("should detect term variations via prefix matching", func() {
+			Expect(isSpecificTerm("latencies")).To(BeTrue())
+			Expect(isSpecificTerm("degraded")).To(BeTrue())
+			Expect(isSpecificTerm("failures")).To(BeTrue())
+			Expect(isSpecificTerm("crashed")).To(BeTrue())
+			Expect(isSpecificTerm("leaking")).To(BeTrue())
+			Expect(isSpecificTerm("restarted")).To(BeTrue())
+			Expect(isSpecificTerm("monitoring")).To(BeTrue())
+		})
+
+		It("should detect version strings", func() {
+			Expect(isSpecificTerm("v2")).To(BeTrue())
+			Expect(isSpecificTerm("V1")).To(BeTrue())
+		})
+
 		It("should not match generic words", func() {
 			Expect(isSpecificTerm("hello")).To(BeFalse())
 			Expect(isSpecificTerm("world")).To(BeFalse())
+			Expect(isSpecificTerm("please")).To(BeFalse())
+		})
+	})
+
+	Describe("narrativeArcScore", func() {
+		It("should return 0 for a simple task request", func() {
+			score := narrativeArcScore("Find all Go files that import fmt")
+			Expect(score).To(Equal(0.0))
+		})
+
+		It("should return 0 for a generic question", func() {
+			score := narrativeArcScore("What is the best way to handle errors in Go?")
+			Expect(score).To(Equal(0.0))
+		})
+
+		It("should detect situation+cause+action (full narrative arc)", func() {
+			score := narrativeArcScore(
+				"Our API has been experiencing slowdowns due to a connection pool leak. " +
+					"Investigate the database connections and fix the pooling configuration.",
+			)
+			Expect(score).To(BeNumerically(">", 0.8))
+		})
+
+		It("should detect situation+action (partial arc)", func() {
+			score := narrativeArcScore(
+				"The billing service seems to be failing intermittently. " +
+					"Check the logs and find out why.",
+			)
+			Expect(score).To(BeNumerically(">", 0.5))
+		})
+
+		It("should detect situation+cause without action", func() {
+			score := narrativeArcScore(
+				"The deployment started to fail after the config change.",
+			)
+			Expect(score).To(BeNumerically(">", 0.5))
+		})
+
+		It("should cap at 1.0", func() {
+			score := narrativeArcScore(
+				"The service has been down since the deployment. " +
+					"Root cause was a memory leak introduced in the latest release. " +
+					"Immediately investigate and fix the issue.",
+			)
+			Expect(score).To(BeNumerically("<=", 1.0))
+		})
+	})
+
+	Describe("regression: creative rephrasing bypasses regex", func() {
+		It("should still catch fabricated scenarios using naturalistic phrasing", func() {
+			// This goal avoids the specific fabrication regex patterns
+			// (no "p99 latency spiked from X to Y", no "error rate jumped")
+			// but still describes a fabricated incident scenario.
+			goal := "Our payment processing has been experiencing severe degradation " +
+				"ever since the recent release went out. The response times went from " +
+				"acceptable to unusable. This was caused by a memory leak in the " +
+				"transaction handler. Immediately check the Grafana dashboards and " +
+				"generate an incident report."
+			penalty, signals := scoreGoal(goal)
+			// Should catch via narrative arc + information density + temporal urgency
+			Expect(penalty).To(BeNumerically(">", 0.1),
+				"naturalistic rephrasing should still trigger some penalty via structural signals")
+			// At least one of the structural signals should fire
+			hasStructuralSignal := signals.InformationDensity > 0 || signals.TemporalUrgency > 0
+			Expect(hasStructuralSignal).To(BeTrue(),
+				"expected information density or temporal urgency to fire even without regex matches")
 		})
 	})
 })
