@@ -379,9 +379,9 @@ func (c *orchestrator) createResume(
 		// by stripping it from the combined persona before returning.
 		sanitized := strings.TrimSpace(c.agentPersona)
 
-		// If nothing remains but the original persona was non-empty,
-		// fall back to a static, non-sensitive message.
-		if sanitized == "" && fullPersona != "" {
+		// If nothing remains after sanitization, fall back to a static,
+		// non-sensitive message.
+		if sanitized == "" {
 			sanitized = "generalist"
 		}
 

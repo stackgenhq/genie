@@ -17,7 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   ```toml
   persona_file = "path/to/your/persona.md"
-  disable_resume = true
   ```
 
   with:
