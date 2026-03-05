@@ -295,6 +295,6 @@ replace trpc.group/trpc-go/trpc-agent-go/model/gemini => github.com/sks/trpc-age
 
 replace trpc.group/trpc-go/trpc-agent-go/model/ollama => github.com/sks/trpc-agent-go/model/ollama v0.0.0-20260303144342-9805e6b926ca
 
-replace trpc.group/trpc-go/trpc-agent-go/model/anthropic => github.com/sks/trpc-agent-go/model/anthropic v0.0.0-20260303144342-9805e6b926ca
+replace trpc.group/trpc-go/trpc-agent-go/model/anthropic => github.com/sks/trpc-agent-go/model/anthropic v0.0.0-20260305014050-c428b840afa2
 
 replace trpc.group/trpc-go/trpc-agent-go/model/openai => github.com/sks/trpc-agent-go/model/openai v0.0.0-20260303144342-9805e6b926ca

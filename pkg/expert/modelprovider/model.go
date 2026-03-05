@@ -255,6 +255,8 @@ type ProviderConfig struct {
 	// EnableTokenTailoring when true (default) trims conversation history to the model's context window (arXiv:2601.14192).
 	// Set to false to disable (e.g. debugging or when the provider handles context itself).
 	EnableTokenTailoring *bool `json:"enable_token_tailoring,omitempty" yaml:"enable_token_tailoring,omitempty" toml:"enable_token_tailoring,omitempty"`
+
+	MaxTokens *int `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty" toml:"max_tokens,omitempty"`
 }
 
 func (p ProviderConfig) String() string {
@@ -363,6 +365,12 @@ func (p ProviderConfig) toModel(ctx context.Context) (model.Model, error) {
 		}
 		if p.Host != "" {
 			opts = append(opts, anthropic.WithBaseURL(p.Host))
+		}
+		// If MaxTokens was explicitly set in ProviderConfig, we can set it.
+		// However, the builder only exposes `WithMaxTokens`. In previous versions, we patched `anthropic` to accept it.
+		// So we will pass the value into that patched extension:
+		if p.MaxTokens != nil {
+			opts = append(opts, anthropic.WithMaxTokens(*p.MaxTokens))
 		}
 		return anthropic.New(p.ModelName, opts...), nil
 	case "ollama":
