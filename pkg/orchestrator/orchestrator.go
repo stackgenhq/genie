@@ -336,16 +336,6 @@ func NewOrchestrator(
 	orchestratorTools := tools.NewRegistry(ctx, orchestratorToolSlice)
 	logger.Info("Orchestrator tool registry initialized", "count", len(orchestratorTools.ToolNames()))
 
-	var router semanticrouter.IRouter = oo.semanticRouter
-	if router == nil {
-		// Fallback in case not provided
-		r, err := semanticrouter.New(ctx, semanticrouter.Config{Disabled: true}, modelProvider)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize fallback semantic router: %w", err)
-		}
-		router = r
-	}
-
 	orchestrator := &orchestrator{
 		expert:             exp,
 		treeExecutor:       treeExec,
@@ -354,7 +344,7 @@ func NewOrchestrator(
 		toolRegistry:       orchestratorTools,
 		auditor:            auditor,
 		vectorStore:        vectorStore,
-		router:             router,
+		router:             oo.semanticRouter,
 		episodicMemoryCfg:  episodicMemoryCfg,
 		availableToolNames: availableTools.GetToolDescriptions(),
 		disableResume:      oo.disableResume,
@@ -530,59 +520,63 @@ func bridgeBrowserTab(parent, tab context.Context) (context.Context, context.Can
 // (true, nil). For COMPLEX it returns (false, nil) so the caller continues with the
 // full pipeline. Returns (_, err) on salutation response failure.
 func (c *orchestrator) classifyAndMaybeShortCircuit(ctx context.Context, req CodeQuestion, outputChan chan<- string) (handled bool, err error) {
-	logr := logger.GetLogger(ctx).With("fn", "classifyAndMaybeShortCircuit")
-	var category requestCategory
-	var cr classificationResult
-	if req.SkipClassification {
-		category = categoryComplex
-		logr.Info("front desk classification skipped (internal task)", "category", category)
-	} else {
-		var classifyErr error
-		cr, classifyErr := c.router.Classify(ctx, req.Question, c.Resume(ctx))
-		if classifyErr != nil {
-			logr.Warn("semantic gatekeeper classification failed, defaulting to complex", "error", classifyErr)
-			cr = semanticrouter.ClassificationResult{Category: semanticrouter.CategoryComplex}
-		}
+	category, cr := c.classifyRequest(ctx, req)
 
-		// Map L2 classification response to local category format
-		switch cr.Category {
-		case semanticrouter.CategoryRefuse:
-			category = categoryRefuse
-		case semanticrouter.CategorySalutation:
-			category = categorySalutation
-		case semanticrouter.CategoryOutOfScope:
-			category = categoryOutOfScope
-		default:
-			category = categoryComplex
-		}
-
-		if !cr.BypassedLLM {
-			logr.Info("front desk classified request via LLM", "category", category)
-			c.auditor.Log(ctx, audit.LogRequest{
-				EventType: audit.EventClassification,
-				Actor:     "front-desk",
-				Action:    string(category),
-				Metadata:  map[string]interface{}{"question": req.Question},
-			})
-		} else {
-			logr.Info("front desk classified request via L1 Semantic Router", "category", category)
-		}
-	}
 	// emitShortCircuit sends the response to both the outputChan (for non-AGUI
 	// platforms like Slack/Discord) and the AG-UI event bus (for web UI clients).
-	// buildChatHandler intentionally skips re-emitting outputChan contents for
-	// AG-UI to avoid duplicating streamed EventAdapter text. But short-circuit
-	// paths bypass the EventAdapter entirely, so their responses must be emitted
-	// directly via the event bus.
 	agentName := orchestratorcontext.AgentFromContext(ctx).Name
 	emitShortCircuit := func(msg string) {
 		agui.EmitAgentMessage(ctx, agentName, msg)
 		outputChan <- msg
 	}
 
+	return c.handleShortCircuit(ctx, category, cr, req, emitShortCircuit)
+}
+
+func (c *orchestrator) classifyRequest(ctx context.Context, req CodeQuestion) (requestCategory, semanticrouter.ClassificationResult) {
+	logr := logger.GetLogger(ctx).With("fn", "classifyRequest")
+	if req.SkipClassification {
+		logr.Info("front desk classification skipped (internal task)", "category", categoryComplex)
+		return categoryComplex, semanticrouter.ClassificationResult{}
+	}
+
+	cr, classifyErr := c.router.Classify(ctx, req.Question, c.Resume(ctx))
+	if classifyErr != nil {
+		logr.Warn("semantic gatekeeper classification failed, defaulting to complex", "error", classifyErr)
+		cr = semanticrouter.ClassificationResult{Category: semanticrouter.CategoryComplex}
+	}
+
+	var category requestCategory
+	switch cr.Category {
+	case semanticrouter.CategoryRefuse:
+		category = categoryRefuse
+	case semanticrouter.CategorySalutation:
+		category = categorySalutation
+	case semanticrouter.CategoryOutOfScope:
+		category = categoryOutOfScope
+	default:
+		category = categoryComplex
+	}
+
+	if !cr.BypassedLLM {
+		logr.Info("front desk classified request via LLM", "category", category)
+		c.auditor.Log(ctx, audit.LogRequest{
+			EventType: audit.EventClassification,
+			Actor:     "front-desk",
+			Action:    string(category),
+			Metadata:  map[string]interface{}{"question": req.Question},
+		})
+	} else {
+		logr.Info("front desk classified request via L1 Semantic Router", "category", category)
+	}
+
+	return category, cr
+}
+
+func (c *orchestrator) handleShortCircuit(ctx context.Context, category requestCategory, cr semanticrouter.ClassificationResult, req CodeQuestion, emit func(string)) (bool, error) {
 	switch category {
 	case categoryRefuse:
-		emitShortCircuit("🚫 Whoa there! That's a no-go zone for me. " +
+		emit("🚫 Whoa there! That's a no-go zone for me. " +
 			"I'm here to build cool things, not blow them up! " +
 			"Got something constructive? I'm all ears 👂")
 		return true, nil
@@ -591,7 +585,7 @@ func (c *orchestrator) classifyAndMaybeShortCircuit(ctx context.Context, req Cod
 		if reason == "" {
 			reason = "That doesn't seem to be within my area of expertise."
 		}
-		emitShortCircuit(fmt.Sprintf(
+		emit(fmt.Sprintf(
 			"🙈 Hmm, I can't help with that — %s\n\n"+
 				"Try me with something in my wheelhouse — I promise I'm great at it! 🚀",
 			reason,
@@ -620,7 +614,7 @@ func (c *orchestrator) classifyAndMaybeShortCircuit(ctx context.Context, req Cod
 		if len(resp.Choices) > 0 {
 			output = resp.Choices[0].Message.Content
 		}
-		emitShortCircuit(output)
+		emit(output)
 		c.storeConversation(ctx, req.Question, output)
 		return true, nil
 	default:
