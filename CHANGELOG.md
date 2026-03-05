@@ -13,10 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OpenTelemetry (OTel) spans and attributes recorded for hallucination guard `PreCheck` and `PostCheck` execution.
 - Direct EventBus emission via `emitShortCircuit` for refused/out-of-scope orchestrator responses, bypassing the EventAdapter to ensure timely delivery to the AG-UI.
 - Make agent capabilities resume creation optional through `disable_resume` config.
+- Semantic router routes can now be dynamically configured via config file (`routes` field).
+- Defined an `IRouter` interface for the semantic router to improve testability and abstraction.
 
 ### Changed
 
 - Parallelized execution of cross-model text generation during the `halguard` Post-Check using `errgroup`, significantly reducing latency.
+- Refactored `semanticrouter` gatekeeper integration in the orchestrator to consume the `IRouter` interface, lowering code coupling.
+- Simplified `semanticrouter.New` constructor by handling built-in and configured route merging internally.
+- Cleaned up the `semanticrouter` public API by removing the unused `CheckJailbreak` method and making `Route` private.
 
 - **Breaking**: the top-level `persona_file` config option has been moved to `[persona]` block. To migrate existing `.genie.toml` files, replace:
 

@@ -66,7 +66,8 @@
         pii: { salt: '', entropy_threshold: 4.2, min_secret_length: 12, sensitive_keys: [] },
         disable_pensieve: false,
         persona: { file: '', disable_resume: false },
-        halguard: { enable_pre_check: true, enable_post_check: true, light_threshold_chars: 200, full_threshold_chars: 500, cross_model_samples: 3, max_blocks_to_judge: 20, pre_check_threshold: 0.4 }
+        halguard: { enable_pre_check: true, enable_post_check: true, light_threshold_chars: 200, full_threshold_chars: 500, cross_model_samples: 3, max_blocks_to_judge: 20, pre_check_threshold: 0.4 },
+        semantic_router: { disabled: false, threshold: 0.85, enable_caching: true, routes: [] }
     };
 
     var PROVIDERS = ['openai', 'gemini', 'anthropic'];
@@ -226,6 +227,7 @@
         renderAGUI();
         renderLangfuse();
         renderHalGuard();
+        renderSemanticRouter();
         renderCron();
         renderOutput();
     }
@@ -783,6 +785,35 @@
             'Reference: <a href="https://arxiv.org/abs/2508.14314" class="text-purple-500 hover:underline" target="_blank">arXiv:2508.14314</a>.'));
     }
 
+    // ── Semantic Router ──
+    function renderSemanticRouter() {
+        var c = $('semanticrouter-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var sr = state.semantic_router;
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+            fieldToggle('Disabled', sr.disabled, function (v) { sr.disabled = v; renderOutput(); }, 'Turn off embedding-based intent routing entirely.'),
+            fieldToggle('Enable Caching', sr.enable_caching, function (v) { sr.enable_caching = v; renderOutput(); }, 'Cache successful responses syntactically to bypass generating identical intent replies.'),
+            fieldNumber('Threshold', sr.threshold, function (v) { sr.threshold = parseFloat(v) || 0.85; renderOutput(); }, 0, 1.0, 'Vector search threshold (0.0 to 1.0) above which routes match.')
+        ]));
+
+        sr.routes.forEach(function (r, i) {
+            c.appendChild(el('div', { className: 'repeatable-item mt-4' }, [
+                el('div', { className: 'flex items-center justify-between mb-3' }, [
+                    el('span', { className: 'text-sm font-semibold text-gray-600' }, 'Route #' + (i + 1) + (r.name ? ' — ' + r.name : '')),
+                    el('button', { className: 'btn-remove', onClick: function () { sr.routes.splice(i, 1); renderAll(); } }, '✕')
+                ]),
+                el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+                    fieldText('Name', r.name, function (v) { r.name = v; renderOutput(); }, 'custom_route', 'Route identifier'),
+                    fieldText('Utterances (comma-separated)', (r.utterances || []).join(', '), function (v) { r.utterances = splitCSV(v); renderOutput(); }, 'Can you write code?, How do I code?', 'Examples to match intent')
+                ])
+            ]));
+        });
+        c.appendChild(
+            el('button', { className: 'btn-add mt-4', onClick: function () { sr.routes.push({ name: '', utterances: [] }); renderAll(); } }, '+ Add Custom Route')
+        );
+    }
+
     // ── DB Config ──
     function renderDBConfig() {
         var c = $('db-config-body');
@@ -1067,6 +1098,7 @@
         securityToToml(lines);
         piiToToml(lines);
         halguardToToml(lines);
+        semanticRouterToToml(lines);
 
         cronToToml(lines);
         return lines.join('\n');
@@ -1373,6 +1405,25 @@
         lines.push('');
     }
 
+    function semanticRouterToToml(lines) {
+        var sr = state.semantic_router;
+        var isDefault = !sr.disabled && sr.threshold === 0.85 && sr.enable_caching;
+        if (isDefault) return;
+        lines.push('[semantic_router]');
+        if (sr.disabled) lines.push('disabled = true');
+        if (sr.threshold !== 0.85) lines.push('threshold = ' + sr.threshold);
+        if (!sr.enable_caching) lines.push('enable_caching = false');
+
+        sr.routes.forEach(function (r) {
+            if (!r.name) return;
+            lines.push('[[semantic_router.routes]]');
+            lines.push('name = ' + q(r.name));
+            if (hasItems(r.utterances)) lines.push('utterances = [' + r.utterances.filter(Boolean).map(q).join(', ') + ']');
+            lines.push('');
+        });
+        lines.push('');
+    }
+
     function cronToToml(lines) {
         var cr = state.cron;
         if (!cr.enabled) return;
@@ -1616,6 +1667,7 @@
         securityToYaml(lines);
         piiToYaml(lines);
         halguardToYaml(lines);
+        semanticRouterToYaml(lines);
 
         cronToYaml(lines);
         return lines.join('\n');
@@ -1906,6 +1958,31 @@
         if (hg.cross_model_samples !== 3) lines.push('  cross_model_samples: ' + hg.cross_model_samples);
         if (hg.max_blocks_to_judge !== 20) lines.push('  max_blocks_to_judge: ' + hg.max_blocks_to_judge);
         if (hg.pre_check_threshold !== 0.4) lines.push('  pre_check_threshold: ' + hg.pre_check_threshold);
+        lines.push('');
+    }
+
+    function semanticRouterToYaml(lines) {
+        var sr = state.semantic_router;
+        var isDefault = !sr.disabled && sr.threshold === 0.85 && sr.enable_caching;
+        if (isDefault) return;
+        lines.push('semantic_router:');
+        if (sr.disabled) lines.push('  disabled: true');
+        if (sr.threshold !== 0.85) lines.push('  threshold: ' + sr.threshold);
+        if (!sr.enable_caching) lines.push('  enable_caching: false');
+
+        if (hasItems(sr.routes)) {
+            lines.push('  routes:');
+            sr.routes.forEach(function (r) {
+                if (!r.name) return;
+                lines.push('    - name: ' + r.name);
+                if (hasItems(r.utterances)) {
+                    lines.push('      utterances:');
+                    r.utterances.filter(Boolean).forEach(function (utt) {
+                        lines.push('        - ' + yq(utt));
+                    });
+                }
+            });
+        }
         lines.push('');
     }
 

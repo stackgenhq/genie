@@ -18,7 +18,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/stackgenhq/genie/pkg/agentutils"
 	"github.com/stackgenhq/genie/pkg/agui"
@@ -35,21 +34,18 @@ import (
 	"github.com/stackgenhq/genie/pkg/pii"
 	"github.com/stackgenhq/genie/pkg/reactree"
 	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
+	"github.com/stackgenhq/genie/pkg/semanticrouter"
 	"github.com/stackgenhq/genie/pkg/tools"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
 	"github.com/stackgenhq/genie/pkg/ttlcache"
 	"trpc.group/trpc-go/trpc-agent-go/graph"
 	"trpc.group/trpc-go/trpc-agent-go/memory"
-	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/session"
 	"trpc.group/trpc-go/trpc-agent-go/telemetry/trace"
 )
 
 //go:embed prompts/persona.txt
 var persona string
-
-//go:embed prompts/classify.txt
-var classifyPrompt string
 
 type CodeQuestion struct {
 	Question string `json:"question"`
@@ -91,24 +87,17 @@ const (
 	categoryComplex    requestCategory = "COMPLEX"
 )
 
-// classificationResult carries the front-desk category together with an
-// optional human-friendly reason (currently only set for OUT_OF_SCOPE).
-type classificationResult struct {
-	Category requestCategory
-	Reason   string // non-empty only for OUT_OF_SCOPE
-}
-
 type orchestrator struct {
-	expert          expert.Expert
-	frontDeskExpert expert.Expert
-	treeExecutor    reactree.TreeExecutor
-	memorySvc       memory.Service
-	memoryUserKey   memory.UserKey
-	toolRegistry    *tools.Registry
-	auditor         audit.Auditor
-	resume          *ttlcache.Item[string]
-	resumeCancel    context.CancelFunc
-	vectorStore     vector.IStore
+	expert        expert.Expert
+	treeExecutor  reactree.TreeExecutor
+	memorySvc     memory.Service
+	memoryUserKey memory.UserKey
+	toolRegistry  *tools.Registry
+	auditor       audit.Auditor
+	resume        *ttlcache.Item[string]
+	resumeCancel  context.CancelFunc
+	vectorStore   vector.IStore
+	router        semanticrouter.IRouter
 
 	// availableToolNames holds the names of all tools registered in the full
 	// tool registry (not just the orchestrator's own tools). This list is
@@ -145,6 +134,7 @@ type orchestratorOpts struct {
 	toolwrapOpts   []toolwrap.ServiceOption
 	disableResume  bool
 	halGuardConfig halguard.Config
+	semanticRouter semanticrouter.IRouter
 }
 
 // WithToolwrapOptions passes per-agent middleware configuration to the
@@ -168,6 +158,14 @@ func WithDisableResume(disable bool) OrchestratorOption {
 func WithHalGuardConfig(cfg halguard.Config) OrchestratorOption {
 	return func(o *orchestratorOpts) {
 		o.halGuardConfig = cfg
+	}
+}
+
+// WithSemanticRouter sets the semantic router instance for fast
+// embedding-based routing and caching.
+func WithSemanticRouter(router semanticrouter.IRouter) OrchestratorOption {
+	return func(o *orchestratorOpts) {
+		o.semanticRouter = router
 	}
 }
 
@@ -237,19 +235,6 @@ func NewOrchestrator(
 		return nil, err
 	}
 	logger.GetLogger(ctx).Info("Expert bio created", "name", expertBio.Name, "persistentSession", sessionSvc != nil)
-
-	// Create a lightweight front desk expert for request classification.
-	// Uses TaskFrontDesk which maps to a fast, cheap model (e.g. gemini-3-flash).
-	frontDeskBio := expert.ExpertBio{
-		Personality: strings.ReplaceAll(classifyPrompt, agentNamePlaceholder, agentName),
-		Name:        "front-desk",
-		Description: "Classifies incoming requests to determine routing. Validate against the agents personality and make the judgement accordingly",
-	}
-	frontDeskExp, err := frontDeskBio.ToExpert(ctx, modelProvider, auditor, toolWrapSvc)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create front desk expert: %w", err)
-	}
-	logger.GetLogger(ctx).Debug("Front desk expert created")
 
 	// Initialize shared working memory for cross-turn observation sharing
 	wm := rtmemory.NewWorkingMemory()
@@ -346,13 +331,13 @@ func NewOrchestrator(
 
 	orchestrator := &orchestrator{
 		expert:             exp,
-		frontDeskExpert:    frontDeskExp,
 		treeExecutor:       treeExec,
 		memorySvc:          memorySvc,
 		memoryUserKey:      memoryUserKey,
 		toolRegistry:       orchestratorTools,
 		auditor:            auditor,
 		vectorStore:        vectorStore,
+		router:             oo.semanticRouter,
 		episodicMemoryCfg:  episodicMemoryCfg,
 		availableToolNames: availableTools.GetToolDescriptions(),
 		disableResume:      oo.disableResume,
@@ -528,43 +513,63 @@ func bridgeBrowserTab(parent, tab context.Context) (context.Context, context.Can
 // (true, nil). For COMPLEX it returns (false, nil) so the caller continues with the
 // full pipeline. Returns (_, err) on salutation response failure.
 func (c *orchestrator) classifyAndMaybeShortCircuit(ctx context.Context, req CodeQuestion, outputChan chan<- string) (handled bool, err error) {
-	logr := logger.GetLogger(ctx).With("fn", "classifyAndMaybeShortCircuit")
-	var category requestCategory
-	var cr classificationResult
-	if req.SkipClassification {
-		category = categoryComplex
-		logr.Info("front desk classification skipped (internal task)", "category", category)
-	} else {
-		var classifyErr error
-		cr, classifyErr = c.classifyRequest(ctx, req.Question)
-		if classifyErr != nil {
-			logr.Warn("front desk classification failed, defaulting to complex", "error", classifyErr)
-			cr = classificationResult{Category: categoryComplex}
-		}
-		category = cr.Category
-		logr.Info("front desk classified request", "category", category)
-		c.auditor.Log(ctx, audit.LogRequest{
-			EventType: audit.EventClassification,
-			Actor:     "front-desk",
-			Action:    string(category),
-			Metadata:  map[string]interface{}{"question": req.Question},
-		})
-	}
+	category, cr := c.classifyRequest(ctx, req)
+
 	// emitShortCircuit sends the response to both the outputChan (for non-AGUI
 	// platforms like Slack/Discord) and the AG-UI event bus (for web UI clients).
-	// buildChatHandler intentionally skips re-emitting outputChan contents for
-	// AG-UI to avoid duplicating streamed EventAdapter text. But short-circuit
-	// paths bypass the EventAdapter entirely, so their responses must be emitted
-	// directly via the event bus.
 	agentName := orchestratorcontext.AgentFromContext(ctx).Name
 	emitShortCircuit := func(msg string) {
 		agui.EmitAgentMessage(ctx, agentName, msg)
 		outputChan <- msg
 	}
 
+	return c.handleShortCircuit(ctx, category, cr, req, emitShortCircuit)
+}
+
+func (c *orchestrator) classifyRequest(ctx context.Context, req CodeQuestion) (requestCategory, semanticrouter.ClassificationResult) {
+	logr := logger.GetLogger(ctx).With("fn", "classifyRequest")
+	if req.SkipClassification {
+		logr.Info("front desk classification skipped (internal task)", "category", categoryComplex)
+		return categoryComplex, semanticrouter.ClassificationResult{}
+	}
+
+	cr, classifyErr := c.router.Classify(ctx, req.Question, c.Resume(ctx))
+	if classifyErr != nil {
+		logr.Warn("semantic gatekeeper classification failed, defaulting to complex", "error", classifyErr)
+		cr = semanticrouter.ClassificationResult{Category: semanticrouter.CategoryComplex}
+	}
+
+	var category requestCategory
+	switch cr.Category {
+	case semanticrouter.CategoryRefuse:
+		category = categoryRefuse
+	case semanticrouter.CategorySalutation:
+		category = categorySalutation
+	case semanticrouter.CategoryOutOfScope:
+		category = categoryOutOfScope
+	default:
+		category = categoryComplex
+	}
+
+	if !cr.BypassedLLM {
+		logr.Info("front desk classified request via LLM", "category", category)
+		c.auditor.Log(ctx, audit.LogRequest{
+			EventType: audit.EventClassification,
+			Actor:     "front-desk",
+			Action:    string(category),
+			Metadata:  map[string]interface{}{"question": req.Question},
+		})
+	} else {
+		logr.Info("front desk classified request via L1 Semantic Router", "category", category)
+	}
+
+	return category, cr
+}
+
+func (c *orchestrator) handleShortCircuit(ctx context.Context, category requestCategory, cr semanticrouter.ClassificationResult, req CodeQuestion, emit func(string)) (bool, error) {
 	switch category {
 	case categoryRefuse:
-		emitShortCircuit("🚫 Whoa there! That's a no-go zone for me. " +
+		emit("🚫 Whoa there! That's a no-go zone for me. " +
 			"I'm here to build cool things, not blow them up! " +
 			"Got something constructive? I'm all ears 👂")
 		return true, nil
@@ -573,7 +578,7 @@ func (c *orchestrator) classifyAndMaybeShortCircuit(ctx context.Context, req Cod
 		if reason == "" {
 			reason = "That doesn't seem to be within my area of expertise."
 		}
-		emitShortCircuit(fmt.Sprintf(
+		emit(fmt.Sprintf(
 			"🙈 Hmm, I can't help with that — %s\n\n"+
 				"Try me with something in my wheelhouse — I promise I'm great at it! 🚀",
 			reason,
@@ -598,8 +603,11 @@ func (c *orchestrator) classifyAndMaybeShortCircuit(ctx context.Context, req Cod
 		if doErr != nil {
 			return true, fmt.Errorf("front desk salutation response failed: %w", doErr)
 		}
-		output := extractTextFromChoices(resp.Choices)
-		emitShortCircuit(output)
+		output := ""
+		if len(resp.Choices) > 0 {
+			output = resp.Choices[0].Message.Content
+		}
+		emit(output)
 		c.storeConversation(ctx, req.Question, output)
 		return true, nil
 	default:
@@ -615,6 +623,15 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 
 	logr := logger.GetLogger(ctx).With("fn", "codeExpert.Chat")
 	logr.Info("codeOwner.Chat invoked", "question", toolwrap.TruncateForAudit(req.Question, 100))
+
+	// Semantic router check for cache hit
+	if c.router != nil {
+		if cachedResult, hit := c.router.CheckCache(ctx, req.Question); hit {
+			logr.Info("semantic cache hit", "question", toolwrap.TruncateForAudit(req.Question, 50))
+			outputChan <- cachedResult
+			return nil
+		}
+	}
 
 	handled, err := c.classifyAndMaybeShortCircuit(ctx, req, outputChan)
 	if err != nil {
@@ -679,6 +696,13 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 
 	// Store the conversation turn in memory for future recall (best-effort).
 	c.storeConversation(ctx, req.Question, res.Output)
+
+	// Persist the result to semantic cache
+	if c.router != nil {
+		if err := c.router.SetCache(ctx, req.Question, res.Output); err != nil {
+			logr.Warn("failed to set semantic cache", "error", err)
+		}
+	}
 
 	// Persist a concise accomplishment so the agent's resume can reference
 	// real work it has completed, boosting user confidence.
@@ -1075,85 +1099,4 @@ func (c *orchestrator) ForgetUser(ctx context.Context, senderID string) error {
 	})
 
 	return nil
-}
-
-// classifyRequest uses the front desk expert (a fast, lightweight model) to classify
-// the incoming request into one of four categories: REFUSE, SALUTATION, OUT_OF_SCOPE,
-// or COMPLEX. The agent's resume is injected so the classifier can determine whether
-// the request is within scope. On any error or unexpected response, defaults to
-// categoryComplex (fail-open).
-//
-// For OUT_OF_SCOPE, the classifier also returns a human-friendly reason extracted
-// from the "OUT_OF_SCOPE | <reason>" response format.
-func (c *orchestrator) classifyRequest(ctx context.Context, question string) (classificationResult, error) {
-	resume := c.Resume(ctx)
-	// Always send an "Agent Resume" section so the classifier has clear instructions.
-	// When resume is empty (e.g. still building on first request), tell the model to treat
-	// task-oriented messages as COMPLEX so we avoid false OUT_OF_SCOPE (e.g. "any emails for me").
-	resumeSection := resume
-	if resumeSection == "" {
-		resumeSection = "(Resume not yet available. Treat any task-oriented or actionable request as COMPLEX.)"
-	} else {
-		// Cap the resume to avoid exceeding the lightweight classifier
-		// model's context window. 2000 chars is enough for the classifier
-		// to determine scope without risking token overflow.
-		const maxResumeLen = 2000
-		if len(resumeSection) > maxResumeLen {
-			// Truncate at a valid UTF-8 boundary to avoid producing
-			// garbled multi-byte characters at the cut point.
-			cut := maxResumeLen
-			for cut > 0 && !utf8.RuneStart(resumeSection[cut]) {
-				cut--
-			}
-			resumeSection = resumeSection[:cut] + "\n...(truncated)"
-		}
-	}
-	message := fmt.Sprintf("## User Message\n%s\n\n## Agent Resume\n%s", question, resumeSection)
-
-	// Suppress AG-UI emissions so the front desk classification response never reaches the user.
-	resp, err := c.frontDeskExpert.Do(agui.WithSuppressEmit(ctx), expert.Request{
-		Message:  message,
-		TaskType: modelprovider.TaskEfficiency,
-		Mode: expert.ExpertConfig{
-			MaxLLMCalls:       1,
-			MaxToolIterations: 0,
-		},
-	})
-	if err != nil {
-		return classificationResult{Category: categoryComplex}, fmt.Errorf("classification call failed: %w", err)
-	}
-
-	raw := strings.TrimSpace(extractTextFromChoices(resp.Choices))
-	// The classifier returns a single word for most categories, but
-	// OUT_OF_SCOPE uses "OUT_OF_SCOPE | <reason>" format.
-	normalized := strings.ToUpper(raw)
-
-	switch {
-	case strings.Contains(normalized, string(categoryRefuse)):
-		return classificationResult{Category: categoryRefuse}, nil
-	case strings.Contains(normalized, string(categorySalutation)):
-		return classificationResult{Category: categorySalutation}, nil
-	case strings.Contains(normalized, string(categoryOutOfScope)):
-		// Extract the reason after the pipe, if present.
-		reason := ""
-		if idx := strings.Index(raw, "|"); idx != -1 {
-			reason = strings.TrimSpace(raw[idx+1:])
-		}
-		return classificationResult{Category: categoryOutOfScope, Reason: reason}, nil
-	case strings.Contains(normalized, string(categoryComplex)):
-		return classificationResult{Category: categoryComplex}, nil
-	default:
-		// Unexpected response — default to complex (fail-open)
-		return classificationResult{Category: categoryComplex}, nil
-	}
-}
-
-// extractTextFromChoices returns the text content from the first model choice.
-// Earlier versions concatenated ALL choices, which caused duplicate output when
-// the model returned multiple choices with identical content.
-func extractTextFromChoices(choices []model.Choice) string {
-	if len(choices) == 0 {
-		return ""
-	}
-	return choices[len(choices)-1].Message.Content
 }
