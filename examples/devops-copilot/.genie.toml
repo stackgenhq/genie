@@ -64,6 +64,12 @@ model_name = "claude-haiku-3-5"
 token = "${ANTHROPIC_API_KEY}"
 good_for_task = "efficiency"
 
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "efficiency"
+
 # ── Hallucination Guard ─────────────────────────────────────────────
 # Pre-check scores sub-agent goals for fabrication risk (role-play,
 # invented metrics, etc.). Post-check uses cross-model verification

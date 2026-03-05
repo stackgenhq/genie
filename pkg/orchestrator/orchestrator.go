@@ -87,13 +87,6 @@ const (
 	categoryComplex    requestCategory = "COMPLEX"
 )
 
-// classificationResult carries the front-desk category together with an
-// optional human-friendly reason (currently only set for OUT_OF_SCOPE).
-type classificationResult struct {
-	Category requestCategory
-	Reason   string // non-empty only for OUT_OF_SCOPE
-}
-
 type orchestrator struct {
 	expert        expert.Expert
 	treeExecutor  reactree.TreeExecutor
