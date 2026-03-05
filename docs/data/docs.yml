@@ -37,18 +37,21 @@ config_sections:
       Configure Genie's identity and persona. The <code>agent_name</code> gives your agent a personality,
       controls the default audit log path (<code>~/.genie/{agent_name}.&lt;yyyy_mm_dd&gt;.ndjson</code>),
       and is displayed in the chat UI header and <code>/health</code> endpoint.<br><br>
-      Optionally load project-level coding standards from a custom file with <code>persona_file</code>. If
-      <code>persona_file</code> is not set, no additional persona or coding-standards file is loaded.
+      Optionally load project-level coding standards from a custom file with <code>persona.file</code>. If
+      <code>persona.file</code> is not set, no additional persona or coding-standards file is loaded.
     tables:
       - columns: [Key, Type, Default, Description]
         rows:
           - ["agent_name", "string", "`Genie`", "Name of your agent. Set during `genie setup`; gives the agent a personality and controls the default audit log path. Displayed in the chat UI and `/health` endpoint."]
-          - ["persona_file", "string", "—", "Optional path to a file whose contents are appended to the agent's system prompt as project-level coding standards. Supports absolute paths or paths relative to the working directory. If not set, no persona file is loaded by default."]
+          - ["persona.file", "string", "—", "Optional path to a file whose contents are appended to the agent's system prompt as project-level coding standards. Supports absolute paths or paths relative to the working directory. If not set, no persona file is loaded by default."]
+          - ["persona.disable_resume", "bool", "`false`", "Makes the generation of the agent's resume optional. If disabled, the persona file is used as is."]
     code_example:
       label: Example TOML
       code: |
         agent_name = "Jarvis"
-        persona_file = "./STANDARDS.md"
+
+        [persona]
+        file = "./STANDARDS.md"
 
   - id: model_config
     icon: "🤖"
@@ -1300,7 +1303,7 @@ architecture:
         - ["2. Recall", "Search `memory.Service` for past turns relevant to the question (sender-scoped)"]
         - ["3. Execute", "For `COMPLEX` — run through the ReAcTree with working memory and tools"]
         - ["4. Store", "Persist the Q&A turn back into memory for future recall"]
-        - ["5. Persona", "Load project-level coding standards from `persona_file` (default: `Agents.md`) and append to persona"]
+        - ["5. Persona", "When `persona.file` is configured (commonly `Agents.md`), load project-level coding standards and append to persona"]
 
     - title: "🔧 Tool Middleware Pipeline (pkg/toolwrap)"
       desc: >

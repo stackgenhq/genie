@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Make agent capabilities resume creation optional through `disable_resume` config.
+
+### Changed
+
+- **Breaking**: the top-level `persona_file` config option has been moved to `[persona]` block. To migrate existing `.genie.toml` files, replace:
+
+  ```toml
+  persona_file = "path/to/your/persona.md"
+  ```
+
+  with:
+
+  ```toml
+  [persona]
+  file = "path/to/your/persona.md"
+  disable_resume = true
+  ```
+- Combined legacy `persona_file` and new `disable_resume` options into a nested `[persona]` table for cleaner organization.
+
+## [0.1.6] - 2026-03-03
+
+### Added
+
 - Mid-run feedback injection — users can send asynchronous messages to the agent while it is processing via `POST /api/v1/inject`; feedback is stored in working memory with an `INTERRUPT` prefix
 - Feedback input UI in chat.js (textarea + send button) — shown/hidden during active agent processing
 - Caching for summarization middleware to avoid redundant LLM calls on repeated tool outputs
@@ -172,7 +195,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Chat UI: scroll propagation, fullscreen background, and duplicate messages
 
-[Unreleased]: https://github.com/stackgenhq/genie/compare/v0.1.6-rc.1...HEAD
+[Unreleased]: https://github.com/stackgenhq/genie/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/stackgenhq/genie/compare/v0.1.6-rc.2...v0.1.6
+[0.1.6-rc.2]: https://github.com/stackgenhq/genie/compare/v0.1.6-rc.1...v0.1.6-rc.2
 [0.1.6-rc.1]: https://github.com/stackgenhq/genie/compare/v0.1.5...v0.1.6-rc.1
 [0.1.5]: https://github.com/stackgenhq/genie/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/stackgenhq/genie/compare/v0.1.3...v0.1.4

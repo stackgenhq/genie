@@ -3,7 +3,8 @@
 # Comment out or remove sections you don't need.
 
 skills_roots = ["./skills"]
-persona_file = "./AGENTS.md"
+[persona]
+file = "./AGENTS.md"
 
 [db_config]
 db_file = "${PWD}/.genie.db"

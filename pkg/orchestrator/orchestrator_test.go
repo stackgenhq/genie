@@ -13,6 +13,8 @@ import (
 	"github.com/stackgenhq/genie/pkg/audit/auditfakes"
 	"github.com/stackgenhq/genie/pkg/expert"
 	"github.com/stackgenhq/genie/pkg/expert/expertfakes"
+	"github.com/stackgenhq/genie/pkg/expert/modelprovider/modelproviderfakes"
+	"github.com/stackgenhq/genie/pkg/hitl/hitlfakes"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/memory/vector/vectorfakes"
 	"github.com/stackgenhq/genie/pkg/reactree"
@@ -172,6 +174,46 @@ var _ = Describe("CodeOwner", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("classification call failed"))
 			Expect(cr.Category).To(Equal(categoryComplex))
+		})
+	})
+
+	Describe("Options", func() {
+		It("WithDisableResume should set the flag correctly", func() {
+			opts := &orchestratorOpts{}
+			WithDisableResume(true)(opts)
+			Expect(opts.disableResume).To(BeTrue())
+
+			WithDisableResume(false)(opts)
+			Expect(opts.disableResume).To(BeFalse())
+		})
+	})
+
+	Describe("NewOrchestrator", func() {
+		It("should initialize orchestrator with given fields and options", func() {
+			fakeProvider := &modelproviderfakes.FakeModelProvider{}
+			fakeRegistry := &tools.Registry{}
+
+			orch, err := NewOrchestrator(
+				ctx,
+				fakeProvider,
+				fakeRegistry,
+				&vectorfakes.FakeIStore{},
+				&auditfakes.FakeAuditor{},
+				&hitlfakes.FakeApprovalStore{},
+				nil,
+				nil,
+				"test-persona",
+				WithDisableResume(true),
+			)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(orch).NotTo(BeNil())
+
+			// Cast back to concrete type to check internals (for test coverage)
+			concreteOrch, ok := orch.(*orchestrator)
+			Expect(ok).To(BeTrue())
+			Expect(concreteOrch.agentPersona).To(Equal("test-persona"))
+			Expect(concreteOrch.disableResume).To(BeTrue())
 		})
 	})
 
@@ -556,6 +598,32 @@ var _ = Describe("CodeOwner", func() {
 	})
 
 	Describe("createResume", func() {
+		It("should return sanitized persona when disableResume is true", func() {
+			co.disableResume = true
+			co.agentPersona = "User specific persona"
+
+			fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
+
+			resume, err := co.createResume(ctx, fakeSummarizer, "Full Persona With System Prompts")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resume).To(Equal("User specific persona"))
+
+			// Verify it did NOT call summarizer
+			Expect(fakeSummarizer.SummarizeCallCount()).To(Equal(0))
+		})
+
+		It("should return a static message when disableResume is true but agentPersona is empty", func() {
+			co.disableResume = true
+			co.agentPersona = ""
+
+			fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
+
+			resume, err := co.createResume(ctx, fakeSummarizer, "Full Persona With System Prompts")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resume).To(Equal("generalist"))
+			Expect(fakeSummarizer.SummarizeCallCount()).To(Equal(0))
+		})
+
 		It("should generate a resume using the summarizer and accomplishments", func() {
 			// Mock findings in vector store
 			fakeStore := &vectorfakes.FakeIStore{}

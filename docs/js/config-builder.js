@@ -65,7 +65,7 @@
         security: { secrets: [] },
         pii: { salt: '', entropy_threshold: 4.2, min_secret_length: 12, sensitive_keys: [] },
         disable_pensieve: false,
-        persona_file: ''
+        persona: { file: '', disable_resume: false }
     };
 
     var PROVIDERS = ['openai', 'gemini', 'anthropic'];
@@ -746,8 +746,10 @@
             fieldToggle('Disable Pensieve Tools', state.disable_pensieve, function (v) { state.disable_pensieve = v; renderOutput(); },
                 'Disable context self-management tools (delete_context, check_budget, note, read_notes). ' +
                 'delete_context and note require HITL approval. Based on the StateLM paper (arXiv:2602.12108).'),
-            fieldText('Persona File', state.persona_file, function (v) { state.persona_file = v; renderOutput(); }, './STANDARDS.md',
-                'Path to a file whose contents are appended to the agent system prompt as project-level coding standards. Supports absolute paths or paths relative to the working directory.')
+            fieldText('Persona File', state.persona.file, function (v) { state.persona.file = v; renderOutput(); }, './STANDARDS.md',
+                'Path to a file whose contents are appended to the agent system prompt as project-level coding standards. Supports absolute paths or paths relative to the working directory.'),
+            fieldToggle('Disable Agent Resume Creation', state.persona.disable_resume, function (v) { state.persona.disable_resume = v; renderOutput(); },
+                'Makes the generation of the agent\'s resume optional. If disabled, the persona file is used as is.')
         ]));
     }
 
@@ -1011,8 +1013,8 @@
     function toToml() {
         var lines = [];
         // Root-level keys must come before any [section] headers in TOML.
-        personaFileToToml(lines);
         pensieveToToml(lines);
+        personaToToml(lines);
         if (state.providers.length > 0) providersToToml(lines);
 
 
@@ -1284,9 +1286,11 @@
         lines.push('');
     }
 
-    function personaFileToToml(lines) {
-        if (!state.persona_file) return;
-        lines.push('persona_file = ' + q(state.persona_file));
+    function personaToToml(lines) {
+        if (!state.persona.file && !state.persona.disable_resume) return;
+        lines.push('[persona]');
+        if (state.persona.file) lines.push('file = ' + q(state.persona.file));
+        if (state.persona.disable_resume) lines.push('disable_resume = true');
         lines.push('');
     }
 
@@ -1539,8 +1543,8 @@
     function toYaml() {
         var lines = [];
         // Root-level keys first for consistency with TOML output.
-        personaFileToYaml(lines);
         pensieveToYaml(lines);
+        personaToYaml(lines);
         if (state.providers.length > 0) providersToYaml(lines);
         langfuseToYaml(lines);
 
@@ -1823,9 +1827,11 @@
         lines.push('');
     }
 
-    function personaFileToYaml(lines) {
-        if (!state.persona_file) return;
-        lines.push('persona_file: ' + yq(state.persona_file));
+    function personaToYaml(lines) {
+        if (!state.persona.file && !state.persona.disable_resume) return;
+        lines.push('persona:');
+        if (state.persona.file) lines.push('  file: ' + yq(state.persona.file));
+        if (state.persona.disable_resume) lines.push('  disable_resume: true');
         lines.push('');
     }
 
