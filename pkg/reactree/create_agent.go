@@ -13,6 +13,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/dedup"
 	"github.com/stackgenhq/genie/pkg/expert"
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
+	"github.com/stackgenhq/genie/pkg/halguard"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/messenger"
@@ -21,6 +22,8 @@ import (
 	"github.com/stackgenhq/genie/pkg/tools"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"trpc.group/trpc-go/trpc-agent-go/agent/llmagent"
 	"trpc.group/trpc-go/trpc-agent-go/event"
 	"trpc.group/trpc-go/trpc-agent-go/model"
@@ -167,6 +170,12 @@ type createAgentTool struct {
 	vectorStore vector.IStore
 	description string
 
+	// halGuard provides optional pre-delegation grounding checks and
+	// post-execution output verification. When nil, sub-agents execute
+	// without hallucination checks (backward compatible).
+	halGuard          halguard.Guard
+	halGuardThreshold float64 // PreCheckThreshold from config; 0 = use default (0.4)
+
 	// inflight deduplicates identical parallel create_agent calls
 	// from the LLM (same agent_name + goal). Backed by singleflight.
 	inflight dedup.Group[CreateAgentResponse]
@@ -192,6 +201,7 @@ func NewCreateAgentTool(
 	episodic memory.EpisodicMemory,
 	toolWrapSvc *toolwrap.Service,
 	vectorStore vector.IStore,
+	halGuard halguard.Guard,
 ) *createAgentTool {
 	// Build a sub-agent registry that excludes orchestration-only tools.
 	// Sub-agents must not call create_agent (no recursive spawning) or
@@ -211,6 +221,7 @@ func NewCreateAgentTool(
 		workingMemory:    workingMemory,
 		episodic:         episodic,
 		vectorStore:      vectorStore,
+		halGuard:         halGuard,
 	}
 
 	t.description = fmt.Sprintf(
@@ -239,6 +250,14 @@ func NewCreateAgentTool(
 	return t
 }
 
+// SetHalGuardThreshold configures the pre-check confidence threshold.
+// Values ≤ 0 are ignored (the default 0.4 is used instead).
+func (t *createAgentTool) SetHalGuardThreshold(threshold float64) {
+	if threshold > 0 {
+		t.halGuardThreshold = threshold
+	}
+}
+
 func (t *createAgentTool) GetTool() tool.Tool {
 	return function.NewFunctionTool(
 		t.execute,
@@ -265,6 +284,67 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 
 func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentRequest) (CreateAgentResponse, error) {
 	logr := logger.GetLogger(ctx).With("fn", "createAgentTool.executeInner", "goal", toolwrap.TruncateForAudit(req.Goal, 80), "name", req.AgentName)
+
+	// --- Pre-delegation grounding check (P0) ---
+	// Validates the goal is grounded in reality before spending any tokens.
+	// Catches fabricated scenarios (role-play, hypothetical incidents) that
+	// would waste budget and inject hallucinations into the parent context.
+	// The confidence score (0–1) lets us tune the sensitivity threshold.
+	if t.halGuard != nil {
+		preTracer := otel.Tracer("genie")
+		preCtx, preSpan := preTracer.Start(ctx, "halguard.PreCheck")
+		preResult, preErr := t.halGuard.PreCheck(preCtx, halguard.PreCheckRequest{
+			Goal:      req.Goal,
+			Context:   req.Context,
+			ToolNames: req.ToolNames,
+		})
+		if preErr != nil {
+			preSpan.RecordError(preErr)
+			preSpan.SetStatus(codes.Error, preErr.Error())
+			preSpan.End()
+			logr.Warn("halguard pre-check error, proceeding anyway", "error", preErr)
+		} else {
+			preSpan.SetAttributes(
+				attribute.Float64("halguard.precheck.confidence", preResult.Confidence),
+				attribute.String("halguard.precheck.summary", preResult.Summary),
+				attribute.String("halguard.precheck.signals", preResult.Signals.String()),
+				attribute.String("halguard.agent_name", req.AgentName),
+			)
+
+			// Use configured pre-check threshold; fall back to 0.4 default.
+			threshold := 0.4
+			if t.halGuardThreshold > 0 {
+				threshold = t.halGuardThreshold
+			}
+
+			if preResult.Confidence < threshold {
+				preSpan.SetAttributes(
+					attribute.Bool("halguard.precheck.blocked", true),
+					attribute.Float64("halguard.precheck.threshold", threshold),
+				)
+				preSpan.SetStatus(codes.Error, "grounding check failed")
+				preSpan.End()
+				logr.Warn("halguard pre-check: low confidence, blocking sub-agent",
+					"confidence", preResult.Confidence,
+					"signals", preResult.Signals,
+					"summary", preResult.Summary)
+				return CreateAgentResponse{
+					Status: "error",
+					Output: fmt.Sprintf("GROUNDING CHECK FAILED (confidence=%.2f): %s. "+
+						"The goal appears to describe a fabricated scenario. "+
+						"Please rephrase with a real, actionable task.",
+						preResult.Confidence, preResult.Summary),
+				}, nil
+			}
+			preSpan.SetAttributes(
+				attribute.Bool("halguard.precheck.blocked", false),
+			)
+			preSpan.SetStatus(codes.Ok, "")
+			preSpan.End()
+			logr.Debug("halguard pre-check passed",
+				"confidence", preResult.Confidence)
+		}
+	}
 
 	// Multi-step plan: delegate to orchestrator (paper's Expand action).
 	if len(req.Steps) > 0 {
@@ -433,6 +513,8 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	const maxToolResultsLen = 16000
 	var lastErr string
 	timedOut := false
+	toolCallCount := 0
+	seenToolIDs := make(map[string]struct{})
 	for ev := range evCh {
 		if ev.Error != nil {
 			lastErr = ev.Error.Message
@@ -453,6 +535,14 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 				// exhausts its budget before producing a final summary, these
 				// results are the only record of what was learned.
 				if (choice.Message.ToolID != "" || ev.Object == model.ObjectTypeToolResponse) && choice.Message.Content != "" && toolResultsSB.Len() < maxToolResultsLen {
+					// Count unique tool calls (not per-chunk) to avoid over-counting
+					// when multiple streamed chunks arrive for a single tool response.
+					if tid := choice.Message.ToolID; tid != "" {
+						if _, seen := seenToolIDs[tid]; !seen {
+							seenToolIDs[tid] = struct{}{}
+							toolCallCount++
+						}
+					}
 					remaining := maxToolResultsLen - toolResultsSB.Len()
 					content := choice.Message.Content
 					if len(content) > remaining {
@@ -512,6 +602,52 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 		"output_length", len(result), "timed_out", timedOut, "had_error", lastErr != "")
 
 	status, result := req.resolveStatus(timedOut, lastErr, result, toolResultsSB.String())
+
+	// --- Post-execution verification (P1) ---
+	// Verify sub-agent output for hallucinations using cross-model consistency.
+	// Only runs when halGuard is configured and the sub-agent produced output.
+	// Uses tiered verification: short tool-grounded outputs skip heavy checks.
+	if t.halGuard != nil && result != "" && status != "error" {
+		postTracer := otel.Tracer("genie")
+		postCtx, postSpan := postTracer.Start(ctx, "halguard.PostCheck")
+		postSpan.SetAttributes(
+			attribute.String("halguard.agent_name", req.AgentName),
+			attribute.Int("halguard.postcheck.output_len", len(result)),
+			attribute.Int("halguard.postcheck.tool_calls", toolCallCount),
+		)
+		vr, verifyErr := t.halGuard.PostCheck(postCtx, halguard.PostCheckRequest{
+			Goal:            req.Goal,
+			Output:          result,
+			ToolCallsMade:   toolCallCount,
+			GenerationModel: modelToUse,
+		})
+		if verifyErr != nil {
+			postSpan.RecordError(verifyErr)
+			postSpan.SetStatus(codes.Error, verifyErr.Error())
+			postSpan.End()
+			logr.Warn("halguard post-check failed, using unverified output", "error", verifyErr)
+		} else if !vr.IsFactual {
+			postSpan.SetAttributes(
+				attribute.String("halguard.postcheck.tier", string(vr.Tier)),
+				attribute.Bool("halguard.postcheck.is_factual", false),
+				attribute.Int("halguard.postcheck.contradictions", len(vr.BlockScores)),
+			)
+			postSpan.SetStatus(codes.Error, "hallucination detected")
+			postSpan.End()
+			logr.Warn("halguard detected hallucination in sub-agent output",
+				"tier", vr.Tier, "contradictions", len(vr.BlockScores))
+			result = vr.CorrectedText
+			status = "verified_corrected"
+		} else {
+			postSpan.SetAttributes(
+				attribute.String("halguard.postcheck.tier", string(vr.Tier)),
+				attribute.Bool("halguard.postcheck.is_factual", true),
+			)
+			postSpan.SetStatus(codes.Ok, "")
+			postSpan.End()
+			logr.Info("halguard post-check passed", "tier", vr.Tier)
+		}
+	}
 
 	// Store sub-agent result in working memory so the parent can retrieve
 	// it via memory_search and compose a single user-facing message.

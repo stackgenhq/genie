@@ -26,6 +26,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/cron"
 	"github.com/stackgenhq/genie/pkg/expert"
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
+	"github.com/stackgenhq/genie/pkg/halguard"
 	"github.com/stackgenhq/genie/pkg/hitl"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
@@ -141,8 +142,9 @@ func (c *orchestrator) Resume(ctx context.Context) string {
 type OrchestratorOption func(*orchestratorOpts)
 
 type orchestratorOpts struct {
-	toolwrapOpts  []toolwrap.ServiceOption
-	disableResume bool
+	toolwrapOpts   []toolwrap.ServiceOption
+	disableResume  bool
+	halGuardConfig halguard.Config
 }
 
 // WithToolwrapOptions passes per-agent middleware configuration to the
@@ -158,6 +160,14 @@ func WithToolwrapOptions(opts ...toolwrap.ServiceOption) OrchestratorOption {
 func WithDisableResume(disable bool) OrchestratorOption {
 	return func(o *orchestratorOpts) {
 		o.disableResume = disable
+	}
+}
+
+// WithHalGuardConfig sets the hallucination guard configuration.
+// When not provided, halguard.DefaultConfig() is used.
+func WithHalGuardConfig(cfg halguard.Config) OrchestratorOption {
+	return func(o *orchestratorOpts) {
+		o.halGuardConfig = cfg
 	}
 }
 
@@ -273,12 +283,23 @@ func NewOrchestrator(
 		"hasApprovalStore", approvalStore != nil,
 		"hasSummarizer", true,
 	)
+	// Create the hallucination guard for sub-agent output verification.
+	// Uses the existing model provider to collect diverse models for
+	// cross-model consistency checking per Finch-Zk methodology.
+	// Config comes from [halguard] section in genie.toml; zero values
+	// are filled with sensible defaults by halguard.New.
+	halGuard := halguard.New(modelProvider,
+		halguard.WithConfig(oo.halGuardConfig),
+	)
+
 	createAgentTool := reactree.NewCreateAgentTool(
 		modelProvider, exp, summarizer, availableTools,
 		wm, episodicMem,
 		toolWrapSvc,
 		vectorStore,
+		halGuard,
 	)
+	createAgentTool.SetHalGuardThreshold(oo.halGuardConfig.PreCheckThreshold)
 	// Log tool counts so operators can verify email, gmail, etc. are wired for sub-agents.
 	n := len(availableTools.ToolNames())
 	logger := logger.GetLogger(ctx).With("fn", "createOrchestrator")
@@ -529,22 +550,34 @@ func (c *orchestrator) classifyAndMaybeShortCircuit(ctx context.Context, req Cod
 			Metadata:  map[string]interface{}{"question": req.Question},
 		})
 	}
+	// emitShortCircuit sends the response to both the outputChan (for non-AGUI
+	// platforms like Slack/Discord) and the AG-UI event bus (for web UI clients).
+	// buildChatHandler intentionally skips re-emitting outputChan contents for
+	// AG-UI to avoid duplicating streamed EventAdapter text. But short-circuit
+	// paths bypass the EventAdapter entirely, so their responses must be emitted
+	// directly via the event bus.
+	agentName := orchestratorcontext.AgentFromContext(ctx).Name
+	emitShortCircuit := func(msg string) {
+		agui.EmitAgentMessage(ctx, agentName, msg)
+		outputChan <- msg
+	}
+
 	switch category {
 	case categoryRefuse:
-		outputChan <- "🚫 Whoa there! That's a no-go zone for me. " +
+		emitShortCircuit("🚫 Whoa there! That's a no-go zone for me. " +
 			"I'm here to build cool things, not blow them up! " +
-			"Got something constructive? I'm all ears 👂"
+			"Got something constructive? I'm all ears 👂")
 		return true, nil
 	case categoryOutOfScope:
 		reason := cr.Reason
 		if reason == "" {
 			reason = "That doesn't seem to be within my area of expertise."
 		}
-		outputChan <- fmt.Sprintf(
+		emitShortCircuit(fmt.Sprintf(
 			"🙈 Hmm, I can't help with that — %s\n\n"+
 				"Try me with something in my wheelhouse — I promise I'm great at it! 🚀",
 			reason,
-		)
+		))
 		return true, nil
 	case categorySalutation:
 		salutationMsg := fmt.Sprintf(
@@ -566,7 +599,7 @@ func (c *orchestrator) classifyAndMaybeShortCircuit(ctx context.Context, req Cod
 			return true, fmt.Errorf("front desk salutation response failed: %w", doErr)
 		}
 		output := extractTextFromChoices(resp.Choices)
-		outputChan <- output
+		emitShortCircuit(output)
 		c.storeConversation(ctx, req.Question, output)
 		return true, nil
 	default:

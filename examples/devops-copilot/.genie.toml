@@ -36,6 +36,44 @@ model_name = "gemini-3-flash-preview"
 token = "${GEMINI_API_KEY}"
 good_for_task = "frontdesk"
 
+[[model_config.providers]]
+provider = "openai"
+model_name = "gpt-4.1"
+token = "${OPENAI_API_KEY}"
+good_for_task = "general_task"
+
+# ── Efficiency models (used by halguard for cross-model verification) ──
+# These fast/cheap models from 3 different providers give halguard
+# diverse cross-model samples for hallucination detection.
+
+[[model_config.providers]]
+provider = "openai"
+model_name = "gpt-4.1-mini"
+token = "${OPENAI_API_KEY}"
+good_for_task = "efficiency"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-2.0-flash"
+token = "${GEMINI_API_KEY}"
+good_for_task = "efficiency"
+
+[[model_config.providers]]
+provider = "anthropic"
+model_name = "claude-haiku-3-5"
+token = "${ANTHROPIC_API_KEY}"
+good_for_task = "efficiency"
+
+# ── Hallucination Guard ─────────────────────────────────────────────
+# Pre-check scores sub-agent goals for fabrication risk (role-play,
+# invented metrics, etc.). Post-check uses cross-model verification
+# on outputs using the efficiency models above.
+[halguard]
+enable_pre_check = true
+enable_post_check = true
+pre_check_threshold = 0.4
+cross_model_samples = 3
+
 # ── MCP Servers ─────────────────────────────────────────────────────
 # Each MCP server gives Genie structured access to a DevOps platform.
 # Enable only the servers you have credentials for.

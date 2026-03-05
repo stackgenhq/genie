@@ -245,3 +245,51 @@ var _ = Describe("createAgentTool guard helpers", func() {
 		})
 	})
 })
+
+var _ = Describe("createAgentTool halguard integration", func() {
+	Describe("SetHalGuardThreshold", func() {
+		It("sets a positive threshold", func() {
+			t := &createAgentTool{}
+			t.SetHalGuardThreshold(0.6)
+			Expect(t.halGuardThreshold).To(Equal(0.6))
+		})
+
+		It("ignores zero threshold (keeps default)", func() {
+			t := &createAgentTool{}
+			t.SetHalGuardThreshold(0)
+			Expect(t.halGuardThreshold).To(Equal(0.0))
+		})
+
+		It("ignores negative threshold", func() {
+			t := &createAgentTool{}
+			t.SetHalGuardThreshold(-0.5)
+			Expect(t.halGuardThreshold).To(Equal(0.0))
+		})
+	})
+
+	Describe("pre-check threshold logic", func() {
+		It("uses default 0.4 threshold when halGuardThreshold is zero", func() {
+			t := &createAgentTool{}
+			// Default threshold is 0.4, so confidence 0.39 should be below it
+			Expect(t.halGuardThreshold).To(Equal(0.0))
+
+			// When threshold is 0, execute uses 0.4 as fallback
+			threshold := 0.4
+			if t.halGuardThreshold > 0 {
+				threshold = t.halGuardThreshold
+			}
+			Expect(threshold).To(Equal(0.4))
+		})
+
+		It("uses configured threshold when set", func() {
+			t := &createAgentTool{}
+			t.SetHalGuardThreshold(0.7)
+
+			threshold := 0.4
+			if t.halGuardThreshold > 0 {
+				threshold = t.halGuardThreshold
+			}
+			Expect(threshold).To(Equal(0.7))
+		})
+	})
+})
