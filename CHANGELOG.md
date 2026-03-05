@@ -9,9 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Hallucination guard module (`halguard`) providing a two-phase check: a pre-execution multi-signal verification using weighted signals (e.g., Role-Play detection, Information Density) and a post-execution multi-model consistency checker based on Finch-Zk to catch potential LLM hallucinations.
+- OpenTelemetry (OTel) spans and attributes recorded for hallucination guard `PreCheck` and `PostCheck` execution.
+- Direct EventBus emission via `emitShortCircuit` for refused/out-of-scope orchestrator responses, bypassing the EventAdapter to ensure timely delivery to the AG-UI.
 - Make agent capabilities resume creation optional through `disable_resume` config.
 
 ### Changed
+
+- Parallelized execution of cross-model text generation during the `halguard` Post-Check using `errgroup`, significantly reducing latency.
 
 - **Breaking**: the top-level `persona_file` config option has been moved to `[persona]` block. To migrate existing `.genie.toml` files, replace:
 
