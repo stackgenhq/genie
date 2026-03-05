@@ -13,6 +13,8 @@ import (
 	"github.com/stackgenhq/genie/pkg/audit/auditfakes"
 	"github.com/stackgenhq/genie/pkg/expert"
 	"github.com/stackgenhq/genie/pkg/expert/expertfakes"
+	"github.com/stackgenhq/genie/pkg/expert/modelprovider/modelproviderfakes"
+	"github.com/stackgenhq/genie/pkg/hitl/hitlfakes"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/memory/vector/vectorfakes"
 	"github.com/stackgenhq/genie/pkg/reactree"
@@ -172,6 +174,46 @@ var _ = Describe("CodeOwner", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("classification call failed"))
 			Expect(cr.Category).To(Equal(categoryComplex))
+		})
+	})
+
+	Describe("Options", func() {
+		It("WithDisableResume should set the flag correctly", func() {
+			opts := &orchestratorOpts{}
+			WithDisableResume(true)(opts)
+			Expect(opts.disableResume).To(BeTrue())
+
+			WithDisableResume(false)(opts)
+			Expect(opts.disableResume).To(BeFalse())
+		})
+	})
+
+	Describe("NewOrchestrator", func() {
+		It("should initialize orchestrator with given fields and options", func() {
+			fakeProvider := &modelproviderfakes.FakeModelProvider{}
+			fakeRegistry := &tools.Registry{}
+
+			orch, err := NewOrchestrator(
+				ctx,
+				fakeProvider,
+				fakeRegistry,
+				&vectorfakes.FakeIStore{},
+				&auditfakes.FakeAuditor{},
+				&hitlfakes.FakeApprovalStore{},
+				nil,
+				nil,
+				"test-persona",
+				WithDisableResume(true),
+			)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(orch).NotTo(BeNil())
+
+			// Cast back to concrete type to check internals (for test coverage)
+			concreteOrch, ok := orch.(*orchestrator)
+			Expect(ok).To(BeTrue())
+			Expect(concreteOrch.agentPersona).To(Equal("test-persona"))
+			Expect(concreteOrch.disableResume).To(BeTrue())
 		})
 	})
 
