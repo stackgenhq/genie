@@ -1,4 +1,4 @@
-package contacts_test
+package contacts
 
 import (
 	"testing"

@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"google.golang.org/api/tasks/v1"
+	tasksv1 "google.golang.org/api/tasks/v1"
 )
 
 type mockService struct {
@@ -167,7 +167,7 @@ var _ = Describe("Google Tasks Tools", func() {
 	Describe("taskDetailFromAPI", func() {
 		It("maps fields correctly", func() {
 			t := "completed"
-			apiTask := &tasks.Task{
+			apiTask := &tasksv1.Task{
 				Id:        "123",
 				Title:     "Title",
 				Notes:     "Notes",

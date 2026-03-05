@@ -1,14 +1,13 @@
-package youtubetranscript_test
+package youtubetranscript
 
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/stackgenhq/genie/pkg/tools/youtubetranscript"
 )
 
 var _ = Describe("Provider Test", func() {
 	It("provides the correct tools", func() {
-		p := youtubetranscript.NewToolProvider()
+		p := NewToolProvider()
 		tools := p.GetTools()
 		Expect(tools).To(HaveLen(1))
 	})

@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/stackgenhq/genie/pkg/security"
@@ -98,6 +99,47 @@ func (c *contactsTools) tools() []tool.CallableTool {
 			),
 		),
 	}
+}
+
+// lazyService implements Service by deferring the People API client creation
+// to the first call. This allows the contacts tools to be registered
+// unconditionally (tools remain discoverable) while the actual OAuth/secret
+// resolution happens at execution time. If initialization fails at call time,
+// the error is returned to the caller as a clear runtime error.
+type lazyService struct {
+	sp   security.SecretProvider
+	name string
+	once sync.Once
+	svc  Service
+	err  error
+}
+
+// NewLazyService returns a Service that lazily initialises the People API
+// client on first use. The returned Service is safe for concurrent use.
+func NewLazyService(sp security.SecretProvider, name string) Service {
+	return &lazyService{sp: sp, name: name}
+}
+
+func (l *lazyService) init(ctx context.Context) {
+	l.once.Do(func() {
+		l.svc, l.err = NewFromSecretProvider(ctx, l.sp, l.name)
+	})
+}
+
+func (l *lazyService) ListContacts(ctx context.Context, req listContactsRequest) (contactsResponse, error) {
+	l.init(ctx)
+	if l.err != nil {
+		return contactsResponse{}, fmt.Errorf("google contacts not configured: %w", l.err)
+	}
+	return l.svc.ListContacts(ctx, req)
+}
+
+func (l *lazyService) SearchContacts(ctx context.Context, req searchContactsRequest) (contactsResponse, error) {
+	l.init(ctx)
+	if l.err != nil {
+		return contactsResponse{}, fmt.Errorf("google contacts not configured: %w", l.err)
+	}
+	return l.svc.SearchContacts(ctx, req)
 }
 
 // NewFromSecretProvider creates an authenticated People API client using
