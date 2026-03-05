@@ -9,6 +9,7 @@ import (
 
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
 	"github.com/stackgenhq/genie/pkg/logger"
+	"golang.org/x/sync/errgroup"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 )
 
@@ -389,27 +390,25 @@ Task: %s`, goal)
 
 	var mu sync.Mutex
 	var samples []string
-
-	var wg sync.WaitGroup
+	errGroup, _ := errgroup.WithContext(ctx)
 	for _, vm := range models {
-		wg.Add(1)
-		go func(vm verificationModel) {
-			defer wg.Done()
+		errGroup.Go(func() error {
 			sample, err := generateText(ctx, vm.model, prompt, 2000)
 			if err != nil {
-				logr.Debug("cross-model sample generation failed",
+				logr.Warn("cross-model sample generation failed",
 					"model", vm.key, "error", err)
-				return
+				return nil
 			}
 			if strings.TrimSpace(sample) == "" {
-				return
+				return nil
 			}
 			mu.Lock()
 			samples = append(samples, sample)
 			mu.Unlock()
-		}(vm)
+			return nil
+		})
 	}
-	wg.Wait()
+	errGroup.Wait()
 
 	return samples
 }

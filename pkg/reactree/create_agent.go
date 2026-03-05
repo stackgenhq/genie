@@ -22,6 +22,8 @@ import (
 	"github.com/stackgenhq/genie/pkg/tools"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"trpc.group/trpc-go/trpc-agent-go/agent/llmagent"
 	"trpc.group/trpc-go/trpc-agent-go/event"
 	"trpc.group/trpc-go/trpc-agent-go/model"
@@ -289,14 +291,26 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	// would waste budget and inject hallucinations into the parent context.
 	// The confidence score (0–1) lets us tune the sensitivity threshold.
 	if t.halGuard != nil {
-		preResult, preErr := t.halGuard.PreCheck(ctx, halguard.PreCheckRequest{
+		preTracer := otel.Tracer("genie")
+		preCtx, preSpan := preTracer.Start(ctx, "halguard.PreCheck")
+		preResult, preErr := t.halGuard.PreCheck(preCtx, halguard.PreCheckRequest{
 			Goal:      req.Goal,
 			Context:   req.Context,
 			ToolNames: req.ToolNames,
 		})
 		if preErr != nil {
+			preSpan.RecordError(preErr)
+			preSpan.SetStatus(codes.Error, preErr.Error())
+			preSpan.End()
 			logr.Warn("halguard pre-check error, proceeding anyway", "error", preErr)
 		} else {
+			preSpan.SetAttributes(
+				attribute.Float64("halguard.precheck.confidence", preResult.Confidence),
+				attribute.String("halguard.precheck.summary", preResult.Summary),
+				attribute.String("halguard.precheck.signals", preResult.Signals.String()),
+				attribute.String("halguard.agent_name", req.AgentName),
+			)
+
 			// Use configured pre-check threshold; fall back to 0.4 default.
 			threshold := 0.4
 			if t.halGuardThreshold > 0 {
@@ -304,6 +318,12 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 			}
 
 			if preResult.Confidence < threshold {
+				preSpan.SetAttributes(
+					attribute.Bool("halguard.precheck.blocked", true),
+					attribute.Float64("halguard.precheck.threshold", threshold),
+				)
+				preSpan.SetStatus(codes.Error, "grounding check failed")
+				preSpan.End()
 				logr.Warn("halguard pre-check: low confidence, blocking sub-agent",
 					"confidence", preResult.Confidence,
 					"signals", preResult.Signals,
@@ -315,10 +335,14 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 						"Please rephrase with a real, actionable task.",
 						preResult.Confidence, preResult.Summary),
 				}, nil
-			} else {
-				logr.Debug("halguard pre-check passed",
-					"confidence", preResult.Confidence)
 			}
+			preSpan.SetAttributes(
+				attribute.Bool("halguard.precheck.blocked", false),
+			)
+			preSpan.SetStatus(codes.Ok, "")
+			preSpan.End()
+			logr.Debug("halguard pre-check passed",
+				"confidence", preResult.Confidence)
 		}
 	}
 
@@ -584,20 +608,43 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	// Only runs when halGuard is configured and the sub-agent produced output.
 	// Uses tiered verification: short tool-grounded outputs skip heavy checks.
 	if t.halGuard != nil && result != "" && status != "error" {
-		vr, verifyErr := t.halGuard.PostCheck(ctx, halguard.PostCheckRequest{
+		postTracer := otel.Tracer("genie")
+		postCtx, postSpan := postTracer.Start(ctx, "halguard.PostCheck")
+		postSpan.SetAttributes(
+			attribute.String("halguard.agent_name", req.AgentName),
+			attribute.Int("halguard.postcheck.output_len", len(result)),
+			attribute.Int("halguard.postcheck.tool_calls", toolCallCount),
+		)
+		vr, verifyErr := t.halGuard.PostCheck(postCtx, halguard.PostCheckRequest{
 			Goal:            req.Goal,
 			Output:          result,
 			ToolCallsMade:   toolCallCount,
 			GenerationModel: modelToUse,
 		})
 		if verifyErr != nil {
+			postSpan.RecordError(verifyErr)
+			postSpan.SetStatus(codes.Error, verifyErr.Error())
+			postSpan.End()
 			logr.Warn("halguard post-check failed, using unverified output", "error", verifyErr)
 		} else if !vr.IsFactual {
+			postSpan.SetAttributes(
+				attribute.String("halguard.postcheck.tier", string(vr.Tier)),
+				attribute.Bool("halguard.postcheck.is_factual", false),
+				attribute.Int("halguard.postcheck.contradictions", len(vr.BlockScores)),
+			)
+			postSpan.SetStatus(codes.Error, "hallucination detected")
+			postSpan.End()
 			logr.Warn("halguard detected hallucination in sub-agent output",
 				"tier", vr.Tier, "contradictions", len(vr.BlockScores))
 			result = vr.CorrectedText
 			status = "verified_corrected"
 		} else {
+			postSpan.SetAttributes(
+				attribute.String("halguard.postcheck.tier", string(vr.Tier)),
+				attribute.Bool("halguard.postcheck.is_factual", true),
+			)
+			postSpan.SetStatus(codes.Ok, "")
+			postSpan.End()
 			logr.Info("halguard post-check passed", "tier", vr.Tier)
 		}
 	}
