@@ -295,15 +295,16 @@ var _ = Describe("SemanticRouter", func() {
 				Expect(fakeCacheStore.UpsertCallCount()).To(Equal(1))
 			})
 
-			It("should truncate long keys in SetCache", func() {
+			It("should hash keys in SetCache", func() {
 				longQuery := strings.Repeat("A", 100)
 				err := rt.SetCache(ctx, longQuery, "answer")
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(fakeCacheStore.UpsertCallCount()).To(Equal(1))
 				_, upsertedItems := fakeCacheStore.UpsertArgsForCall(0)
-				// Keys should cap at limit 64 length prefix
-				Expect(upsertedItems[0].ID).To(Equal("cache_" + strings.Repeat("A", 64)))
+				// sha256 hex encoding is 64 characters long, prefixed with "cache_"
+				Expect(len(upsertedItems[0].ID)).To(Equal(6 + 64))
+				Expect(upsertedItems[0].ID).To(HavePrefix("cache_"))
 			})
 
 			It("should return nil immediately if caching disabled", func() {

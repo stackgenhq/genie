@@ -2,8 +2,11 @@ package semanticrouter
 
 import (
 	"context"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
@@ -77,22 +80,73 @@ func New(ctx context.Context, cfg Config, provider modelprovider.ModelProvider) 
 		cfg.Threshold = defaultThreshold
 	}
 
-	routeStore, err := cfg.VectorStore.NewStore(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize route vector store: %w", err)
+	if cfg.Disabled {
+		return &Router{
+			cfg:      cfg,
+			provider: provider,
+		}, nil
 	}
 
-	cacheStore, err := cfg.VectorStore.NewStore(ctx)
+	routeStore, cacheStore, err := initializeStores(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize cache vector store: %w", err)
+		return nil, err
 	}
 
-	// Merge builtin routes and config routes
+	if err := indexRoutes(ctx, routeStore, cfg.Routes); err != nil {
+		return nil, err
+	}
+
+	return &Router{
+		cfg:        cfg,
+		routeStore: routeStore,
+		cacheStore: cacheStore,
+		provider:   provider,
+	}, nil
+}
+
+// initializeStores creates the isolated vector stores for routing and caching.
+func initializeStores(ctx context.Context, cfg Config) (vector.IStore, vector.IStore, error) {
+	routeCfg := cfg.VectorStore
+	if routeCfg.PersistenceDir != "" {
+		routeCfg.PersistenceDir = filepath.Join(routeCfg.PersistenceDir, "routes")
+	}
+	if routeCfg.Milvus.CollectionName != "" {
+		routeCfg.Milvus.CollectionName = routeCfg.Milvus.CollectionName + "_routes"
+	}
+
+	routeStore, err := routeCfg.NewStore(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to initialize route vector store: %w", err)
+	}
+
+	cacheStore, err := vector.IStore(nil), error(nil)
+	if cfg.EnableCaching {
+		cacheCfg := cfg.VectorStore
+		if cacheCfg.PersistenceDir != "" {
+			cacheCfg.PersistenceDir = filepath.Join(cacheCfg.PersistenceDir, "cache")
+		}
+		if cacheCfg.Milvus.CollectionName != "" {
+			cacheCfg.Milvus.CollectionName = cacheCfg.Milvus.CollectionName + "_cache"
+		}
+		cacheStore, err = cacheCfg.NewStore(ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to initialize cache vector store: %w", err)
+		}
+	}
+
+	return routeStore, cacheStore, nil
+}
+
+// indexRoutes merges built-in and configured routes and upserts them into the route store.
+func indexRoutes(ctx context.Context, routeStore vector.IStore, customRoutes []Route) error {
 	mergedRoutes := make(map[string][]string)
+
+	// Collect built-in routes
 	for _, r := range builtinRoutes() {
 		mergedRoutes[r.Name] = append(mergedRoutes[r.Name], r.Utterances...)
 	}
-	for _, r := range cfg.Routes {
+	// Collect custom routes
+	for _, r := range customRoutes {
 		mergedRoutes[r.Name] = append(mergedRoutes[r.Name], r.Utterances...)
 	}
 
@@ -108,16 +162,10 @@ func New(ctx context.Context, cfg Config, provider modelprovider.ModelProvider) 
 			})
 		}
 		if err := routeStore.Upsert(ctx, items...); err != nil {
-			return nil, fmt.Errorf("failed to index utterances for route %s: %w", name, err)
+			return fmt.Errorf("failed to index utterances for route %s: %w", name, err)
 		}
 	}
-
-	return &Router{
-		cfg:        cfg,
-		routeStore: routeStore,
-		cacheStore: cacheStore,
-		provider:   provider,
-	}, nil
+	return nil
 }
 
 // Classify acts as the unified gatekeeper.
@@ -302,11 +350,9 @@ func (r *Router) SetCache(ctx context.Context, query string, response string) er
 		return nil
 	}
 
-	// Simple id for key
-	id := query
-	if len(id) > 64 {
-		id = id[:64]
-	}
+	// Create a safe hash for the cache key to avoid collisions on long similar strings
+	hash := sha256.Sum256([]byte(query))
+	id := hex.EncodeToString(hash[:])
 
 	err := r.cacheStore.Upsert(ctx, vector.BatchItem{
 		ID:   "cache_" + id,
