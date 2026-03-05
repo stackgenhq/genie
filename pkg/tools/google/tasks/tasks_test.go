@@ -163,7 +163,7 @@ var _ = Describe("Google Tasks Tools", func() {
 			Expect(tools).To(HaveLen(5))
 		})
 	})
-	
+
 	Describe("taskDetailFromAPI", func() {
 		It("maps fields correctly", func() {
 			t := "completed"

@@ -104,6 +104,16 @@ func New(ctx context.Context, cfg Config, provider modelprovider.ModelProvider) 
 	}, nil
 }
 
+// isDummyEmbedder returns true when the router's vector store is backed by the
+// deterministic dummy embedder. The dummy embedder maps raw byte values to
+// floats, so cosine similarity between arbitrary English sentences is always
+// very high (≥0.85). Using L1 vector routing with it would cause every message
+// to match the first indexed route (jailbreak), producing false REFUSE results.
+func (r *Router) isDummyEmbedder() bool {
+	p := r.cfg.VectorStore.EmbeddingProvider
+	return p == "" || p == "dummy"
+}
+
 // initializeStores creates the isolated vector stores for routing and caching.
 func initializeStores(ctx context.Context, cfg Config) (vector.IStore, vector.IStore, error) {
 	routeCfg := cfg.VectorStore
@@ -173,7 +183,10 @@ func indexRoutes(ctx context.Context, routeStore vector.IStore, customRoutes []R
 // L2 Check: Proxies to the LLM-based frontDeskExpert if no L1 matches are found.
 func (r *Router) Classify(ctx context.Context, question, resume string) (ClassificationResult, error) {
 	// L1: Vector-based Semantic Routing (bypasses LLM)
-	if !r.cfg.Disabled {
+	// Skip L1 when using the dummy embedder — it produces non-semantic
+	// embeddings (raw byte values) whose cosine similarity is always high,
+	// causing false-positive matches that route every message to REFUSE.
+	if !r.cfg.Disabled && !r.isDummyEmbedder() {
 		if route, ok := r.route(ctx, question); ok {
 			logger.GetLogger(ctx).Info("semantic route matched, bypassing LLM front-desk", "route", route)
 			res := ClassificationResult{
