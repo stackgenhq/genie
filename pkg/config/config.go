@@ -25,6 +25,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/tools"
 
 	"github.com/stackgenhq/genie/pkg/security"
+	"github.com/stackgenhq/genie/pkg/semanticrouter"
 	"github.com/stackgenhq/genie/pkg/tools/email"
 	"github.com/stackgenhq/genie/pkg/tools/google/gdrive"
 	"github.com/stackgenhq/genie/pkg/tools/pm"
@@ -97,6 +98,10 @@ type GenieConfig struct {
 	// sub-agent goals (pre-check) and outputs (post-check).
 	// See halguard.DefaultConfig() for defaults.
 	HalGuard halguard.Config `yaml:"halguard,omitempty" toml:"halguard,omitempty"`
+
+	// SemanticRouter configures the fast embedding-based intent routing,
+	// jailbreak detection, and response semantic caching.
+	SemanticRouter semanticrouter.Config `yaml:"semantic_router,omitempty" toml:"semantic_router,omitempty"`
 }
 
 // LoadGenieConfig loads the Genie configuration from a file, resolving
@@ -138,9 +143,10 @@ func LoadGenieConfig(ctx context.Context, sp security.SecretProvider, path strin
 		Messenger: messenger.Config{
 			AGUI: messenger.DefaultAGUIConfig(),
 		},
-		HITL:     hitl.DefaultConfig(),
-		DBConfig: db.DefaultConfig(),
-		Langfuse: langfuse.DefaultConfig(ctx, sp),
+		HITL:           hitl.DefaultConfig(),
+		DBConfig:       db.DefaultConfig(),
+		Langfuse:       langfuse.DefaultConfig(ctx, sp),
+		SemanticRouter: semanticrouter.DefaultConfig(),
 	}
 
 	// Override VectorMemory provider default if env vars present.
