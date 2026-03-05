@@ -578,7 +578,7 @@ var _ = Describe("CodeOwner", func() {
 
 			resume, err := co.createResume(ctx, fakeSummarizer, "Full Persona With System Prompts")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(resume).To(Equal("Genie agent resume is disabled."))
+			Expect(resume).To(Equal("generalist"))
 			Expect(fakeSummarizer.SummarizeCallCount()).To(Equal(0))
 		})
 

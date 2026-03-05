@@ -382,7 +382,7 @@ func (c *orchestrator) createResume(
 		// If nothing remains but the original persona was non-empty,
 		// fall back to a static, non-sensitive message.
 		if sanitized == "" && fullPersona != "" {
-			sanitized = "Genie agent resume is disabled."
+			sanitized = "generalist"
 		}
 
 		return sanitized, nil
