@@ -556,6 +556,32 @@ var _ = Describe("CodeOwner", func() {
 	})
 
 	Describe("createResume", func() {
+		It("should return sanitized persona when disableResume is true", func() {
+			co.disableResume = true
+			co.agentPersona = "User specific persona"
+
+			fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
+
+			resume, err := co.createResume(ctx, fakeSummarizer, "Full Persona With System Prompts")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resume).To(Equal("User specific persona"))
+
+			// Verify it did NOT call summarizer
+			Expect(fakeSummarizer.SummarizeCallCount()).To(Equal(0))
+		})
+
+		It("should return a static message when disableResume is true but agentPersona is empty", func() {
+			co.disableResume = true
+			co.agentPersona = ""
+
+			fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
+
+			resume, err := co.createResume(ctx, fakeSummarizer, "Full Persona With System Prompts")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resume).To(Equal("Genie agent resume is disabled."))
+			Expect(fakeSummarizer.SummarizeCallCount()).To(Equal(0))
+		})
+
 		It("should generate a resume using the summarizer and accomplishments", func() {
 			// Mock findings in vector store
 			fakeStore := &vectorfakes.FakeIStore{}

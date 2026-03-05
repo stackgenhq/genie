@@ -34,15 +34,24 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type PersonaConfig struct {
+	// File is an optional path to a file whose contents are appended
+	// to the agent's system prompt as project-level coding standards.
+	// When empty, no persona content is loaded.
+	File string `yaml:"file,omitempty" toml:"file,omitempty"`
+
+	// DisableResume makes the generation of the agent's resume optional.
+	// If disabled, the persona file is used as is.
+	DisableResume bool `yaml:"disable_resume,omitempty" toml:"disable_resume,omitempty"`
+}
+
 type GenieConfig struct {
 	// AgentName is the user-chosen name for the agent. It gives the agent a
 	// personality and is used for the default audit log path
 	// (~/.genie/{agent_name}.<yyyy_mm_dd>.ndjson).
 	AgentName string `yaml:"agent_name,omitempty" toml:"agent_name,omitempty"`
-	// PersonaFile is an optional path to a file whose contents are appended
-	// to the agent's system prompt as project-level coding standards.
-	// When empty, no persona content is loaded.
-	PersonaFile string `yaml:"persona_file,omitempty" toml:"persona_file,omitempty"`
+	// Persona configures the project-level coding standards and agent capabilities file.
+	Persona PersonaConfig `yaml:"persona,omitempty" toml:"persona,omitempty"`
 	// PersonaTokenThreshold is the maximum recommended token length for the
 	// persona/system prompt. If exceeded at boot, a warning is emitted.
 	// Defaults to 2000.

@@ -13,7 +13,11 @@
 # agent_name = "Genie"
 # Optional: load persona/coding-standards from a custom file.
 # Supports absolute paths or paths relative to the working directory.
-# persona_file = "./STANDARDS.md"
+# Uses `disable_resume` to make the generation of the agent's resume optional. If disabled,
+# the persona file is used as is.
+# [persona]
+# file = "./STANDARDS.md"
+# disable_resume = true
 
 # ── Model Providers ────────────────────────────────────────
 # Configure one or more LLM providers. Genie routes each task

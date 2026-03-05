@@ -287,7 +287,7 @@ var _ = Describe("persona", func() {
 		Expect(err).NotTo(HaveOccurred())
 		a := &Application{
 			cfg: config.GenieConfig{
-				PersonaFile: "STANDARDS.md",
+				Persona: config.PersonaConfig{File: "STANDARDS.md"},
 			},
 			workingDir: tmpDir,
 		}
@@ -304,7 +304,7 @@ var _ = Describe("persona", func() {
 		Expect(err).NotTo(HaveOccurred())
 		a := &Application{
 			cfg: config.GenieConfig{
-				PersonaFile: absPath,
+				Persona: config.PersonaConfig{File: absPath},
 			},
 		}
 

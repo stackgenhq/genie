@@ -172,11 +172,11 @@ func (a *Application) displayName() string {
 // Returns an empty string if the file does not exist or cannot be read
 // (best-effort, non-fatal).
 func (a *Application) persona(ctx context.Context) string {
-	if a.cfg.PersonaFile == "" {
+	if a.cfg.Persona.File == "" {
 		return ""
 	}
 
-	personaPath := a.cfg.PersonaFile
+	personaPath := a.cfg.Persona.File
 	if !filepath.IsAbs(personaPath) && a.workingDir != "" {
 		personaPath = filepath.Join(a.workingDir, personaPath)
 	}
@@ -339,6 +339,7 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 			toolwrap.WithApprovalCacheTTL(a.cfg.HITL.CacheTTL),
 			toolwrap.WithApproveList(a.approveList),
 		),
+		orchestrator.WithDisableResume(a.cfg.Persona.DisableResume),
 	}
 
 	// If a skill provider exists, we allow dynamic skills

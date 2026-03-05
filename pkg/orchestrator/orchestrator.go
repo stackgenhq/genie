@@ -120,6 +120,9 @@ type orchestrator struct {
 	workingMemories   sync.Map // map[string]*rtmemory.WorkingMemory
 	episodicMemories  sync.Map // map[string]rtmemory.EpisodicMemory
 	episodicMemoryCfg rtmemory.EpisodicMemoryConfig
+
+	disableResume bool
+	agentPersona  string
 }
 
 // Resume returns a natural language description of the agent's capabilities.
@@ -138,7 +141,8 @@ func (c *orchestrator) Resume(ctx context.Context) string {
 type OrchestratorOption func(*orchestratorOpts)
 
 type orchestratorOpts struct {
-	toolwrapOpts []toolwrap.ServiceOption
+	toolwrapOpts  []toolwrap.ServiceOption
+	disableResume bool
 }
 
 // WithToolwrapOptions passes per-agent middleware configuration to the
@@ -147,6 +151,13 @@ type orchestratorOpts struct {
 func WithToolwrapOptions(opts ...toolwrap.ServiceOption) OrchestratorOption {
 	return func(o *orchestratorOpts) {
 		o.toolwrapOpts = append(o.toolwrapOpts, opts...)
+	}
+}
+
+// WithDisableResume sets whether to disable the dynamic generation of the agent's resume.
+func WithDisableResume(disable bool) OrchestratorOption {
+	return func(o *orchestratorOpts) {
+		o.disableResume = disable
 	}
 }
 
@@ -323,6 +334,8 @@ func NewOrchestrator(
 		vectorStore:        vectorStore,
 		episodicMemoryCfg:  episodicMemoryCfg,
 		availableToolNames: availableTools.GetToolDescriptions(),
+		disableResume:      oo.disableResume,
+		agentPersona:       agentPersona,
 	}
 	// keep updating the resume less than 24 hours
 	// Create a dedicated context for the background refresher that we can cancel on Close()
@@ -358,6 +371,23 @@ func (c *orchestrator) createResume(
 	fullPersona string,
 ) (string, error) {
 	logger := logger.GetLogger(ctx)
+
+	if c.disableResume {
+		logger.Info("resume creation disabled, returning sanitized persona")
+
+		// Avoid leaking the embedded orchestrator system prompt (persona.txt)
+		// by stripping it from the combined persona before returning.
+		sanitized := strings.TrimSpace(c.agentPersona)
+
+		// If nothing remains but the original persona was non-empty,
+		// fall back to a static, non-sensitive message.
+		if sanitized == "" && fullPersona != "" {
+			sanitized = "Genie agent resume is disabled."
+		}
+
+		return sanitized, nil
+	}
+
 	logger.Info("building my resume")
 
 	// Inject a system-level MessageOrigin so downstream calls
