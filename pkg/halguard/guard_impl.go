@@ -408,7 +408,7 @@ Task: %s`, goal)
 			return nil
 		})
 	}
-	errGroup.Wait()
+	_ = errGroup.Wait()
 
 	return samples
 }
