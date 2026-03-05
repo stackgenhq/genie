@@ -617,6 +617,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 		)
 		vr, verifyErr := t.halGuard.PostCheck(postCtx, halguard.PostCheckRequest{
 			Goal:            req.Goal,
+			Context:         req.Context,
 			Output:          result,
 			ToolCallsMade:   toolCallCount,
 			GenerationModel: modelToUse,

@@ -462,8 +462,10 @@ var _ = Describe("Guard", func() {
 					return modelprovider.ModelMap{"openai/gpt-4": fakeModel1}, nil
 				}
 
+				var correctorPrompt string
+
 				// For this test, override model1 to be the judge + corrector by overriding after samples
-				fakeModel1.GenerateContentStub = func(_ context.Context, _ *model.Request) (<-chan *model.Response, error) {
+				fakeModel1.GenerateContentStub = func(_ context.Context, req *model.Request) (<-chan *model.Response, error) {
 					model1CallCount++
 					if model1CallCount == 1 {
 						// Cross-model sample from model1
@@ -477,6 +479,9 @@ var _ = Describe("Guard", func() {
 						return fakeModelResponse(judgeJSON), nil
 					}
 					// Correction call
+					if len(req.Messages) > 0 {
+						correctorPrompt = req.Messages[0].Content
+					}
 					return fakeModelResponse("The module has 15 dependencies."), nil
 				}
 
@@ -491,6 +496,7 @@ var _ = Describe("Guard", func() {
 
 				result, err := g.PostCheck(ctx, halguard.PostCheckRequest{
 					Goal:            "analyze the Go module",
+					Context:         "A context string to verify it is passed through",
 					Output:          output,
 					ToolCallsMade:   0,
 					GenerationModel: modelprovider.ModelMap{"anthropic/claude-sonnet-4-6": fakeModel1},
@@ -506,6 +512,12 @@ var _ = Describe("Guard", func() {
 					}
 				}
 				Expect(contradictions).To(BeNumerically(">", 0))
+
+				// Assert that the explicit formatting of multi-model samples is actually sent to the corrector
+				Expect(correctorPrompt).To(ContainSubstring("[A]"))
+				Expect(correctorPrompt).To(ContainSubstring("[B]"))
+				// Assert string replacement preserves formatting
+				Expect(result.CorrectedText).To(Equal("The module uses Go 1.22.\n\nThe module has 15 dependencies.\n\nThe build system uses Make."))
 			})
 
 			It("should use full tier for outputs with fabrication signals", func() {
