@@ -140,28 +140,42 @@
     <div class="max-w-4xl mx-auto fade-in">
       <div class="text-center mb-10">
         <h2 class="text-3xl md:text-4xl font-bold tracking-tight mb-4">Easy Onboarding 🧭</h2>
-        <p class="text-gray-500 max-w-2xl mx-auto">Creating your <code class="bg-white px-2 py-0.5 rounded text-sm font-mono text-purple-600 border border-purple-100">.genie.toml</code> doesn’t have to mean hand-editing TOML. Use our <strong>guided Config Builder</strong> to set up your first config in minutes.</p>
+        <p class="text-gray-500 max-w-2xl mx-auto">Creating your <code
+            class="bg-white px-2 py-0.5 rounded text-sm font-mono text-purple-600 border border-purple-100">.genie.toml</code>
+          doesn’t have to mean hand-editing TOML. Use our <strong>guided Config Builder</strong> to set up your first
+          config in minutes.</p>
       </div>
       <div class="feature-card p-8" style="border: 2px solid rgba(130,71,231,0.2); background: white;">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
           <div>
-            <h3 class="text-xl font-semibold mb-3 text-purple-600">Guided way to create <code class="text-sm font-mono bg-purple-50 px-1.5 py-0.5 rounded">.genie.toml</code> upfront</h3>
+            <h3 class="text-xl font-semibold mb-3 text-purple-600">Guided way to create <code
+                class="text-sm font-mono bg-purple-50 px-1.5 py-0.5 rounded">.genie.toml</code> upfront</h3>
             <ul class="space-y-2 text-sm text-gray-500">
-              <li class="flex items-start gap-2"><span class="text-purple-500 font-bold">→</span> No TOML knowledge needed — fill in the form, then copy or download</li>
-              <li class="flex items-start gap-2"><span class="text-purple-500 font-bold">→</span> Start with model providers, then add skills, MCP, and integrations as you need them</li>
-              <li class="flex items-start gap-2"><span class="text-purple-500 font-bold">→</span> Sensible defaults and tooltips so you know what each option does</li>
+              <li class="flex items-start gap-2"><span class="text-purple-500 font-bold">→</span> No TOML knowledge
+                needed — fill in the form, then copy or download</li>
+              <li class="flex items-start gap-2"><span class="text-purple-500 font-bold">→</span> Start with model
+                providers, then add skills, MCP, and integrations as you need them</li>
+              <li class="flex items-start gap-2"><span class="text-purple-500 font-bold">→</span> Sensible defaults and
+                tooltips so you know what each option does</li>
             </ul>
-            <a href="config-builder.html" class="inline-flex items-center gap-2 mt-6 text-purple-600 font-semibold hover:text-purple-700 no-underline">
+            <a href="config-builder.html"
+              class="inline-flex items-center gap-2 mt-6 text-purple-600 font-semibold hover:text-purple-700 no-underline">
               Open Config Builder
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+              </svg>
             </a>
           </div>
           <div class="text-center">
             <p class="text-xs text-gray-400 uppercase tracking-wider mb-3 font-semibold">Onboarding flow</p>
             <div class="space-y-2 text-left max-w-xs mx-auto">
-              <div class="flex items-center gap-2 bg-white border border-purple-100 rounded-lg px-3 py-2 text-sm">1. Install genie</div>
-              <div class="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2 text-sm font-medium text-purple-700">2. Use Config Builder → get <code class="text-xs">.genie.toml</code></div>
-              <div class="flex items-center gap-2 bg-white border border-purple-100 rounded-lg px-3 py-2 text-sm">3. Run <code class="text-xs">genie grant</code></div>
+              <div class="flex items-center gap-2 bg-white border border-purple-100 rounded-lg px-3 py-2 text-sm">1.
+                Install genie</div>
+              <div
+                class="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2 text-sm font-medium text-purple-700">
+                2. Use Config Builder → get <code class="text-xs">.genie.toml</code></div>
+              <div class="flex items-center gap-2 bg-white border border-purple-100 rounded-lg px-3 py-2 text-sm">3. Run
+                <code class="text-xs">genie grant</code></div>
             </div>
           </div>
         </div>
@@ -286,6 +300,18 @@
             key detection. Zero-config, deterministic HMAC hashing.
           </p>
         </div>
+        <div class="feature-card"
+          style="border: 2px solid rgba(139,92,246,0.2); background: linear-gradient(135deg, rgba(139,92,246,0.02), rgba(139,92,246,0.06));">
+          <div class="feature-icon bg-violet-50 text-violet-500">🛡️</div>
+          <h3 class="text-lg font-semibold mb-2">Hallucination Guard</h3>
+          <p class="text-sm text-gray-500 leading-relaxed">Two-phase protection against AI fabrication.
+            <strong>Pre-Check</strong> scores goals with multi-signal grounding analysis before execution;
+            <strong>Post-Check</strong> uses cross-model consistency verification
+            (<a href="https://arxiv.org/abs/2508.14314" target="_blank"
+              class="text-purple-500 hover:text-purple-600">Finch-Zk</a>)
+            to catch and correct hallucinated output.
+          </p>
+        </div>
         <div class="feature-card">
           <div class="feature-icon bg-indigo-50 text-indigo-500">🧠</div>
           <h3 class="text-lg font-semibold mb-2">Persistent Vector Memory</h3>
@@ -318,6 +344,134 @@
     </div>
   </section>
 
+  <!-- Hallucination Guard Deep Dive -->
+  <section class="py-20 px-6 bg-violet-50/30">
+    <div class="max-w-6xl mx-auto fade-in">
+      <div class="text-center mb-14">
+        <div
+          class="inline-flex items-center gap-2 bg-violet-100 text-violet-600 text-xs font-semibold px-3 py-1 rounded-full mb-4">
+          RESEARCH-BACKED AI SAFETY
+        </div>
+        <h2 class="text-3xl md:text-4xl font-bold tracking-tight mb-4">Hallucination Guard 🛡️</h2>
+        <p class="text-gray-500 max-w-2xl mx-auto">Sub-agents can fabricate. Genie catches it — before and after
+          execution — using multi-signal scoring and cross-model verification.</p>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
+        <!-- Phase 1: Pre-Check -->
+        <div class="feature-card p-8" style="border: 2px solid rgba(139,92,246,0.2); background: white;">
+          <div class="flex items-center gap-3 mb-5">
+            <div class="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center text-lg">🔍</div>
+            <div>
+              <h3 class="text-lg font-semibold">Pre-Check (P0)</h3>
+              <p class="text-xs text-gray-400">Before sub-agent execution</p>
+            </div>
+          </div>
+          <p class="text-sm text-gray-500 mb-5 leading-relaxed">Scores delegation goals for fabrication risk using
+            weighted multi-signal analysis. Returns a 0–1 confidence score — the caller decides the threshold.</p>
+          <div class="space-y-2">
+            <div class="flex items-center gap-3 bg-violet-50 rounded-lg px-4 py-2.5">
+              <div class="w-14 text-right">
+                <span class="text-xs font-mono font-bold text-violet-600">0.40</span>
+              </div>
+              <div class="flex-1 bg-violet-200 rounded-full h-2">
+                <div class="bg-violet-500 h-2 rounded-full" style="width:100%"></div>
+              </div>
+              <span class="text-xs text-gray-600 w-36">Role-play detection</span>
+            </div>
+            <div class="flex items-center gap-3 bg-violet-50/60 rounded-lg px-4 py-2.5">
+              <div class="w-14 text-right">
+                <span class="text-xs font-mono font-bold text-violet-600">0.25</span>
+              </div>
+              <div class="flex-1 bg-violet-200 rounded-full h-2">
+                <div class="bg-violet-400 h-2 rounded-full" style="width:62.5%"></div>
+              </div>
+              <span class="text-xs text-gray-600 w-36">Fabrication patterns</span>
+            </div>
+            <div class="flex items-center gap-3 bg-violet-50/40 rounded-lg px-4 py-2.5">
+              <div class="w-14 text-right">
+                <span class="text-xs font-mono font-bold text-violet-600">0.15</span>
+              </div>
+              <div class="flex-1 bg-violet-200 rounded-full h-2">
+                <div class="bg-violet-300 h-2 rounded-full" style="width:37.5%"></div>
+              </div>
+              <span class="text-xs text-gray-600 w-36">Persona assignment</span>
+            </div>
+            <div class="flex items-center gap-3 bg-violet-50/30 rounded-lg px-4 py-2.5">
+              <div class="w-14 text-right">
+                <span class="text-xs font-mono font-bold text-violet-600">0.10</span>
+              </div>
+              <div class="flex-1 bg-violet-200 rounded-full h-2">
+                <div class="bg-violet-300 h-2 rounded-full" style="width:25%"></div>
+              </div>
+              <span class="text-xs text-gray-600 w-36">Narrative arc + density</span>
+            </div>
+          </div>
+          <p class="text-xs text-gray-400 mt-4">Signals combine with diminishing returns. One strong role-play signal
+            can block alone; weaker signals need to co-occur.</p>
+        </div>
+
+        <!-- Phase 2: Post-Check -->
+        <div class="feature-card p-8" style="border: 2px solid rgba(59,130,246,0.2); background: white;">
+          <div class="flex items-center gap-3 mb-5">
+            <div class="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-lg">✅</div>
+            <div>
+              <h3 class="text-lg font-semibold">Post-Check (P1)</h3>
+              <p class="text-xs text-gray-400">After sub-agent execution</p>
+            </div>
+          </div>
+          <p class="text-sm text-gray-500 mb-5 leading-relaxed">Verifies sub-agent output using tiered cross-model
+            consistency checking. Short, tool-grounded responses skip verification; longer outputs get progressively
+            deeper scrutiny.</p>
+          <div class="space-y-3">
+            <div class="flex items-center gap-3 bg-green-50 rounded-lg px-4 py-3">
+              <span class="text-lg">⚡</span>
+              <div>
+                <p class="text-sm font-medium text-green-700">Tier: None</p>
+                <p class="text-xs text-gray-500">Short output with tool calls → skip verification (grounded in data)</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-3 bg-yellow-50 rounded-lg px-4 py-3">
+              <span class="text-lg">🔎</span>
+              <div>
+                <p class="text-sm font-medium text-yellow-700">Tier: Light</p>
+                <p class="text-xs text-gray-500">Medium output → single-model sanity check for obvious fabrications</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-3 bg-red-50 rounded-lg px-4 py-3">
+              <span class="text-lg">🔬</span>
+              <div>
+                <p class="text-sm font-medium text-red-700">Tier: Full (Finch-Zk)</p>
+                <p class="text-xs text-gray-500">Long output → N independent model samples compared block-by-block.
+                  Contradictions are corrected with targeted rewrites</p>
+              </div>
+            </div>
+          </div>
+          <p class="text-xs text-gray-400 mt-4">Based on
+            <a href="https://arxiv.org/abs/2508.14314" target="_blank"
+              class="text-blue-500 hover:text-blue-600">Finch-Zk
+              (arXiv:2508.14314)</a> — cross-model diversity is critical;
+            disabling it degrades detection accuracy by 34%.
+          </p>
+        </div>
+      </div>
+
+      <!-- Config snippet -->
+      <div class="mt-10 max-w-2xl mx-auto">
+        <div class="code-snippet">
+          <button class="copy-btn"
+            onclick="navigator.clipboard.writeText('[halguard]\nenable_pre_check = true\nenable_post_check = true\npre_check_threshold = 0.4\ncross_model_samples = 3').then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)})">Copy</button>
+          <span class="text-gray-500"># Enable hallucination guard in genie.toml</span>
+          <br>[halguard]
+          <br>enable_pre_check = <span class="text-green-400">true</span>
+          <br>enable_post_check = <span class="text-green-400">true</span>
+          <br>pre_check_threshold = <span class="text-blue-400">0.4</span>
+          <br>cross_model_samples = <span class="text-blue-400">3</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- How It Works -->
   <section class="py-20 px-6 bg-gray-50/50">
     <div class="max-w-3xl mx-auto fade-in">
@@ -331,7 +485,8 @@
           <div>
             <h3 class="text-lg font-semibold mb-1">Configure Once — the Guided Way</h3>
             <p class="text-sm text-gray-500">Create your <code class="text-xs">.genie.toml</code> upfront with our <a
-                href="config-builder.html" class="text-purple-500 hover:text-purple-600">Config Builder</a>: no TOML editing required. Add models, tools, skills, and integrations in one place.</p>
+                href="config-builder.html" class="text-purple-500 hover:text-purple-600">Config Builder</a>: no TOML
+              editing required. Add models, tools, skills, and integrations in one place.</p>
           </div>
         </div>
         <div class="workflow-step">
@@ -407,7 +562,11 @@
   <section class="py-20 px-6">
     <div class="max-w-3xl mx-auto text-center fade-in">
       <h2 class="text-3xl md:text-4xl font-bold tracking-tight mb-4">Ready to Get Started?</h2>
-      <p class="text-gray-500 mb-8 max-w-lg mx-auto"><strong>Easy onboarding:</strong> use our guided Config Builder to create your first <code class="bg-gray-100 px-1.5 py-0.5 rounded text-sm font-mono text-purple-600">.genie.toml</code> in minutes — no TOML knowledge needed. Then run <code class="bg-gray-100 px-1.5 py-0.5 rounded text-sm font-mono">genie grant</code> and you’re live.</p>
+      <p class="text-gray-500 mb-8 max-w-lg mx-auto"><strong>Easy onboarding:</strong> use our guided Config Builder to
+        create your first <code
+          class="bg-gray-100 px-1.5 py-0.5 rounded text-sm font-mono text-purple-600">.genie.toml</code> in minutes — no
+        TOML knowledge needed. Then run <code
+          class="bg-gray-100 px-1.5 py-0.5 rounded text-sm font-mono">genie grant</code> and you’re live.</p>
       <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
         <a href="config-builder.html" class="btn-primary text-base no-underline">
           Guided Config Builder
