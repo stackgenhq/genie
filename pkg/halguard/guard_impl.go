@@ -525,14 +525,16 @@ func (g *guard) correctBlocks(ctx context.Context, corrector model.Model, blocks
 			continue
 		}
 
-		sampleEvidence := ""
-		if len(samples) > 0 {
-			evidence := samples[0]
-			if len(evidence) > 1000 {
-				evidence = evidence[:1000] + "..."
+		var sampleList strings.Builder
+		labels := []string{"A", "B", "C", "D", "E", "F"}
+		for j, s := range samples {
+			label := labels[j%len(labels)]
+			if len(s) > 1000 {
+				s = s[:1000] + "..."
 			}
-			sampleEvidence = evidence
+			fmt.Fprintf(&sampleList, "[%s] %s\n\n", label, s)
 		}
+		sampleEvidence := strings.TrimSpace(sampleList.String())
 
 		prompt := fmt.Sprintf(`Fix the factual error in the following text block. Preserve the style and intent — only correct the factual claim.
 
