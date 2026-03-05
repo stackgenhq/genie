@@ -1,8 +1,11 @@
 package telegram
 
 import (
+	"context"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/messenger"
 
 	tgmodels "github.com/go-telegram/bot/models"
 )
@@ -56,6 +59,40 @@ var _ = Describe("Telegram Internal", func() {
 			r := &tgmodels.MessageReactionUpdated{}
 			sender := m.senderFromReactionActor(r)
 			Expect(sender.ID).To(Equal("unknown"))
+		})
+	})
+
+	Describe("No-Op and formatting methods", func() {
+		It("returns correct Platform", func() {
+			m := &Messenger{}
+			Expect(m.Platform()).To(Equal(messenger.PlatformTelegram))
+		})
+
+		It("returns correct ConnectionInfo", func() {
+			m := &Messenger{}
+			Expect(m.ConnectionInfo()).To(ContainSubstring("Telegram"))
+		})
+
+		It("returns UpdateMessage nil", func() {
+			m := &Messenger{}
+			err := m.UpdateMessage(context.Background(), messenger.UpdateRequest{})
+			Expect(err).To(BeNil())
+		})
+
+		It("formats approval with no change", func() {
+			m := &Messenger{}
+			req := messenger.SendRequest{}
+			req.Content.Text = "foo"
+			formatted := m.FormatApproval(req, messenger.ApprovalInfo{})
+			Expect(formatted.Content.Text).To(Equal("foo"))
+		})
+
+		It("formats clarification with no change", func() {
+			m := &Messenger{}
+			req := messenger.SendRequest{}
+			req.Content.Text = "bar"
+			formatted := m.FormatClarification(req, messenger.ClarificationInfo{})
+			Expect(formatted.Content.Text).To(Equal("bar"))
 		})
 	})
 })
