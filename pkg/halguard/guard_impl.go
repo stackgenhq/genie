@@ -194,6 +194,11 @@ func (g *guard) verifyLight(ctx context.Context, req PostCheckRequest) (Verifica
 		}, nil
 	}
 
+	goalText := req.Goal
+	if req.Context != "" {
+		goalText = fmt.Sprintf("Context:\n%s\n\nGoal:\n%s", req.Context, req.Goal)
+	}
+
 	prompt := fmt.Sprintf(`You are a factual consistency checker. Analyze the following sub-agent output and determine if it contains hallucinated or fabricated content.
 
 ORIGINAL GOAL: %s
@@ -209,7 +214,7 @@ Check for:
 Respond with a JSON object:
 {"is_factual": true/false, "reason": "brief explanation"}
 
-Output ONLY the JSON, no other text.`, req.Goal, req.Output)
+Output ONLY the JSON, no other text.`, goalText, req.Output)
 
 	result, genErr := generateText(ctx, models[0].model, prompt, 500)
 	if genErr != nil {
@@ -267,7 +272,11 @@ func (g *guard) verifyFull(ctx context.Context, req PostCheckRequest) (Verificat
 		"models", modelKeys(models))
 
 	// Stage 2: Generate cross-model samples in parallel.
-	samples := g.generateCrossModelSamples(ctx, models, req.Goal)
+	goalText := req.Goal
+	if req.Context != "" {
+		goalText = fmt.Sprintf("Context:\n%s\n\nGoal:\n%s", req.Context, req.Goal)
+	}
+	samples := g.generateCrossModelSamples(ctx, models, goalText)
 	if len(samples) == 0 {
 		logr.Warn("no cross-model samples generated, falling back to light")
 		return g.verifyLight(ctx, req)
@@ -313,7 +322,7 @@ func (g *guard) verifyFull(ctx context.Context, req PostCheckRequest) (Verificat
 
 	// Stage 5: Targeted block correction using a different model.
 	correctionModel := g.selectCorrectionModel(models, req.GenerationModel)
-	correctedText := g.correctBlocks(ctx, correctionModel, blocks, scores, samples)
+	correctedText := g.correctBlocks(ctx, correctionModel, req.Output, blocks, scores, samples)
 
 	logr.Info("full verification: contradictions found and corrected",
 		"contradictions", scores.countContradictions())
@@ -511,17 +520,16 @@ func (g *guard) selectCorrectionModel(available []verificationModel, generationM
 }
 
 // correctBlocks applies targeted corrections only to CONTRADICTION blocks.
-func (g *guard) correctBlocks(ctx context.Context, corrector model.Model, blocks []string, scores []BlockScore, samples []string) string {
+func (g *guard) correctBlocks(ctx context.Context, corrector model.Model, originalText string, blocks []string, scores []BlockScore, samples []string) string {
 	logr := logger.GetLogger(ctx).With("fn", "halguard.correctBlocks")
 
-	var corrected []string
+	result := originalText
 	for i, score := range scores {
 		if i >= len(blocks) {
 			break
 		}
 
 		if score.Label != BlockContradiction {
-			corrected = append(corrected, blocks[i])
 			continue
 		}
 
@@ -549,19 +557,17 @@ Write ONLY the corrected version of this block. No explanations.`, blocks[i], sc
 		fixed, err := generateText(ctx, corrector, prompt, 1000)
 		if err != nil {
 			logr.Warn("block correction failed, keeping original", "block", i, "error", err)
-			corrected = append(corrected, blocks[i])
 			continue
 		}
 
 		fixed = strings.TrimSpace(fixed)
 		if fixed == "" {
-			corrected = append(corrected, blocks[i])
 			continue
 		}
-		corrected = append(corrected, fixed)
+		result = strings.Replace(result, blocks[i], fixed, 1)
 	}
 
-	return strings.Join(corrected, "\n\n")
+	return result
 }
 
 // --- Helpers ---

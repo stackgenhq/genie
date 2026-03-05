@@ -120,6 +120,9 @@ type PostCheckRequest struct {
 	// Goal is the original goal given to the sub-agent.
 	Goal string
 
+	// Context is the optional context string provided alongside the goal.
+	Context string
+
 	// Output is the sub-agent's raw text output to verify.
 	Output string
 
