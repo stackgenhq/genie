@@ -349,6 +349,9 @@ func NewOrchestrator(
 	// Use WithoutCancel to detach from startup context, but we use our own resumeCtx
 	// which we control via Close().
 	go func() {
+		if oo.disableResume {
+			return
+		}
 		_, _ = orchestrator.resume.GetValue(resumeCtx)
 		if err := orchestrator.resume.KeepItFresh(resumeCtx); err != nil && !errors.Is(err, context.Canceled) {
 			// context.Canceled is expected on Close()
@@ -382,7 +385,7 @@ func (c *orchestrator) createResume(
 		// If nothing remains after sanitization, fall back to a static,
 		// non-sensitive message.
 		if sanitized == "" {
-			sanitized = "generalist"
+			return "generalist", nil
 		}
 
 		return sanitized, nil
@@ -420,7 +423,7 @@ Available Tools (capabilities I can use via sub-agents):
 
 	result, err := summarizer.Summarize(ctx, agentutils.SummarizeRequest{
 		RequiredOutputFormat: agentutils.OutputFormatMarkdown,
-		Content: fmt.Sprintf(`Create a linkedIn worthy resume based and things that I can accomplish based on tools available to the given AI Agent:
+		Content: fmt.Sprintf(`Create a resume based and things that I can accomplish based on tools available to the given AI Agent:
 
 - Talk in First Person
 - You are trying to sell yourself to the user.
