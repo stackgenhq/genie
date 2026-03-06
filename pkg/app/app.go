@@ -81,6 +81,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/baggage"
+	oteltrace "go.opentelemetry.io/otel/trace"
 	"gorm.io/gorm"
 	"trpc.group/trpc-go/trpc-agent-go/telemetry/trace"
 )
@@ -679,15 +680,14 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 		// be the Langfuse trace root, which is often not the case.
 		ctx = withLangfuseTraceBaggage(ctx, a.displayName(), "agui")
 
-		ctx, aguiSpan := trace.Tracer.Start(ctx, "chat")
-		aguiSpan.SetAttributes(
+		ctx, aguiSpan := trace.Tracer.Start(ctx, "chat", oteltrace.WithAttributes(
 			attribute.String("langfuse.trace.name", "agui chat"),
 			attribute.String("langfuse.trace.input", pii.Redact(message)),
 			attribute.StringSlice("langfuse.trace.tags", []string{
 				a.displayName(),
 				"agui",
 			}),
-		)
+		))
 		defer aguiSpan.End()
 		logger := logger.GetLogger(ctx).With("fn", "app.buildChatHandler")
 		outputChan := make(chan string)
@@ -1419,8 +1419,7 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 		// to all child spans (including trpc-agent-go internal spans).
 		messengerCtx = withLangfuseTraceBaggage(messengerCtx, a.displayName(), string(msg.Platform), "messenger")
 
-		traceCtx, span := trace.Tracer.Start(messengerCtx, "handle_message")
-		span.SetAttributes(
+		traceCtx, span := trace.Tracer.Start(messengerCtx, "handle_message", oteltrace.WithAttributes(
 			attribute.String("langfuse.trace.name", fmt.Sprintf("%s message", msg.Platform)),
 			attribute.String("langfuse.trace.input", pii.Redact(msg.Content.Text)),
 			attribute.String("langfuse.user.id", msg.Sender.ID),
@@ -1430,7 +1429,7 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 				string(msg.Platform),
 				"messenger",
 			}),
-		)
+		))
 		defer span.End()
 
 		if a.cfg.AgentName != "" {
