@@ -49,6 +49,7 @@ import (
 	_ "github.com/stackgenhq/genie/pkg/messenger/whatsapp" // register adapter
 	"github.com/stackgenhq/genie/pkg/orchestrator"
 	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
+	"github.com/stackgenhq/genie/pkg/pii"
 	"github.com/stackgenhq/genie/pkg/report/activityreport"
 	"github.com/stackgenhq/genie/pkg/semanticrouter"
 
@@ -673,7 +674,7 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 		ctx, aguiSpan := tracer.Start(ctx, "agui_chat")
 		aguiSpan.SetAttributes(
 			attribute.String("langfuse.trace.name", "agui chat"),
-			attribute.String("langfuse.trace.input", message),
+			attribute.String("langfuse.trace.input", pii.Redact(message)),
 			attribute.StringSlice("langfuse.trace.tags", []string{
 				a.displayName(),
 				"agui",
