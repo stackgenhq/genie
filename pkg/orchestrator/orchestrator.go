@@ -27,6 +27,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
 	"github.com/stackgenhq/genie/pkg/halguard"
 	"github.com/stackgenhq/genie/pkg/hitl"
+	"github.com/stackgenhq/genie/pkg/llmutil"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/messenger"
@@ -515,10 +516,14 @@ func bridgeBrowserTab(parent, tab context.Context) (context.Context, context.Can
 func (c *orchestrator) classifyAndMaybeShortCircuit(ctx context.Context, req CodeQuestion, outputChan chan<- string) (handled bool, err error) {
 	category, cr := c.classifyRequest(ctx, req)
 
+	logr := logger.GetLogger(ctx).With("fn", "classifyAndMaybeShortCircuit")
+	logr.Info("classification result", "category", category, "reason", cr.Reason, "bypassed_llm", cr.BypassedLLM)
+
 	// emitShortCircuit sends the response to both the outputChan (for non-AGUI
 	// platforms like Slack/Discord) and the AG-UI event bus (for web UI clients).
 	agentName := orchestratorcontext.AgentFromContext(ctx).Name
 	emitShortCircuit := func(msg string) {
+		logr.Info("emitShortCircuit", "msg_len", len(msg), "msg_preview", toolwrap.TruncateForAudit(msg, 100))
 		agui.EmitAgentMessage(ctx, agentName, msg)
 		outputChan <- msg
 	}
@@ -592,6 +597,7 @@ func (c *orchestrator) handleShortCircuit(ctx context.Context, category requestC
 				"Simply greet them and briefly mention what you can help with.\n\n%s",
 			req.Question,
 		)
+		logr := logger.GetLogger(ctx).With("fn", "handleShortCircuit.salutation")
 		resp, doErr := c.expert.Do(ctx, expert.Request{
 			Message:  salutationMsg,
 			TaskType: modelprovider.TaskEfficiency,
@@ -603,10 +609,22 @@ func (c *orchestrator) handleShortCircuit(ctx context.Context, category requestC
 		if doErr != nil {
 			return true, fmt.Errorf("front desk salutation response failed: %w", doErr)
 		}
-		output := ""
-		if len(resp.Choices) > 0 {
-			output = resp.Choices[0].Message.Content
+		logr.Info("Expert.Do salutation response",
+			"choices_count", len(resp.Choices),
+			"has_usage", resp.Usage != nil,
+		)
+		for i, ch := range resp.Choices {
+			logr.Info("salutation choice",
+				"index", i,
+				"content_len", len(ch.Message.Content),
+				"content_preview", toolwrap.TruncateForAudit(ch.Message.Content, 200),
+				"role", ch.Message.Role,
+				"finish_reason", ch.FinishReason,
+				"tool_calls_count", len(ch.Message.ToolCalls),
+			)
 		}
+		output := llmutil.ExtractChoiceContent(resp.Choices)
+		logr.Info("salutation output", "output_len", len(output), "output_preview", toolwrap.TruncateForAudit(output, 200))
 		emit(output)
 		c.storeConversation(ctx, req.Question, output)
 		return true, nil

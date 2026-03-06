@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/stackgenhq/genie/pkg/security"
@@ -60,13 +61,23 @@ type contactsResponse struct {
 	Message   string         `json:"message"`
 }
 
-type contactsTools struct {
-	secretProvider security.SecretProvider
-	name           string
+// Service provides Google Contacts operations for tools.
+type Service interface {
+	ListContacts(ctx context.Context, req listContactsRequest) (contactsResponse, error)
+	SearchContacts(ctx context.Context, req searchContactsRequest) (contactsResponse, error)
 }
 
-func newContactsTools(name string, secretProvider security.SecretProvider) *contactsTools {
-	return &contactsTools{secretProvider: secretProvider, name: name}
+type contactsWrapper struct {
+	svc *people.Service
+}
+
+type contactsTools struct {
+	svc  Service
+	name string
+}
+
+func newContactsTools(name string, svc Service) *contactsTools {
+	return &contactsTools{svc: svc, name: name}
 }
 
 func (c *contactsTools) tools() []tool.CallableTool {
@@ -90,13 +101,54 @@ func (c *contactsTools) tools() []tool.CallableTool {
 	}
 }
 
-// getPeopleService creates an authenticated People API client using
+// lazyService implements Service by deferring the People API client creation
+// to the first call. This allows the contacts tools to be registered
+// unconditionally (tools remain discoverable) while the actual OAuth/secret
+// resolution happens at execution time. If initialization fails at call time,
+// the error is returned to the caller as a clear runtime error.
+type lazyService struct {
+	sp   security.SecretProvider
+	name string
+	once sync.Once
+	svc  Service
+	err  error
+}
+
+// NewLazyService returns a Service that lazily initialises the People API
+// client on first use. The returned Service is safe for concurrent use.
+func NewLazyService(sp security.SecretProvider, name string) Service {
+	return &lazyService{sp: sp, name: name}
+}
+
+func (l *lazyService) init(ctx context.Context) {
+	l.once.Do(func() {
+		l.svc, l.err = NewFromSecretProvider(ctx, l.sp, l.name)
+	})
+}
+
+func (l *lazyService) ListContacts(ctx context.Context, req listContactsRequest) (contactsResponse, error) {
+	l.init(ctx)
+	if l.err != nil {
+		return contactsResponse{}, fmt.Errorf("google contacts not configured: %w", l.err)
+	}
+	return l.svc.ListContacts(ctx, req)
+}
+
+func (l *lazyService) SearchContacts(ctx context.Context, req searchContactsRequest) (contactsResponse, error) {
+	l.init(ctx)
+	if l.err != nil {
+		return contactsResponse{}, fmt.Errorf("google contacts not configured: %w", l.err)
+	}
+	return l.svc.SearchContacts(ctx, req)
+}
+
+// NewFromSecretProvider creates an authenticated People API client using
 // CredentialsFile + TokenFile from the secret provider, or embedded
 // build-time credentials (see pkg/tools/google/oauth).
-func (c *contactsTools) getPeopleService(ctx context.Context) (*people.Service, error) {
-	credsEntry, _ := c.secretProvider.GetSecret(ctx, security.GetSecretRequest{
+func NewFromSecretProvider(ctx context.Context, secretProvider security.SecretProvider, name string) (Service, error) {
+	credsEntry, _ := secretProvider.GetSecret(ctx, security.GetSecretRequest{
 		Name:   "CredentialsFile",
-		Reason: fmt.Sprintf("%s Google Contacts tool: %s", c.name, toolcontext.GetJustification(ctx)),
+		Reason: fmt.Sprintf("%s Google Contacts tool: %s", name, toolcontext.GetJustification(ctx)),
 	})
 	credsJSON, err := oauth.GetCredentials(credsEntry, "Contacts")
 	if err != nil {
@@ -117,11 +169,15 @@ func (c *contactsTools) getPeopleService(ctx context.Context) (*people.Service, 
 			if err != nil {
 				return nil, fmt.Errorf("invalid service account credentials: %w", err)
 			}
-			return people.NewService(ctx, option.WithCredentials(creds))
+			svc, err := people.NewService(ctx, option.WithCredentials(creds))
+			if err != nil {
+				return nil, err
+			}
+			return &contactsWrapper{svc: svc}, nil
 		}
 	}
 
-	tokenJSON, save, err := oauth.GetToken(ctx, c.secretProvider)
+	tokenJSON, save, err := oauth.GetToken(ctx, secretProvider)
 	if err != nil {
 		return nil, fmt.Errorf("OAuth2 token required: %w", err)
 	}
@@ -129,7 +185,11 @@ func (c *contactsTools) getPeopleService(ctx context.Context) (*people.Service, 
 	if err != nil {
 		return nil, fmt.Errorf("OAuth2 client: %w", err)
 	}
-	return people.NewService(ctx, option.WithHTTPClient(client))
+	svc, err := people.NewService(ctx, option.WithHTTPClient(client))
+	if err != nil {
+		return nil, err
+	}
+	return &contactsWrapper{svc: svc}, nil
 }
 
 func personToEntry(p *people.Person) contactEntry {
@@ -150,7 +210,7 @@ func personToEntry(p *people.Person) contactEntry {
 	return e
 }
 
-func (c *contactsTools) handleListContacts(ctx context.Context, req listContactsRequest) (contactsResponse, error) {
+func (w *contactsWrapper) ListContacts(ctx context.Context, req listContactsRequest) (contactsResponse, error) {
 	resp := contactsResponse{Operation: "list_contacts"}
 
 	ctx, cancel := context.WithTimeout(ctx, apiTimeout)
@@ -164,12 +224,7 @@ func (c *contactsTools) handleListContacts(ctx context.Context, req listContacts
 		pageSize = maxListResults
 	}
 
-	svc, err := c.getPeopleService(ctx)
-	if err != nil {
-		return resp, err
-	}
-
-	call := svc.People.Connections.List("people/me").PersonFields(personFields).PageSize(int64(pageSize))
+	call := w.svc.People.Connections.List("people/me").PersonFields(personFields).PageSize(int64(pageSize))
 	if req.PageToken != "" {
 		call = call.PageToken(req.PageToken)
 	}
@@ -188,7 +243,7 @@ func (c *contactsTools) handleListContacts(ctx context.Context, req listContacts
 	return resp, nil
 }
 
-func (c *contactsTools) handleSearchContacts(ctx context.Context, req searchContactsRequest) (contactsResponse, error) {
+func (w *contactsWrapper) SearchContacts(ctx context.Context, req searchContactsRequest) (contactsResponse, error) {
 	resp := contactsResponse{Operation: "search_contacts"}
 
 	ctx, cancel := context.WithTimeout(ctx, apiTimeout)
@@ -207,11 +262,6 @@ func (c *contactsTools) handleSearchContacts(ctx context.Context, req searchCont
 		pageSize = maxListResults
 	}
 
-	svc, err := c.getPeopleService(ctx)
-	if err != nil {
-		return resp, err
-	}
-
 	// People API search: SearchContacts returns matches; we use list and filter by query
 	// or use the search endpoint if available. People API v1 has people.searchContacts
 	// in some versions. Checking: the REST API has people.searchContacts. The Go client
@@ -220,7 +270,7 @@ func (c *contactsTools) handleSearchContacts(ctx context.Context, req searchCont
 	// Actually the People API has "SearchDirectoryPeople" for domain directory and
 	// "SearchContacts" - let me use the list and filter by query for simplicity so we
 	// don't depend on a specific client version.
-	call := svc.People.Connections.List("people/me").PersonFields(personFields).PageSize(int64(pageSize * 3))
+	call := w.svc.People.Connections.List("people/me").PersonFields(personFields).PageSize(int64(pageSize * 3))
 	if req.PageToken != "" {
 		call = call.PageToken(req.PageToken)
 	}
@@ -250,4 +300,12 @@ func (c *contactsTools) handleSearchContacts(ctx context.Context, req searchCont
 	resp.Count = len(resp.Contacts)
 	resp.Message = fmt.Sprintf("Found %d contact(s) matching %q.", resp.Count, query)
 	return resp, nil
+}
+
+func (c *contactsTools) handleListContacts(ctx context.Context, req listContactsRequest) (contactsResponse, error) {
+	return c.svc.ListContacts(ctx, req)
+}
+
+func (c *contactsTools) handleSearchContacts(ctx context.Context, req searchContactsRequest) (contactsResponse, error) {
+	return c.svc.SearchContacts(ctx, req)
 }

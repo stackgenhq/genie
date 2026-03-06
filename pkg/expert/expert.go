@@ -300,7 +300,9 @@ func (e *expert) Do(ctx context.Context, req Request) (Response, error) {
 		return HandleExpertError(ctx, err)
 	}
 	response := Response{}
+	eventCount := 0
 	for ev := range evCh {
+		eventCount++
 		if req.ChoiceProcessor != nil {
 			req.ChoiceProcessor(ev.Choices...)
 		}
@@ -317,6 +319,11 @@ func (e *expert) Do(ctx context.Context, req Request) (Response, error) {
 			}
 		}
 	}
+
+	logr.Info("Expert.Do completed",
+		"total_events", eventCount,
+		"total_choices", len(response.Choices),
+	)
 
 	// Audit: log LLM response
 	e.auditor.Log(ctx, audit.LogRequest{

@@ -743,7 +743,12 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 		ocrtool.NewToolProvider(),
 		tools.Tools(sqltool.NewToolProvider(sp).GetTools("sql")),
 		tools.Tools(calendar.NewToolProvider(sp).GetTools("google_calendar")),
-		tools.Tools(contacts.NewToolProvider(sp).GetTools("google_contacts")),
+	}
+
+	// --- Google Contacts (conditional — only when OAuth credentials are available) ---
+	if contactsSvc, err := contacts.NewFromSecretProvider(ctx, sp, "google_contacts"); err == nil {
+		providers = append(providers, tools.Tools(contacts.NewToolProvider(contactsSvc).GetTools("google_contacts")))
+		log.Info("Google Contacts tool provider added (OAuth)")
 	}
 
 	// --- MCP tools ---

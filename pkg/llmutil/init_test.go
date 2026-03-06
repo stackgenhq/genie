@@ -1,4 +1,4 @@
-package youtubetranscript_test
+package llmutil_test
 
 import (
 	"testing"
@@ -7,8 +7,8 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestYoutubetranscript(t *testing.T) {
+func TestLLMUtil(t *testing.T) {
 	t.Parallel()
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "YouTube Transcript Tool Suite")
+	RunSpecs(t, "LLMUtil Suite")
 }

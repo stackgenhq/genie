@@ -104,6 +104,18 @@ func New(ctx context.Context, cfg Config, provider modelprovider.ModelProvider) 
 	}, nil
 }
 
+// isDummyEmbedder returns true when the router's vector store is backed by the
+// deterministic dummy embedder. The dummy embedder hashes text with FNV-64a and
+// fills dimensions with PRNG values in [0,1). Two unrelated texts produce
+// near-orthogonal 1536-d vectors whose cosine similarity clusters around ~0.5,
+// well below the default 0.85 threshold — so L1 routing silently never matches.
+// Skipping L1 entirely for the dummy embedder avoids this dead code path and
+// lets the L2 (LLM) classifier handle every request.
+func (r *Router) isDummyEmbedder() bool {
+	p := r.cfg.VectorStore.EmbeddingProvider
+	return p == "" || p == "dummy"
+}
+
 // initializeStores creates the isolated vector stores for routing and caching.
 func initializeStores(ctx context.Context, cfg Config) (vector.IStore, vector.IStore, error) {
 	routeCfg := cfg.VectorStore
@@ -171,9 +183,23 @@ func indexRoutes(ctx context.Context, routeStore vector.IStore, customRoutes []R
 // Classify acts as the unified gatekeeper.
 // L1 Check: Checks semantic vector distance and bypasses LLM if intent matches.
 // L2 Check: Proxies to the LLM-based frontDeskExpert if no L1 matches are found.
+//
+// The method creates an OTel span ("semanticrouter.classify") that appears as a
+// child of the caller's active span (typically "codeowner.chat"). This ensures
+// classification always shows up in the Langfuse trace hierarchy.
 func (r *Router) Classify(ctx context.Context, question, resume string) (ClassificationResult, error) {
+	ctx, span := trace.Tracer.Start(ctx, "semanticrouter.classify")
+	span.SetAttributes(
+		attribute.String("semanticrouter.question", question),
+	)
+	defer span.End()
+
 	// L1: Vector-based Semantic Routing (bypasses LLM)
-	if !r.cfg.Disabled {
+	// Skip L1 when using the dummy embedder — it produces non-semantic
+	// embeddings (FNV hash + PRNG) whose cosine similarity between
+	// unrelated texts is always ~0.5, far below the 0.85 threshold,
+	// so no route would ever match and the L1 check is a no-op.
+	if !r.cfg.Disabled && !r.isDummyEmbedder() {
 		if route, ok := r.route(ctx, question); ok {
 			logger.GetLogger(ctx).Info("semantic route matched, bypassing LLM front-desk", "route", route)
 			res := ClassificationResult{
@@ -187,6 +213,12 @@ func (r *Router) Classify(ctx context.Context, question, resume string) (Classif
 			default:
 				res.Category = CategoryComplex
 			}
+			span.SetAttributes(
+				attribute.String("semanticrouter.level", "L1"),
+				attribute.String("semanticrouter.route", route),
+				attribute.String("semanticrouter.category", string(res.Category)),
+				attribute.Bool("semanticrouter.bypassed_llm", true),
+			)
 			return res, nil
 		}
 	}
@@ -194,10 +226,28 @@ func (r *Router) Classify(ctx context.Context, question, resume string) (Classif
 	// L2: LLM-based Classification (Frontdesk)
 	if r.provider == nil {
 		// Degrade gracefully if no frontdesk expert provider exists
-		return ClassificationResult{Category: CategoryComplex}, nil
+		res := ClassificationResult{Category: CategoryComplex}
+		span.SetAttributes(
+			attribute.String("semanticrouter.level", "L2"),
+			attribute.String("semanticrouter.category", string(res.Category)),
+			attribute.Bool("semanticrouter.bypassed_llm", false),
+			attribute.String("semanticrouter.note", "no_provider"),
+		)
+		return res, nil
 	}
 
-	return r.classifyL2(ctx, question, resume)
+	res, err := r.classifyL2(ctx, question, resume)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return res, err
+	}
+	span.SetAttributes(
+		attribute.String("semanticrouter.level", "L2"),
+		attribute.String("semanticrouter.category", string(res.Category)),
+		attribute.Bool("semanticrouter.bypassed_llm", false),
+	)
+	return res, nil
 }
 
 func (r *Router) classifyL2(ctx context.Context, question, resume string) (ClassificationResult, error) {
@@ -231,17 +281,8 @@ func (r *Router) classifyL2(ctx context.Context, question, resume string) (Class
 		},
 	}
 
-	// Create Langfuse span for the classification LLM call
-	spanCtx, span := trace.Tracer.Start(ctx, "semanticrouter.classify")
-	span.SetAttributes(
-		attribute.String("semanticrouter.question", question),
-	)
-	defer span.End()
-
-	ch, err := llm.GenerateContent(spanCtx, req)
+	ch, err := llm.GenerateContent(ctx, req)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
 		return ClassificationResult{Category: CategoryComplex}, fmt.Errorf("classification call failed: %w", err)
 	}
 
@@ -249,8 +290,6 @@ func (r *Router) classifyL2(ctx context.Context, question, resume string) (Class
 	for resp := range ch {
 		if resp.Error != nil {
 			errStr := fmt.Errorf("classification generation error: %s", resp.Error.Message)
-			span.RecordError(errStr)
-			span.SetStatus(codes.Error, errStr.Error())
 			return ClassificationResult{Category: CategoryComplex}, errStr
 		}
 		builder.WriteString(extractTextFromChoices(resp.Choices))

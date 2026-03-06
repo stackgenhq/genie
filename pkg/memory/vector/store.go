@@ -49,7 +49,7 @@ type Config struct {
 	// Note: PersistenceDir is ignored when using Milvus as the vector store,
 	// as Milvus handles persistence internally.
 	PersistenceDir    string `yaml:"persistence_dir,omitempty" toml:"persistence_dir,omitempty"`
-	EmbeddingProvider string `yaml:"embedding_provider,omitempty" toml:"embedding_provider,omitempty"` // "openai", "ollama", "huggingface", "gemini", "dummy"
+	EmbeddingProvider string `yaml:"embedding_provider,omitempty" toml:"embedding_provider,omitempty"` // "openai", "ollama", "huggingface", "gemini"
 	APIKey            string `yaml:"api_key,omitempty" toml:"api_key,omitempty"`
 	OllamaURL         string `yaml:"ollama_url,omitempty" toml:"ollama_url,omitempty"`
 	OllamaModel       string `yaml:"ollama_model,omitempty" toml:"ollama_model,omitempty"`

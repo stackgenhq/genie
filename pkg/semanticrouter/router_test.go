@@ -169,6 +169,9 @@ var _ = Describe("SemanticRouter", func() {
 				cfg: Config{
 					Disabled:  false,
 					Threshold: 0.9,
+					VectorStore: vector.Config{
+						EmbeddingProvider: "openai", // non-dummy so L1 is exercised
+					},
 				},
 				routeStore: fakeStore,
 				cacheStore: fakeStore,
