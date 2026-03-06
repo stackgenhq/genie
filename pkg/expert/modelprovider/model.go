@@ -324,10 +324,6 @@ func (p ProviderConfig) enableTokenTailoring() bool {
 
 func (p ProviderConfig) toModel(ctx context.Context) (model.Model, error) {
 	tailoring := p.enableTokenTailoring()
-	if tailoring {
-		logger.GetLogger(ctx).Debug("token tailoring enabled for model provider",
-			"provider", p.Provider, "model", p.ModelName)
-	}
 	switch strings.ToLower(p.Provider) {
 	case "openai":
 		opts := []openai.Option{}

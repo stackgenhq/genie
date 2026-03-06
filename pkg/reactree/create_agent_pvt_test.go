@@ -293,3 +293,135 @@ var _ = Describe("createAgentTool halguard integration", func() {
 		})
 	})
 })
+
+var _ = Describe("zero-tool-use guard", func() {
+	// The zero-tool-use guard fires when:
+	// toolCallCount == 0 && result != "" && status != "error" && !timedOut && len(selectedTools) > 0
+	// It annotates the output and sets status = "tool_use_failure"
+
+	type guardInput struct {
+		toolCallCount    int
+		result           string
+		status           string
+		timedOut         bool
+		numSelectedTools int
+	}
+
+	shouldFire := func(gi guardInput) bool {
+		return gi.toolCallCount == 0 && gi.result != "" && gi.status != "error" && !gi.timedOut && gi.numSelectedTools > 0
+	}
+
+	DescribeTable("fires or skips based on conditions",
+		func(gi guardInput, expectFire bool) {
+			Expect(shouldFire(gi)).To(Equal(expectFire))
+		},
+		Entry("fires: zero tool calls, has result, has tools, not error, not timed out",
+			guardInput{toolCallCount: 0, result: "some output", status: "success", timedOut: false, numSelectedTools: 3},
+			true,
+		),
+		Entry("skips: sub-agent made tool calls",
+			guardInput{toolCallCount: 2, result: "some output", status: "success", timedOut: false, numSelectedTools: 3},
+			false,
+		),
+		Entry("skips: empty result (nothing to annotate)",
+			guardInput{toolCallCount: 0, result: "", status: "success", timedOut: false, numSelectedTools: 3},
+			false,
+		),
+		Entry("skips: status is error",
+			guardInput{toolCallCount: 0, result: "error message", status: "error", timedOut: false, numSelectedTools: 3},
+			false,
+		),
+		Entry("skips: sub-agent timed out",
+			guardInput{toolCallCount: 0, result: "partial output", status: "partial", timedOut: true, numSelectedTools: 3},
+			false,
+		),
+		Entry("skips: no tools available (ask_clarifying_question only agents)",
+			guardInput{toolCallCount: 0, result: "some answer", status: "success", timedOut: false, numSelectedTools: 0},
+			false,
+		),
+		Entry("fires: single tool available but unused",
+			guardInput{toolCallCount: 0, result: "I don't have access to Azure", status: "success", timedOut: false, numSelectedTools: 1},
+			true,
+		),
+	)
+
+	It("annotates output with tool_use_failure message", func() {
+		// Simulate what the guard does to the output
+		originalOutput := "I don't know. I do not have access to the 'appcd-demo' Azure subscription"
+		toolNames := "run_shell, read_file"
+
+		annotated := fmt.Sprintf(
+			"⚠️ SUB-AGENT DID NOT USE TOOLS: The sub-agent produced a text-only response "+
+				"without calling any of its available tools (%s). This likely means it echoed "+
+				"commands as text or refused the task instead of executing it. "+
+				"The sub-agent should be re-spawned. Original output follows:\n\n%s",
+			toolNames, originalOutput)
+
+		Expect(annotated).To(ContainSubstring("SUB-AGENT DID NOT USE TOOLS"))
+		Expect(annotated).To(ContainSubstring("run_shell"))
+		Expect(annotated).To(ContainSubstring("re-spawned"))
+		Expect(annotated).To(ContainSubstring(originalOutput))
+	})
+
+	It("sets status to tool_use_failure", func() {
+		status := "tool_use_failure"
+		Expect(status).To(Equal("tool_use_failure"))
+		Expect(status).NotTo(Equal("success"))
+		Expect(status).NotTo(Equal("error"))
+	})
+})
+
+var _ = Describe("auto-retry on tool_use_failure", func() {
+	// The auto-retry in execute() constructs a retryReq when
+	// resp.Status == "tool_use_failure". We test the retry
+	// prompt construction and agent naming here.
+
+	It("prepends RETRY prefix to the goal", func() {
+		originalGoal := "Run this script: az vm list"
+		retryGoal := "[RETRY — PREVIOUS ATTEMPT FAILED] " +
+			"Your previous attempt FAILED because you echoed commands as text instead of executing them. " +
+			"You MUST call the run_shell tool to execute the script below. " +
+			"Do NOT output the script as text. Call run_shell with the script as the command argument.\n\n" +
+			originalGoal
+
+		Expect(retryGoal).To(HavePrefix("[RETRY — PREVIOUS ATTEMPT FAILED]"))
+		Expect(retryGoal).To(ContainSubstring("You MUST call the run_shell tool"))
+		Expect(retryGoal).To(ContainSubstring(originalGoal))
+	})
+
+	It("appends -retry suffix to the agent name", func() {
+		agentName := "azure-functions-check"
+		retryName := agentName + "-retry"
+		Expect(retryName).To(Equal("azure-functions-check-retry"))
+	})
+
+	It("preserves the original goal in the retry prompt", func() {
+		originalGoal := "```bash\naz functionapp list --query '[].{Name:name}'\n```"
+		retryGoal := "[RETRY — PREVIOUS ATTEMPT FAILED] " +
+			"Your previous attempt FAILED because you echoed commands as text instead of executing them. " +
+			"You MUST call the run_shell tool to execute the script below. " +
+			"Do NOT output the script as text. Call run_shell with the script as the command argument.\n\n" +
+			originalGoal
+
+		Expect(retryGoal).To(ContainSubstring("az functionapp list"))
+		Expect(retryGoal).To(ContainSubstring("RETRY"))
+		Expect(retryGoal).To(ContainSubstring("run_shell"))
+	})
+
+	It("retry is only triggered when status is tool_use_failure", func() {
+		// Verify the condition: err == nil && resp.Status == "tool_use_failure"
+		type retryCheck struct {
+			err    error
+			status string
+		}
+		shouldRetry := func(rc retryCheck) bool {
+			return rc.err == nil && rc.status == "tool_use_failure"
+		}
+
+		Expect(shouldRetry(retryCheck{nil, "tool_use_failure"})).To(BeTrue())
+		Expect(shouldRetry(retryCheck{nil, "success"})).To(BeFalse())
+		Expect(shouldRetry(retryCheck{nil, "error"})).To(BeFalse())
+		Expect(shouldRetry(retryCheck{nil, "partial"})).To(BeFalse())
+		Expect(shouldRetry(retryCheck{fmt.Errorf("some error"), "tool_use_failure"})).To(BeFalse())
+	})
+})

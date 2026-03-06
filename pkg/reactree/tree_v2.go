@@ -29,11 +29,16 @@ func (t *tree) runAdaptiveLoop_v2(ctx context.Context, req TreeRequest) (TreeRes
 	}
 	logr := logger.GetLogger(ctx).With("fn", "tree.RunAdaptiveLoop", "goal", req.Goal)
 
-	// Create a parent span so all iteration spans are children of one Langfuse trace.
-	ctx, parentSpan := trace.Tracer.Start(ctx, "reactree.adaptive_loop")
+	// Create a child span for the adaptive loop so iteration spans are grouped.
+	// The trace root is created by orchestrator.Chat(); this span carries
+	// iteration-level attributes for observability. Do NOT set langfuse.trace.*
+	// attributes here — those promote the span to a separate Langfuse trace.
+	agentName := orchestratorcontext.AgentNameFromContext(ctx)
+	ctx, parentSpan := trace.Tracer.Start(ctx, agentName+".adaptive_loop")
 	parentSpan.SetAttributes(
 		attribute.String("reactree.goal", req.Goal),
 		attribute.Int("reactree.max_iterations", ls.maxIterations),
+		attribute.String("reactree.agent", agentName),
 	)
 	defer func() {
 		parentSpan.SetAttributes(attribute.Int("reactree.iterations", ls.iteration))

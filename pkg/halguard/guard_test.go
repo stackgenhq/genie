@@ -3,6 +3,7 @@ package halguard_test
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -51,6 +52,41 @@ func setupFakeModelProvider(responseText string) (*modelproviderfakes.FakeModelP
 	return fakeProvider, fakeModel
 }
 
+// directTextGenerator creates a halguard.TextGeneratorFunc that calls
+// model.GenerateContent directly. This bypasses the expert/runner pipeline
+// but is suitable for unit tests where Langfuse tracing is not needed.
+func directTextGenerator() halguard.TextGeneratorFunc {
+	return func(ctx context.Context, m model.Model, prompt string) (string, error) {
+		req := &model.Request{
+			Messages: []model.Message{model.NewUserMessage(prompt)},
+			GenerationConfig: model.GenerationConfig{
+				Stream: true,
+			},
+		}
+
+		ch, err := m.GenerateContent(ctx, req)
+		if err != nil {
+			return "", fmt.Errorf("generate content: %w", err)
+		}
+
+		var sb strings.Builder
+		for resp := range ch {
+			if resp.Error != nil {
+				if sb.Len() > 0 {
+					break
+				}
+				return "", fmt.Errorf("generation error: %s", resp.Error.Message)
+			}
+			for _, c := range resp.Choices {
+				if c.Message.Content != "" {
+					sb.WriteString(c.Message.Content)
+				}
+			}
+		}
+		return sb.String(), nil
+	}
+}
+
 var _ = Describe("Guard", func() {
 	var ctx context.Context
 
@@ -61,13 +97,13 @@ var _ = Describe("Guard", func() {
 	Describe("New", func() {
 		It("should create a guard with default config", func() {
 			fakeProvider := &modelproviderfakes.FakeModelProvider{}
-			g := halguard.New(fakeProvider)
+			g := halguard.New(fakeProvider, directTextGenerator())
 			Expect(g).NotTo(BeNil())
 		})
 
 		It("should apply functional options", func() {
 			fakeProvider := &modelproviderfakes.FakeModelProvider{}
-			g := halguard.New(fakeProvider,
+			g := halguard.New(fakeProvider, directTextGenerator(),
 				halguard.WithLightThreshold(100),
 				halguard.WithFullThreshold(300),
 				halguard.WithCrossModelSamples(5),
@@ -86,12 +122,12 @@ var _ = Describe("Guard", func() {
 
 		BeforeEach(func() {
 			fakeProvider = &modelproviderfakes.FakeModelProvider{}
-			g = halguard.New(fakeProvider)
+			g = halguard.New(fakeProvider, directTextGenerator())
 		})
 
 		Context("with pre-check disabled", func() {
 			BeforeEach(func() {
-				g = halguard.New(fakeProvider, halguard.WithPreCheck(false))
+				g = halguard.New(fakeProvider, directTextGenerator(), halguard.WithPreCheck(false))
 			})
 
 			It("should return high confidence when pre-check is disabled", func() {
@@ -232,7 +268,7 @@ var _ = Describe("Guard", func() {
 		Context("with post-check disabled", func() {
 			It("should return factual with original output", func() {
 				fakeProvider := &modelproviderfakes.FakeModelProvider{}
-				g := halguard.New(fakeProvider, halguard.WithPostCheck(false))
+				g := halguard.New(fakeProvider, directTextGenerator(), halguard.WithPostCheck(false))
 
 				result, err := g.PostCheck(ctx, halguard.PostCheckRequest{
 					Goal:          "search for files",
@@ -249,7 +285,7 @@ var _ = Describe("Guard", func() {
 		Context("tier selection", func() {
 			It("should skip verification for short tool-grounded output", func() {
 				fakeProvider := &modelproviderfakes.FakeModelProvider{}
-				g := halguard.New(fakeProvider)
+				g := halguard.New(fakeProvider, directTextGenerator())
 
 				result, err := g.PostCheck(ctx, halguard.PostCheckRequest{
 					Goal:          "check file contents",
@@ -263,7 +299,7 @@ var _ = Describe("Guard", func() {
 
 			It("should use light tier for medium-length output with tool calls", func() {
 				fakeProvider, _ := setupFakeModelProvider(`{"is_factual": true, "reason": "output is grounded"}`)
-				g := halguard.New(fakeProvider,
+				g := halguard.New(fakeProvider, directTextGenerator(),
 					halguard.WithLightThreshold(50),
 					halguard.WithFullThreshold(500),
 				)
@@ -290,7 +326,7 @@ var _ = Describe("Guard", func() {
 					}
 					return fakeModelResponse(`[{"block": 1, "label": "ACCURATE", "reason": "consistent"}]`), nil
 				}
-				g := halguard.New(fakeProvider,
+				g := halguard.New(fakeProvider, directTextGenerator(),
 					halguard.WithLightThreshold(50),
 					halguard.WithFullThreshold(500),
 				)
@@ -312,7 +348,7 @@ var _ = Describe("Guard", func() {
 		Context("light verification", func() {
 			It("should detect factual output", func() {
 				fakeProvider, _ := setupFakeModelProvider(`{"is_factual": true, "reason": "output is grounded in tool results"}`)
-				g := halguard.New(fakeProvider,
+				g := halguard.New(fakeProvider, directTextGenerator(),
 					halguard.WithLightThreshold(10),
 					halguard.WithFullThreshold(5000),
 				)
@@ -329,7 +365,7 @@ var _ = Describe("Guard", func() {
 
 			It("should detect fabricated output", func() {
 				fakeProvider, _ := setupFakeModelProvider(`{"is_factual": false, "reason": "contains invented incident details"}`)
-				g := halguard.New(fakeProvider,
+				g := halguard.New(fakeProvider, directTextGenerator(),
 					halguard.WithLightThreshold(10),
 					halguard.WithFullThreshold(5000),
 				)
@@ -347,7 +383,7 @@ var _ = Describe("Guard", func() {
 
 			It("should handle unparseable LLM response gracefully", func() {
 				fakeProvider, _ := setupFakeModelProvider("I'm not sure about that.")
-				g := halguard.New(fakeProvider,
+				g := halguard.New(fakeProvider, directTextGenerator(),
 					halguard.WithLightThreshold(10),
 					halguard.WithFullThreshold(5000),
 				)
@@ -371,7 +407,7 @@ var _ = Describe("Guard", func() {
 				fakeProvider.GetModelStub = func(_ context.Context, _ modelprovider.TaskType) (modelprovider.ModelMap, error) {
 					return modelprovider.ModelMap{"fake/model": fakeModel}, nil
 				}
-				g := halguard.New(fakeProvider,
+				g := halguard.New(fakeProvider, directTextGenerator(),
 					halguard.WithLightThreshold(10),
 					halguard.WithFullThreshold(5000),
 				)
@@ -392,7 +428,7 @@ var _ = Describe("Guard", func() {
 				fakeProvider.GetModelStub = func(_ context.Context, _ modelprovider.TaskType) (modelprovider.ModelMap, error) {
 					return nil, fmt.Errorf("no models available")
 				}
-				g := halguard.New(fakeProvider,
+				g := halguard.New(fakeProvider, directTextGenerator(),
 					halguard.WithLightThreshold(10),
 					halguard.WithFullThreshold(5000),
 				)
@@ -420,7 +456,7 @@ var _ = Describe("Guard", func() {
 					// Batch judge response
 					return fakeModelResponse(`[{"block": 1, "label": "ACCURATE", "reason": "consistent with references"}]`), nil
 				}
-				g := halguard.New(fakeProvider,
+				g := halguard.New(fakeProvider, directTextGenerator(),
 					halguard.WithLightThreshold(10),
 					halguard.WithFullThreshold(20),
 				)
@@ -485,7 +521,7 @@ var _ = Describe("Guard", func() {
 					return fakeModelResponse("The module has 15 dependencies."), nil
 				}
 
-				g := halguard.New(fakeProvider,
+				g := halguard.New(fakeProvider, directTextGenerator(),
 					halguard.WithLightThreshold(10),
 					halguard.WithFullThreshold(20),
 				)
@@ -532,7 +568,7 @@ var _ = Describe("Guard", func() {
 					}
 					return fakeModelResponse(`[{"block": 1, "label": "ACCURATE", "reason": "ok"}]`), nil
 				}
-				g := halguard.New(fakeProvider,
+				g := halguard.New(fakeProvider, directTextGenerator(),
 					halguard.WithLightThreshold(50),
 					halguard.WithFullThreshold(500),
 				)
@@ -559,7 +595,7 @@ var _ = Describe("Guard", func() {
 				fakeProvider.GetModelStub = func(_ context.Context, _ modelprovider.TaskType) (modelprovider.ModelMap, error) {
 					return modelprovider.ModelMap{"fake/model": fakeModel}, nil
 				}
-				g := halguard.New(fakeProvider,
+				g := halguard.New(fakeProvider, directTextGenerator(),
 					halguard.WithLightThreshold(10),
 					halguard.WithFullThreshold(20),
 				)
@@ -586,7 +622,7 @@ var _ = Describe("Guard", func() {
 					// Return invalid JSON for judge
 					return fakeModelResponse("This is not valid JSON at all"), nil
 				}
-				g := halguard.New(fakeProvider,
+				g := halguard.New(fakeProvider, directTextGenerator(),
 					halguard.WithLightThreshold(10),
 					halguard.WithFullThreshold(20),
 				)
@@ -613,7 +649,7 @@ var _ = Describe("Guard", func() {
 					}
 					return fakeModelResponse(`[{"block": 1, "label": "ACCURATE", "reason": "ok"}]`), nil
 				}
-				g := halguard.New(fakeProvider,
+				g := halguard.New(fakeProvider, directTextGenerator(),
 					halguard.WithLightThreshold(10),
 					halguard.WithFullThreshold(30),
 				)

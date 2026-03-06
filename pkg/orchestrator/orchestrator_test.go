@@ -10,6 +10,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stackgenhq/genie/pkg/agentutils/agentutilsfakes"
+	"github.com/stackgenhq/genie/pkg/agui"
 	"github.com/stackgenhq/genie/pkg/audit/auditfakes"
 	"github.com/stackgenhq/genie/pkg/expert"
 	"github.com/stackgenhq/genie/pkg/expert/expertfakes"
@@ -17,6 +18,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/hitl/hitlfakes"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/memory/vector/vectorfakes"
+	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/reactree"
 	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
 	"github.com/stackgenhq/genie/pkg/reactree/reactreefakes"
@@ -25,6 +27,9 @@ import (
 	"github.com/stackgenhq/genie/pkg/tools"
 	"github.com/stackgenhq/genie/pkg/tools/toolsfakes"
 	"github.com/stackgenhq/genie/pkg/ttlcache"
+	"go.opentelemetry.io/otel/baggage"
+	oteltrace "go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 	"trpc.group/trpc-go/trpc-agent-go/memory"
 	"trpc.group/trpc-go/trpc-agent-go/memory/inmemory"
 	"trpc.group/trpc-go/trpc-agent-go/model"
@@ -511,5 +516,78 @@ var _ = Describe("CodeOwner", func() {
 
 			Expect(fakeRouter.ClassifyCallCount()).To(Equal(1))
 		})
+	})
+})
+
+var _ = Describe("bridgeBrowserTab", func() {
+	It("should propagate OTel span context from parent to bridged context", func() {
+		// Create a parent context with a noop tracer span to simulate an active OTel span.
+		tracer := noop.NewTracerProvider().Tracer("test")
+		parentCtx, parentSpan := tracer.Start(context.Background(), "root-trace")
+		defer parentSpan.End()
+
+		tabCtx := context.Background()
+		bridgedCtx, cancel := bridgeBrowserTab(parentCtx, tabCtx)
+		defer cancel()
+
+		// The bridged context should carry the same span context (same traceID, spanID).
+		bridgedSpanCtx := oteltrace.SpanContextFromContext(bridgedCtx)
+		parentSpanCtx := oteltrace.SpanContextFromContext(parentCtx)
+		Expect(bridgedSpanCtx.TraceID()).To(Equal(parentSpanCtx.TraceID()))
+		Expect(bridgedSpanCtx.SpanID()).To(Equal(parentSpanCtx.SpanID()))
+	})
+
+	It("should propagate OTel baggage from parent to bridged context", func() {
+		// Create baggage with a Langfuse-relevant member.
+		member, err := baggage.NewMember("langfuse.user.id", "test-user")
+		Expect(err).NotTo(HaveOccurred())
+		bag, err := baggage.New(member)
+		Expect(err).NotTo(HaveOccurred())
+
+		parentCtx := baggage.ContextWithBaggage(context.Background(), bag)
+		tabCtx := context.Background()
+
+		bridgedCtx, cancel := bridgeBrowserTab(parentCtx, tabCtx)
+		defer cancel()
+
+		bridgedBag := baggage.FromContext(bridgedCtx)
+		Expect(bridgedBag.Len()).To(Equal(1))
+		Expect(bridgedBag.Member("langfuse.user.id").Value()).To(Equal("test-user"))
+	})
+
+	It("should propagate MessageOrigin, ThreadID, and RunID from parent", func() {
+		origin := messenger.MessageOrigin{
+			Platform: messenger.PlatformAGUI,
+			Channel:  messenger.Channel{ID: "thread-123"},
+			Sender:   messenger.Sender{ID: "user-456"},
+		}
+		parentCtx := messenger.WithMessageOrigin(context.Background(), origin)
+		parentCtx = agui.WithThreadID(parentCtx, "tid-789")
+		parentCtx = agui.WithRunID(parentCtx, "rid-abc")
+
+		tabCtx := context.Background()
+		bridgedCtx, cancel := bridgeBrowserTab(parentCtx, tabCtx)
+		defer cancel()
+
+		bridgedOrigin := messenger.MessageOriginFrom(bridgedCtx)
+		Expect(bridgedOrigin.Platform).To(Equal(messenger.PlatformAGUI))
+		Expect(bridgedOrigin.Channel.ID).To(Equal("thread-123"))
+		Expect(bridgedOrigin.Sender.ID).To(Equal("user-456"))
+		Expect(agui.ThreadIDFromContext(bridgedCtx)).To(Equal("tid-789"))
+		Expect(agui.RunIDFromContext(bridgedCtx)).To(Equal("rid-abc"))
+	})
+
+	It("should inherit deadline from parent context", func() {
+		deadline := time.Now().Add(30 * time.Second)
+		parentCtx, parentCancel := context.WithDeadline(context.Background(), deadline)
+		defer parentCancel()
+
+		tabCtx := context.Background()
+		bridgedCtx, cancel := bridgeBrowserTab(parentCtx, tabCtx)
+		defer cancel()
+
+		bridgedDeadline, ok := bridgedCtx.Deadline()
+		Expect(ok).To(BeTrue())
+		Expect(bridgedDeadline).To(BeTemporally("~", deadline, time.Second))
 	})
 })

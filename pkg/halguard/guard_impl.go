@@ -13,6 +13,13 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/model"
 )
 
+// TextGeneratorFunc performs a one-shot LLM text generation given a specific
+// model and prompt. The caller is responsible for creating this function with
+// proper tracing wired in (e.g. using expert.Expert backed by the trpc-agent-go
+// runner pipeline). This callback pattern avoids a direct import from halguard
+// to the expert package, which would create an import cycle through config.
+type TextGeneratorFunc func(ctx context.Context, m model.Model, prompt string) (string, error)
+
 // verificationModel pairs a model with its provider key for deduplication.
 type verificationModel struct {
 	key   string // e.g. "anthropic/claude-sonnet-4-6"
@@ -20,19 +27,31 @@ type verificationModel struct {
 }
 
 // guard is the concrete implementation of Guard backed by a ModelProvider.
+// LLM calls are delegated to the textGenerator callback which should be wired
+// to use the trpc-agent-go runner pipeline for proper Langfuse tracing (input,
+// output, token usage). This eliminates the "N/A" input problem that occurred
+// when model.GenerateContent was called directly with hand-rolled OTel spans.
 type guard struct {
 	modelProvider modelprovider.ModelProvider
 	config        Config
+	textGenerator TextGeneratorFunc
 }
 
 // New creates a Guard with the given model provider and options.
 // The model provider is used to collect diverse models for cross-model
-// consistency checking. When options are not provided, sensible defaults
-// are used (pre-check enabled, post-check enabled, 3 cross-model samples).
+// consistency checking. The textGenerator callback performs one-shot LLM
+// calls with proper tracing; see NewTextGenerator for the recommended
+// implementation. When options are not provided, sensible defaults are used
+// (pre-check enabled, post-check enabled, 3 cross-model samples).
 func New(
 	modelProvider modelprovider.ModelProvider,
+	textGenerator TextGeneratorFunc,
 	opts ...Option,
 ) Guard {
+	if textGenerator == nil {
+		panic("halguard: textGenerator must not be nil")
+	}
+
 	cfg := Config{
 		EnablePreCheck:  true,
 		EnablePostCheck: true,
@@ -45,6 +64,7 @@ func New(
 	return &guard{
 		modelProvider: modelProvider,
 		config:        cfg,
+		textGenerator: textGenerator,
 	}
 }
 
@@ -216,7 +236,7 @@ Respond with a JSON object:
 
 Output ONLY the JSON, no other text.`, goalText, req.Output)
 
-	result, genErr := generateText(ctx, models[0].model, prompt, 500)
+	result, genErr := g.generateText(ctx, models[0].model, prompt)
 	if genErr != nil {
 		logr.Warn("light verification generation failed", "error", genErr)
 		return VerificationResult{
@@ -402,7 +422,7 @@ Task: %s`, goal)
 	errGroup, _ := errgroup.WithContext(ctx)
 	for _, vm := range models {
 		errGroup.Go(func() error {
-			sample, err := generateText(ctx, vm.model, prompt, 2000)
+			sample, err := g.generateText(ctx, vm.model, prompt)
 			if err != nil {
 				logr.Warn("cross-model sample generation failed",
 					"model", vm.key, "error", err)
@@ -459,7 +479,7 @@ Respond with a JSON array, one object per block:
 
 Output ONLY the JSON array.`, blockList.String(), sampleList.String())
 
-	result, err := generateText(ctx, judge, prompt, 4000)
+	result, err := g.generateText(ctx, judge, prompt)
 	if err != nil {
 		return nil, fmt.Errorf("batch judge generation failed: %w", err)
 	}
@@ -554,7 +574,7 @@ REFERENCE EVIDENCE: %s
 
 Write ONLY the corrected version of this block. No explanations.`, blocks[i], score.Reason, sampleEvidence)
 
-		fixed, err := generateText(ctx, corrector, prompt, 1000)
+		fixed, err := g.generateText(ctx, corrector, prompt)
 		if err != nil {
 			logr.Warn("block correction failed, keeping original", "block", i, "error", err)
 			continue
@@ -572,36 +592,13 @@ Write ONLY the corrected version of this block. No explanations.`, blocks[i], sc
 
 // --- Helpers ---
 
-// generateText performs a one-shot text generation with the given model.
-func generateText(ctx context.Context, m model.Model, prompt string, maxTokens int) (string, error) {
-	req := &model.Request{
-		Messages: []model.Message{model.NewUserMessage(prompt)},
-		GenerationConfig: model.GenerationConfig{
-			Stream:    true,
-			MaxTokens: model.IntPtr(maxTokens),
-		},
-	}
-
-	ch, err := m.GenerateContent(ctx, req)
-	if err != nil {
-		return "", fmt.Errorf("generate content: %w", err)
-	}
-
-	var sb strings.Builder
-	for resp := range ch {
-		if resp.Error != nil {
-			if sb.Len() > 0 {
-				return sb.String(), nil
-			}
-			return "", fmt.Errorf("generation error: %s", resp.Error.Message)
-		}
-		for _, c := range resp.Choices {
-			if c.Message.Content != "" {
-				sb.WriteString(c.Message.Content)
-			}
-		}
-	}
-	return sb.String(), nil
+// generateText delegates to the injected TextGeneratorFunc which performs
+// one-shot LLM text generation. The caller (typically the orchestrator) wires
+// this to use expert.Expert backed by the trpc-agent-go runner pipeline,
+// ensuring Langfuse receives proper gen_ai.input.messages, gen_ai.output.messages,
+// and token-usage attributes automatically.
+func (g *guard) generateText(ctx context.Context, m model.Model, prompt string) (string, error) {
+	return g.textGenerator(ctx, m, prompt)
 }
 
 // extractJSON attempts to find a JSON object or array in the given text.

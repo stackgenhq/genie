@@ -279,6 +279,29 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 	if shared {
 		logr.Warn("duplicate create_agent call coalesced", "agent_name", req.AgentName)
 	}
+
+	// Auto-retry on tool_use_failure: the sub-agent echoed commands as text
+	// instead of calling run_shell. Retry once with a reinforced prompt that
+	// leaves no ambiguity. Only retry once to avoid infinite loops.
+	if err == nil && resp.Status == "tool_use_failure" {
+		logr.Warn("auto-retrying sub-agent after tool_use_failure",
+			"agent_name", req.AgentName, "attempt", 2)
+
+		retryReq := req
+		retryReq.Goal = "[RETRY — PREVIOUS ATTEMPT FAILED] " +
+			"Your previous attempt FAILED because you echoed commands as text instead of executing them. " +
+			"You MUST call the run_shell tool to execute the script below. " +
+			"Do NOT output the script as text. Call run_shell with the script as the command argument.\n\n" +
+			req.Goal
+		retryReq.AgentName = req.AgentName + "-retry"
+
+		resp, err = t.executeInner(ctx, retryReq)
+		if resp.Status == "tool_use_failure" {
+			logr.Error("sub-agent failed to use tools even after retry",
+				"agent_name", req.AgentName)
+		}
+	}
+
 	return resp, err
 }
 
@@ -602,6 +625,26 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 		"output_length", len(result), "timed_out", timedOut, "had_error", lastErr != "")
 
 	status, result := req.resolveStatus(timedOut, lastErr, result, toolResultsSB.String())
+
+	// --- Zero-tool-use guard ---
+	// When a sub-agent has action tools (e.g. run_shell) but made ZERO tool
+	// calls and instead produced a text-only response, it likely echoed
+	// scripts/commands as text or refused with "I don't know." This is a
+	// behavioral failure — the sub-agent should have used its tools.
+	if toolCallCount == 0 && result != "" && status != "error" && !timedOut && len(selectedTools) > 0 {
+		logr.Warn("sub-agent produced output without making any tool calls",
+			"agent_name", req.AgentName,
+			"output_length", len(result),
+			"available_tools", len(selectedTools))
+
+		result = fmt.Sprintf(
+			"⚠️ SUB-AGENT DID NOT USE TOOLS: The sub-agent produced a text-only response "+
+				"without calling any of its available tools (%s). This likely means it echoed "+
+				"commands as text or refused the task instead of executing it. "+
+				"The sub-agent should be re-spawned. Original output follows:\n\n%s",
+			strings.Join(toolNameList, ", "), result)
+		status = "tool_use_failure"
+	}
 
 	// --- Post-execution verification (P1) ---
 	// Verify sub-agent output for hallucinations using cross-model consistency.

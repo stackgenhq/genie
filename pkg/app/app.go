@@ -49,6 +49,7 @@ import (
 	_ "github.com/stackgenhq/genie/pkg/messenger/whatsapp" // register adapter
 	"github.com/stackgenhq/genie/pkg/orchestrator"
 	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
+	"github.com/stackgenhq/genie/pkg/pii"
 	"github.com/stackgenhq/genie/pkg/report/activityreport"
 	"github.com/stackgenhq/genie/pkg/semanticrouter"
 
@@ -78,9 +79,11 @@ import (
 	"github.com/stackgenhq/genie/pkg/tools/youtubetranscript"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/baggage"
+	oteltrace "go.opentelemetry.io/otel/trace"
 	"gorm.io/gorm"
+	"trpc.group/trpc-go/trpc-agent-go/telemetry/trace"
 )
 
 // Application orchestrates the Genie lifecycle. Create one with
@@ -666,6 +669,26 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 			ctx = audit.WithAgentName(ctx, a.cfg.AgentName)
 			ctx = orchestratorcontext.WithAgent(ctx, orchestratorcontext.Agent{Name: a.cfg.AgentName})
 		}
+
+		// Stamp trace-level Langfuse tags so every AG-UI chat trace
+		// carries the persona name for filtering/grouping in the dashboard.
+		//
+		// We use OTel Baggage so that the baggageBatchSpanProcessor in the
+		// langfuse exporter automatically copies these onto EVERY span
+		// created downstream (including trpc-agent-go internal spans).
+		// Span attributes alone only work if this specific span happens to
+		// be the Langfuse trace root, which is often not the case.
+		ctx = withLangfuseTraceBaggage(ctx, a.displayName(), "agui")
+
+		ctx, aguiSpan := trace.Tracer.Start(ctx, a.displayName(), oteltrace.WithAttributes(
+			attribute.String("langfuse.trace.name", a.displayName()),
+			attribute.String("langfuse.trace.input", pii.Redact(message)),
+			attribute.StringSlice("langfuse.trace.tags", []string{
+				a.displayName(),
+				"agui",
+			}),
+		))
+		defer aguiSpan.End()
 		logger := logger.GetLogger(ctx).With("fn", "app.buildChatHandler")
 		outputChan := make(chan string)
 		chatDone := make(chan struct{})
@@ -1391,22 +1414,27 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 
 		// Create a root OTel span for this message so Langfuse traces get
 		// populated with input, tags, name, userId, and sessionId.
-		tracer := otel.Tracer(os.Args[0])
-		traceCtx, span := tracer.Start(messengerCtx, "handle_message")
-		span.SetAttributes(
-			attribute.String("langfuse.trace.name", fmt.Sprintf("%s message", msg.Platform)),
-			attribute.String("langfuse.trace.input", msg.Content.Text),
+		//
+		// Set baggage so the baggageBatchSpanProcessor propagates tags
+		// to all child spans (including trpc-agent-go internal spans).
+		messengerCtx = withLangfuseTraceBaggage(messengerCtx, a.displayName(), string(msg.Platform), "messenger")
+
+		traceCtx, span := trace.Tracer.Start(messengerCtx, a.displayName(), oteltrace.WithAttributes(
+			attribute.String("langfuse.trace.name", a.displayName()),
+			attribute.String("langfuse.trace.input", pii.Redact(msg.Content.Text)),
 			attribute.String("langfuse.user.id", msg.Sender.ID),
 			attribute.String("langfuse.session.id", senderCtx),
 			attribute.StringSlice("langfuse.trace.tags", []string{
+				a.displayName(),
 				string(msg.Platform),
 				"messenger",
 			}),
-		)
+		))
 		defer span.End()
 
 		if a.cfg.AgentName != "" {
 			traceCtx = audit.WithAgentName(traceCtx, a.cfg.AgentName)
+			traceCtx = orchestratorcontext.WithAgent(traceCtx, orchestratorcontext.Agent{Name: a.cfg.AgentName})
 		}
 
 		var tabCtx context.Context
@@ -1799,4 +1827,31 @@ func truncateForLog(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// withLangfuseTraceBaggage stores `langfuse.trace.tags` in OTel Baggage so
+// that the baggageBatchSpanProcessor (registered by the langfuse exporter)
+// copies it onto every span created with this context.
+//
+// This is the recommended Langfuse propagation mechanism:
+// https://langfuse.com/docs/integrations/opentelemetry#propagating-attributes
+//
+// The tags are joined with commas because OTel baggage values are strings.
+// The langfuse exporter interprets the comma-separated value as an array.
+func withLangfuseTraceBaggage(ctx context.Context, tags ...string) context.Context {
+	value := strings.Join(tags, ",")
+	member, err := baggage.NewMember("langfuse.trace.tags", value)
+	if err != nil {
+		logger.GetLogger(ctx).Warn("failed to create langfuse trace baggage member", "error", err, "tags", tags)
+		return ctx
+	}
+	// Merge into existing baggage instead of replacing it, so upstream
+	// baggage values (e.g. from incoming HTTP requests) are preserved.
+	bag := baggage.FromContext(ctx)
+	bag, err = bag.SetMember(member)
+	if err != nil {
+		logger.GetLogger(ctx).Warn("failed to set langfuse trace baggage", "error", err, "tags", tags)
+		return ctx
+	}
+	return baggage.ContextWithBaggage(ctx, bag)
 }

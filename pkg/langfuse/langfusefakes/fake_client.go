@@ -9,6 +9,20 @@ import (
 )
 
 type FakeClient struct {
+	GetAgentStatsStub        func(context.Context, langfuse.GetAgentStatsRequest) ([]langfuse.AgentUsageStats, error)
+	getAgentStatsMutex       sync.RWMutex
+	getAgentStatsArgsForCall []struct {
+		arg1 context.Context
+		arg2 langfuse.GetAgentStatsRequest
+	}
+	getAgentStatsReturns struct {
+		result1 []langfuse.AgentUsageStats
+		result2 error
+	}
+	getAgentStatsReturnsOnCall map[int]struct {
+		result1 []langfuse.AgentUsageStats
+		result2 error
+	}
 	GetPromptStub        func(context.Context, string, string) string
 	getPromptMutex       sync.RWMutex
 	getPromptArgsForCall []struct {
@@ -24,6 +38,71 @@ type FakeClient struct {
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
+}
+
+func (fake *FakeClient) GetAgentStats(arg1 context.Context, arg2 langfuse.GetAgentStatsRequest) ([]langfuse.AgentUsageStats, error) {
+	fake.getAgentStatsMutex.Lock()
+	ret, specificReturn := fake.getAgentStatsReturnsOnCall[len(fake.getAgentStatsArgsForCall)]
+	fake.getAgentStatsArgsForCall = append(fake.getAgentStatsArgsForCall, struct {
+		arg1 context.Context
+		arg2 langfuse.GetAgentStatsRequest
+	}{arg1, arg2})
+	stub := fake.GetAgentStatsStub
+	fakeReturns := fake.getAgentStatsReturns
+	fake.recordInvocation("GetAgentStats", []interface{}{arg1, arg2})
+	fake.getAgentStatsMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeClient) GetAgentStatsCallCount() int {
+	fake.getAgentStatsMutex.RLock()
+	defer fake.getAgentStatsMutex.RUnlock()
+	return len(fake.getAgentStatsArgsForCall)
+}
+
+func (fake *FakeClient) GetAgentStatsCalls(stub func(context.Context, langfuse.GetAgentStatsRequest) ([]langfuse.AgentUsageStats, error)) {
+	fake.getAgentStatsMutex.Lock()
+	defer fake.getAgentStatsMutex.Unlock()
+	fake.GetAgentStatsStub = stub
+}
+
+func (fake *FakeClient) GetAgentStatsArgsForCall(i int) (context.Context, langfuse.GetAgentStatsRequest) {
+	fake.getAgentStatsMutex.RLock()
+	defer fake.getAgentStatsMutex.RUnlock()
+	argsForCall := fake.getAgentStatsArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeClient) GetAgentStatsReturns(result1 []langfuse.AgentUsageStats, result2 error) {
+	fake.getAgentStatsMutex.Lock()
+	defer fake.getAgentStatsMutex.Unlock()
+	fake.GetAgentStatsStub = nil
+	fake.getAgentStatsReturns = struct {
+		result1 []langfuse.AgentUsageStats
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeClient) GetAgentStatsReturnsOnCall(i int, result1 []langfuse.AgentUsageStats, result2 error) {
+	fake.getAgentStatsMutex.Lock()
+	defer fake.getAgentStatsMutex.Unlock()
+	fake.GetAgentStatsStub = nil
+	if fake.getAgentStatsReturnsOnCall == nil {
+		fake.getAgentStatsReturnsOnCall = make(map[int]struct {
+			result1 []langfuse.AgentUsageStats
+			result2 error
+		})
+	}
+	fake.getAgentStatsReturnsOnCall[i] = struct {
+		result1 []langfuse.AgentUsageStats
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeClient) GetPrompt(arg1 context.Context, arg2 string, arg3 string) string {
