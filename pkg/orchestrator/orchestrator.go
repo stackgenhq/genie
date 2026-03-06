@@ -27,6 +27,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
 	"github.com/stackgenhq/genie/pkg/halguard"
 	"github.com/stackgenhq/genie/pkg/hitl"
+	"github.com/stackgenhq/genie/pkg/llmutil"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/messenger"
@@ -622,10 +623,7 @@ func (c *orchestrator) handleShortCircuit(ctx context.Context, category requestC
 				"tool_calls_count", len(ch.Message.ToolCalls),
 			)
 		}
-		output := ""
-		if len(resp.Choices) > 0 {
-			output = resp.Choices[0].Message.Content
-		}
+		output := llmutil.ExtractChoiceContent(resp.Choices)
 		logr.Info("salutation output", "output_len", len(output), "output_preview", toolwrap.TruncateForAudit(output, 200))
 		emit(output)
 		c.storeConversation(ctx, req.Question, output)
