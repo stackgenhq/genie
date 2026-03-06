@@ -31,7 +31,13 @@ func buildSubAgentInstruction(toolNames []string) string {
 		)
 	}
 
-	instruction += "\nHITL REJECTION: If a tool call is rejected by the user with feedback suggesting a different tool or approach, " +
+	instruction += "\nTOOL USE IS MANDATORY: You have tools — you MUST use them. " +
+		"NEVER say 'I don't know', 'I don't have access', or 'I cannot' when you have tools that can gather the information. " +
+		"If your goal describes a task and you have tools like run_shell, use them to execute the task. " +
+		"NEVER output commands, scripts, or code as text in your response — always execute them via the appropriate tool. " +
+		"If your goal contains a shell script or command to run, call run_shell to EXECUTE it — do NOT echo or display the script as markdown. " +
+		"You have tools for a reason: USE THEM to gather real data, then summarize the results. " +
+		"\nHITL REJECTION: If a tool call is rejected by the user with feedback suggesting a different tool or approach, " +
 		"check whether the suggested tool is in your AVAILABLE TOOLS list. " +
 		"If it IS available, switch to it immediately. " +
 		"If it is NOT available, STOP immediately and return a message like: " +

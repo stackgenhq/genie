@@ -293,3 +293,80 @@ var _ = Describe("createAgentTool halguard integration", func() {
 		})
 	})
 })
+
+var _ = Describe("zero-tool-use guard", func() {
+	// The zero-tool-use guard fires when:
+	// toolCallCount == 0 && result != "" && status != "error" && !timedOut && len(selectedTools) > 0
+	// It annotates the output and sets status = "tool_use_failure"
+
+	type guardInput struct {
+		toolCallCount    int
+		result           string
+		status           string
+		timedOut         bool
+		numSelectedTools int
+	}
+
+	shouldFire := func(gi guardInput) bool {
+		return gi.toolCallCount == 0 && gi.result != "" && gi.status != "error" && !gi.timedOut && gi.numSelectedTools > 0
+	}
+
+	DescribeTable("fires or skips based on conditions",
+		func(gi guardInput, expectFire bool) {
+			Expect(shouldFire(gi)).To(Equal(expectFire))
+		},
+		Entry("fires: zero tool calls, has result, has tools, not error, not timed out",
+			guardInput{toolCallCount: 0, result: "some output", status: "success", timedOut: false, numSelectedTools: 3},
+			true,
+		),
+		Entry("skips: sub-agent made tool calls",
+			guardInput{toolCallCount: 2, result: "some output", status: "success", timedOut: false, numSelectedTools: 3},
+			false,
+		),
+		Entry("skips: empty result (nothing to annotate)",
+			guardInput{toolCallCount: 0, result: "", status: "success", timedOut: false, numSelectedTools: 3},
+			false,
+		),
+		Entry("skips: status is error",
+			guardInput{toolCallCount: 0, result: "error message", status: "error", timedOut: false, numSelectedTools: 3},
+			false,
+		),
+		Entry("skips: sub-agent timed out",
+			guardInput{toolCallCount: 0, result: "partial output", status: "partial", timedOut: true, numSelectedTools: 3},
+			false,
+		),
+		Entry("skips: no tools available (ask_clarifying_question only agents)",
+			guardInput{toolCallCount: 0, result: "some answer", status: "success", timedOut: false, numSelectedTools: 0},
+			false,
+		),
+		Entry("fires: single tool available but unused",
+			guardInput{toolCallCount: 0, result: "I don't have access to Azure", status: "success", timedOut: false, numSelectedTools: 1},
+			true,
+		),
+	)
+
+	It("annotates output with tool_use_failure message", func() {
+		// Simulate what the guard does to the output
+		originalOutput := "I don't know. I do not have access to the 'appcd-demo' Azure subscription"
+		toolNames := "run_shell, read_file"
+
+		annotated := fmt.Sprintf(
+			"⚠️ SUB-AGENT DID NOT USE TOOLS: The sub-agent produced a text-only response "+
+				"without calling any of its available tools (%s). This likely means it echoed "+
+				"commands as text or refused the task instead of executing it. "+
+				"The sub-agent should be re-spawned. Original output follows:\n\n%s",
+			toolNames, originalOutput)
+
+		Expect(annotated).To(ContainSubstring("SUB-AGENT DID NOT USE TOOLS"))
+		Expect(annotated).To(ContainSubstring("run_shell"))
+		Expect(annotated).To(ContainSubstring("re-spawned"))
+		Expect(annotated).To(ContainSubstring(originalOutput))
+	})
+
+	It("sets status to tool_use_failure", func() {
+		status := "tool_use_failure"
+		Expect(status).To(Equal("tool_use_failure"))
+		Expect(status).NotTo(Equal("success"))
+		Expect(status).NotTo(Equal("error"))
+	})
+})

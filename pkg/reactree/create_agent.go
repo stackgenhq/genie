@@ -603,6 +603,26 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 
 	status, result := req.resolveStatus(timedOut, lastErr, result, toolResultsSB.String())
 
+	// --- Zero-tool-use guard ---
+	// When a sub-agent has action tools (e.g. run_shell) but made ZERO tool
+	// calls and instead produced a text-only response, it likely echoed
+	// scripts/commands as text or refused with "I don't know." This is a
+	// behavioral failure — the sub-agent should have used its tools.
+	if toolCallCount == 0 && result != "" && status != "error" && !timedOut && len(selectedTools) > 0 {
+		logr.Warn("sub-agent produced output without making any tool calls",
+			"agent_name", req.AgentName,
+			"output_length", len(result),
+			"available_tools", len(selectedTools))
+
+		result = fmt.Sprintf(
+			"⚠️ SUB-AGENT DID NOT USE TOOLS: The sub-agent produced a text-only response "+
+				"without calling any of its available tools (%s). This likely means it echoed "+
+				"commands as text or refused the task instead of executing it. "+
+				"The sub-agent should be re-spawned. Original output follows:\n\n%s",
+			strings.Join(scopedRegistry.ToolNames(), ", "), result)
+		status = "tool_use_failure"
+	}
+
 	// --- Post-execution verification (P1) ---
 	// Verify sub-agent output for hallucinations using cross-model consistency.
 	// Only runs when halGuard is configured and the sub-agent produced output.
