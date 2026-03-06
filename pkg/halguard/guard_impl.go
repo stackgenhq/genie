@@ -9,8 +9,10 @@ import (
 
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
 	"github.com/stackgenhq/genie/pkg/logger"
+	"go.opentelemetry.io/otel/attribute"
 	"golang.org/x/sync/errgroup"
 	"trpc.group/trpc-go/trpc-agent-go/model"
+	"trpc.group/trpc-go/trpc-agent-go/telemetry/trace"
 )
 
 // verificationModel pairs a model with its provider key for deduplication.
@@ -573,7 +575,29 @@ Write ONLY the corrected version of this block. No explanations.`, blocks[i], sc
 // --- Helpers ---
 
 // generateText performs a one-shot text generation with the given model.
+// An OTel span is created so the call appears in Langfuse traces — without
+// this, halguard model calls are invisible because we call
+// model.GenerateContent directly (bypassing the trpc-agent-go runner).
 func generateText(ctx context.Context, m model.Model, prompt string, maxTokens int) (string, error) {
+	// Create a child span following the same naming convention as trpc-agent-go:
+	// "chat {model_name}" so Langfuse recognises it as an LLM generation.
+	modelName := ""
+	if info := m.Info(); info.Name != "" {
+		modelName = info.Name
+	}
+	spanName := "chat"
+	if modelName != "" {
+		spanName = fmt.Sprintf("chat %s", modelName)
+	}
+	ctx, span := trace.Tracer.Start(ctx, spanName)
+	span.SetAttributes(
+		attribute.String("gen_ai.system", "trpc.go.agent"),
+		attribute.String("gen_ai.operation.name", "chat"),
+		attribute.String("gen_ai.request.model", modelName),
+		attribute.String("halguard.caller", "generateText"),
+	)
+	defer span.End()
+
 	req := &model.Request{
 		Messages: []model.Message{model.NewUserMessage(prompt)},
 		GenerationConfig: model.GenerationConfig{
@@ -584,16 +608,27 @@ func generateText(ctx context.Context, m model.Model, prompt string, maxTokens i
 
 	ch, err := m.GenerateContent(ctx, req)
 	if err != nil {
+		span.SetAttributes(attribute.String("error.type", "generate_content_failed"))
 		return "", fmt.Errorf("generate content: %w", err)
 	}
 
 	var sb strings.Builder
+	var totalInputTokens, totalOutputTokens int
+	var responseModel string
 	for resp := range ch {
 		if resp.Error != nil {
 			if sb.Len() > 0 {
-				return sb.String(), nil
+				break
 			}
+			span.SetAttributes(attribute.String("error.type", "generation_error"))
 			return "", fmt.Errorf("generation error: %s", resp.Error.Message)
+		}
+		if resp.Model != "" {
+			responseModel = resp.Model
+		}
+		if resp.Usage != nil {
+			totalInputTokens += resp.Usage.PromptTokens
+			totalOutputTokens += resp.Usage.CompletionTokens
 		}
 		for _, c := range resp.Choices {
 			if c.Message.Content != "" {
@@ -601,6 +636,18 @@ func generateText(ctx context.Context, m model.Model, prompt string, maxTokens i
 			}
 		}
 	}
+
+	// Record usage metrics on the span so they appear in Langfuse.
+	if responseModel != "" {
+		span.SetAttributes(attribute.String("gen_ai.response.model", responseModel))
+	}
+	if totalInputTokens > 0 || totalOutputTokens > 0 {
+		span.SetAttributes(
+			attribute.Int("gen_ai.usage.input_tokens", totalInputTokens),
+			attribute.Int("gen_ai.usage.output_tokens", totalOutputTokens),
+		)
+	}
+
 	return sb.String(), nil
 }
 
