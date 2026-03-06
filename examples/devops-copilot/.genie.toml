@@ -22,9 +22,15 @@ good_for_task = "planning"
 
 [[model_config.providers]]
 provider = "gemini"
-model_name = "gemini-3-pro-preview"
+model_name = "gemini-3-flash-preview"
 token = "${GEMINI_API_KEY}"
 good_for_task = "tool_calling"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-pro-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "summarizer"
 
 [[model_config.providers]]
 provider = "anthropic"

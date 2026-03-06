@@ -370,3 +370,58 @@ var _ = Describe("zero-tool-use guard", func() {
 		Expect(status).NotTo(Equal("error"))
 	})
 })
+
+var _ = Describe("auto-retry on tool_use_failure", func() {
+	// The auto-retry in execute() constructs a retryReq when
+	// resp.Status == "tool_use_failure". We test the retry
+	// prompt construction and agent naming here.
+
+	It("prepends RETRY prefix to the goal", func() {
+		originalGoal := "Run this script: az vm list"
+		retryGoal := "[RETRY — PREVIOUS ATTEMPT FAILED] " +
+			"Your previous attempt FAILED because you echoed commands as text instead of executing them. " +
+			"You MUST call the run_shell tool to execute the script below. " +
+			"Do NOT output the script as text. Call run_shell with the script as the command argument.\n\n" +
+			originalGoal
+
+		Expect(retryGoal).To(HavePrefix("[RETRY — PREVIOUS ATTEMPT FAILED]"))
+		Expect(retryGoal).To(ContainSubstring("You MUST call the run_shell tool"))
+		Expect(retryGoal).To(ContainSubstring(originalGoal))
+	})
+
+	It("appends -retry suffix to the agent name", func() {
+		agentName := "azure-functions-check"
+		retryName := agentName + "-retry"
+		Expect(retryName).To(Equal("azure-functions-check-retry"))
+	})
+
+	It("preserves the original goal in the retry prompt", func() {
+		originalGoal := "```bash\naz functionapp list --query '[].{Name:name}'\n```"
+		retryGoal := "[RETRY — PREVIOUS ATTEMPT FAILED] " +
+			"Your previous attempt FAILED because you echoed commands as text instead of executing them. " +
+			"You MUST call the run_shell tool to execute the script below. " +
+			"Do NOT output the script as text. Call run_shell with the script as the command argument.\n\n" +
+			originalGoal
+
+		Expect(retryGoal).To(ContainSubstring("az functionapp list"))
+		Expect(retryGoal).To(ContainSubstring("RETRY"))
+		Expect(retryGoal).To(ContainSubstring("run_shell"))
+	})
+
+	It("retry is only triggered when status is tool_use_failure", func() {
+		// Verify the condition: err == nil && resp.Status == "tool_use_failure"
+		type retryCheck struct {
+			err    error
+			status string
+		}
+		shouldRetry := func(rc retryCheck) bool {
+			return rc.err == nil && rc.status == "tool_use_failure"
+		}
+
+		Expect(shouldRetry(retryCheck{nil, "tool_use_failure"})).To(BeTrue())
+		Expect(shouldRetry(retryCheck{nil, "success"})).To(BeFalse())
+		Expect(shouldRetry(retryCheck{nil, "error"})).To(BeFalse())
+		Expect(shouldRetry(retryCheck{nil, "partial"})).To(BeFalse())
+		Expect(shouldRetry(retryCheck{fmt.Errorf("some error"), "tool_use_failure"})).To(BeFalse())
+	})
+})

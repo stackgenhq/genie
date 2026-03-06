@@ -279,6 +279,29 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 	if shared {
 		logr.Warn("duplicate create_agent call coalesced", "agent_name", req.AgentName)
 	}
+
+	// Auto-retry on tool_use_failure: the sub-agent echoed commands as text
+	// instead of calling run_shell. Retry once with a reinforced prompt that
+	// leaves no ambiguity. Only retry once to avoid infinite loops.
+	if err == nil && resp.Status == "tool_use_failure" {
+		logr.Warn("auto-retrying sub-agent after tool_use_failure",
+			"agent_name", req.AgentName, "attempt", 2)
+
+		retryReq := req
+		retryReq.Goal = "[RETRY — PREVIOUS ATTEMPT FAILED] " +
+			"Your previous attempt FAILED because you echoed commands as text instead of executing them. " +
+			"You MUST call the run_shell tool to execute the script below. " +
+			"Do NOT output the script as text. Call run_shell with the script as the command argument.\n\n" +
+			req.Goal
+		retryReq.AgentName = req.AgentName + "-retry"
+
+		resp, err = t.executeInner(ctx, retryReq)
+		if resp.Status == "tool_use_failure" {
+			logr.Error("sub-agent failed to use tools even after retry",
+				"agent_name", req.AgentName)
+		}
+	}
+
 	return resp, err
 }
 

@@ -7,9 +7,9 @@ import (
 
 var _ = Describe("buildSubAgentInstruction", func() {
 	Describe("tool-use enforcement", func() {
-		It("includes TOOL USE IS MANDATORY directive", func() {
+		It("front-loads the tool-use mandate as the very first sentence", func() {
 			instruction := buildSubAgentInstruction([]string{"run_shell"})
-			Expect(instruction).To(ContainSubstring("TOOL USE IS MANDATORY"))
+			Expect(instruction).To(HavePrefix("MANDATORY: You MUST call your tools"))
 		})
 
 		It("prohibits 'I don't know' refusals", func() {
@@ -27,7 +27,14 @@ var _ = Describe("buildSubAgentInstruction", func() {
 		It("requires executing embedded scripts via run_shell", func() {
 			instruction := buildSubAgentInstruction([]string{"run_shell"})
 			Expect(instruction).To(ContainSubstring("call run_shell to EXECUTE it"))
-			Expect(instruction).To(ContainSubstring("do NOT echo or display the script as markdown"))
+			Expect(instruction).To(ContainSubstring("Do NOT echo, display, or render scripts as markdown"))
+		})
+
+		It("includes SCRIPT EXECUTION directive for bash blocks", func() {
+			instruction := buildSubAgentInstruction([]string{"run_shell"})
+			Expect(instruction).To(ContainSubstring("SCRIPT EXECUTION"))
+			Expect(instruction).To(ContainSubstring("extract the script content and pass it to run_shell"))
+			Expect(instruction).To(ContainSubstring("Responding with the script as text is a failure"))
 		})
 	})
 
