@@ -681,7 +681,7 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 		ctx = withLangfuseTraceBaggage(ctx, a.displayName(), "agui")
 
 		ctx, aguiSpan := trace.Tracer.Start(ctx, "chat", oteltrace.WithAttributes(
-			attribute.String("langfuse.trace.name", "agui chat"),
+			attribute.String("langfuse.trace.name", a.displayName()),
 			attribute.String("langfuse.trace.input", pii.Redact(message)),
 			attribute.StringSlice("langfuse.trace.tags", []string{
 				a.displayName(),
@@ -1420,7 +1420,7 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 		messengerCtx = withLangfuseTraceBaggage(messengerCtx, a.displayName(), string(msg.Platform), "messenger")
 
 		traceCtx, span := trace.Tracer.Start(messengerCtx, "handle_message", oteltrace.WithAttributes(
-			attribute.String("langfuse.trace.name", fmt.Sprintf("%s message", msg.Platform)),
+			attribute.String("langfuse.trace.name", a.displayName()),
 			attribute.String("langfuse.trace.input", pii.Redact(msg.Content.Text)),
 			attribute.String("langfuse.user.id", msg.Sender.ID),
 			attribute.String("langfuse.session.id", senderCtx),
@@ -1838,8 +1838,10 @@ func truncateForLog(s string, maxLen int) string {
 // The tags are joined with commas because OTel baggage values are strings.
 // The langfuse exporter interprets the comma-separated value as an array.
 func withLangfuseTraceBaggage(ctx context.Context, tags ...string) context.Context {
-	member, err := baggage.NewMember("langfuse.trace.tags", strings.Join(tags, ","))
+	value := strings.Join(tags, ",")
+	member, err := baggage.NewMember("langfuse.trace.tags", value)
 	if err != nil {
+		logger.GetLogger(ctx).Warn("failed to create langfuse trace baggage member", "error", err, "tags", tags)
 		return ctx
 	}
 	// Merge into existing baggage instead of replacing it, so upstream
@@ -1847,6 +1849,7 @@ func withLangfuseTraceBaggage(ctx context.Context, tags ...string) context.Conte
 	bag := baggage.FromContext(ctx)
 	bag, err = bag.SetMember(member)
 	if err != nil {
+		logger.GetLogger(ctx).Warn("failed to set langfuse trace baggage", "error", err, "tags", tags)
 		return ctx
 	}
 	return baggage.ContextWithBaggage(ctx, bag)
