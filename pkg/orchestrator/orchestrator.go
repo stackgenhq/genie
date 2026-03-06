@@ -274,7 +274,12 @@ func NewOrchestrator(
 	// cross-model consistency checking per Finch-Zk methodology.
 	// Config comes from [halguard] section in genie.toml; zero values
 	// are filled with sensible defaults by halguard.New.
-	halGuard := halguard.New(modelProvider,
+	//
+	// The textGenerator callback routes halguard's LLM calls through
+	// expert.Expert → trpc-agent-go runner → TraceChat, which gives
+	// proper Langfuse tracing automatically (input, output, token usage).
+	textGenerator := newHalguardTextGenerator(auditor, toolWrapSvc)
+	halGuard := halguard.New(modelProvider, textGenerator,
 		halguard.WithConfig(oo.halGuardConfig),
 	)
 
