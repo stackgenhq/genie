@@ -68,6 +68,7 @@ func (c Config) NewClient() Client {
 		return &noopClient{}
 	}
 	langfuseClient := &client{
+		config: c,
 		httpClient: httputil.GetClient(func(req *http.Request) {
 			req.SetBasicAuth(c.PublicKey, c.SecretKey)
 		}),

@@ -636,7 +636,9 @@ func (c *orchestrator) handleShortCircuit(ctx context.Context, category requestC
 func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan chan<- string) error {
 	// Create a parent span so all sub-operations (recall, tree execution,
 	// store, audit) are children of a single Langfuse trace.
-	ctx, chatSpan := trace.Tracer.Start(ctx, "codeowner.chat")
+	// Use the actual agent name (e.g. "devops-copilot") so Langfuse groups
+	// traces by agent and GetAgentStats can filter by name correctly.
+	ctx, chatSpan := trace.Tracer.Start(ctx, orchestratorcontext.AgentNameFromContext(ctx))
 	defer chatSpan.End()
 
 	logr := logger.GetLogger(ctx).With("fn", "codeExpert.Chat")
