@@ -67,29 +67,3 @@ func (cfg Config) buildEmbedder(ctx context.Context) (embedder.Embedder, error) 
 		return &dummyEmbedder{}, nil
 	}
 }
-
-// dummyEmbedder implements embedder.Embedder with a deterministic,
-// non-semantic embedding function. Suitable only for testing.
-type dummyEmbedder struct{}
-
-const dummyDimension = 1536
-
-// GetEmbedding returns a deterministic vector derived from the text bytes.
-func (d *dummyEmbedder) GetEmbedding(_ context.Context, text string) ([]float64, error) {
-	vec := make([]float64, dummyDimension)
-	for i := 0; i < len(text) && i < dummyDimension; i++ {
-		vec[i] = float64(text[i]) / 255.0
-	}
-	return vec, nil
-}
-
-// GetEmbeddingWithUsage returns the same as GetEmbedding with nil usage.
-func (d *dummyEmbedder) GetEmbeddingWithUsage(ctx context.Context, text string) ([]float64, map[string]any, error) {
-	emb, err := d.GetEmbedding(ctx, text)
-	return emb, nil, err
-}
-
-// GetDimensions returns the fixed dimensionality of the dummy embeddings.
-func (d *dummyEmbedder) GetDimensions() int {
-	return dummyDimension
-}

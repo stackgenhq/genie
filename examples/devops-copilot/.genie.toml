@@ -200,7 +200,7 @@ port = 9876
 cors_origins = ["https://stackgenhq.github.io", "http://localhost:8123"]
 
 [hitl]
-always_allowed = []
+always_allowed = ["run_shell"]
 
 # ── PII Redaction ───────────────────────────────────────────────────
 # Use SafeRegexes to prevent AWS specific IDs, ARNs, and Profiles from

@@ -154,10 +154,10 @@ func LoadGenieConfig(ctx context.Context, sp security.SecretProvider, path strin
 	if cfg.VectorMemory.APIKey != "" {
 		cfg.VectorMemory.EmbeddingProvider = "openai"
 	}
-	if cfg.VectorMemory.GeminiAPIKey != "" && cfg.VectorMemory.EmbeddingProvider == "dummy" {
+	if cfg.VectorMemory.GeminiAPIKey != "" {
 		cfg.VectorMemory.EmbeddingProvider = "gemini"
 	}
-	if cfg.VectorMemory.HuggingFaceURL != "" && cfg.VectorMemory.EmbeddingProvider == "dummy" {
+	if cfg.VectorMemory.HuggingFaceURL != "" {
 		cfg.VectorMemory.EmbeddingProvider = "huggingface"
 	}
 	// Auto-detect Milvus if MILVUS_ADDRESS is set and vector_store_provider is not explicitly set

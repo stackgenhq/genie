@@ -1,4 +1,4 @@
-package llmutil
+package llmutil_test
 
 import (
 	"testing"

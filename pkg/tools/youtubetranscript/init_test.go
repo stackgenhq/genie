@@ -8,6 +8,7 @@ import (
 )
 
 func TestYoutubetranscript(t *testing.T) {
+	t.Parallel()
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "YouTube Transcript Tool Suite")
 }
