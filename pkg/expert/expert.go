@@ -303,12 +303,6 @@ func (e *expert) Do(ctx context.Context, req Request) (Response, error) {
 	eventCount := 0
 	for ev := range evCh {
 		eventCount++
-		logr.Info("Expert.Do event received",
-			"event_num", eventCount,
-			"ev_choices_count", len(ev.Choices),
-			"ev_has_response", ev.Response != nil,
-			"ev_has_usage", ev.Usage != nil,
-		)
 		if req.ChoiceProcessor != nil {
 			req.ChoiceProcessor(ev.Choices...)
 		}
