@@ -1424,7 +1424,7 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 		traceCtx, span := tracer.Start(messengerCtx, "handle_message")
 		span.SetAttributes(
 			attribute.String("langfuse.trace.name", fmt.Sprintf("%s message", msg.Platform)),
-			attribute.String("langfuse.trace.input", msg.Content.Text),
+			attribute.String("langfuse.trace.input", pii.Redact(msg.Content.Text)),
 			attribute.String("langfuse.user.id", msg.Sender.ID),
 			attribute.String("langfuse.session.id", senderCtx),
 			attribute.StringSlice("langfuse.trace.tags", []string{
@@ -1845,7 +1845,10 @@ func withLangfuseTraceBaggage(ctx context.Context, tags ...string) context.Conte
 	if err != nil {
 		return ctx
 	}
-	bag, err := baggage.New(member)
+	// Merge into existing baggage instead of replacing it, so upstream
+	// baggage values (e.g. from incoming HTTP requests) are preserved.
+	bag := baggage.FromContext(ctx)
+	bag, err = bag.SetMember(member)
 	if err != nil {
 		return ctx
 	}

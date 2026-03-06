@@ -43,8 +43,9 @@ func GetPrompt(ctx context.Context, name, defaultPrompt string) string {
 }
 
 // GetAgentStats delegates to the global defaultClient's GetAgentStats. Returns
-// an empty slice when no client is configured. Exists to allow callers to get
-// per-agent usage stats without managing their own Client instance.
+// nil, nil when no client is configured (callers should handle accordingly).
+// Exists to allow callers to get per-agent usage stats without managing their
+// own Client instance.
 func GetAgentStats(ctx context.Context, req GetAgentStatsRequest) ([]AgentUsageStats, error) {
 	if defaultClient == nil {
 		return nil, nil

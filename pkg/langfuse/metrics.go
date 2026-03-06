@@ -45,7 +45,8 @@ type GetAgentStatsRequest struct {
 	AgentName string
 }
 
-// metricsQuery is the JSON body sent to the Langfuse v2 metrics endpoint.
+// metricsQuery is the JSON body sent to the Langfuse v1 metrics endpoint
+// (/api/public/metrics) as a URL-encoded query parameter.
 type metricsQuery struct {
 	View          string             `json:"view"`
 	Metrics       []metricsMetric    `json:"metrics"`
@@ -92,6 +93,10 @@ type metricsResponse struct {
 // Langfuse UI or write bespoke HTTP calls against the Langfuse API.
 func (c *client) GetAgentStats(ctx context.Context, req GetAgentStatsRequest) ([]AgentUsageStats, error) {
 	logr := logger.GetLogger(ctx).With("fn", "langfuse.GetAgentStats")
+
+	if req.Duration <= 0 {
+		return nil, fmt.Errorf("duration must be positive, got %s", req.Duration)
+	}
 
 	now := time.Now().UTC()
 	from := now.Add(-req.Duration)
