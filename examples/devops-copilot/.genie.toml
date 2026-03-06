@@ -3,8 +3,10 @@
 # Comment out or remove sections you don't need.
 
 skills_roots = ["./skills"]
+agent_name  = "devops-copilot"
 [persona]
 file = "./AGENTS.md"
+disable_resume = true
 
 [db_config]
 db_file = "${PWD}/.genie.db"
@@ -203,9 +205,16 @@ cors_origins = ["https://stackgenhq.github.io", "http://localhost:8123"]
 always_allowed = ["run_shell"]
 
 # ── PII Redaction ───────────────────────────────────────────────────
-# Use SafeRegexes to prevent AWS specific IDs, ARNs, and Profiles from
-# being obscured, while still allowing emails to be redacted.
+# Tuned for DevOps agents: infrastructure output is full of mixed-case
+# identifiers, resource names, and table data that trigger false positives
+# at the default threshold. We raise entropy_threshold and min_secret_length,
+# and add safe_regexes for AWS and Azure resource patterns.
 [pii]
+entropy_threshold = 4.8    # Default 4.2 is too aggressive for infra output
+min_secret_length = 16     # Default 6 catches resource names; real secrets are longer
+
+# ── AWS Safe Patterns ───────────────────────────────────────────────
+
 [[pii.safe_regexes]]
 name = "aws_profile"
 pattern = '\b[0-9]{12}_[A-Za-z0-9_-]+\b'
@@ -221,3 +230,47 @@ pattern = '(?i)(i|vol|snap|ami|subnet|vpc|igw|nat|eni|sg|rtb|eipalloc)-[0-9a-f]{
 [[pii.safe_regexes]]
 name = "s3_bucket"
 pattern = '(?i)[a-z0-9.-]+\.s3\.[a-z0-9-]+\.amazonaws\.com'
+
+# ── Azure Safe Patterns ─────────────────────────────────────────────
+
+[[pii.safe_regexes]]
+name = "azure_subscription_id"
+pattern = '(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+
+[[pii.safe_regexes]]
+name = "azure_resource_id"
+pattern = '(?i)/subscriptions/[0-9a-f-]+/resourceGroups/[A-Za-z0-9_.-]+(/providers/[A-Za-z0-9._-]+)*'
+
+[[pii.safe_regexes]]
+name = "azure_resource_group"
+pattern = '(?i)\b[a-z][a-z0-9_-]{2,63}\b'
+
+[[pii.safe_regexes]]
+name = "azure_vm_size"
+pattern = '(?i)Standard_[A-Za-z0-9_]+[sv][0-9]+'
+
+[[pii.safe_regexes]]
+name = "azure_disk_state"
+pattern = '(?i)\b(Attached|Unattached|Reserved|ActiveSAS|ReadyToUpload)\b'
+
+[[pii.safe_regexes]]
+name = "azure_region"
+pattern = '(?i)\b(eastus|eastus2|westus|westus2|westus3|centralus|northcentralus|southcentralus|westcentralus|canadacentral|canadaeast|northeurope|westeurope|uksouth|ukwest|francecentral|francesouth|germanywestcentral|norwayeast|swedencentral|switzerlandnorth|australiaeast|australiasoutheast|eastasia|southeastasia|japaneast|japanwest|koreacentral|koreasouth|centralindia|southindia|westindia|brazilsouth|uaenorth|southafricanorth|qatarcentral)\b'
+
+[[pii.safe_regexes]]
+name = "azure_power_state"
+pattern = '(?i)\bVM (running|deallocated|stopped|starting|deallocating)\b'
+
+# ── General Cloud Infrastructure Patterns ───────────────────────────
+
+[[pii.safe_regexes]]
+name = "kubernetes_version"
+pattern = '(?i)\bv?[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.]+)?\b'
+
+[[pii.safe_regexes]]
+name = "cloud_resource_type"
+pattern = '(?i)\b(VirtualMachines|VMScaleSets|virtualNetworks|storageAccounts|containerRegistries|aksCluster|managedClusters|networkSecurityGroups|publicIPAddresses|loadBalancers|keyVaults|disks|snapshots|networkInterfaces)\b'
+
+[[pii.safe_regexes]]
+name = "provisioning_state"
+pattern = '(?i)\b(Succeeded|Failed|Creating|Updating|Deleting|Canceled|InProgress|Registered|NotRegistered)\b'

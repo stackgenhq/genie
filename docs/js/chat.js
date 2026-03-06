@@ -1415,7 +1415,7 @@
         const div = document.createElement('div');
         div.className = 'flex justify-start approvals-column-item';
         const justificationHtml = justification
-            ? `<div style="font-size:0.75rem;color:#a5b4fc;background:rgba(99,102,241,0.1);border-left:3px solid rgba(99,102,241,0.4);padding:0.35rem 0.5rem;margin-bottom:0.5rem;border-radius:0 0.25rem 0.25rem 0;">💡 ${escapeHtml(justification)}</div>`
+            ? `<div style="font-size:0.75rem;color:#a5b4fc;background:rgba(99,102,241,0.1);border-left:3px solid rgba(99,102,241,0.4);padding:0.35rem 0.5rem;margin-bottom:0.5rem;border-radius:0 0.25rem 0.25rem 0;">💡 ${renderMarkdown(justification)}</div>`
             : '';
         const prettyArgs = prettyPrintArgs(args);
         div.innerHTML = `
@@ -1585,12 +1585,12 @@
         const div = document.createElement('div');
         div.className = 'flex justify-start approvals-column-item';
         const contextHtml = context
-            ? `<div class="clarify-context">💡 ${escapeHtml(context)}</div>`
+            ? `<div class="clarify-context">💡 ${renderMarkdown(context)}</div>`
             : '';
         div.innerHTML = `
 <div class="clarify-card" id="clarify-${escapeAttr(requestId)}">
   <div class="clarify-header">❓ ${escapeHtml(agentDisplayName)} needs your input</div>
-  <div class="clarify-question">${escapeHtml(question || 'Please provide more information.')}</div>
+  <div class="clarify-question">${renderMarkdown(question || 'Please provide more information.')}</div>
   ${contextHtml}
   <textarea class="clarify-input" id="clarify-input-${escapeAttr(requestId)}" placeholder="Type your answer…" rows="2"
       onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();genie.submitClarification('${escapeJsQuoted(requestId)}')}"></textarea>
@@ -1722,9 +1722,54 @@
         text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
         // Italic
         text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-        // Line breaks
+        // Headers (h1–h3)
+        text = text.replace(/^### (.+)$/gm, '<h3 style="font-size:1rem;font-weight:700;margin:0.75rem 0 0.25rem">$1</h3>');
+        text = text.replace(/^## (.+)$/gm, '<h2 style="font-size:1.1rem;font-weight:700;margin:0.75rem 0 0.25rem">$1</h2>');
+        text = text.replace(/^# (.+)$/gm, '<h1 style="font-size:1.25rem;font-weight:800;margin:0.75rem 0 0.25rem">$1</h1>');
+        // Horizontal rule
+        text = text.replace(/^---$/gm, '<hr style="border:none;border-top:1px solid rgba(0,0,0,0.15);margin:0.75rem 0">');
+        // Lists: convert consecutive list lines into <ul>/<ol> blocks before converting remaining newlines to <br>.
+        text = renderLists(text);
+        // Line breaks (for remaining newlines not consumed by lists/headers)
         text = text.replace(/\n/g, '<br>');
         return text;
+    }
+
+    // Convert consecutive lines starting with "- ", "* ", or "N. " into proper HTML lists.
+    function renderLists(text) {
+        var lines = text.split('\n');
+        var result = [];
+        var i = 0;
+        while (i < lines.length) {
+            var line = lines[i];
+            // Ordered list: line starts with "1. ", "2. ", etc.
+            if (/^\d+\.\s/.test(line)) {
+                var items = [];
+                while (i < lines.length && /^\d+\.\s/.test(lines[i])) {
+                    items.push(lines[i].replace(/^\d+\.\s/, ''));
+                    i++;
+                }
+                result.push('<ol style="margin:0.25rem 0 0.25rem 1.25rem;padding:0;list-style:decimal">' +
+                    items.map(function (it) { return '<li style="margin:0.15rem 0">' + it + '</li>'; }).join('') +
+                    '</ol>');
+                continue;
+            }
+            // Unordered list: line starts with "- " or "* " (but not bold **)
+            if (/^[-*]\s/.test(line) && !/^\*\*/.test(line)) {
+                var items = [];
+                while (i < lines.length && /^[-*]\s/.test(lines[i]) && !/^\*\*/.test(lines[i])) {
+                    items.push(lines[i].replace(/^[-*]\s/, ''));
+                    i++;
+                }
+                result.push('<ul style="margin:0.25rem 0 0.25rem 1.25rem;padding:0;list-style:disc">' +
+                    items.map(function (it) { return '<li style="margin:0.15rem 0">' + it + '</li>'; }).join('') +
+                    '</ul>');
+                continue;
+            }
+            result.push(line);
+            i++;
+        }
+        return result.join('\n');
     }
 
     function escapeHtml(text) {

@@ -10,12 +10,15 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
+	"go.opentelemetry.io/otel/attribute"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/document"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/embedder"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/inmemory"
+	"trpc.group/trpc-go/trpc-agent-go/telemetry/trace"
 )
 
 //go:generate go tool counterfeiter -generate
@@ -194,6 +197,19 @@ func (cfg Config) NewStore(ctx context.Context) (*Store, error) {
 // Using variadic args makes this efficient for both single inserts and
 // bulk ingestion (e.g. runbook loading).
 func (s *Store) Add(ctx context.Context, items ...BatchItem) error {
+	// Create a parent span so individual per-item embedding spans (created by
+	// the upstream embedder) are nested under this operation rather than
+	// appearing as orphaned root-level traces in Langfuse.
+	ctx, span := trace.Tracer.Start(ctx, "vectorstore.add")
+	span.SetAttributes(
+		attribute.Int("vectorstore.batch_size", len(items)),
+		attribute.StringSlice("langfuse.trace.tags", []string{
+			orchestratorcontext.AgentNameFromContext(ctx),
+			"vectorstore",
+		}),
+	)
+	defer span.End()
+
 	for _, item := range items {
 		embedding, err := s.embedder.GetEmbedding(ctx, item.Text)
 		if err != nil {
@@ -248,6 +264,19 @@ func (s *Store) Search(ctx context.Context, query string, limit int) ([]SearchRe
 // specified filter entries are returned. Pass nil for unfiltered search.
 // This enables source-based memory isolation (e.g. per-sender, per-channel).
 func (s *Store) SearchWithFilter(ctx context.Context, query string, limit int, filter map[string]string) ([]SearchResult, error) {
+	// Create a parent span so the embedding call inside search is nested
+	// rather than appearing as an orphaned root trace in Langfuse.
+	ctx, span := trace.Tracer.Start(ctx, "vectorstore.search")
+	span.SetAttributes(
+		attribute.Int("vectorstore.limit", limit),
+		attribute.Int("vectorstore.filter_count", len(filter)),
+		attribute.StringSlice("langfuse.trace.tags", []string{
+			orchestratorcontext.AgentNameFromContext(ctx),
+			"vectorstore",
+		}),
+	)
+	defer span.End()
+
 	embedding, err := s.embedder.GetEmbedding(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate query embedding: %w", err)

@@ -666,6 +666,20 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 			ctx = audit.WithAgentName(ctx, a.cfg.AgentName)
 			ctx = orchestratorcontext.WithAgent(ctx, orchestratorcontext.Agent{Name: a.cfg.AgentName})
 		}
+
+		// Stamp trace-level Langfuse tags so every AG-UI chat trace
+		// carries the persona name for filtering/grouping in the dashboard.
+		tracer := otel.Tracer(os.Args[0])
+		ctx, aguiSpan := tracer.Start(ctx, "agui_chat")
+		aguiSpan.SetAttributes(
+			attribute.String("langfuse.trace.name", "agui chat"),
+			attribute.String("langfuse.trace.input", message),
+			attribute.StringSlice("langfuse.trace.tags", []string{
+				a.displayName(),
+				"agui",
+			}),
+		)
+		defer aguiSpan.End()
 		logger := logger.GetLogger(ctx).With("fn", "app.buildChatHandler")
 		outputChan := make(chan string)
 		chatDone := make(chan struct{})
@@ -1399,6 +1413,7 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 			attribute.String("langfuse.user.id", msg.Sender.ID),
 			attribute.String("langfuse.session.id", senderCtx),
 			attribute.StringSlice("langfuse.trace.tags", []string{
+				a.displayName(),
 				string(msg.Platform),
 				"messenger",
 			}),
