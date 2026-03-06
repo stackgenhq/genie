@@ -203,10 +203,7 @@ func (s *Store) Add(ctx context.Context, items ...BatchItem) error {
 	ctx, span := trace.Tracer.Start(ctx, "vectorstore.add")
 	span.SetAttributes(
 		attribute.Int("vectorstore.batch_size", len(items)),
-		attribute.StringSlice("langfuse.trace.tags", []string{
-			orchestratorcontext.AgentNameFromContext(ctx),
-			"vectorstore",
-		}),
+		attribute.String("vectorstore.agent", orchestratorcontext.AgentNameFromContext(ctx)),
 	)
 	defer span.End()
 
@@ -270,10 +267,7 @@ func (s *Store) SearchWithFilter(ctx context.Context, query string, limit int, f
 	span.SetAttributes(
 		attribute.Int("vectorstore.limit", limit),
 		attribute.Int("vectorstore.filter_count", len(filter)),
-		attribute.StringSlice("langfuse.trace.tags", []string{
-			orchestratorcontext.AgentNameFromContext(ctx),
-			"vectorstore",
-		}),
+		attribute.String("vectorstore.agent", orchestratorcontext.AgentNameFromContext(ctx)),
 	)
 	defer span.End()
 
