@@ -1434,6 +1434,7 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 
 		if a.cfg.AgentName != "" {
 			traceCtx = audit.WithAgentName(traceCtx, a.cfg.AgentName)
+			traceCtx = orchestratorcontext.WithAgent(traceCtx, orchestratorcontext.Agent{Name: a.cfg.AgentName})
 		}
 
 		var tabCtx context.Context

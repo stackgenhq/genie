@@ -619,7 +619,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 				"without calling any of its available tools (%s). This likely means it echoed "+
 				"commands as text or refused the task instead of executing it. "+
 				"The sub-agent should be re-spawned. Original output follows:\n\n%s",
-			strings.Join(scopedRegistry.ToolNames(), ", "), result)
+			strings.Join(toolNameList, ", "), result)
 		status = "tool_use_failure"
 	}
 

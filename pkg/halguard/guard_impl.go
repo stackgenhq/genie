@@ -48,6 +48,10 @@ func New(
 	textGenerator TextGeneratorFunc,
 	opts ...Option,
 ) Guard {
+	if textGenerator == nil {
+		panic("halguard: textGenerator must not be nil")
+	}
+
 	cfg := Config{
 		EnablePreCheck:  true,
 		EnablePostCheck: true,
