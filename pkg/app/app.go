@@ -79,10 +79,10 @@ import (
 	"github.com/stackgenhq/genie/pkg/tools/youtubetranscript"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/baggage"
 	"gorm.io/gorm"
+	"trpc.group/trpc-go/trpc-agent-go/telemetry/trace"
 )
 
 // Application orchestrates the Genie lifecycle. Create one with
@@ -679,8 +679,7 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 		// be the Langfuse trace root, which is often not the case.
 		ctx = withLangfuseTraceBaggage(ctx, a.displayName(), "agui")
 
-		tracer := otel.Tracer(os.Args[0])
-		ctx, aguiSpan := tracer.Start(ctx, "agui_chat")
+		ctx, aguiSpan := trace.Tracer.Start(ctx, "chat")
 		aguiSpan.SetAttributes(
 			attribute.String("langfuse.trace.name", "agui chat"),
 			attribute.String("langfuse.trace.input", pii.Redact(message)),
@@ -1420,8 +1419,7 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 		// to all child spans (including trpc-agent-go internal spans).
 		messengerCtx = withLangfuseTraceBaggage(messengerCtx, a.displayName(), string(msg.Platform), "messenger")
 
-		tracer := otel.Tracer(os.Args[0])
-		traceCtx, span := tracer.Start(messengerCtx, "handle_message")
+		traceCtx, span := trace.Tracer.Start(messengerCtx, "handle_message")
 		span.SetAttributes(
 			attribute.String("langfuse.trace.name", fmt.Sprintf("%s message", msg.Platform)),
 			attribute.String("langfuse.trace.input", pii.Redact(msg.Content.Text)),
