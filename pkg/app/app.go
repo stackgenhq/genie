@@ -81,6 +81,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/baggage"
 	"gorm.io/gorm"
 )
 
@@ -670,6 +671,14 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 
 		// Stamp trace-level Langfuse tags so every AG-UI chat trace
 		// carries the persona name for filtering/grouping in the dashboard.
+		//
+		// We use OTel Baggage so that the baggageBatchSpanProcessor in the
+		// langfuse exporter automatically copies these onto EVERY span
+		// created downstream (including trpc-agent-go internal spans).
+		// Span attributes alone only work if this specific span happens to
+		// be the Langfuse trace root, which is often not the case.
+		ctx = withLangfuseTraceBaggage(ctx, a.displayName(), "agui")
+
 		tracer := otel.Tracer(os.Args[0])
 		ctx, aguiSpan := tracer.Start(ctx, "agui_chat")
 		aguiSpan.SetAttributes(
@@ -1406,6 +1415,11 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 
 		// Create a root OTel span for this message so Langfuse traces get
 		// populated with input, tags, name, userId, and sessionId.
+		//
+		// Set baggage so the baggageBatchSpanProcessor propagates tags
+		// to all child spans (including trpc-agent-go internal spans).
+		messengerCtx = withLangfuseTraceBaggage(messengerCtx, a.displayName(), string(msg.Platform), "messenger")
+
 		tracer := otel.Tracer(os.Args[0])
 		traceCtx, span := tracer.Start(messengerCtx, "handle_message")
 		span.SetAttributes(
@@ -1815,4 +1829,25 @@ func truncateForLog(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// withLangfuseTraceBaggage stores `langfuse.trace.tags` in OTel Baggage so
+// that the baggageBatchSpanProcessor (registered by the langfuse exporter)
+// copies it onto every span created with this context.
+//
+// This is the recommended Langfuse propagation mechanism:
+// https://langfuse.com/docs/integrations/opentelemetry#propagating-attributes
+//
+// The tags are joined with commas because OTel baggage values are strings.
+// The langfuse exporter interprets the comma-separated value as an array.
+func withLangfuseTraceBaggage(ctx context.Context, tags ...string) context.Context {
+	member, err := baggage.NewMember("langfuse.trace.tags", strings.Join(tags, ","))
+	if err != nil {
+		return ctx
+	}
+	bag, err := baggage.New(member)
+	if err != nil {
+		return ctx
+	}
+	return baggage.ContextWithBaggage(ctx, bag)
 }
