@@ -680,7 +680,7 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 		// be the Langfuse trace root, which is often not the case.
 		ctx = withLangfuseTraceBaggage(ctx, a.displayName(), "agui")
 
-		ctx, aguiSpan := trace.Tracer.Start(ctx, "chat", oteltrace.WithAttributes(
+		ctx, aguiSpan := trace.Tracer.Start(ctx, a.displayName(), oteltrace.WithAttributes(
 			attribute.String("langfuse.trace.name", a.displayName()),
 			attribute.String("langfuse.trace.input", pii.Redact(message)),
 			attribute.StringSlice("langfuse.trace.tags", []string{
@@ -1419,7 +1419,7 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 		// to all child spans (including trpc-agent-go internal spans).
 		messengerCtx = withLangfuseTraceBaggage(messengerCtx, a.displayName(), string(msg.Platform), "messenger")
 
-		traceCtx, span := trace.Tracer.Start(messengerCtx, "handle_message", oteltrace.WithAttributes(
+		traceCtx, span := trace.Tracer.Start(messengerCtx, a.displayName(), oteltrace.WithAttributes(
 			attribute.String("langfuse.trace.name", a.displayName()),
 			attribute.String("langfuse.trace.input", pii.Redact(msg.Content.Text)),
 			attribute.String("langfuse.user.id", msg.Sender.ID),

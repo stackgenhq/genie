@@ -39,6 +39,8 @@ import (
 	"github.com/stackgenhq/genie/pkg/tools"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
 	"github.com/stackgenhq/genie/pkg/ttlcache"
+	"go.opentelemetry.io/otel/baggage"
+	oteltrace "go.opentelemetry.io/otel/trace"
 	"trpc.group/trpc-go/trpc-agent-go/graph"
 	"trpc.group/trpc-go/trpc-agent-go/memory"
 	"trpc.group/trpc-go/trpc-agent-go/session"
@@ -503,6 +505,20 @@ func bridgeBrowserTab(parent, tab context.Context) (context.Context, context.Can
 		ctx = agui.WithRunID(ctx, rid)
 	}
 
+	// Propagate OTel tracing context so child spans maintain the
+	// same traceID and parent-child hierarchy. Without this, spans
+	// created inside the browser-tab context become orphaned root
+	// spans and appear as separate traces in Langfuse.
+	if parentSpan := oteltrace.SpanFromContext(parent); parentSpan.SpanContext().IsValid() {
+		ctx = oteltrace.ContextWithSpan(ctx, parentSpan)
+	}
+
+	// Propagate OTel baggage so Langfuse attributes (userId,
+	// sessionId, tags, metadata) are inherited by downstream spans.
+	if parentBag := baggage.FromContext(parent); parentBag.Len() > 0 {
+		ctx = baggage.ContextWithBaggage(ctx, parentBag)
+	}
+
 	go func() {
 		select {
 		case <-parent.Done():
@@ -639,11 +655,12 @@ func (c *orchestrator) handleShortCircuit(ctx context.Context, category requestC
 }
 
 func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan chan<- string) error {
-	// Create a parent span so all sub-operations (recall, tree execution,
-	// store, audit) are children of a single Langfuse trace.
-	// Use the actual agent name (e.g. "devops-copilot") so Langfuse groups
-	// traces by agent and GetAgentStats can filter by name correctly.
-	ctx, chatSpan := trace.Tracer.Start(ctx, orchestratorcontext.AgentNameFromContext(ctx))
+	// Create a child span so all sub-operations (recall, tree execution,
+	// store, audit) are grouped under the parent trace.
+	// Use agentName+".chat" (not the bare agent name) to avoid colliding
+	// with langfuse.trace.name — a bare-name match causes the Langfuse
+	// exporter to promote this span to a separate top-level trace.
+	ctx, chatSpan := trace.Tracer.Start(ctx, orchestratorcontext.AgentNameFromContext(ctx)+".chat")
 	defer chatSpan.End()
 
 	logr := logger.GetLogger(ctx).With("fn", "codeExpert.Chat")
