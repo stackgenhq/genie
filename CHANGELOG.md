@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Make agent capabilities resume creation optional through `disable_resume` config.
 - Semantic router routes can now be dynamically configured via config file (`routes` field).
 - Defined an `IRouter` interface for the semantic router to improve testability and abstraction.
+- AG-UI authentication middleware (`pkg/security/auth`) supporting password-based auth (config → env → keyring → auto-generate) and JWT/OIDC token validation with JWKS auto-discovery from trusted issuers.
+- Terraform-based K8s deployment (`installation/k8s/`) with IRSA (ReadOnlyAccess), External Secrets (AWS Secrets Manager), ConfigMap, Ingress, and `random_password` for `AGUI_PASSWORD`.
+- K8s deployment example for DevOps-in-K8s use case (`examples/devops-in-k8s/`).
+- Config Builder UI: authentication controls (password protected toggle, JWT trusted issuers, allowed audiences) with TOML/YAML serialization.
+- Documentation: AG-UI auth configuration reference, password resolution order, and security best practices in `docs.yml`.
 
 ### Changed
 
