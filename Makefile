@@ -130,7 +130,8 @@ run:
 
 .PHONY: docker
 docker: ## Build the docker image
-	docker build \
+	docker buildx build \
+		--platform linux/amd64,linux/arm64 \
 		--build-arg GIT_VERSION="${GIT_VERSION}" \
 		-t ghcr.io/stackgenhq/genie-beta:latest .
 
