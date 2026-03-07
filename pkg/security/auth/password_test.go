@@ -116,20 +116,12 @@ var _ = Describe("Password Resolution", func() {
 		})
 	})
 
-	Context("query param", func() {
-		It("accepts password from ?password= query param", func() {
+	Context("query param (removed for security)", func() {
+		It("rejects password sent via query param (credentials must use header)", func() {
 			mw := auth.Middleware(auth.Config{
 				Password: auth.PasswordConfig{Enabled: true, Value: "query-pwd"},
 			})
 			req := httptest.NewRequest(http.MethodGet, "/?password=query-pwd", nil)
-			Expect(doRequest(mw, req).Code).To(Equal(http.StatusOK))
-		})
-
-		It("rejects wrong query param password", func() {
-			mw := auth.Middleware(auth.Config{
-				Password: auth.PasswordConfig{Enabled: true, Value: "query-pwd"},
-			})
-			req := httptest.NewRequest(http.MethodGet, "/?password=wrong", nil)
 			Expect(doRequest(mw, req).Code).To(Equal(http.StatusUnauthorized))
 		})
 	})

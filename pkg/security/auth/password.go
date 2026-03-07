@@ -30,9 +30,6 @@ type passwordAuth struct {
 
 func (p *passwordAuth) Authenticate(w http.ResponseWriter, r *http.Request) *authcontext.Principal {
 	provided := r.Header.Get("X-AGUI-Password")
-	if provided == "" {
-		provided = r.URL.Query().Get("password")
-	}
 	if provided != "" && subtle.ConstantTimeCompare(p.password, []byte(provided)) == 1 {
 		return &authcontext.Principal{
 			ID:               "password-user",
