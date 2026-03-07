@@ -48,9 +48,10 @@ func IsRetrievalTool(name string) bool {
 }
 
 // loopExemptTools lists tool names that are exempt from loop detection.
-// For example, read_notes which the agent may need to call multiple times to read parts of the notes.
+// For example, read_notes and note which the agent may need to call multiple times to read or write parts of the notes.
 var loopExemptTools = map[string]bool{
 	"read_notes": true,
+	"note":       true,
 }
 
 // --- Loop Detection ---
