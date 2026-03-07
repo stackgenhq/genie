@@ -61,7 +61,7 @@ good_for_task = "general_task"
 
 [[model_config.providers]]
 provider = "openai"
-model_name = "gpt-5.4-fast"
+model_name = "gpt-5.4"
 token = "${OPENAI_API_KEY}"
 good_for_task = "efficiency"
 
@@ -73,7 +73,7 @@ good_for_task = "efficiency"
 
 [[model_config.providers]]
 provider = "anthropic"
-model_name = "claude-haiku-3-5"
+model_name = "claude-haiku-4-5"
 token = "${ANTHROPIC_API_KEY}"
 good_for_task = "efficiency"
 

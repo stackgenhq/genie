@@ -58,7 +58,7 @@ good_for_task = "general_task"
 
 [[model_config.providers]]
 provider = "openai"
-model_name = "gpt-5.4-fast"
+model_name = "gpt-5.4"
 token = "${OPENAI_API_KEY}"
 good_for_task = "efficiency"
 
@@ -210,6 +210,14 @@ cors_origins = ["https://stackgenhq.github.io", "http://localhost:8123"]
 rate_limit = 16.67
 rate_burst = 100
 
+# To use OIDC (Single Sign-On) instead, comment out the password section
+# above and uncomment the section below. Supply values via variables.tf.
+[messenger.agui.auth.oidc]
+issuer_url = "${OIDC_ISSUER_URL}"
+client_id = "${OIDC_CLIENT_ID}"
+client_secret = "${OIDC_CLIENT_SECRET}"
+
+
 # ── AG-UI Authentication ────────────────────────────────────────────
 # Password protection is enabled by default. Set the auth.password value
 # (for example via the Terraform variable path var.auth.password or its
@@ -218,13 +226,6 @@ rate_burst = 100
 # logged during container startup.
 # [messenger.agui.auth.password]
 # enabled = true
-
-# To use OIDC (Single Sign-On) instead, comment out the password section
-# above and uncomment the section below. Supply values via variables.tf.
-[messenger.agui.auth.oidc]
-issuer_url = "${OIDC_ISSUER_URL}"
-client_id = "${OIDC_CLIENT_ID}"
-client_secret = "${OIDC_CLIENT_SECRET}"
 
 [hitl]
 always_allowed = []
