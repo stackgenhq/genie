@@ -161,3 +161,33 @@ persistence_dir = "~/.genie/vector_store"
 [messenger.agui]
 port = 9876
 cors_origins = ["https://stackgenhq.github.io"]
+
+# ── Authentication ──────────────────────────────────────────────────────────
+# Only ONE strategy is active at a time. Precedence: OIDC > API Keys > JWT > Password.
+
+# Basic password protection (suitable for single-user / dev environments).
+# [messenger.agui.auth.password]
+# enabled = true
+# value = "${AGUI_PASSWORD}"  # Resolution: config → env AGUI_PASSWORD → keyring → auto-generate
+
+# Static API keys for M2M (scripts, CI, bots).
+# Keys are accepted via Authorization: Bearer <key> or X-API-Key: <key>.
+# [messenger.agui.auth.api_keys]
+# keys = ["${API_KEY_1}", "${API_KEY_2}"]
+
+# JWT / OIDC token validation (service mesh, Envoy, etc.).
+# [messenger.agui.auth.jwt]
+# trusted_issuers = [
+#   "https://accounts.google.com",
+#   # "https://login.microsoftonline.com/{tenant-id}/v2.0",
+#   # "https://dev-12345.okta.com/oauth2/default",
+# ]
+# allowed_audiences = ["your-client-id"]
+
+# Browser Single Sign-On via any OIDC provider (Google, Okta, Auth0, AzureAD).
+# [messenger.agui.auth.oidc]
+# issuer_url = "https://accounts.google.com"
+# client_id = "YOUR_CLIENT_ID"
+# client_secret = "${OIDC_CLIENT_SECRET}"
+# allowed_domains = ["yourcompany.com"]
+# redirect_url = "https://genie.yourcompany.com/auth/callback"

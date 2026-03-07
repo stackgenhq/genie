@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/stackgenhq/genie/pkg/security/authcontext"
 	"golang.org/x/oauth2"
 )
 
@@ -80,9 +81,14 @@ func NewOIDCHandler(cfg Config) *OIDCHandler {
 }
 
 // Authenticate implements the Authenticator interface.
-func (h *OIDCHandler) Authenticate(w http.ResponseWriter, r *http.Request) bool {
+func (h *OIDCHandler) Authenticate(w http.ResponseWriter, r *http.Request) *authcontext.Principal {
 	if session := h.ValidateSession(r); session != nil {
-		return true
+		return &authcontext.Principal{
+			ID:               session.Email,
+			Name:             session.Email,
+			Role:             "user",
+			AuthenticatedVia: "oidc",
+		}
 	}
 	// Return a special JSON payload the UI uses to offer login
 	w.Header().Set("Content-Type", "application/json")
@@ -93,7 +99,7 @@ func (h *OIDCHandler) Authenticate(w http.ResponseWriter, r *http.Request) bool 
 		"oauth_enabled": true,
 		"login_url":     "/auth/login",
 	})
-	return false
+	return nil
 }
 
 // resolveCookieSecret resolves the cookie signing key from config, env, or auto-generates one.

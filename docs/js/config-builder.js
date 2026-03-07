@@ -38,7 +38,7 @@
             teams: { app_id: 'TEAMS_APP_ID', app_password: 'TEAMS_APP_PASSWORD', listen_addr: ':3978' },
             googlechat: {},
             whatsapp: {},
-            agui: { port: 9876, cors_origins: ['https://stackgenhq.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576, auth: { password: { enabled: false, value: '' }, jwt: { trusted_issuers: [], allowed_audiences: [] }, oauth: { client_id: '', client_secret: '', allowed_domains: [], redirect_url: '' } } }
+            agui: { port: 9876, cors_origins: ['https://stackgenhq.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576, auth: { password: { enabled: false, value: '' }, jwt: { trusted_issuers: [], allowed_audiences: [] }, oidc: { issuer_url: '', client_id: '', client_secret: '', allowed_domains: [], redirect_url: '' }, api_keys: { keys: [] } } }
         },
         scm: { provider: '', token: 'SCM_TOKEN', base_url: '' },
         pm: { provider: '', api_token: 'PM_API_TOKEN', base_url: '', email: '' },
@@ -860,17 +860,25 @@
                 hasItems(au.jwt.trusted_issuers) ? fieldText('Allowed Audiences (comma-separated)', (au.jwt.allowed_audiences || []).join(', '), function (v) { au.jwt.allowed_audiences = splitCSV(v); renderOutput(); },
                     'my-client-id', 'Optional: restrict accepted tokens to these audience values. Leave empty to accept any audience.') : null
             ].filter(Boolean)),
-            // ── Auth: OAuth ──
-            el('p', { className: 'text-xs text-gray-400 mb-3 mt-4' }, 'OAuth / Login with Google'),
+            // ── Auth: OIDC ──
+            el('p', { className: 'text-xs text-gray-400 mb-3 mt-4' }, 'OIDC / Browser Single Sign-On (Google, Okta, Auth0, AzureAD)'),
             el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
-                fieldText('OAuth Client ID', au.oauth.client_id, function (v) { au.oauth.client_id = v; renderOutput(); },
-                    'YOUR_ID.apps.googleusercontent.com', 'Google OAuth 2.0 Client ID from Cloud Console.'),
-                fieldEnvVar('OAuth Client Secret', au.oauth.client_secret, function (v) { au.oauth.client_secret = v; renderOutput(); }, 'GOOGLE_OAUTH_CLIENT_SECRET',
-                    'Google OAuth 2.0 Client Secret.'),
-                fieldText('Allowed Domains (comma-separated)', (au.oauth.allowed_domains || []).join(', '), function (v) { au.oauth.allowed_domains = splitCSV(v); renderOutput(); },
-                    'yourcompany.com', 'Restrict login to these Google Workspace domains. Leave empty for any.'),
-                fieldText('Redirect URL', au.oauth.redirect_url, function (v) { au.oauth.redirect_url = v; renderOutput(); },
-                    'https://genie.example.com/auth/callback', 'The /auth/callback URL registered in Google Cloud Console. Leave empty for auto-detect.')
+                fieldText('Issuer URL', au.oidc.issuer_url, function (v) { au.oidc.issuer_url = v; renderOutput(); },
+                    'https://accounts.google.com', 'OIDC Issuer URL. Genie auto-discovers endpoints via .well-known/openid-configuration.'),
+                fieldText('Client ID', au.oidc.client_id, function (v) { au.oidc.client_id = v; renderOutput(); },
+                    'YOUR_CLIENT_ID', 'OAuth 2.0 Client ID from your identity provider.'),
+                fieldEnvVar('Client Secret', au.oidc.client_secret, function (v) { au.oidc.client_secret = v; renderOutput(); }, 'OIDC_CLIENT_SECRET',
+                    'OAuth 2.0 Client Secret from your identity provider.'),
+                fieldText('Allowed Domains (comma-separated)', (au.oidc.allowed_domains || []).join(', '), function (v) { au.oidc.allowed_domains = splitCSV(v); renderOutput(); },
+                    'yourcompany.com', 'Restrict login to these domains. Leave empty for any.'),
+                fieldText('Redirect URL', au.oidc.redirect_url, function (v) { au.oidc.redirect_url = v; renderOutput(); },
+                    'https://genie.example.com/auth/callback', 'The /auth/callback URL registered with your IdP. Leave empty for auto-detect.')
+            ]),
+            // ── Auth: API Keys ──
+            el('p', { className: 'text-xs text-gray-400 mb-3 mt-4' }, 'Static API Keys (M2M / scripts)'),
+            el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+                fieldText('API Keys (comma-separated)', (au.api_keys.keys || []).join(', '), function (v) { au.api_keys.keys = splitCSV(v); renderOutput(); },
+                    'secret-key-1, secret-key-2', 'Accepted via Authorization: Bearer <key> or X-API-Key: <key>.')
             ])
         ]));
     }
@@ -1394,12 +1402,18 @@
             if (hasItems(au.jwt.allowed_audiences)) lines.push('allowed_audiences = [' + au.jwt.allowed_audiences.filter(Boolean).map(q).join(', ') + ']');
             lines.push('');
         }
-        if (au.oauth.client_id) {
-            lines.push('[messenger.agui.auth.oauth]');
-            lines.push('client_id = ' + q(au.oauth.client_id));
-            if (au.oauth.client_secret) lines.push('client_secret = ' + q('${' + au.oauth.client_secret + '}'));
-            if (hasItems(au.oauth.allowed_domains)) lines.push('allowed_domains = [' + au.oauth.allowed_domains.filter(Boolean).map(q).join(', ') + ']');
-            if (au.oauth.redirect_url) lines.push('redirect_url = ' + q(au.oauth.redirect_url));
+        if (au.oidc.client_id) {
+            lines.push('[messenger.agui.auth.oidc]');
+            if (au.oidc.issuer_url) lines.push('issuer_url = ' + q(au.oidc.issuer_url));
+            lines.push('client_id = ' + q(au.oidc.client_id));
+            if (au.oidc.client_secret) lines.push('client_secret = ' + q('${' + au.oidc.client_secret + '}'));
+            if (hasItems(au.oidc.allowed_domains)) lines.push('allowed_domains = [' + au.oidc.allowed_domains.filter(Boolean).map(q).join(', ') + ']');
+            if (au.oidc.redirect_url) lines.push('redirect_url = ' + q(au.oidc.redirect_url));
+            lines.push('');
+        }
+        if (hasItems(au.api_keys.keys)) {
+            lines.push('[messenger.agui.auth.api_keys]');
+            lines.push('keys = [' + au.api_keys.keys.filter(Boolean).map(q).join(', ') + ']');
             lines.push('');
         }
     }

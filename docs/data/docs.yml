@@ -120,14 +120,19 @@ config_sections:
         rows:
           - ["trusted_issuers", "string[]", "`[]`", "OIDC issuer URLs whose JWT tokens are accepted. JWKS is auto-discovered via `/.well-known/openid-configuration`. Example: `[\"https://accounts.google.com\"]`"]
           - ["allowed_audiences", "string[]", "`[]`", "When set, JWT `aud` claim must match at least one value. When empty, any audience is accepted"]
-      - label: "\U0001F310 OAuth / Login with Google ([messenger.agui.auth.oauth])"
+      - label: "\U0001F310 OIDC / Browser SSO ([messenger.agui.auth.oidc])"
         columns: [Key, Type, Default, Description]
         rows:
-          - ["client_id", "string", "\u2014", "Google OAuth 2.0 Client ID from the Cloud Console"]
-          - ["client_secret", "string", "\u2014", "Google OAuth 2.0 Client Secret (prefer env var)"]
-          - ["allowed_domains", "string[]", "`[]`", "Restrict login to these Google Workspace domains. E.g. `[\"yourcompany.com\"]`. When empty, any Google account is allowed"]
+          - ["issuer_url", "string", "\u2014", "OIDC provider URL. Genie auto-discovers authorization and token endpoints via `/.well-known/openid-configuration`. E.g. `https://accounts.google.com`"]
+          - ["client_id", "string", "\u2014", "OAuth 2.0 Client ID from your identity provider"]
+          - ["client_secret", "string", "\u2014", "OAuth 2.0 Client Secret (prefer env var `${OIDC_CLIENT_SECRET}`)"]
+          - ["allowed_domains", "string[]", "`[]`", "Restrict login to these email domains. E.g. `[\"yourcompany.com\"]`. When empty, any domain is allowed"]
           - ["cookie_secret", "string", "\u2014", "32+ byte key for HMAC signing session cookies. If empty, auto-generated (sessions won't survive restarts). Can be set via `AGUI_COOKIE_SECRET` env var"]
-          - ["redirect_url", "string", "\u2014", "Full callback URL registered in Google Cloud Console. E.g. `https://genie.example.com/auth/callback`. If empty, auto-detected from request Host"]
+          - ["redirect_url", "string", "\u2014", "Full callback URL registered with your IdP. E.g. `https://genie.example.com/auth/callback`. If empty, auto-detected from request Host"]
+      - label: "\U0001F511 Static API Keys ([messenger.agui.auth.api_keys])"
+        columns: [Key, Type, Default, Description]
+        rows:
+          - ["keys", "string[]", "`[]`", "List of pre-shared API keys for M2M authentication. Accepted via `Authorization: Bearer <key>` or `X-API-Key: <key>` headers"]
       - label: Password Resolution Order
         columns: [Priority, Source, Description]
         rows:
@@ -141,8 +146,9 @@ config_sections:
           - ["Local development", "Use `[messenger.agui.auth.password]` with `enabled = true` \u2014 Genie auto-generates a password and prints it to the console"]
           - ["Team/cloud deployment", "Set `AGUI_PASSWORD` via K8s Secret or AWS Secrets Manager. Or use JWT with a corporate identity provider"]
           - ["Enterprise SSO", "Set `trusted_issuers` under `[messenger.agui.auth.jwt]` to your IdP (Google, Okta, Azure AD, Cognito) and optionally restrict `allowed_audiences`"]
-          - ["Browser SSO", "Configure `[messenger.agui.auth.oauth]` with Google OAuth 2.0 credentials and restrict `allowed_domains` to your company domain"]
-          - ["Defense-in-depth", "Enable password AND JWT/OAuth \u2014 OAuth session is checked first, then JWT, then password"]
+          - ["Browser SSO", "Configure `[messenger.agui.auth.oidc]` with your IdP's issuer URL and credentials, restrict `allowed_domains` to your company domain"]
+          - ["Machine-to-Machine", "Use `[messenger.agui.auth.api_keys]` for CI/CD pipelines, bots, and scripts that need non-interactive access"]
+          - ["Auth precedence", "Only ONE strategy is active. Precedence: OIDC > API Keys > JWT > Password"]
     code_example:
       label: Example TOML
       code: |
@@ -160,10 +166,15 @@ config_sections:
         # trusted_issuers = ["https://accounts.google.com"]
         # allowed_audiences = ["my-client-id"]
 
-        # OAuth / Login with Google (browser SSO)
-        # [messenger.agui.auth.oauth]
-        # client_id = "YOUR_ID.apps.googleusercontent.com"
-        # client_secret = "${GOOGLE_OAUTH_CLIENT_SECRET}"
+        # Static API keys (M2M / scripts)
+        # [messenger.agui.auth.api_keys]
+        # keys = ["secret-token-1234"]
+
+        # Browser SSO via any OIDC provider (Google, Okta, Auth0, AzureAD)
+        # [messenger.agui.auth.oidc]
+        # issuer_url = "https://accounts.google.com"
+        # client_id = "YOUR_CLIENT_ID"
+        # client_secret = "${OIDC_CLIENT_SECRET}"
         # allowed_domains = ["yourcompany.com"]
         # redirect_url = "https://genie.yourcompany.com/auth/callback"
 

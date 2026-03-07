@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/stackgenhq/genie/pkg/security/authcontext"
 	"github.com/stackgenhq/genie/pkg/security/keyring"
 )
 
@@ -27,16 +28,21 @@ type passwordAuth struct {
 	password []byte
 }
 
-func (p *passwordAuth) Authenticate(w http.ResponseWriter, r *http.Request) bool {
+func (p *passwordAuth) Authenticate(w http.ResponseWriter, r *http.Request) *authcontext.Principal {
 	provided := r.Header.Get("X-AGUI-Password")
 	if provided == "" {
 		provided = r.URL.Query().Get("password")
 	}
 	if provided != "" && subtle.ConstantTimeCompare(p.password, []byte(provided)) == 1 {
-		return true
+		return &authcontext.Principal{
+			ID:               "password-user",
+			Name:             "Password User",
+			Role:             "user",
+			AuthenticatedVia: "password",
+		}
 	}
 	writeJSON(w, http.StatusUnauthorized, "invalid_password", "Password required to connect")
-	return false
+	return nil
 }
 
 // resolvePassword determines the AG-UI password from the first available source:

@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/stackgenhq/genie/pkg/security/authcontext"
 )
 
 // jwtValidator verifies JWTs against one or more trusted OIDC issuers,
@@ -35,52 +36,71 @@ func newJWTValidator(cfg JWTConfig) *jwtValidator {
 }
 
 // Authenticate implements the Authenticator interface.
-func (v *jwtValidator) Authenticate(w http.ResponseWriter, r *http.Request) bool {
+func (v *jwtValidator) Authenticate(w http.ResponseWriter, r *http.Request) *authcontext.Principal {
 	authHeader := r.Header.Get("Authorization")
 	if !strings.HasPrefix(authHeader, "Bearer ") {
 		writeJSON(w, http.StatusUnauthorized, "missing_token", "Authorization: Bearer <token> required")
-		return false
+		return nil
 	}
 	token := strings.TrimPrefix(authHeader, "Bearer ")
-	if err := v.validate(r.Context(), token); err == nil {
-		return true
+	idToken, err := v.validate(r.Context(), token)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, "invalid_token", "Bearer token validation failed")
+		return nil
 	}
-	writeJSON(w, http.StatusUnauthorized, "invalid_token", "Bearer token validation failed")
-	return false
+
+	// Extract identity from token claims.
+	var claims struct {
+		Sub   string `json:"sub"`
+		Email string `json:"email"`
+		Name  string `json:"name"`
+	}
+	_ = idToken.Claims(&claims)
+
+	id := claims.Email
+	if id == "" {
+		id = claims.Sub
+	}
+	return &authcontext.Principal{
+		ID:               id,
+		Name:             claims.Name,
+		Role:             "user",
+		AuthenticatedVia: "jwt",
+	}
 }
 
 // validate checks that the token is a valid JWT signed by one of the trusted issuers.
 // Uses go-oidc for full cryptographic signature verification via JWKS.
-func (v *jwtValidator) validate(ctx context.Context, token string) error {
+func (v *jwtValidator) validate(ctx context.Context, token string) (*oidc.IDToken, error) {
 	// Peek at the unverified claims to route to the correct verifier.
 	issuer, err := peekIssuer(token)
 	if err != nil {
-		return fmt.Errorf("invalid token: %w", err)
+		return nil, fmt.Errorf("invalid token: %w", err)
 	}
 
 	// Check the issuer is trusted.
 	if !v.isTrusted(issuer) {
-		return fmt.Errorf("untrusted issuer: %s", issuer)
+		return nil, fmt.Errorf("untrusted issuer: %s", issuer)
 	}
 
 	// Get or create the verifier for this issuer.
 	verifier, err := v.getVerifier(ctx, issuer)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Verify the token cryptographically: signature, expiry, issuer match.
 	idToken, err := verifier.Verify(ctx, token)
 	if err != nil {
-		return fmt.Errorf("token verification failed: %w", err)
+		return nil, fmt.Errorf("token verification failed: %w", err)
 	}
 
 	// Check audience if configured.
 	if len(v.audiences) > 0 && !audienceMatch(idToken.Audience, v.audiences) {
-		return fmt.Errorf("audience mismatch: got %v, want one of %v", idToken.Audience, v.audiences)
+		return nil, fmt.Errorf("audience mismatch: got %v, want one of %v", idToken.Audience, v.audiences)
 	}
 
-	return nil
+	return idToken, nil
 }
 
 // isTrusted checks if the issuer is in the trusted list.
