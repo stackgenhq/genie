@@ -128,12 +128,19 @@ run:
 
 # ------------------------------ docker commands ------------------------------
 
+DOCKER_BUILD_ARGS=--platform linux/amd64,linux/arm64 \
+	--build-arg GIT_VERSION="${GIT_VERSION}" \
+	-t ghcr.io/stackgenhq/genie-beta:latest
+
 .PHONY: docker
 docker: ## Build the docker image
-	docker buildx build \
-		--platform linux/amd64,linux/arm64 \
-		--build-arg GIT_VERSION="${GIT_VERSION}" \
-		-t ghcr.io/stackgenhq/genie-beta:latest .
+	docker buildx build $(DOCKER_BUILD_ARGS) .
+
+.PHONY: docker/push
+docker/push: docker ## Build and push the multi-arch docker image
+	docker buildx build $(DOCKER_BUILD_ARGS) \
+		--push \
+		-t ghcr.io/stackgenhq/genie-beta:${GIT_VERSION} .
 
 .PHONY: docker/tag
 docker/tag: docker ## Build and tag the docker image with the active version
