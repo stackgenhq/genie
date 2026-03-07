@@ -553,20 +553,31 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 				if choice.Message.Role == model.RoleAssistant && choice.Message.Content != "" {
 					sb.WriteString(choice.Message.Content)
 				}
+				// Count unique tool calls via ToolID or ToolCalls array to avoid
+				// over-counting when streamed chunks arrive. We check this
+				// independently of Content because some models return empty
+				// content chunks when streaming tool executions or responses.
+				if tid := choice.Message.ToolID; tid != "" {
+					if _, seen := seenToolIDs[tid]; !seen {
+						seenToolIDs[tid] = struct{}{}
+						toolCallCount++
+					}
+				}
+				for _, tc := range choice.Message.ToolCalls {
+					if tid := tc.ID; tid != "" {
+						if _, seen := seenToolIDs[tid]; !seen {
+							seenToolIDs[tid] = struct{}{}
+							toolCallCount++
+						}
+					}
+				}
+
 				// Capture tool result content as partial findings.
 				// Tool results carry the actual data (file contents, search
 				// results, etc.) that the sub-agent gathered. When the sub-agent
 				// exhausts its budget before producing a final summary, these
 				// results are the only record of what was learned.
 				if (choice.Message.ToolID != "" || ev.Object == model.ObjectTypeToolResponse) && choice.Message.Content != "" && toolResultsSB.Len() < maxToolResultsLen {
-					// Count unique tool calls (not per-chunk) to avoid over-counting
-					// when multiple streamed chunks arrive for a single tool response.
-					if tid := choice.Message.ToolID; tid != "" {
-						if _, seen := seenToolIDs[tid]; !seen {
-							seenToolIDs[tid] = struct{}{}
-							toolCallCount++
-						}
-					}
 					remaining := maxToolResultsLen - toolResultsSB.Len()
 					content := choice.Message.Content
 					if len(content) > remaining {
