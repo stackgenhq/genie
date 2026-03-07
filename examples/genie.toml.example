@@ -40,29 +40,37 @@ token = "${ANTHROPIC_API_KEY}"
 good_for_task = "terminal_calling"
 
 # ── OpenAI ──────────────────────────────────────────────────────────
-# GPT-5.2 → novel_reasoning (ARC-AGI 2: 72.9%, #1)
-# Best for: novel problem-solving, pattern recognition, creative solutions
+# GPT-5.4 Thinking → novel_reasoning
+# Best for: novel problem-solving, pattern recognition, creative solutions, adaptive reasoning
 [[model_config.providers]]
 provider = "openai"
-model_name = "gpt-5.2"
+model_name = "gpt-5.4-thinking"
 token = "${OPENAI_API_KEY}"
 good_for_task = "novel_reasoning"
 
-# GPT-5.2 → long_horizon_autonomy (METR: 137.3 min, #1)
-# Best for: extended autonomous agents, multi-step workflows
+# GPT-5.4 Pro → long_horizon_autonomy
+# Best for: extended autonomous agents, multi-step professional workflows
 [[model_config.providers]]
 provider = "openai"
-model_name = "gpt-5.2"
+model_name = "gpt-5.4-pro"
 token = "${OPENAI_API_KEY}"
 good_for_task = "long_horizon_autonomy"
 
-# GPT-5.2 → mathematical (AIME 2025: 100%)
+# GPT-5.4 Thinking → mathematical
 # Best for: math proofs, quantitative analysis, algorithmic optimization
 [[model_config.providers]]
 provider = "openai"
-model_name = "gpt-5.2"
+model_name = "gpt-5.4-thinking"
 token = "${OPENAI_API_KEY}"
 good_for_task = "mathematical"
+
+# GPT-5.4 → computer_operations
+# Best for: native computer-use capabilities, operating applications via keyboard and mouse
+[[model_config.providers]]
+provider = "openai"
+model_name = "gpt-5.4"
+token = "${OPENAI_API_KEY}"
+good_for_task = "computer_operations"
 
 # ── Google ──────────────────────────────────────────────────────────
 # Gemini 3 Pro → scientific_reasoning (GPQA Diamond: 93.8% w/ Deep Think)

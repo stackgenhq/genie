@@ -11,14 +11,19 @@ package auth
 //	[messenger.agui.auth.jwt]
 //	trusted_issuers = ["https://accounts.google.com"]
 //
-//	[messenger.agui.auth.oauth]
+//	[messenger.agui.auth.api_keys]
+//	keys = ["secret-1", "secret-2"]
+//
+//	[messenger.agui.auth.oidc]
+//	issuer_url = "https://accounts.google.com"
 //	client_id = "..."
 //	client_secret = "..."
 //	allowed_domains = ["stackgen.com"]
 type Config struct {
 	Password PasswordConfig `yaml:"password,omitempty" toml:"password,omitempty"`
 	JWT      JWTConfig      `yaml:"jwt,omitempty" toml:"jwt,omitempty"`
-	OAuth    OAuthConfig    `yaml:"oauth,omitempty" toml:"oauth,omitempty"`
+	APIKeys  APIKeyConfig   `yaml:"api_keys,omitempty" toml:"api_keys,omitempty"`
+	OIDC     OIDCConfig     `yaml:"oidc,omitempty" toml:"oidc,omitempty"`
 }
 
 // PasswordConfig configures password-based authentication via the
@@ -36,22 +41,14 @@ type PasswordConfig struct {
 	Value string `yaml:"value,omitempty" toml:"value,omitempty"`
 }
 
-// JWTConfig configures JWT/OIDC token validation for API-level authentication.
+// JWTConfig configures JWT token validation for API-level authentication.
 // Uses go-oidc for full cryptographic signature verification via JWKS auto-discovery.
 type JWTConfig struct {
 	// TrustedIssuers is a list of OIDC issuer URLs whose JWTs are accepted.
-	// Each issuer must serve a standard .well-known/openid-configuration.
-	//
-	// Examples:
-	//   - "https://accounts.google.com"
-	//   - "https://login.microsoftonline.com/{tenant-id}/v2.0"
-	//   - "https://dev-12345.okta.com/oauth2/default"
-	//   - "https://cognito-idp.{region}.amazonaws.com/{user-pool-id}"
 	TrustedIssuers []string `yaml:"trusted_issuers,omitempty" toml:"trusted_issuers,omitempty"`
 
 	// AllowedAudiences is an optional list of expected "aud" claim values.
-	// When non-empty, JWT tokens must have an audience matching at least one
-	// entry. When empty, any audience from a trusted issuer is accepted.
+	// When non-empty, JWT tokens must have an audience matching at least one entry.
 	AllowedAudiences []string `yaml:"allowed_audiences,omitempty" toml:"allowed_audiences,omitempty"`
 }
 
@@ -60,33 +57,47 @@ func (j JWTConfig) Enabled() bool {
 	return len(j.TrustedIssuers) > 0
 }
 
-// OAuthConfig configures the Google OAuth 2.0 / OIDC browser login flow.
-// When both ClientID and ClientSecret are set, the server exposes
+// APIKeyConfig configures static API keys for machine-to-machine authentication.
+type APIKeyConfig struct {
+	// Keys is a list of static secrets accepted via the Authorization: Bearer <token>
+	// header or X-API-Key header.
+	Keys []string `yaml:"keys,omitempty" toml:"keys,omitempty"`
+}
+
+// Enabled returns true when static API keys are configured.
+func (a APIKeyConfig) Enabled() bool {
+	return len(a.Keys) > 0
+}
+
+// OIDCConfig configures the generic OIDC browser login flow.
+// When IssuerURL, ClientID, and ClientSecret are set, the server exposes
 // /auth/login, /auth/callback, and /auth/logout endpoints.
-type OAuthConfig struct {
-	// ClientID is the Google OAuth 2.0 Client ID from the Cloud Console.
+type OIDCConfig struct {
+	// IssuerURL is the OIDC provider's discovery URL (e.g. "https://accounts.google.com",
+	// "https://your-tenant.okta.com", "https://dev-xxx.auth0.com").
+	IssuerURL string `yaml:"issuer_url,omitempty" toml:"issuer_url,omitempty"`
+
+	// ClientID is the OAuth 2.0 Client ID.
 	ClientID string `yaml:"client_id,omitempty" toml:"client_id,omitempty"`
 
-	// ClientSecret is the Google OAuth 2.0 Client Secret.
+	// ClientSecret is the OAuth 2.0 Client Secret.
 	ClientSecret string `yaml:"client_secret,omitempty" toml:"client_secret,omitempty"`
 
-	// AllowedDomains restricts OAuth login to users from these Google Workspace
-	// domains. For example, ["stackgen.com"] only allows @stackgen.com accounts.
-	// When empty, any Google account is allowed.
+	// AllowedDomains restricts login to users from these domains (if supported
+	// by the provider via the "hd" parameter, like Google Workspace).
+	// When empty, any account from the provider is allowed.
 	AllowedDomains []string `yaml:"allowed_domains,omitempty" toml:"allowed_domains,omitempty"`
 
 	// CookieSecret is a 32+ byte key used to HMAC-sign session cookies.
-	// If empty, a random key is generated at startup (sessions won't survive
-	// server restarts). Can be set via AGUI_COOKIE_SECRET env var.
+	// If empty, a random key is generated at startup.
 	CookieSecret string `yaml:"cookie_secret,omitempty" toml:"cookie_secret,omitempty"`
 
-	// RedirectURL is the full URL of /auth/callback as registered in Google
-	// Cloud Console. Example: "https://genie.example.com/auth/callback".
+	// RedirectURL is the full URL of /auth/callback registered in the provider.
 	// If empty, it's auto-detected from the incoming request Host header.
 	RedirectURL string `yaml:"redirect_url,omitempty" toml:"redirect_url,omitempty"`
 }
 
-// Enabled returns true when the OAuth login flow is configured.
-func (o OAuthConfig) Enabled() bool {
-	return o.ClientID != "" && o.ClientSecret != ""
+// Enabled returns true when the OIDC login flow is configured.
+func (o OIDCConfig) Enabled() bool {
+	return o.IssuerURL != "" && o.ClientID != "" && o.ClientSecret != ""
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 	"github.com/stackgenhq/genie/pkg/security/auth"
+	"github.com/stackgenhq/genie/pkg/security/authcontext"
 	"github.com/stackgenhq/genie/pkg/security/keyring"
 	"github.com/stackgenhq/genie/pkg/tools/google/oauth"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
@@ -275,8 +276,8 @@ type Server struct {
 	// Handles password, JWT/OIDC, and OAuth session cookie validation.
 	authMiddleware func(http.Handler) http.Handler
 
-	// oauthHandler manages the Google OAuth login flow. Nil when OAuth is not configured.
-	oauthHandler *auth.OAuthHandler
+	// oidcHandler manages the OIDC login flow. Nil when OIDC is not configured.
+	oidcHandler *auth.OIDCHandler
 }
 
 // NewServer creates a new AG-UI HTTP server from the given configuration.
@@ -315,12 +316,12 @@ func NewServer(
 		agentName:     agentName,
 	}
 
-	// Build the OAuth handler (nil if not configured).
-	oauthHandler := auth.NewOAuthHandler(c.Auth)
-	s.oauthHandler = oauthHandler
+	// Build the OIDC handler (nil if not configured).
+	oidcHandler := auth.NewOIDCHandler(c.Auth)
+	s.oidcHandler = oidcHandler
 
 	// Build the authentication middleware from the embedded auth config.
-	s.authMiddleware = auth.Middleware(c.Auth, oauthHandler)
+	s.authMiddleware = auth.Middleware(c.Auth, oidcHandler)
 
 	if c.RateLimit > 0 {
 		burst := c.RateBurst
@@ -336,7 +337,7 @@ func NewServer(
 		"max_concurrent", c.MaxConcurrent,
 		"auth_password", c.Auth.Password.Enabled,
 		"auth_jwt_issuers", len(c.Auth.JWT.TrustedIssuers),
-		"auth_oauth", c.Auth.OAuth.Enabled(),
+		"auth_oidc", c.Auth.OIDC.Enabled(),
 	)
 	return s
 }
@@ -409,12 +410,12 @@ func (s *Server) Handler() http.Handler {
 		r.Use(s.corsMiddleware)
 	}
 
-	// OAuth routes — mounted BEFORE auth middleware (they must be public).
-	if s.oauthHandler != nil {
-		r.Get("/auth/login", s.oauthHandler.HandleLogin)
-		r.Get("/auth/callback", s.oauthHandler.HandleCallback)
-		r.Post("/auth/logout", s.oauthHandler.HandleLogout)
-		r.Get("/auth/info", s.oauthHandler.HandleAuthInfo)
+	// OIDC routes — mounted BEFORE auth middleware (they must be public).
+	if s.oidcHandler != nil {
+		r.Get("/auth/login", s.oidcHandler.HandleLogin)
+		r.Get("/auth/callback", s.oidcHandler.HandleCallback)
+		r.Post("/auth/logout", s.oidcHandler.HandleLogout)
+		r.Get("/auth/info", s.oidcHandler.HandleAuthInfo)
 	}
 
 	if s.authMiddleware != nil {
@@ -658,11 +659,14 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 
 	// Inject MessageOrigin so downstream subsystems (HITL, clarify,
 	// send_message) always have a valid origin — even for AG-UI web requests.
-	ctx = messenger.WithMessageOrigin(ctx, messenger.MessageOrigin{
+	// Also retrieve the authenticated Principal set by the auth package.
+	p := authcontext.GetPrincipal(ctx)
+	origin := messenger.MessageOrigin{
 		Platform: messenger.PlatformAGUI,
 		Channel:  messenger.Channel{ID: input.ThreadID},
-		Sender:   messenger.Sender{ID: "agui-user"},
-	})
+		Sender:   messenger.Sender{ID: p.ID, DisplayName: p.Name},
+	}
+	ctx = messenger.WithMessageOrigin(ctx, origin)
 
 	// Inject the configured agent name so downstream code (e.g.
 	// server_expert.Handle RUN_STARTED, EmitAgentMessage) sees it.
@@ -675,8 +679,8 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 
 	// Register the event channel on the global bus so any code with
 	// a context containing this MessageOrigin can emit events.
-	origin := messenger.MessageOriginFrom(ctx)
-	aguitypes.Register(origin, eventChan)
+	originForChan := messenger.MessageOriginFrom(ctx)
+	aguitypes.Register(originForChan, eventChan)
 
 	// If a messenger bridge is configured, register this thread so that
 	// subsystems (HITL notifications, send_message tool) can route

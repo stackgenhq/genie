@@ -47,16 +47,20 @@ var _ = Describe("Auth Middleware", func() {
 			Expect(cfg.Password.Value).To(BeEmpty())
 		})
 
-		It("OAuthConfig.Enabled is false when client ID is empty", func() {
-			Expect(auth.OAuthConfig{ClientSecret: "s"}.Enabled()).To(BeFalse())
+		It("OIDCConfig.Enabled is false when client ID is missing", func() {
+			Expect(auth.OIDCConfig{IssuerURL: "x", ClientSecret: "s"}.Enabled()).To(BeFalse())
 		})
 
-		It("OAuthConfig.Enabled is false when client secret is empty", func() {
-			Expect(auth.OAuthConfig{ClientID: "id"}.Enabled()).To(BeFalse())
+		It("OIDCConfig.Enabled is false when client secret is missing", func() {
+			Expect(auth.OIDCConfig{IssuerURL: "x", ClientID: "id"}.Enabled()).To(BeFalse())
 		})
 
-		It("OAuthConfig.Enabled is true when both are set", func() {
-			Expect(auth.OAuthConfig{ClientID: "id", ClientSecret: "s"}.Enabled()).To(BeTrue())
+		It("OIDCConfig.Enabled is false when issuer url is missing", func() {
+			Expect(auth.OIDCConfig{ClientID: "id", ClientSecret: "s"}.Enabled()).To(BeFalse())
+		})
+
+		It("OIDCConfig.Enabled is true when all are set", func() {
+			Expect(auth.OIDCConfig{IssuerURL: "x", ClientID: "id", ClientSecret: "s"}.Enabled()).To(BeTrue())
 		})
 
 		It("JWTConfig.Enabled is false when no issuers", func() {
@@ -205,14 +209,14 @@ var _ = Describe("Auth Middleware", func() {
 
 	})
 
-	Describe("Middleware with OAuth", func() {
-		It("returns oauth_enabled in 401 when OAuth + password configured", func() {
-			oh := auth.NewOAuthHandler(oauthCfg("test-id", "test-secret", func(c *auth.Config) {
-				c.OAuth.CookieSecret = "test-cookie-secret-32-bytes-long!"
+	Describe("Middleware with OIDC", func() {
+		It("returns oauth_enabled in 401 when OIDC + password configured", func() {
+			oh := auth.NewOIDCHandler(oidcCfg("test-id", "test-secret", func(c *auth.Config) {
+				c.OIDC.CookieSecret = "test-cookie-secret-32-bytes-long!"
 			}))
 			mw := auth.Middleware(auth.Config{
 				Password: auth.PasswordConfig{Enabled: true, Value: "test-pwd"},
-				OAuth:    auth.OAuthConfig{ClientID: "test-id", ClientSecret: "test-secret"},
+				OIDC:     auth.OIDCConfig{IssuerURL: "https://test", ClientID: "test-id", ClientSecret: "test-secret"},
 			}, oh)
 
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -225,12 +229,12 @@ var _ = Describe("Auth Middleware", func() {
 			Expect(body["login_url"]).To(Equal("/auth/login"))
 		})
 
-		It("returns auth_required when only OAuth configured", func() {
-			oh := auth.NewOAuthHandler(oauthCfg("test-id", "test-secret", func(c *auth.Config) {
-				c.OAuth.CookieSecret = "test-cookie-secret-32-bytes-long!"
+		It("returns auth_required when only OIDC configured", func() {
+			oh := auth.NewOIDCHandler(oidcCfg("test-id", "test-secret", func(c *auth.Config) {
+				c.OIDC.CookieSecret = "test-cookie-secret-32-bytes-long!"
 			}))
 			mw := auth.Middleware(auth.Config{
-				OAuth: auth.OAuthConfig{ClientID: "test-id", ClientSecret: "test-secret"},
+				OIDC: auth.OIDCConfig{IssuerURL: "https://test", ClientID: "test-id", ClientSecret: "test-secret"},
 			}, oh)
 
 			req := httptest.NewRequest(http.MethodGet, "/", nil)

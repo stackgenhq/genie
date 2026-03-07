@@ -46,7 +46,7 @@ good_for_task = "frontdesk"
 
 [[model_config.providers]]
 provider = "openai"
-model_name = "gpt-4.1"
+model_name = "gpt-5.4"
 token = "${OPENAI_API_KEY}"
 good_for_task = "general_task"
 
@@ -56,7 +56,7 @@ good_for_task = "general_task"
 
 [[model_config.providers]]
 provider = "openai"
-model_name = "gpt-4.1-mini"
+model_name = "gpt-5.4-fast"
 token = "${OPENAI_API_KEY}"
 good_for_task = "efficiency"
 

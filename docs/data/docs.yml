@@ -73,7 +73,7 @@ config_sections:
       - columns: [Key, Type, Description]
         rows:
           - ["provider", "string", "AI provider — `openai`, `gemini`, `anthropic`, `ollama`, `huggingface`"]
-          - ["model_name", "string", "Specific model, e.g. `gpt-5.2`, `gemini-3-flash`, `deepseek-chat`"]
+          - ["model_name", "string", "Specific model, e.g. `gpt-5.4`, `gemini-3-flash`, `deepseek-chat`"]
           - ["variant", "string", "Provider variant: `openai` (default), `hunyuan`, `deepseek`, `qwen`, or `azure`"]
           - ["token", "string", "API key — use `${OPENAI_API_KEY}` to read from environment"]
           - ["host", "string", "Base URL for self-hosted or compatible APIs (Ollama, OpenAI, HuggingFace)"]
@@ -974,7 +974,7 @@ config_sections:
         # models from different providers:
         [[model_config.providers]]
         provider = "openai"
-        model_name = "gpt-4.1-mini"
+        model_name = "gpt-5.4-fast"
         token = "${OPENAI_API_KEY}"
         good_for_task = "efficiency"
 
@@ -1188,7 +1188,7 @@ howto_guides:
       # .genie.toml
       [[model_config]]
       provider = "openai"
-      model_name = "gpt-5.2"
+      model_name = "gpt-5.4-thinking"
       token = "${OPENAI_API_KEY}"
       good_for_task = "planning"
 

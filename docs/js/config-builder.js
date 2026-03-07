@@ -21,7 +21,7 @@
 
     var state = {
         format: 'toml',
-        providers: [{ provider: 'openai', model_name: 'gpt-5.2', variant: 'default', token: 'OPENAI_API_KEY', good_for_task: 'efficiency', enable_token_tailoring: true }],
+        providers: [{ provider: 'openai', model_name: 'gpt-5.4', variant: 'default', token: 'OPENAI_API_KEY', good_for_task: 'efficiency', enable_token_tailoring: true }],
 
 
         skill_load: { max_loaded_skills: 3, skills_roots: ['./skills'] },
@@ -72,12 +72,12 @@
 
     var PROVIDERS = ['openai', 'gemini', 'anthropic'];
     var MODELS_BY_PROVIDER = {
-        openai: ['gpt-5.3-codex', 'gpt-5.2', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'o3', 'o4-mini'],
+        openai: ['gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-thinking', 'gpt-5.4-fast', 'gpt-5.3-codex', 'gpt-5.2', 'o4-mini'],
         gemini: ['gemini-3-pro', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
         anthropic: ['claude-opus-4.6', 'claude-sonnet-4.5', 'claude-haiku-4.5', 'claude-sonnet-4', 'claude-opus-4']
     };
     var TASK_TYPES = ['tool_calling', 'planning', 'terminal_calling', 'scientific_reasoning',
-        'novel_reasoning', 'general_task', 'mathematical', 'long_horizon_autonomy', 'efficiency'];
+        'novel_reasoning', 'general_task', 'mathematical', 'long_horizon_autonomy', 'efficiency', 'computer_operations'];
     var MCP_TRANSPORTS = ['stdio', 'streamable_http', 'sse'];
     var EMBED_PROVIDERS = ['dummy', 'openai', 'ollama', 'huggingface', 'gemini'];
     var VECTOR_STORE_PROVIDERS = ['inmemory', 'milvus'];

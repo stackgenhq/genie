@@ -53,7 +53,7 @@ good_for_task = "frontdesk"
 
 [[model_config.providers]]
 provider = "openai"
-model_name = "gpt-4.1"
+model_name = "gpt-5.4"
 token = "${OPENAI_API_KEY}"
 good_for_task = "general_task"
 
@@ -61,7 +61,7 @@ good_for_task = "general_task"
 
 [[model_config.providers]]
 provider = "openai"
-model_name = "gpt-4.1-mini"
+model_name = "gpt-5.4-fast"
 token = "${OPENAI_API_KEY}"
 good_for_task = "efficiency"
 
@@ -177,11 +177,15 @@ cors_origins = ["https://stackgenhq.github.io", "http://localhost:8123"]
 # ── Authentication ──────────────────────────────────────────────────────────
 # When deployed to the cloud, Genie MUST be password-protected at minimum.
 # The password is resolved in order: config → AGUI_PASSWORD env var → auto-generate.
-# For production, prefer JWT/OIDC or OAuth authentication.
+# For production, prefer JWT/OIDC or API keys.
 
 [messenger.agui.auth.password]
 enabled = true
 # value is injected via the AGUI_PASSWORD env var from the K8s Secret.
+
+# To allow machine-to-machine scripts, use API keys via Authorization: Bearer <key>
+# [messenger.agui.auth.api_keys]
+# keys = ["static-token-1", "static-token-2"]
 
 # To use JWT/OIDC instead (or in addition), uncomment the section below:
 # [messenger.agui.auth.jwt]
@@ -192,10 +196,11 @@ enabled = true
 # ]
 # allowed_audiences = ["your-client-id"]
 
-# To enable "Login with Google" OAuth browser SSO:
-# [messenger.agui.auth.oauth]
-# client_id = "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
-# client_secret = "YOUR_GOOGLE_CLIENT_SECRET"
+# To enable browser Single Sign-On (Okta, Google, Auth0, AzureAD):
+# [messenger.agui.auth.oidc]
+# issuer_url = "https://accounts.google.com"  # e.g. "https://tenant.okta.com"
+# client_id = "YOUR_CLIENT_ID"
+# client_secret = "YOUR_CLIENT_SECRET"
 # allowed_domains = ["yourcompany.com"]
 # redirect_url = "https://genie.yourcompany.com/auth/callback"
 

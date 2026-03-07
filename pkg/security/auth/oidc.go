@@ -1,7 +1,7 @@
-// Package auth – oauth.go implements the Google OAuth 2.0 / OIDC browser login
-// flow ("Login with Google") using golang.org/x/oauth2 and coreos/go-oidc.
+// Package auth – oidc.go implements the generic OIDC browser login flow
+// using golang.org/x/oauth2 and coreos/go-oidc.
 //
-//	GET  /auth/login    → redirects to Google consent screen
+//	GET  /auth/login    → redirects to the Provider consent screen
 //	GET  /auth/callback → exchanges code for ID token, validates, creates session cookie
 //	POST /auth/logout   → clears session cookie
 //
@@ -26,7 +26,6 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
 )
 
 const (
@@ -43,15 +42,16 @@ const (
 	cookieSecretEnv = "AGUI_COOKIE_SECRET"
 )
 
-// OAuthHandler manages the Google OAuth login flow and session cookies.
-type OAuthHandler struct {
+// OIDCHandler manages the OIDC login flow and session cookies.
+type OIDCHandler struct {
+	issuerURL      string
 	clientID       string
 	clientSecret   string
 	redirectURL    string // may be empty → auto-detected from request
 	allowedDomains []string
 	cookieKey      []byte // HMAC-SHA256 key for signing session cookies
 
-	// OIDC provider for verifying Google ID tokens (lazy init).
+	// OIDC provider for verifying ID tokens (lazy init).
 	providerOnce sync.Once
 	provider     *oidc.Provider
 }
@@ -63,23 +63,24 @@ type sessionPayload struct {
 	ExpiresAt int64  `json:"exp"`
 }
 
-// NewOAuthHandler creates an OAuthHandler from the given Config.
-// Returns nil if OAuth is not configured.
-func NewOAuthHandler(cfg Config) *OAuthHandler {
-	if !cfg.OAuth.Enabled() {
+// NewOIDCHandler creates an OIDCHandler from the given Config.
+// Returns nil if OIDC is not configured.
+func NewOIDCHandler(cfg Config) *OIDCHandler {
+	if !cfg.OIDC.Enabled() {
 		return nil
 	}
-	return &OAuthHandler{
-		clientID:       cfg.OAuth.ClientID,
-		clientSecret:   cfg.OAuth.ClientSecret,
-		redirectURL:    cfg.OAuth.RedirectURL,
-		allowedDomains: cfg.OAuth.AllowedDomains,
-		cookieKey:      resolveCookieSecret(cfg.OAuth.CookieSecret),
+	return &OIDCHandler{
+		issuerURL:      cfg.OIDC.IssuerURL,
+		clientID:       cfg.OIDC.ClientID,
+		clientSecret:   cfg.OIDC.ClientSecret,
+		redirectURL:    cfg.OIDC.RedirectURL,
+		allowedDomains: cfg.OIDC.AllowedDomains,
+		cookieKey:      resolveCookieSecret(cfg.OIDC.CookieSecret),
 	}
 }
 
 // Authenticate implements the Authenticator interface.
-func (h *OAuthHandler) Authenticate(w http.ResponseWriter, r *http.Request) bool {
+func (h *OIDCHandler) Authenticate(w http.ResponseWriter, r *http.Request) bool {
 	if session := h.ValidateSession(r); session != nil {
 		return true
 	}
@@ -106,27 +107,16 @@ func resolveCookieSecret(configured string) []byte {
 	// Auto-generate an ephemeral key (sessions won't survive restarts).
 	buf := make([]byte, 32)
 	if _, err := cryptorand.Read(buf); err != nil {
-		panic(fmt.Sprintf("auth/oauth: failed to generate cookie secret: %v", err))
+		panic(fmt.Sprintf("auth/oidc: failed to generate cookie secret: %v", err))
 	}
 	return buf
 }
 
-// oauth2Config builds the oauth2.Config for a given request (redirect URL may be auto-detected).
-func (h *OAuthHandler) oauth2Config(r *http.Request) *oauth2.Config {
-	return &oauth2.Config{
-		ClientID:     h.clientID,
-		ClientSecret: h.clientSecret,
-		RedirectURL:  h.getRedirectURL(r),
-		Endpoint:     google.Endpoint,
-		Scopes:       []string{oidc.ScopeOpenID, "email", "profile"},
-	}
-}
-
-// getProvider returns the Google OIDC provider (lazily initialized).
-func (h *OAuthHandler) getProvider(ctx context.Context) (*oidc.Provider, error) {
+// getProvider returns the OIDC provider (lazily initialized).
+func (h *OIDCHandler) getProvider(ctx context.Context) (*oidc.Provider, error) {
 	var initErr error
 	h.providerOnce.Do(func() {
-		h.provider, initErr = oidc.NewProvider(ctx, "https://accounts.google.com")
+		h.provider, initErr = oidc.NewProvider(ctx, h.issuerURL)
 	})
 	if initErr != nil {
 		return nil, fmt.Errorf("OIDC provider init: %w", initErr)
@@ -134,8 +124,23 @@ func (h *OAuthHandler) getProvider(ctx context.Context) (*oidc.Provider, error) 
 	return h.provider, nil
 }
 
-// HandleLogin redirects the user to Google's consent screen.
-func (h *OAuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
+// oauth2Config builds the oauth2.Config for a given request.
+func (h *OIDCHandler) oauth2Config(ctx context.Context, r *http.Request) (*oauth2.Config, error) {
+	provider, err := h.getProvider(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &oauth2.Config{
+		ClientID:     h.clientID,
+		ClientSecret: h.clientSecret,
+		RedirectURL:  h.getRedirectURL(r),
+		Endpoint:     provider.Endpoint(),
+		Scopes:       []string{oidc.ScopeOpenID, "email", "profile"},
+	}, nil
+}
+
+// HandleLogin redirects the user to the provider's consent screen.
+func (h *OIDCHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	state := generateState()
 
 	// Store state in a short-lived cookie for CSRF protection.
@@ -149,22 +154,33 @@ func (h *OAuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 	})
 
-	cfg := h.oauth2Config(r)
+	cfg, err := h.oauth2Config(r.Context(), r)
+	if err != nil {
+		http.Error(w, "Failed to initialize OIDC provider: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-	// Build the auth URL with optional domain hint.
+	// Build the auth URL with optional domain hint (often supported by Google/Okta via "hd" or "domain_hint").
 	opts := []oauth2.AuthCodeOption{
 		oauth2.AccessTypeOnline,
-		oauth2.SetAuthURLParam("prompt", "select_account"),
 	}
+
+	// Some providers use `prompt=select_account` to ensure UI shows up reliably.
+	// This is generic enough, but is typically safe to include.
+	if strings.Contains(h.issuerURL, "google.com") {
+		opts = append(opts, oauth2.SetAuthURLParam("prompt", "select_account"))
+	}
+
 	if len(h.allowedDomains) == 1 {
+		// "hd" is specifically Google Workspace, but standard enough to pass harmlessly to others.
 		opts = append(opts, oauth2.SetAuthURLParam("hd", h.allowedDomains[0]))
 	}
 
 	http.Redirect(w, r, cfg.AuthCodeURL(state, opts...), http.StatusFound)
 }
 
-// HandleCallback processes the OAuth callback from Google.
-func (h *OAuthHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
+// HandleCallback processes the OAuth callback from the provider.
+func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	// Verify CSRF state.
 	stateCookie, err := r.Cookie(stateCookieName)
 	if err != nil || stateCookie.Value == "" {
@@ -184,9 +200,9 @@ func (h *OAuthHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		MaxAge: -1,
 	})
 
-	// Check for errors from Google.
+	// Check for errors from provider.
 	if errCode := r.URL.Query().Get("error"); errCode != "" {
-		http.Error(w, "Google OAuth error: "+errCode, http.StatusForbidden)
+		http.Error(w, "OAuth error: "+errCode, http.StatusForbidden)
 		return
 	}
 
@@ -196,8 +212,13 @@ func (h *OAuthHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cfg, err := h.oauth2Config(r.Context(), r)
+	if err != nil {
+		http.Error(w, "Failed to initialize OIDC provider: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	// Exchange the authorization code for tokens using golang.org/x/oauth2.
-	cfg := h.oauth2Config(r)
 	token, err := cfg.Exchange(r.Context(), code)
 	if err != nil {
 		http.Error(w, "Token exchange failed: "+err.Error(), http.StatusInternalServerError)
@@ -227,7 +248,7 @@ func (h *OAuthHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	// Extract claims from the verified token.
 	var claims struct {
 		Email  string `json:"email"`
-		Domain string `json:"hd"` // Google Workspace hosted domain
+		Domain string `json:"hd"` // Google Workspace hosted domain, or generic equivalent
 	}
 	if err := idToken.Claims(&claims); err != nil {
 		http.Error(w, "Failed to parse ID token claims: "+err.Error(), http.StatusInternalServerError)
@@ -240,7 +261,7 @@ func (h *OAuthHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Verify domain restriction.
 	if len(h.allowedDomains) > 0 {
-		if !isDomainAllowed(claims.Domain, h.allowedDomains) {
+		if !isDomainAllowed(claims.Domain, h.allowedDomains) && !isDomainAllowed(claims.Email, h.allowedDomains) {
 			http.Error(w, fmt.Sprintf("Access denied: domain %q is not in the allowed list", claims.Domain), http.StatusForbidden)
 			return
 		}
@@ -273,7 +294,7 @@ func (h *OAuthHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleLogout clears the session cookie.
-func (h *OAuthHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
+func (h *OIDCHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    "",
@@ -286,7 +307,7 @@ func (h *OAuthHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 
 // ValidateSession checks if the request has a valid session cookie.
 // Returns the session payload if valid, nil otherwise.
-func (h *OAuthHandler) ValidateSession(r *http.Request) *sessionPayload {
+func (h *OIDCHandler) ValidateSession(r *http.Request) *sessionPayload {
 	cookie, err := r.Cookie(sessionCookieName)
 	if err != nil || cookie.Value == "" {
 		return nil
@@ -302,7 +323,7 @@ func (h *OAuthHandler) ValidateSession(r *http.Request) *sessionPayload {
 }
 
 // HandleAuthInfo returns the current user's session info (for the UI to display).
-func (h *OAuthHandler) HandleAuthInfo(w http.ResponseWriter, r *http.Request) {
+func (h *OIDCHandler) HandleAuthInfo(w http.ResponseWriter, r *http.Request) {
 	session := h.ValidateSession(r)
 	if session == nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -326,7 +347,7 @@ func (h *OAuthHandler) HandleAuthInfo(w http.ResponseWriter, r *http.Request) {
 
 // signSession creates an HMAC-signed cookie value from the session payload.
 // Format: base64(json) + "." + base64(hmac-sha256)
-func (h *OAuthHandler) signSession(s sessionPayload) (string, error) {
+func (h *OIDCHandler) signSession(s sessionPayload) (string, error) {
 	data, err := json.Marshal(s)
 	if err != nil {
 		return "", err
@@ -337,7 +358,7 @@ func (h *OAuthHandler) signSession(s sessionPayload) (string, error) {
 }
 
 // verifySession verifies and decodes an HMAC-signed cookie value.
-func (h *OAuthHandler) verifySession(value string) (*sessionPayload, error) {
+func (h *OIDCHandler) verifySession(value string) (*sessionPayload, error) {
 	parts := strings.SplitN(value, ".", 2)
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("malformed session cookie")
@@ -361,7 +382,7 @@ func (h *OAuthHandler) verifySession(value string) (*sessionPayload, error) {
 	return &s, nil
 }
 
-func (h *OAuthHandler) hmacSign(data []byte) []byte {
+func (h *OIDCHandler) hmacSign(data []byte) []byte {
 	mac := hmac.New(sha256.New, h.cookieKey)
 	mac.Write(data) //nolint:errcheck
 	return mac.Sum(nil)
@@ -373,13 +394,13 @@ func (h *OAuthHandler) hmacSign(data []byte) []byte {
 func generateState() string {
 	buf := make([]byte, 16)
 	if _, err := cryptorand.Read(buf); err != nil {
-		panic(fmt.Sprintf("auth/oauth: failed to generate state: %v", err))
+		panic(fmt.Sprintf("auth/oidc: failed to generate state: %v", err))
 	}
 	return hex.EncodeToString(buf)
 }
 
 // getRedirectURL returns the callback URL. Uses configured value or auto-detects from the request.
-func (h *OAuthHandler) getRedirectURL(r *http.Request) string {
+func (h *OIDCHandler) getRedirectURL(r *http.Request) string {
 	if h.redirectURL != "" {
 		return h.redirectURL
 	}
@@ -395,10 +416,17 @@ func isSecureRequest(r *http.Request) bool {
 	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 }
 
-// isDomainAllowed checks if the user's Google Workspace domain is in the allow list.
-func isDomainAllowed(domain string, allowed []string) bool {
+// isDomainAllowed checks if the user's OIDC domain or email is in the allow list.
+func isDomainAllowed(val string, allowed []string) bool {
+	if val == "" {
+		return false
+	}
 	for _, d := range allowed {
-		if strings.EqualFold(domain, d) {
+		if strings.EqualFold(val, d) {
+			return true
+		}
+		// Also match suffix for email-based domains (e.g. user@stackgen.com matches stackgen.com)
+		if strings.HasSuffix(strings.ToLower(val), "@"+strings.ToLower(d)) {
 			return true
 		}
 	}

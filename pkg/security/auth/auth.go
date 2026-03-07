@@ -16,11 +16,11 @@ type Authenticator interface {
 
 // Middleware returns an http.Handler middleware that enforces authentication
 // based on the Config. The user can only choose ONE authentication option.
-// Resolution precedence: OAuth > JWT > Password.
-func Middleware(cfg Config, oauthHandler ...*OAuthHandler) func(http.Handler) http.Handler {
-	var oh *OAuthHandler
-	if len(oauthHandler) > 0 {
-		oh = oauthHandler[0]
+// Resolution precedence: OIDC > API keys > JWT > Password.
+func Middleware(cfg Config, oidcHandler ...*OIDCHandler) func(http.Handler) http.Handler {
+	var oh *OIDCHandler
+	if len(oidcHandler) > 0 {
+		oh = oidcHandler[0]
 	}
 
 	auth := resolveAuthenticator(cfg, oh)
@@ -30,6 +30,12 @@ func Middleware(cfg Config, oauthHandler ...*OAuthHandler) func(http.Handler) ht
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Bypass authentication for CORS preflight OPTIONS requests.
+			if r.Method == http.MethodOptions {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			if auth.Authenticate(w, r) {
 				next.ServeHTTP(w, r)
 			}
@@ -39,9 +45,12 @@ func Middleware(cfg Config, oauthHandler ...*OAuthHandler) func(http.Handler) ht
 
 // resolveAuthenticator determines which authentication strategy to use.
 // It explicitly enforces a single strategy to prevent mixed configurations.
-func resolveAuthenticator(cfg Config, oh *OAuthHandler) Authenticator {
+func resolveAuthenticator(cfg Config, oh *OIDCHandler) Authenticator {
 	if oh != nil {
 		return oh
+	}
+	if cfg.APIKeys.Enabled() {
+		return newAPIKeyAuth(cfg.APIKeys)
 	}
 	if cfg.JWT.Enabled() {
 		return newJWTValidator(cfg.JWT)

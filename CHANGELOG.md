@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - K8s deployment example for DevOps-in-K8s use case (`examples/devops-in-k8s/`).
 - Config Builder UI: authentication controls (password protected toggle, JWT trusted issuers, allowed audiences) with TOML/YAML serialization.
 - Documentation: AG-UI auth configuration reference, password resolution order, and security best practices in `docs.yml`.
+- Replaced Google-hardcoded OAuth protocol in AG-UI authentication with dynamic OpenId Connect (OIDC) support via `/.well-known/openid-configuration` auto-discovery, allowing `issuer_url` support for generic SSO gateways like Okta and Auth0.
+- Implemented static API key authentication via `Authorization: Bearer <key>` and `X-API-Key: <key>` for M2M communication to bypass interactive SSO.
+- Auth middleware context now sets `authcontext.Principal` metadata indicating the current request's user ID and role, wired across the task orchestration bus via `MessageOrigin`.
+- Auth middleware now explicitly permits incoming CORS `OPTIONS` preflight requests, allowing browsers to perform valid API checks.
 
 ### Changed
 
