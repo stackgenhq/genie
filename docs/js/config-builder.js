@@ -1702,7 +1702,7 @@
     /** Assemble K8s Deployment YAML output. */
     function toK8s() {
         var tomlOutput = toToml();
-        var indentedToml = tomlOutput.split('\n').map(function (line) { return '    ' + line; }).join('\n');
+        var indentedToml = tomlOutput.split('\n').map(function (line) { return line ? '    ' + line : ''; }).join('\n');
         return [
             'apiVersion: v1',
             'kind: ConfigMap',
