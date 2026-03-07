@@ -250,7 +250,7 @@ Check out [config.toml.example](./config.toml.example) for a full example of ava
 ```toml
 [[model_config]]
 provider = "openai"
-model_name = "gpt-5.2"
+model_name = "gpt-5.4"
 token = "${OPENAI_API_KEY}"
 good_for_task = "planning"
 

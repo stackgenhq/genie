@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/security/auth"
 )
 
 const DefaultAGUIPort uint32 = 9876
@@ -108,8 +109,9 @@ type AGUIConfig struct {
 	MaxConcurrent int     `yaml:"max_concurrent,omitempty" toml:"max_concurrent,omitempty"` // max in-flight requests (0 = unlimited)
 	MaxBodyBytes  int64   `yaml:"max_body_bytes,omitempty" toml:"max_body_bytes,omitempty"` // max request body in bytes (0 = unlimited)
 
-	// PasswordProtected, when true, requires the client to send the AG-UI password (stored in keyring per agent) via the X-AGUI-Password header. Used to secure the web chat.
-	PasswordProtected bool `yaml:"password_protected,omitempty" toml:"password_protected,omitempty"`
+	// Auth holds authentication settings (password, JWT/OIDC).
+	// See auth.Config for all available options.
+	Auth auth.Config `yaml:"auth,omitempty" toml:"auth,omitempty"`
 }
 
 // DefaultAGUIConfig returns sensible defaults for the AG-UI server.

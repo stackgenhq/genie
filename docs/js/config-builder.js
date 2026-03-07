@@ -21,7 +21,7 @@
 
     var state = {
         format: 'toml',
-        providers: [{ provider: 'openai', model_name: 'gpt-5.2', variant: 'default', token: 'OPENAI_API_KEY', good_for_task: 'efficiency', enable_token_tailoring: true }],
+        providers: [{ provider: 'openai', model_name: 'gpt-5.4', variant: 'default', token: 'OPENAI_API_KEY', good_for_task: 'efficiency', enable_token_tailoring: true }],
 
 
         skill_load: { max_loaded_skills: 3, skills_roots: ['./skills'] },
@@ -38,7 +38,7 @@
             teams: { app_id: 'TEAMS_APP_ID', app_password: 'TEAMS_APP_PASSWORD', listen_addr: ':3978' },
             googlechat: {},
             whatsapp: {},
-            agui: { port: 9876, cors_origins: ['https://stackgenhq.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576 }
+            agui: { port: 9876, cors_origins: ['https://stackgenhq.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576, auth: { password: { enabled: false, value: '' }, jwt: { trusted_issuers: [], allowed_audiences: [] }, oidc: { issuer_url: '', client_id: '', client_secret: '', allowed_domains: [], redirect_url: '' }, api_keys: { keys: [] } } }
         },
         scm: { provider: '', token: 'SCM_TOKEN', base_url: '' },
         pm: { provider: '', api_token: 'PM_API_TOKEN', base_url: '', email: '' },
@@ -72,12 +72,12 @@
 
     var PROVIDERS = ['openai', 'gemini', 'anthropic'];
     var MODELS_BY_PROVIDER = {
-        openai: ['gpt-5.3-codex', 'gpt-5.2', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'o3', 'o4-mini'],
+        openai: ['gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-thinking', 'gpt-5.4-fast', 'gpt-5.3-codex', 'gpt-5.2', 'o4-mini'],
         gemini: ['gemini-3-pro', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
         anthropic: ['claude-opus-4.6', 'claude-sonnet-4.5', 'claude-haiku-4.5', 'claude-sonnet-4', 'claude-opus-4']
     };
     var TASK_TYPES = ['tool_calling', 'planning', 'terminal_calling', 'scientific_reasoning',
-        'novel_reasoning', 'general_task', 'mathematical', 'long_horizon_autonomy', 'efficiency'];
+        'novel_reasoning', 'general_task', 'mathematical', 'long_horizon_autonomy', 'efficiency', 'computer_operations'];
     var MCP_TRANSPORTS = ['stdio', 'streamable_http', 'sse'];
     var EMBED_PROVIDERS = ['dummy', 'openai', 'ollama', 'huggingface', 'gemini'];
     var VECTOR_STORE_PROVIDERS = ['inmemory', 'milvus'];
@@ -832,6 +832,7 @@
         if (!c) return;
         c.innerHTML = '';
         var a = state.messenger.agui;
+        var au = a.auth;
         c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
             fieldNumber('Port', a.port, function (v) { a.port = v; renderOutput(); }, 1024, 65535, 'HTTP server port'),
             fieldText('CORS Origins (comma-separated)', (a.cors_origins || []).join(', '), function (v) { a.cors_origins = splitCSV(v); renderOutput(); }, 'https://myapp.com', 'Allowed origins for browser access'),
@@ -839,6 +840,46 @@
             fieldNumber('Rate Burst', a.rate_burst, function (v) { a.rate_burst = v; renderOutput(); }, 1, 100, 'Burst allowance'),
             fieldNumber('Max Concurrent', a.max_concurrent, function (v) { a.max_concurrent = v; renderOutput(); }, 0, 1000, 'Max in-flight requests'),
             fieldNumber('Max Body Bytes', a.max_body_bytes, function (v) { a.max_body_bytes = v; renderOutput(); }, 0, 104857600, 'Max request body size in bytes')
+        ]));
+
+        // ── Auth: Password ──
+        c.appendChild(el('div', { className: 'mt-6 pt-4', style: 'border-top: 1px solid rgba(0,0,0,0.06)' }, [
+            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3' }, '🔒 Authentication'),
+            el('p', { className: 'text-xs text-gray-400 mb-3' }, 'Password'),
+            el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+                fieldToggle('Password Enabled', au.password.enabled, function (v) { au.password.enabled = v; renderAll(); },
+                    'Require X-AGUI-Password header. Password is resolved: config → AGUI_PASSWORD env var → OS keyring → auto-generated.'),
+                au.password.enabled ? fieldEnvVar('Password', au.password.value, function (v) { au.password.value = v; renderOutput(); }, 'AGUI_PASSWORD',
+                    'Env var holding the password. If not set, a random password is auto-generated and printed to stdout.') : null
+            ].filter(Boolean)),
+            // ── Auth: JWT ──
+            el('p', { className: 'text-xs text-gray-400 mb-3 mt-4' }, 'JWT / OIDC'),
+            el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+                fieldText('Trusted OIDC Issuers (comma-separated)', (au.jwt.trusted_issuers || []).join(', '), function (v) { au.jwt.trusted_issuers = splitCSV(v); renderOutput(); },
+                    'https://accounts.google.com', 'OIDC issuers whose JWT tokens are accepted (JWKS auto-discovered). When set, Bearer tokens are validated.'),
+                hasItems(au.jwt.trusted_issuers) ? fieldText('Allowed Audiences (comma-separated)', (au.jwt.allowed_audiences || []).join(', '), function (v) { au.jwt.allowed_audiences = splitCSV(v); renderOutput(); },
+                    'my-client-id', 'Optional: restrict accepted tokens to these audience values. Leave empty to accept any audience.') : null
+            ].filter(Boolean)),
+            // ── Auth: OIDC ──
+            el('p', { className: 'text-xs text-gray-400 mb-3 mt-4' }, 'OIDC / Browser Single Sign-On (Google, Okta, Auth0, AzureAD)'),
+            el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+                fieldText('Issuer URL', au.oidc.issuer_url, function (v) { au.oidc.issuer_url = v; renderOutput(); },
+                    'https://accounts.google.com', 'OIDC Issuer URL. Genie auto-discovers endpoints via .well-known/openid-configuration.'),
+                fieldText('Client ID', au.oidc.client_id, function (v) { au.oidc.client_id = v; renderOutput(); },
+                    'YOUR_CLIENT_ID', 'OAuth 2.0 Client ID from your identity provider.'),
+                fieldEnvVar('Client Secret', au.oidc.client_secret, function (v) { au.oidc.client_secret = v; renderOutput(); }, 'OIDC_CLIENT_SECRET',
+                    'OAuth 2.0 Client Secret from your identity provider.'),
+                fieldText('Allowed Domains (comma-separated)', (au.oidc.allowed_domains || []).join(', '), function (v) { au.oidc.allowed_domains = splitCSV(v); renderOutput(); },
+                    'yourcompany.com', 'Restrict login to these domains. Leave empty for any.'),
+                fieldText('Redirect URL', au.oidc.redirect_url, function (v) { au.oidc.redirect_url = v; renderOutput(); },
+                    'https://genie.example.com/auth/callback', 'The /auth/callback URL registered with your IdP. Leave empty for auto-detect.')
+            ]),
+            // ── Auth: API Keys ──
+            el('p', { className: 'text-xs text-gray-400 mb-3 mt-4' }, 'Static API Keys (M2M / scripts)'),
+            el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+                fieldText('API Keys (comma-separated)', (au.api_keys.keys || []).join(', '), function (v) { au.api_keys.keys = splitCSV(v); renderOutput(); },
+                    'secret-key-1, secret-key-2', 'Accepted via Authorization: Bearer <key> or X-API-Key: <key>.')
+            ])
         ]));
     }
 
@@ -1347,6 +1388,34 @@
         lines.push('max_concurrent = ' + a.max_concurrent);
         lines.push('max_body_bytes = ' + a.max_body_bytes);
         lines.push('');
+
+        var au = a.auth;
+        if (au.password.enabled) {
+            lines.push('[messenger.agui.auth.password]');
+            lines.push('enabled = true');
+            if (au.password.value) lines.push('value = ' + q('${' + au.password.value + '}'));
+            lines.push('');
+        }
+        if (hasItems(au.jwt.trusted_issuers)) {
+            lines.push('[messenger.agui.auth.jwt]');
+            lines.push('trusted_issuers = [' + au.jwt.trusted_issuers.filter(Boolean).map(q).join(', ') + ']');
+            if (hasItems(au.jwt.allowed_audiences)) lines.push('allowed_audiences = [' + au.jwt.allowed_audiences.filter(Boolean).map(q).join(', ') + ']');
+            lines.push('');
+        }
+        if (au.oidc.client_id) {
+            lines.push('[messenger.agui.auth.oidc]');
+            if (au.oidc.issuer_url) lines.push('issuer_url = ' + q(au.oidc.issuer_url));
+            lines.push('client_id = ' + q(au.oidc.client_id));
+            if (au.oidc.client_secret) lines.push('client_secret = ' + q('${' + au.oidc.client_secret + '}'));
+            if (hasItems(au.oidc.allowed_domains)) lines.push('allowed_domains = [' + au.oidc.allowed_domains.filter(Boolean).map(q).join(', ') + ']');
+            if (au.oidc.redirect_url) lines.push('redirect_url = ' + q(au.oidc.redirect_url));
+            lines.push('');
+        }
+        if (hasItems(au.api_keys.keys)) {
+            lines.push('[messenger.agui.auth.api_keys]');
+            lines.push('keys = [' + au.api_keys.keys.filter(Boolean).map(q).join(', ') + ']');
+            lines.push('');
+        }
     }
 
     function personaToToml(lines) {
@@ -1673,6 +1742,89 @@
         return lines.join('\n');
     }
 
+    /** Assemble K8s Deployment YAML output. */
+    function toK8s() {
+        var a = state.messenger.agui;
+        var tomlOutput = toToml();
+        var indentedToml = tomlOutput.split('\n').map(function (line) { return line ? '    ' + line : ''; }).join('\n');
+        return [
+            'apiVersion: v1',
+            'kind: ConfigMap',
+            'metadata:',
+            '  name: genie-config',
+            '  namespace: default',
+            'data:',
+            '  genie.toml: |',
+            indentedToml,
+            '---',
+            'apiVersion: apps/v1',
+            'kind: Deployment',
+            'metadata:',
+            '  name: genie-deployment',
+            '  namespace: default',
+            '  labels:',
+            '    app: genie',
+            'spec:',
+            '  replicas: 1',
+            '  selector:',
+            '    matchLabels:',
+            '      app: genie',
+            '  template:',
+            '    metadata:',
+            '      labels:',
+            '        app: genie',
+            '    spec:',
+            '      containers:',
+            '        - name: genie',
+            '          image: ghcr.io/stackgenhq/genie:latest',
+            '          imagePullPolicy: Always',
+            '          ports:',
+            '            - containerPort: ' + a.port,
+            '          volumeMounts:',
+            '            - name: config-volume',
+            '              mountPath: /app/genie.toml',
+            '              subPath: genie.toml',
+            '      volumes:',
+            '        - name: config-volume',
+            '          configMap:',
+            '            name: genie-config',
+            '---',
+            'apiVersion: v1',
+            'kind: Service',
+            'metadata:',
+            '  name: genie-service',
+            '  namespace: default',
+            'spec:',
+            '  selector:',
+            '    app: genie',
+            '  ports:',
+            '    - protocol: TCP',
+            '      port: 80',
+            '      targetPort: ' + a.port,
+            '  type: ClusterIP',
+            '---',
+            'apiVersion: networking.k8s.io/v1',
+            'kind: Ingress',
+            'metadata:',
+            '  name: genie-ingress',
+            '  namespace: default',
+            '  annotations:',
+            '    nginx.ingress.kubernetes.io/rewrite-target: /',
+            'spec:',
+            '  rules:',
+            '    - host: genie.local',
+            '      http:',
+            '        paths:',
+            '          - path: /',
+            '            pathType: Prefix',
+            '            backend:',
+            '              service:',
+            '                name: genie-service',
+            '                port:',
+            '                  number: 80'
+        ].join('\n');
+    }
+
     function scmToYaml(lines) {
         var s = state.scm;
         if (!s.provider) return;
@@ -1869,6 +2021,38 @@
         lines.push(inner + 'rate_burst: ' + a.rate_burst);
         lines.push(inner + 'max_concurrent: ' + a.max_concurrent);
         lines.push(inner + 'max_body_bytes: ' + a.max_body_bytes);
+
+        var au = a.auth;
+        var hasAuth = au.password.enabled || hasItems(au.jwt.trusted_issuers) || au.oauth.client_id;
+        if (hasAuth) {
+            var ai = inner + '  ';
+            var ai2 = ai + '  ';
+            lines.push(inner + 'auth:');
+            if (au.password.enabled) {
+                lines.push(ai + 'password:');
+                lines.push(ai2 + 'enabled: true');
+                if (au.password.value) lines.push(ai2 + 'value: ' + yq('${' + au.password.value + '}'));
+            }
+            if (hasItems(au.jwt.trusted_issuers)) {
+                lines.push(ai + 'jwt:');
+                lines.push(ai2 + 'trusted_issuers:');
+                au.jwt.trusted_issuers.filter(Boolean).forEach(function (iss) { lines.push(ai2 + '  - ' + yq(iss)); });
+                if (hasItems(au.jwt.allowed_audiences)) {
+                    lines.push(ai2 + 'allowed_audiences:');
+                    au.jwt.allowed_audiences.filter(Boolean).forEach(function (aud) { lines.push(ai2 + '  - ' + yq(aud)); });
+                }
+            }
+            if (au.oauth.client_id) {
+                lines.push(ai + 'oauth:');
+                lines.push(ai2 + 'client_id: ' + yq(au.oauth.client_id));
+                if (au.oauth.client_secret) lines.push(ai2 + 'client_secret: ' + yq('${' + au.oauth.client_secret + '}'));
+                if (hasItems(au.oauth.allowed_domains)) {
+                    lines.push(ai2 + 'allowed_domains:');
+                    au.oauth.allowed_domains.filter(Boolean).forEach(function (d) { lines.push(ai2 + '  - ' + yq(d)); });
+                }
+                if (au.oauth.redirect_url) lines.push(ai2 + 'redirect_url: ' + yq(au.oauth.redirect_url));
+            }
+        }
     }
 
     function langfuseToYaml(lines) {
@@ -2048,8 +2232,7 @@
         if (overlay) return;
 
         var currentOS = detectOS();
-        var ext = state.format === 'toml' ? '.toml' : '.yaml';
-        var configFile = '.genie' + ext;
+        var configFile = state.format === 'k8s' ? 'deployment.yaml' : state.format === 'yaml' ? '.genie.yaml' : '.genie.toml';
 
         function stepsHtml(osKey) {
             var data = INSTALL_STEPS[osKey] || INSTALL_STEPS.other;
@@ -2093,7 +2276,9 @@
             ]),
             el('p', { className: 'install-modal-copied' }, 'Your config has been copied to the clipboard.'),
             el('p', { className: 'install-modal-congrats' }, 'Congratulations on taking the first step to having a secure assistant.'),
-            el('p', { className: 'install-modal-hint' }, 'Config file: ' + configFile + ' in your home directory or project root. Prefer terminal? Run genie setup for guided config creation.'),
+            el('p', { className: 'install-modal-hint' }, state.format === 'k8s'
+                ? 'Apply your deployment with: kubectl apply -f deployment.yaml'
+                : 'Config file: ' + configFile + ' in your home directory or project root. Prefer terminal? Run genie setup for guided config creation.'),
             el('div', { className: 'install-modal-tabs' }, tabButtons),
             el('div', { id: 'install-modal-body', className: 'install-modal-body' }, stepsHtml(currentOS))
         ]);
@@ -2115,7 +2300,7 @@
     function renderOutput() {
         var code = $('output-code');
         if (!code) return;
-        code.textContent = state.format === 'toml' ? toToml() : toYaml();
+        code.textContent = state.format === 'toml' ? toToml() : state.format === 'yaml' ? toYaml() : toK8s();
     }
 
     window.toggleSection = function (id) {
@@ -2147,11 +2332,11 @@
 
     window.downloadConfig = function () {
         var content = $('output-code').textContent;
-        var ext = state.format === 'toml' ? '.toml' : '.yaml';
+        var filename = state.format === 'k8s' ? 'deployment.yaml' : state.format === 'yaml' ? '.genie.yaml' : '.genie.toml';
         var blob = new Blob([content], { type: 'text/plain' });
         var a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = '.genie' + ext;
+        a.download = filename;
         a.click();
         URL.revokeObjectURL(a.href);
     };

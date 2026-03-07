@@ -2,7 +2,6 @@ package agui
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -23,6 +22,8 @@ import (
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
+	"github.com/stackgenhq/genie/pkg/security/auth"
+	"github.com/stackgenhq/genie/pkg/security/authcontext"
 	"github.com/stackgenhq/genie/pkg/security/keyring"
 	"github.com/stackgenhq/genie/pkg/tools/google/oauth"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
@@ -271,12 +272,12 @@ type Server struct {
 	// UI can dynamically display it instead of hardcoding "Genie".
 	agentName string
 
-	// passwordProtected, when true, requires the X-AGUI-Password header to match the value stored in keyring (per agent).
-	passwordProtected bool
+	// authMiddleware is the authentication middleware built from auth.Config.
+	// Handles password, JWT/OIDC, and OAuth session cookie validation.
+	authMiddleware func(http.Handler) http.Handler
 
-	// Cached AG-UI password from keyring, loaded once on first request to avoid per-request keyring lookups and audit noise.
-	aguiPasswordCache   []byte
-	aguiPasswordCacheMu sync.Mutex
+	// oidcHandler manages the OIDC login flow. Nil when OIDC is not configured.
+	oidcHandler *auth.OIDCHandler
 }
 
 // NewServer creates a new AG-UI HTTP server from the given configuration.
@@ -300,21 +301,27 @@ func NewServer(
 		agentName = "Genie"
 	}
 	s := &Server{
-		chatHandler:       handler,
-		port:              c.Port,
-		corsOrigins:       c.CORSOrigins,
-		approvalStore:     approvalStore,
-		approveList:       approveList,
-		bgWorker:          bgWorker,
-		workers:           workers,
-		maxConcurrent:     c.MaxConcurrent,
-		maxBodyBytes:      c.MaxBodyBytes,
-		clarifyStore:      clarifyStore,
-		capabilities:      capabilities,
-		startedAt:         time.Now(),
-		agentName:         agentName,
-		passwordProtected: c.PasswordProtected,
+		chatHandler:   handler,
+		port:          c.Port,
+		corsOrigins:   c.CORSOrigins,
+		approvalStore: approvalStore,
+		approveList:   approveList,
+		bgWorker:      bgWorker,
+		workers:       workers,
+		maxConcurrent: c.MaxConcurrent,
+		maxBodyBytes:  c.MaxBodyBytes,
+		clarifyStore:  clarifyStore,
+		capabilities:  capabilities,
+		startedAt:     time.Now(),
+		agentName:     agentName,
 	}
+
+	// Build the OIDC handler (nil if not configured).
+	oidcHandler := auth.NewOIDCHandler(c.Auth)
+	s.oidcHandler = oidcHandler
+
+	// Build the authentication middleware from the embedded auth config.
+	s.authMiddleware = auth.Middleware(c.Auth, oidcHandler)
 
 	if c.RateLimit > 0 {
 		burst := c.RateBurst
@@ -328,6 +335,9 @@ func NewServer(
 		"rate_limit", c.RateLimit,
 		"cors_origins", len(c.CORSOrigins),
 		"max_concurrent", c.MaxConcurrent,
+		"auth_password", c.Auth.Password.Enabled,
+		"auth_jwt_issuers", len(c.Auth.JWT.TrustedIssuers),
+		"auth_oidc", c.Auth.OIDC.Enabled(),
 	)
 	return s
 }
@@ -381,47 +391,6 @@ func GetAguiPasswordFromKeyring(ctx context.Context) ([]byte, error) {
 	return val, nil
 }
 
-// getExpectedPassword returns the cached AG-UI password, loading it from the keyring when cache is empty.
-// Uses context.Background() for the keyring lookup so the cache is not tied to a request lifecycle.
-// Access is serialized under the mutex so only one goroutine performs the keyring lookup when cache
-// is empty (avoids thundering herd). On failure or empty value the cache stays nil and the next request retries.
-func (s *Server) getExpectedPassword() []byte {
-	s.aguiPasswordCacheMu.Lock()
-	defer s.aguiPasswordCacheMu.Unlock()
-	if len(s.aguiPasswordCache) > 0 {
-		return s.aguiPasswordCache
-	}
-	val, err := GetAguiPasswordFromKeyring(context.Background())
-	if err != nil || len(val) == 0 {
-		return nil
-	}
-	s.aguiPasswordCache = val
-	return s.aguiPasswordCache
-}
-
-// aguiPasswordMiddleware requires the X-AGUI-Password header to match the value stored in keyring (AccountAGUIPassword) when passwordProtected is true.
-// The expected password is loaded from the keyring and cached on success to avoid per-request lookups; failed lookups are not cached so the next request retries.
-// When the keyring entry is missing we return 401 (not 503) so the UI can show the password prompt and the client is not permanently locked out.
-func (s *Server) aguiPasswordMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		expected := s.getExpectedPassword()
-		if len(expected) == 0 {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"password_not_configured","message":"AG-UI password not configured. Set it in keyring to enable password protection."}`))
-			return
-		}
-		provided := r.Header.Get("X-AGUI-Password")
-		if subtle.ConstantTimeCompare(expected, []byte(provided)) != 1 {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"invalid_password","message":"Password required to connect"}`))
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 // Handler returns the chi router with AG-UI endpoints.
 func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
@@ -441,9 +410,15 @@ func (s *Server) Handler() http.Handler {
 		r.Use(s.corsMiddleware)
 	}
 
-	if s.passwordProtected {
-		r.Use(s.aguiPasswordMiddleware)
+	// OIDC routes — mounted BEFORE auth middleware (they must be public).
+	if s.oidcHandler != nil {
+		r.Get("/auth/login", s.oidcHandler.HandleLogin)
+		r.Get("/auth/callback", s.oidcHandler.HandleCallback)
+		r.Post("/auth/logout", s.oidcHandler.HandleLogout)
+		r.Get("/auth/info", s.oidcHandler.HandleAuthInfo)
 	}
+
+	r.Use(s.authMiddleware)
 
 	// AG-UI run endpoint
 	r.Post("/", s.handleRun)
@@ -682,11 +657,14 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 
 	// Inject MessageOrigin so downstream subsystems (HITL, clarify,
 	// send_message) always have a valid origin — even for AG-UI web requests.
-	ctx = messenger.WithMessageOrigin(ctx, messenger.MessageOrigin{
+	// Also retrieve the authenticated Principal set by the auth package.
+	p := authcontext.GetPrincipal(ctx)
+	origin := messenger.MessageOrigin{
 		Platform: messenger.PlatformAGUI,
 		Channel:  messenger.Channel{ID: input.ThreadID},
-		Sender:   messenger.Sender{ID: "agui-user"},
-	})
+		Sender:   messenger.Sender{ID: p.ID, DisplayName: p.Name},
+	}
+	ctx = messenger.WithMessageOrigin(ctx, origin)
 
 	// Inject the configured agent name so downstream code (e.g.
 	// server_expert.Handle RUN_STARTED, EmitAgentMessage) sees it.
@@ -699,8 +677,8 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 
 	// Register the event channel on the global bus so any code with
 	// a context containing this MessageOrigin can emit events.
-	origin := messenger.MessageOriginFrom(ctx)
-	aguitypes.Register(origin, eventChan)
+	originForChan := messenger.MessageOriginFrom(ctx)
+	aguitypes.Register(originForChan, eventChan)
 
 	// If a messenger bridge is configured, register this thread so that
 	// subsystems (HITL notifications, send_message tool) can route

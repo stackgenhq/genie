@@ -426,7 +426,7 @@
                             <span class="text-lg">🖥️</span>
                             <div>
                                 <h3 class="font-semibold text-sm">AGUI Server</h3>
-                                <p class="text-xs text-gray-400 mt-0.5">HTTP server settings (Port, CORS, Rate Limiting)
+                                <p class="text-xs text-gray-400 mt-0.5">HTTP server, authentication (password + JWT/OIDC), CORS, and rate limiting
                                 </p>
                             </div>
                         </div>
@@ -485,6 +485,7 @@
                             <div class="format-toggle">
                                 <button data-fmt="toml" class="active" onclick="setFormat('toml')">TOML</button>
                                 <button data-fmt="yaml" onclick="setFormat('yaml')">YAML</button>
+                                <button data-fmt="k8s" onclick="setFormat('k8s')">K8s</button>
                             </div>
                             <div class="flex items-center gap-2">
                                 <button id="copy-btn" class="btn-copy" onclick="copyOutput()">

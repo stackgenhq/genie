@@ -120,10 +120,19 @@
     let agentDisplayName = 'Genie';
     // When the server requires AG-UI password, this is set after successful connect and sent with every request.
     let aguiPasswordForSession = '';
+    // When the server requires JWT/OIDC auth, this is set after successful connect and sent as Authorization: Bearer.
+    let aguiTokenForSession = '';
+    let activeAuthTab = 'password';
+    // Whether the server supports OAuth login (detected from 401 response).
+    let serverSupportsOAuth = false;
+    // The OAuth login URL on the server.
+    let serverOAuthLoginUrl = '';
 
     function aguiAuthHeaders() {
         const h = {};
-        if (aguiPasswordForSession) {
+        if (aguiTokenForSession) {
+            h['Authorization'] = 'Bearer ' + aguiTokenForSession;
+        } else if (aguiPasswordForSession) {
             h['X-AGUI-Password'] = aguiPasswordForSession;
         }
         return h;
@@ -346,36 +355,36 @@
     }
 
     // ── Connect ──
-    function showPasswordModal() {
-        const overlay = document.getElementById('password-modal-overlay');
-        const input = document.getElementById('agui-password-input');
-        const errEl = document.getElementById('agui-password-error');
+
+    // showAuthModal opens the unified auth modal. preferredTab can be 'password' or 'token'
+    // to pre-select the appropriate method based on the server's 401 error code.
+    function showAuthModal(preferredTab) {
+        const overlay = document.getElementById('auth-modal-overlay');
+        const errEl = document.getElementById('agui-auth-error');
         if (overlay) overlay.style.display = 'flex';
         if (errEl) {
             errEl.textContent = '';
             errEl.style.display = 'none';
         }
-        if (input) {
-            input.value = '';
-            input.focus();
-        }
+        switchAuthTab(preferredTab || 'password');
         const onEscape = function (e) {
             if (e.key === 'Escape') {
-                closePasswordModal();
+                closeAuthModal();
             }
         };
         document.addEventListener('keydown', onEscape);
-        if (overlay) overlay._passwordEscapeHandler = onEscape;
+        if (overlay) overlay._authEscapeHandler = onEscape;
     }
 
-    function closePasswordModal() {
-        const overlay = document.getElementById('password-modal-overlay');
-        const input = document.getElementById('agui-password-input');
-        const errEl = document.getElementById('agui-password-error');
+    function closeAuthModal() {
+        const overlay = document.getElementById('auth-modal-overlay');
+        const passwordInput = document.getElementById('agui-password-input');
+        const tokenInput = document.getElementById('agui-token-input');
+        const errEl = document.getElementById('agui-auth-error');
         if (overlay) {
-            if (overlay._passwordEscapeHandler) {
-                document.removeEventListener('keydown', overlay._passwordEscapeHandler);
-                overlay._passwordEscapeHandler = null;
+            if (overlay._authEscapeHandler) {
+                document.removeEventListener('keydown', overlay._authEscapeHandler);
+                overlay._authEscapeHandler = null;
             }
             overlay.style.display = 'none';
         }
@@ -383,8 +392,48 @@
             errEl.textContent = '';
             errEl.style.display = 'none';
         }
-        if (input) input.value = '';
+        if (passwordInput) passwordInput.value = '';
+        if (tokenInput) tokenInput.value = '';
     }
+
+    // switchAuthTab toggles between 'password', 'token', and 'oauth' panels in the auth modal.
+    function switchAuthTab(tab) {
+        activeAuthTab = tab;
+        var allTabs = ['password', 'token', 'oauth'];
+        allTabs.forEach(function (t) {
+            var tabBtn = document.getElementById('auth-tab-' + t);
+            var panel = document.getElementById('auth-panel-' + t);
+            if (tabBtn) {
+                tabBtn.classList.toggle('active', t === tab);
+                tabBtn.setAttribute('aria-selected', t === tab ? 'true' : 'false');
+            }
+            if (panel) panel.style.display = (t === tab) ? '' : 'none';
+        });
+        // Focus the appropriate input.
+        if (tab === 'password') {
+            var pi = document.getElementById('agui-password-input');
+            if (pi) pi.focus();
+        } else if (tab === 'token') {
+            var ti = document.getElementById('agui-token-input');
+            if (ti) ti.focus();
+        }
+        // Show/hide Connect button (not needed for OAuth).
+        var submitBtn = document.getElementById('auth-submit-btn');
+        if (submitBtn) submitBtn.style.display = (tab === 'oauth') ? 'none' : '';
+    }
+
+    // connectWithActiveAuth dispatches to the correct connect method based on the active tab.
+    function connectWithActiveAuth() {
+        if (activeAuthTab === 'token') {
+            connectWithToken();
+        } else {
+            connectWithPassword();
+        }
+    }
+
+    // Legacy alias so old code paths still work.
+    function showPasswordModal() { showAuthModal('password'); }
+    function closePasswordModal() { closeAuthModal(); }
 
     function onHealthSuccess(data) {
         const userName = data.user || '';
@@ -395,7 +444,7 @@
         }
         setConnected(true, userName);
         emptyState.style.display = 'none';
-        closePasswordModal();
+        closeAuthModal();
         inputEl.disabled = false;
         sendBtn.disabled = false;
         if (micBtn) {
@@ -458,12 +507,28 @@
         }
         serverUrl = normalized;
         aguiPasswordForSession = '';
-        closePasswordModal();
+        aguiTokenForSession = '';
+        closeAuthModal();
 
         try {
             const res = await fetch(serverUrl + '/health', { mode: 'cors', headers: aguiAuthHeaders() });
             if (res.status === 401) {
-                showPasswordModal();
+                // Parse the error body to determine which auth method is required.
+                let preferredTab = 'password';
+                try {
+                    const errBody = await res.json();
+                    if (errBody && errBody.oauth_enabled) {
+                        serverSupportsOAuth = true;
+                        serverOAuthLoginUrl = errBody.login_url || '/auth/login';
+                        preferredTab = 'oauth';
+                        // Show the Google tab.
+                        const oauthTab = document.getElementById('auth-tab-oauth');
+                        if (oauthTab) oauthTab.style.display = '';
+                    } else if (errBody && (errBody.error === 'missing_token' || errBody.error === 'invalid_token')) {
+                        preferredTab = 'token';
+                    }
+                } catch (_parseErr) { /* fallback to password tab */ }
+                showAuthModal(preferredTab);
                 return;
             }
             if (!res.ok) throw new Error('Health check failed');
@@ -479,7 +544,7 @@
         }
     }
 
-    // isPasswordSafeUrl returns true if the URL is HTTPS or localhost (safe to send password).
+    // isPasswordSafeUrl returns true if the URL is HTTPS or localhost (safe to send credentials).
     function isPasswordSafeUrl(urlStr) {
         try {
             const u = new URL(urlStr);
@@ -492,7 +557,7 @@
     async function connectWithPassword() {
         const passwordInput = document.getElementById('agui-password-input');
         const pwd = (passwordInput && passwordInput.value) ? String(passwordInput.value) : '';
-        const errEl = document.getElementById('agui-password-error');
+        const errEl = document.getElementById('agui-auth-error');
         if (!pwd) {
             if (errEl) {
                 errEl.textContent = 'Enter the password.';
@@ -524,13 +589,71 @@
             const data = await res.json();
             if (data.status === 'ok') {
                 aguiPasswordForSession = pwd;
-                closePasswordModal();
+                aguiTokenForSession = '';
+                closeAuthModal();
                 onHealthSuccess(data);
                 await refreshSidebar();
             }
         } catch (err) {
             addConnectionFailureMessage(err, false);
         }
+    }
+
+    // connectWithToken authenticates using a JWT/OIDC Bearer token.
+    async function connectWithToken() {
+        const tokenInput = document.getElementById('agui-token-input');
+        const token = (tokenInput && tokenInput.value) ? String(tokenInput.value).trim() : '';
+        const errEl = document.getElementById('agui-auth-error');
+        if (!token) {
+            if (errEl) {
+                errEl.textContent = 'Paste your JWT token.';
+                errEl.style.display = 'block';
+            }
+            return;
+        }
+        if (!isPasswordSafeUrl(serverUrl)) {
+            if (errEl) {
+                errEl.textContent = 'Token cannot be sent over an insecure connection. Use HTTPS or connect to localhost.';
+                errEl.style.display = 'block';
+            }
+            return;
+        }
+        if (errEl) errEl.style.display = 'none';
+        try {
+            const res = await fetch(serverUrl + '/health', {
+                mode: 'cors',
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            if (res.status === 401) {
+                if (errEl) {
+                    let msg = 'Token rejected. Check token validity and try again.';
+                    try {
+                        const errBody = await res.json();
+                        if (errBody && errBody.message) msg = errBody.message;
+                    } catch (_) { /* use default msg */ }
+                    errEl.textContent = msg;
+                    errEl.style.display = 'block';
+                }
+                return;
+            }
+            if (!res.ok) throw new Error('Health check failed');
+            const data = await res.json();
+            if (data.status === 'ok') {
+                aguiTokenForSession = token;
+                aguiPasswordForSession = '';
+                closeAuthModal();
+                onHealthSuccess(data);
+                await refreshSidebar();
+            }
+        } catch (err) {
+            addConnectionFailureMessage(err, false);
+        }
+    }
+
+    // loginWithGoogle redirects the browser to the Genie server's OAuth login endpoint.
+    function loginWithGoogle() {
+        if (!serverUrl) return;
+        window.location.href = serverUrl + serverOAuthLoginUrl;
     }
 
     // Connection failure UI: error + optional CORS hint, auto-removed after 30 seconds.
@@ -2221,6 +2344,7 @@
     updateVibrateToggleLabel();
 
     // If page was opened with ?url=... or ?genie_url=..., connect to that Genie instance (one-click login).
+    // Supports ?token=JWT for one-click JWT auth (e.g. ?url=https://genie.example.com&token=eyJhbG...).
     // Remove the query params from the address bar so the URL is not stored in history or sent in Referer.
     (function tryConnectFromQueryParam() {
         const params = new URLSearchParams(window.location.search);
@@ -2231,6 +2355,15 @@
             decoded = decodeURIComponent(genieUrl.trim());
         } catch (e) {
             decoded = genieUrl.trim();
+        }
+        // Check for a JWT token in the query params.
+        const queryToken = params.get('token') || params.get('jwt');
+        if (queryToken) {
+            try {
+                aguiTokenForSession = decodeURIComponent(queryToken.trim());
+            } catch (e) {
+                aguiTokenForSession = queryToken.trim();
+            }
         }
         const input = document.getElementById('endpoint-input');
         if (input && decoded) {
@@ -2265,7 +2398,12 @@
         dismissNotificationPrompt: dismissNotificationPrompt,
         connectToServer: connectToServer,
         connectWithPassword: connectWithPassword,
-        closePasswordModal: closePasswordModal,
+        connectWithToken: connectWithToken,
+        connectWithActiveAuth: connectWithActiveAuth,
+        loginWithGoogle: loginWithGoogle,
+        closeAuthModal: closeAuthModal,
+        closePasswordModal: closeAuthModal,
+        switchAuthTab: switchAuthTab,
         usePrompt: usePrompt,
         handleKeyDown: handleKeyDown,
         autoResize: autoResize,

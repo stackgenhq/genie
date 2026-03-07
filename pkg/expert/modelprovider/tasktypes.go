@@ -18,6 +18,12 @@ const (
 	// Use this for: Complex refactoring, multi-file changes, architectural decisions
 	TaskPlanning TaskType = "planning"
 
+	// TaskCoding represents pure code generation, algorithmic problem solving, and script writing.
+	// Benchmarks: HumanEval (pioneered by Codex), MBPP, LiveCodeBench
+	// Top performers: Claude Sonnet 4.5, GPT-5.2
+	// Use this for: Single-function generation, copilot-style autocomplete, algorithmic coding
+	TaskCoding TaskType = "coding"
+
 	// TaskTerminalCalling represents tasks requiring precision in command-line interfaces and terminal operations.
 	// Benchmark: Terminal Execution Bench 2.0
 	// Top performers: Claude Sonnet 4.5 (61.30%), Claude Opus 4.5 (59.30%)
@@ -67,4 +73,10 @@ const (
 	// responses, or other bulk data before handing it back to a smaller agent.
 	// Use this for: Auto-summarizing oversized tool results, condensing documents
 	TaskSummarizer TaskType = "summarizer"
+
+	// TaskComputerOperations represents native computer-use capabilities.
+	// Benchmark: OSWorld-Verified, WebArena Verified, APEX-Agents
+	// Top performers: GPT-5.4 Pro
+	// Use this for: Operating applications via keyboard and mouse commands
+	TaskComputerOperations TaskType = "computer_operations"
 )

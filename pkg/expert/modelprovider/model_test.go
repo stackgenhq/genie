@@ -119,7 +119,7 @@ var _ = Describe("ModelProvider", func() {
 				cfg := modelprovider.DefaultModelConfig(context.Background(), security.NewEnvProvider())
 				Expect(cfg.Providers).To(HaveLen(1))
 				Expect(cfg.Providers[0].Provider).To(Equal("openai"))
-				Expect(cfg.Providers[0].ModelName).To(Equal("gpt-5.2"))
+				Expect(cfg.Providers[0].ModelName).To(Equal("gpt-5.4"))
 				Expect(cfg.Providers[0].Variant).To(Equal("default"))
 				Expect(cfg.Providers[0].GoodForTask).To(Equal(modelprovider.TaskEfficiency))
 			})
@@ -179,7 +179,7 @@ var _ = Describe("ModelProvider", func() {
 				Expect(cfg.Providers).To(HaveLen(4)) // openai + gemini-flash + gemini-pro (tool_calling) + gemini-pro (general_task)
 
 				Expect(cfg.Providers[0].Provider).To(Equal("openai"))
-				Expect(cfg.Providers[0].ModelName).To(Equal("gpt-5.2"))
+				Expect(cfg.Providers[0].ModelName).To(Equal("gpt-5.4"))
 				Expect(cfg.Providers[0].GoodForTask).To(Equal(modelprovider.TaskEfficiency))
 
 				Expect(cfg.Providers[1].Provider).To(Equal("gemini"))

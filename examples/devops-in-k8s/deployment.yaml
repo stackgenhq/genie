@@ -1,0 +1,321 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Genie DevOps Copilot – Kubernetes Manifests (Reference)
+# ─────────────────────────────────────────────────────────────────────────────
+# NOTE: The recommended deployment method is via Terraform (see main.tf).
+# This YAML is provided as a reference or for non-Terraform workflows.
+#
+# If using this file directly:
+#   1. Create a K8s secret named "genie-secrets" with your API keys
+#   2. Replace ${GENIE_IAM_ROLE_ARN} with your IRSA role ARN
+#   3. kubectl apply -f deployment.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: genie-config
+  namespace: default
+data:
+  genie.toml: |
+    # DevOps Copilot Configuration
+    # Configure the MCP servers and skills relevant to your infrastructure.
+    # Comment out or remove sections you don't need.
+
+    skills_roots = ["./skills"]
+    agent_name  = "devops-copilot"
+    [persona]
+    file = "./AGENTS.md"
+    disable_resume = true
+
+    [db_config]
+    db_file = "${PWD}/.genie.db"
+
+    # ── Model Configuration ─────────────────────────────────────────────
+    [model_config]
+
+    [[model_config.providers]]
+    provider = "anthropic"
+    model_name = "claude-opus-4-5"
+    token = "${ANTHROPIC_API_KEY}"
+    good_for_task = "planning"
+
+    [[model_config.providers]]
+    provider = "gemini"
+    model_name = "gemini-3-flash-preview"
+    token = "${GEMINI_API_KEY}"
+    good_for_task = "tool_calling"
+
+    [[model_config.providers]]
+    provider = "gemini"
+    model_name = "gemini-3-pro-preview"
+    token = "${GEMINI_API_KEY}"
+    good_for_task = "summarizer"
+
+    [[model_config.providers]]
+    provider = "anthropic"
+    model_name = "claude-sonnet-4-5-20250929"
+    token = "${ANTHROPIC_API_KEY}"
+    good_for_task = "terminal_calling"
+
+    [[model_config.providers]]
+    provider = "gemini"
+    model_name = "gemini-3-flash-preview"
+    token = "${GEMINI_API_KEY}"
+    good_for_task = "frontdesk"
+
+    [[model_config.providers]]
+    provider = "openai"
+    model_name = "gpt-4.1"
+    token = "${OPENAI_API_KEY}"
+    good_for_task = "general_task"
+
+    # ── Efficiency models (used by halguard for cross-model verification) ──
+
+    [[model_config.providers]]
+    provider = "openai"
+    model_name = "gpt-4.1-mini"
+    token = "${OPENAI_API_KEY}"
+    good_for_task = "efficiency"
+
+    [[model_config.providers]]
+    provider = "gemini"
+    model_name = "gemini-2.0-flash"
+    token = "${GEMINI_API_KEY}"
+    good_for_task = "efficiency"
+
+    [[model_config.providers]]
+    provider = "anthropic"
+    model_name = "claude-haiku-3-5"
+    token = "${ANTHROPIC_API_KEY}"
+    good_for_task = "efficiency"
+
+    [[model_config.providers]]
+    provider = "gemini"
+    model_name = "gemini-3-flash-preview"
+    token = "${GEMINI_API_KEY}"
+    good_for_task = "efficiency"
+
+    # ── Hallucination Guard ─────────────────────────────────────────────
+    [halguard]
+    enable_pre_check = true
+    enable_post_check = true
+    pre_check_threshold = 0.4
+    cross_model_samples = 3
+
+    # ── MCP Servers ─────────────────────────────────────────────────────
+    [mcp]
+
+    # Grafana
+    [[mcp.servers]]
+    name = "grafana"
+    transport = "stdio"
+    command = "npx"
+    args = ["-y", "@anthropic/grafana-mcp-server"]
+    env = { GRAFANA_URL = "${GRAFANA_URL}", GRAFANA_API_KEY = "${GRAFANA_API_KEY}" }
+
+    # GitHub
+    [[mcp.servers]]
+    name = "github"
+    transport = "stdio"
+    command = "npx"
+    args = ["-y", "@anthropic/github-mcp-server"]
+    env = { GITHUB_TOKEN = "${GITHUB_TOKEN}" }
+
+    # Terraform
+    [[mcp.servers]]
+    name = "terraform"
+    transport = "stdio"
+    command = "npx"
+    args = ["-y", "@anthropic/terraform-mcp-server"]
+
+    # ── Application Settings ────────────────────────────────────────────
+    [ops]
+    max_pages = 5
+    enable_verification = true
+    max_verification_runs = 3
+
+    [scm]
+    provider = "github"
+    token = "${GITHUB_TOKEN}"
+
+    [vector_memory]
+    embedding_provider = "ollama"
+    ollama_url = "http://localhost:11434"
+    ollama_model = "nomic-embed-text"
+    persistence_dir = "${PWD}/.genie/vector_store"
+
+    [messenger.agui]
+    port = 9876
+    cors_origins = ["https://stackgenhq.github.io", "http://localhost:8123"]
+
+    [hitl]
+    always_allowed = ["run_shell"]
+
+    [pii]
+    entropy_threshold = 4.8
+    min_secret_length = 16
+
+    [[pii.safe_regexes]]
+    name = "aws_profile"
+    pattern = '\b[0-9]{12}_[A-Za-z0-9_-]+\b'
+
+    [[pii.safe_regexes]]
+    name = "aws_arn"
+    pattern = '(?i)arn:aws:[a-z0-9-]+:[a-z0-9-]*:[0-9]{12}:[a-zA-Z0-9-/_]+'
+
+    [[pii.safe_regexes]]
+    name = "aws_resource_id"
+    pattern = '(?i)(i|vol|snap|ami|subnet|vpc|igw|nat|eni|sg|rtb|eipalloc)-[0-9a-f]{8,17}'
+
+    [[pii.safe_regexes]]
+    name = "s3_bucket"
+    pattern = '(?i)[a-z0-9.-]+\.s3\.[a-z0-9-]+\.amazonaws\.com'
+
+    [[pii.safe_regexes]]
+    name = "azure_subscription_id"
+    pattern = '(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+
+    [[pii.safe_regexes]]
+    name = "azure_resource_id"
+    pattern = '(?i)/subscriptions/[0-9a-f-]+/resourceGroups/[A-Za-z0-9_.-]+(/providers/[A-Za-z0-9._-]+)*'
+
+    [[pii.safe_regexes]]
+    name = "kubernetes_version"
+    pattern = '(?i)\bv?[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.]+)?\b'
+
+    [[pii.safe_regexes]]
+    name = "cloud_resource_type"
+    pattern = '(?i)\b(VirtualMachines|VMScaleSets|virtualNetworks|storageAccounts|containerRegistries|aksCluster|managedClusters|networkSecurityGroups|publicIPAddresses|loadBalancers|keyVaults|disks|snapshots|networkInterfaces)\b'
+
+    [[pii.safe_regexes]]
+    name = "provisioning_state"
+    pattern = '(?i)\b(Succeeded|Failed|Creating|Updating|Deleting|Canceled|InProgress|Registered|NotRegistered)\b'
+
+---
+apiVersion: external-secrets.io/v1beta1
+kind: SecretStore
+metadata:
+  name: genie-secret-store
+  namespace: default
+spec:
+  provider:
+    aws:
+      service: SecretsManager
+      region: us-west-2
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: genie-secrets
+  namespace: default
+spec:
+  refreshInterval: 15m
+  secretStoreRef:
+    name: genie-secret-store
+    kind: SecretStore
+  target:
+    name: genie-secrets
+    creationPolicy: Owner
+  data:
+    - secretKey: OPENAI_API_KEY
+      remoteRef:
+        key: "${AWS_SECRETS_MANAGER_ARN}"
+        property: OPENAI_API_KEY
+    - secretKey: ANTHROPIC_API_KEY
+      remoteRef:
+        key: "${AWS_SECRETS_MANAGER_ARN}"
+        property: ANTHROPIC_API_KEY
+    - secretKey: GEMINI_API_KEY
+      remoteRef:
+        key: "${AWS_SECRETS_MANAGER_ARN}"
+        property: GEMINI_API_KEY
+    - secretKey: GITHUB_TOKEN
+      remoteRef:
+        key: "${AWS_SECRETS_MANAGER_ARN}"
+        property: GITHUB_TOKEN
+    - secretKey: GRAFANA_URL
+      remoteRef:
+        key: "${AWS_SECRETS_MANAGER_ARN}"
+        property: GRAFANA_URL
+    - secretKey: GRAFANA_API_KEY
+      remoteRef:
+        key: "${AWS_SECRETS_MANAGER_ARN}"
+        property: GRAFANA_API_KEY
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: genie-sa
+  namespace: default
+  annotations:
+    eks.amazonaws.com/role-arn: "${GENIE_IAM_ROLE_ARN}"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: genie-deployment
+  namespace: default
+  labels:
+    app: genie
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: genie
+  template:
+    metadata:
+      labels:
+        app: genie
+    spec:
+      serviceAccountName: genie-sa
+      containers:
+        - name: genie
+          image: ghcr.io/stackgenhq/genie:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 9876
+          envFrom:
+            - secretRef:
+                name: genie-secrets
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/genie.toml
+              subPath: genie.toml
+      volumes:
+        - name: config-volume
+          configMap:
+            name: genie-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: genie-service
+  namespace: default
+spec:
+  selector:
+    app: genie
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 9876
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: genie-ingress
+  namespace: default
+  annotations:
+    nginx.org/mergeable-ingress-type: minion
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: genie.dev.stackgen.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: genie-service
+                port:
+                  number: 80

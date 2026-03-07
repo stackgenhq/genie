@@ -18,6 +18,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/messenger"
 	agui "github.com/stackgenhq/genie/pkg/messenger/agui"
 	"github.com/stackgenhq/genie/pkg/messenger/agui/aguifakes"
+	"github.com/stackgenhq/genie/pkg/security/auth"
 	"github.com/stackgenhq/genie/pkg/security/keyring"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
 )
@@ -689,7 +690,7 @@ var _ = Describe("AG-UI Server", func() {
 
 			It("returns 401 when X-AGUI-Password header is missing", func(ctx context.Context) {
 				handler := &aguifakes.FakeExpert{}
-				server := agui.NewServer(messenger.AGUIConfig{PasswordProtected: true}, handler, nil, nil, nil, nil, nil, "")
+				server := agui.NewServer(messenger.AGUIConfig{Auth: auth.Config{Password: auth.PasswordConfig{Enabled: true}}}, handler, nil, nil, nil, nil, nil, "")
 				req := httptest.NewRequest(http.MethodGet, "/health", nil).WithContext(ctx)
 				recorder := httptest.NewRecorder()
 				server.Handler().ServeHTTP(recorder, req)
@@ -701,7 +702,7 @@ var _ = Describe("AG-UI Server", func() {
 
 			It("returns 401 when X-AGUI-Password is wrong", func(ctx context.Context) {
 				handler := &aguifakes.FakeExpert{}
-				server := agui.NewServer(messenger.AGUIConfig{PasswordProtected: true}, handler, nil, nil, nil, nil, nil, "")
+				server := agui.NewServer(messenger.AGUIConfig{Auth: auth.Config{Password: auth.PasswordConfig{Enabled: true}}}, handler, nil, nil, nil, nil, nil, "")
 				req := httptest.NewRequest(http.MethodGet, "/health", nil).WithContext(ctx)
 				req.Header.Set("X-AGUI-Password", "wrong-password")
 				recorder := httptest.NewRecorder()
@@ -714,7 +715,7 @@ var _ = Describe("AG-UI Server", func() {
 
 			It("returns 200 when X-AGUI-Password matches keyring value", func(ctx context.Context) {
 				handler := &aguifakes.FakeExpert{}
-				server := agui.NewServer(messenger.AGUIConfig{PasswordProtected: true}, handler, nil, nil, nil, nil, nil, "")
+				server := agui.NewServer(messenger.AGUIConfig{Auth: auth.Config{Password: auth.PasswordConfig{Enabled: true}}}, handler, nil, nil, nil, nil, nil, "")
 				req := httptest.NewRequest(http.MethodGet, "/health", nil).WithContext(ctx)
 				req.Header.Set("X-AGUI-Password", testPassword)
 				recorder := httptest.NewRecorder()
@@ -731,9 +732,9 @@ var _ = Describe("AG-UI Server", func() {
 				_ = keyring.KeyringDelete(keyring.AccountAGUIPassword)
 			})
 
-			It("returns 401 with password_not_configured when password_protected is true", func(ctx context.Context) {
+			It("returns 401 with invalid_password when password_protected and no keyring password (auto-generates)", func(ctx context.Context) {
 				handler := &aguifakes.FakeExpert{}
-				server := agui.NewServer(messenger.AGUIConfig{PasswordProtected: true}, handler, nil, nil, nil, nil, nil, "")
+				server := agui.NewServer(messenger.AGUIConfig{Auth: auth.Config{Password: auth.PasswordConfig{Enabled: true}}}, handler, nil, nil, nil, nil, nil, "")
 				req := httptest.NewRequest(http.MethodGet, "/health", nil).WithContext(ctx)
 				req.Header.Set("X-AGUI-Password", "any")
 				recorder := httptest.NewRecorder()
@@ -741,7 +742,9 @@ var _ = Describe("AG-UI Server", func() {
 				Expect(recorder.Code).To(Equal(http.StatusUnauthorized))
 				var body map[string]interface{}
 				Expect(json.NewDecoder(recorder.Body).Decode(&body)).To(Succeed())
-				Expect(body["error"]).To(Equal("password_not_configured"))
+				// Auth package auto-generates a random password when no source provides one,
+				// so the error is invalid_password (not password_not_configured).
+				Expect(body["error"]).To(Equal("invalid_password"))
 			})
 		})
 	})

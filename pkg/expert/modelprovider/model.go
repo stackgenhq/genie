@@ -172,7 +172,7 @@ func DefaultModelConfig(ctx context.Context, sp security.SecretProvider) ModelCo
 	if get("OPENAI_API_KEY") != "" {
 		result.Providers = append(result.Providers, ProviderConfig{
 			Provider:    "openai",
-			ModelName:   getWithDefault("OPENAI_MODEL", "gpt-5.2"),
+			ModelName:   getWithDefault("OPENAI_MODEL", "gpt-5.4"),
 			Variant:     "default",
 			GoodForTask: TaskEfficiency,
 		})

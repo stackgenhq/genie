@@ -9,15 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- New `coding` task type (`TaskCoding`) for pure code generation, algorithmic problem solving, and script writing — benchmarked via HumanEval / MBPP / LiveCodeBench. Orchestrator `create_agent` tool description and JSON schema updated to surface the new option alongside `planning`, `tool_calling`, `terminal_calling`, and `efficiency`.
 - Hallucination guard module (`halguard`) providing a two-phase check: a pre-execution multi-signal verification using weighted signals (e.g., Role-Play detection, Information Density) and a post-execution multi-model consistency checker based on Finch-Zk to catch potential LLM hallucinations.
 - OpenTelemetry (OTel) spans and attributes recorded for hallucination guard `PreCheck` and `PostCheck` execution.
 - Direct EventBus emission via `emitShortCircuit` for refused/out-of-scope orchestrator responses, bypassing the EventAdapter to ensure timely delivery to the AG-UI.
 - Make agent capabilities resume creation optional through `disable_resume` config.
 - Semantic router routes can now be dynamically configured via config file (`routes` field).
 - Defined an `IRouter` interface for the semantic router to improve testability and abstraction.
+- AG-UI authentication middleware (`pkg/security/auth`) supporting password-based auth (config → env → keyring → auto-generate) and JWT/OIDC token validation with JWKS auto-discovery from trusted issuers.
+- Terraform-based K8s deployment (`installation/k8s/`) with IRSA (ReadOnlyAccess), External Secrets (AWS Secrets Manager), ConfigMap, Ingress, and `random_password` for `AGUI_PASSWORD`.
+- K8s deployment example for DevOps-in-K8s use case (`examples/devops-in-k8s/`).
+- Config Builder UI: authentication controls (password protected toggle, JWT trusted issuers, allowed audiences) with TOML/YAML serialization.
+- Documentation: AG-UI auth configuration reference, password resolution order, and security best practices in `docs.yml`.
+- Replaced Google-hardcoded OAuth protocol in AG-UI authentication with dynamic OpenId Connect (OIDC) support via `/.well-known/openid-configuration` auto-discovery, allowing `issuer_url` support for generic SSO gateways like Okta and Auth0.
+- Implemented static API key authentication via `Authorization: Bearer <key>` and `X-API-Key: <key>` for M2M communication to bypass interactive SSO.
+- Auth middleware context now sets `authcontext.Principal` metadata indicating the current request's user ID and role, wired across the task orchestration bus via `MessageOrigin`.
+- Auth middleware now explicitly permits incoming CORS `OPTIONS` preflight requests, allowing browsers to perform valid API checks.
 
 ### Changed
 
+- `Authenticator.Authenticate` now returns `*authcontext.Principal` instead of `bool`, enabling the auth middleware to inject identity metadata into the request context. When no auth is configured, a demo principal (`demo-user`) is injected as a pass-through.
 - Parallelized execution of cross-model text generation during the `halguard` Post-Check using `errgroup`, significantly reducing latency.
 - Refactored `semanticrouter` gatekeeper integration in the orchestrator to consume the `IRouter` interface, lowering code coupling.
 - Simplified `semanticrouter.New` constructor by handling built-in and configured route merging internally.

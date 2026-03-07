@@ -59,19 +59,19 @@ type Email struct {
 
 // Config holds configuration for Email providers
 type Config struct {
-	Provider string `yaml:"Provider,omitempty" toml:"Provider,omitempty"`  // smtp, gmail_api, sendgrid
-	Host     string `yaml:"Host,omitempty" toml:"Host,omitempty"`          // SMTP Host
-	Port     int    `yaml:"Port,omitempty" toml:"Port,omitempty,omitzero"` // SMTP Port
-	Username string `yaml:"Username,omitempty" toml:"Username,omitempty"`
-	Password string `yaml:"Password,omitempty" toml:"Password,omitempty"`
+	Provider string `json:"provider,omitempty" yaml:"Provider,omitempty" toml:"Provider,omitempty"` // smtp, gmail_api, sendgrid
+	Host     string `json:"host" yaml:"Host,omitempty" toml:"Host,omitempty"`                       // SMTP Host
+	Port     int    `json:"port" yaml:"Port,omitempty" toml:"Port,omitempty,omitzero"`              // SMTP Port
+	Username string `json:"username" yaml:"Username,omitempty" toml:"Username,omitempty"`
+	Password string `json:"password" yaml:"Password,omitempty" toml:"Password,omitempty"`
 
 	// IMAP settings for reading emails
-	IMAPHost string `yaml:"IMAPHost,omitempty" toml:"IMAPHost,omitempty"`
-	IMAPPort int    `yaml:"IMAPPort,omitempty" toml:"IMAPPort,omitempty,omitzero"`
+	IMAPHost string `json:"imap_host,omitempty" yaml:"IMAPHost,omitempty" toml:"IMAPHost,omitempty"`
+	IMAPPort int    `json:"imap_port,omitempty" yaml:"IMAPPort,omitempty" toml:"IMAPPort,omitempty,omitzero"`
 
 	// IMAPTLSConfig is set by the application from security.CryptoConfig.TLSConfig()
 	// to enforce NIST 2030 minimums (TLS 1.2+). Not loaded from config file.
-	IMAPTLSConfig *tls.Config `yaml:"-" toml:"-"`
+	IMAPTLSConfig *tls.Config `json:"-" yaml:"-" toml:"-"`
 }
 
 // New creates a new Email Service based on the configuration
