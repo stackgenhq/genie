@@ -47,6 +47,12 @@ func IsRetrievalTool(name string) bool {
 	return retrievalTools[name]
 }
 
+// loopExemptTools lists tool names that are exempt from loop detection.
+// For example, read_notes which the agent may need to call multiple times to read parts of the notes.
+var loopExemptTools = map[string]bool{
+	"read_notes": true,
+}
+
 // --- Loop Detection ---
 
 // loopDetectionMiddleware detects two kinds of loops:
@@ -78,6 +84,10 @@ func LoopDetectionMiddleware() Middleware {
 
 func (m *loopDetectionMiddleware) Wrap(next Handler) Handler {
 	return func(ctx context.Context, tc *ToolCallContext) (any, error) {
+		if loopExemptTools[tc.ToolName] {
+			return next(ctx, tc)
+		}
+
 		argsStr := string(tc.Args)
 		if cleaned, err := sjson.Delete(argsStr, "_justification"); err == nil {
 			argsStr = cleaned

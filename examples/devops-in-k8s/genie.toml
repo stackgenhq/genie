@@ -5,7 +5,7 @@
 skills_roots = ["./skills"]
 agent_name  = "devops-copilot"
 [persona]
-file = "./AGENTS.md"
+file = "/app/AGENTS.md"
 disable_resume = true
 
 

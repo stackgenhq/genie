@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1839,7 +1840,7 @@ func truncateForLog(s string, maxLen int) string {
 // The tags are joined with commas because OTel baggage values are strings.
 // The langfuse exporter interprets the comma-separated value as an array.
 func withLangfuseTraceBaggage(ctx context.Context, tags ...string) context.Context {
-	value := strings.Join(tags, ",")
+	value := url.QueryEscape(strings.Join(tags, ","))
 	member, err := baggage.NewMember("langfuse.trace.tags", value)
 	if err != nil {
 		logger.GetLogger(ctx).Warn("failed to create langfuse trace baggage member", "error", err, "tags", tags)

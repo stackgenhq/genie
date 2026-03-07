@@ -272,6 +272,7 @@ resource "kubernetes_config_map" "genie" {
 
   data = {
     "genie.toml" = file("${path.module}/genie.toml")
+    "AGENTS.md"  = file("${path.module}/AGENTS.md")
   }
 }
 
@@ -289,6 +290,60 @@ resource "kubernetes_service_account" "genie" {
     labels = {
       app = "genie"
     }
+  }
+}
+
+resource "kubernetes_cluster_role" "genie_readonly" {
+  metadata {
+    name = "genie-cluster-readonly"
+  }
+
+  rule {
+    api_groups = [""]
+    resources  = ["pods", "pods/log", "namespaces", "nodes", "events", "services", "configmaps", "persistentvolumes", "persistentvolumeclaims"]
+    verbs      = ["get", "list", "watch"]
+  }
+
+  rule {
+    api_groups = ["apps"]
+    resources  = ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs      = ["get", "list", "watch"]
+  }
+
+  rule {
+    api_groups = ["batch"]
+    resources  = ["jobs", "cronjobs"]
+    verbs      = ["get", "list", "watch"]
+  }
+
+  rule {
+    api_groups = ["networking.k8s.io"]
+    resources  = ["ingresses", "networkpolicies"]
+    verbs      = ["get", "list", "watch"]
+  }
+
+  rule {
+    api_groups = ["autoscaling"]
+    resources  = ["horizontalpodautoscalers"]
+    verbs      = ["get", "list", "watch"]
+  }
+}
+
+resource "kubernetes_cluster_role_binding" "genie_readonly" {
+  metadata {
+    name = "genie-cluster-readonly-binding"
+  }
+
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "ClusterRole"
+    name      = kubernetes_cluster_role.genie_readonly.metadata[0].name
+  }
+
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account.genie.metadata[0].name
+    namespace = var.kubernetes.namespace
   }
 }
 
@@ -323,6 +378,10 @@ resource "kubernetes_deployment" "genie" {
       spec {
         service_account_name = kubernetes_service_account.genie.metadata[0].name
 
+        security_context {
+          fs_group = 65532
+        }
+
         container {
           name              = "genie"
           image             = var.genie.image
@@ -334,11 +393,36 @@ resource "kubernetes_deployment" "genie" {
           }
 
           command = ["/bin/sh", "-c"]
-          # Install AWS CLI and other tools, then drop privileges to run Genie.
-          args = ["apk add --no-cache aws-cli jq curl bash su-exec && exec su-exec stackgen /usr/local/bin/genie"]
+          # Install AWS CLI, kubectl and other tools, then drop privileges to run Genie.
+          args = ["apk add --no-cache aws-cli kubectl jq curl bash su-exec && mkdir -p /home/stackgen/.kube && chown stackgen:stackgen /home/stackgen/.kube && exec su-exec stackgen /usr/local/bin/genie --config /app/genie.toml"]
 
           port {
             container_port = var.genie.port
+          }
+
+          env {
+            name  = "AWS_REGION"
+            value = var.aws.region
+          }
+
+          env {
+            name  = "EKS_CLUSTER_NAME"
+            value = var.aws.eks_cluster_name
+          }
+
+          env {
+            name  = "KUBECONFIG"
+            value = "/home/stackgen/.kube/config"
+          }
+
+          env {
+            name  = "AWS_WEB_IDENTITY_TOKEN_FILE"
+            value = "/var/run/secrets/eks.amazonaws.com/serviceaccount/token"
+          }
+
+          env {
+            name  = "AWS_ROLE_ARN"
+            value = aws_iam_role.genie_readonly.arn
           }
 
           env_from {
@@ -353,6 +437,18 @@ resource "kubernetes_deployment" "genie" {
             mount_path = "/app/genie.toml"
             sub_path   = "genie.toml"
           }
+
+          volume_mount {
+            name       = "config-volume"
+            mount_path = "/app/AGENTS.md"
+            sub_path   = "AGENTS.md"
+          }
+
+          volume_mount {
+            name       = "aws-iam-token"
+            mount_path = "/var/run/secrets/eks.amazonaws.com/serviceaccount"
+            read_only  = true
+          }
         }
 
         volume {
@@ -360,6 +456,22 @@ resource "kubernetes_deployment" "genie" {
 
           config_map {
             name = kubernetes_config_map.genie.metadata[0].name
+          }
+        }
+
+        volume {
+          name = "aws-iam-token"
+
+          projected {
+            default_mode = "0644"
+
+            sources {
+              service_account_token {
+                audience          = "sts.amazonaws.com"
+                expiration_seconds = 86400
+                path              = "token"
+              }
+            }
           }
         }
       }
