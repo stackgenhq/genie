@@ -272,8 +272,11 @@ type Server struct {
 	agentName string
 
 	// authMiddleware is the authentication middleware built from auth.Config.
-	// Handles password and/or JWT/OIDC validation. Nil when no auth is configured.
+	// Handles password, JWT/OIDC, and OAuth session cookie validation.
 	authMiddleware func(http.Handler) http.Handler
+
+	// oauthHandler manages the Google OAuth login flow. Nil when OAuth is not configured.
+	oauthHandler *auth.OAuthHandler
 }
 
 // NewServer creates a new AG-UI HTTP server from the given configuration.
@@ -312,8 +315,12 @@ func NewServer(
 		agentName:     agentName,
 	}
 
+	// Build the OAuth handler (nil if not configured).
+	oauthHandler := auth.NewOAuthHandler(c.Auth)
+	s.oauthHandler = oauthHandler
+
 	// Build the authentication middleware from the embedded auth config.
-	s.authMiddleware = auth.Middleware(c.Auth)
+	s.authMiddleware = auth.Middleware(c.Auth, oauthHandler)
 
 	if c.RateLimit > 0 {
 		burst := c.RateBurst
@@ -327,8 +334,9 @@ func NewServer(
 		"rate_limit", c.RateLimit,
 		"cors_origins", len(c.CORSOrigins),
 		"max_concurrent", c.MaxConcurrent,
-		"auth_password", c.Auth.PasswordProtected,
-		"auth_jwt_issuers", len(c.Auth.TrustedIssuers),
+		"auth_password", c.Auth.Password.Enabled,
+		"auth_jwt_issuers", len(c.Auth.JWT.TrustedIssuers),
+		"auth_oauth", c.Auth.OAuth.Enabled(),
 	)
 	return s
 }
@@ -399,6 +407,14 @@ func (s *Server) Handler() http.Handler {
 
 	if len(s.corsOrigins) != 0 {
 		r.Use(s.corsMiddleware)
+	}
+
+	// OAuth routes — mounted BEFORE auth middleware (they must be public).
+	if s.oauthHandler != nil {
+		r.Get("/auth/login", s.oauthHandler.HandleLogin)
+		r.Get("/auth/callback", s.oauthHandler.HandleCallback)
+		r.Post("/auth/logout", s.oauthHandler.HandleLogout)
+		r.Get("/auth/info", s.oauthHandler.HandleAuthInfo)
 	}
 
 	if s.authMiddleware != nil {

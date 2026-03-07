@@ -9,7 +9,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 skills_roots = ["./skills"]
-agent_name = "genie"
+agent_name = "devops-in-cloud"
 
 [persona]
 file = "./AGENTS.md"
@@ -177,18 +177,27 @@ cors_origins = ["https://stackgenhq.github.io", "http://localhost:8123"]
 # ── Authentication ──────────────────────────────────────────────────────────
 # When deployed to the cloud, Genie MUST be password-protected at minimum.
 # The password is resolved in order: config → AGUI_PASSWORD env var → auto-generate.
-# For production, prefer JWT/OIDC authentication with trusted issuers.
-[messenger.agui.auth]
-password_protected = true
-# password is injected via the AGUI_PASSWORD env var from the K8s Secret.
-# To use JWT/OIDC instead (or in addition), uncomment the lines below:
+# For production, prefer JWT/OIDC or OAuth authentication.
+
+[messenger.agui.auth.password]
+enabled = true
+# value is injected via the AGUI_PASSWORD env var from the K8s Secret.
+
+# To use JWT/OIDC instead (or in addition), uncomment the section below:
+# [messenger.agui.auth.jwt]
 # trusted_issuers = [
 #   "https://accounts.google.com",
 #   # "https://login.microsoftonline.com/{tenant-id}/v2.0",
 #   # "https://dev-12345.okta.com/oauth2/default",
-#   # "https://cognito-idp.{region}.amazonaws.com/{user-pool-id}",
 # ]
 # allowed_audiences = ["your-client-id"]
+
+# To enable "Login with Google" OAuth browser SSO:
+# [messenger.agui.auth.oauth]
+# client_id = "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
+# client_secret = "YOUR_GOOGLE_CLIENT_SECRET"
+# allowed_domains = ["yourcompany.com"]
+# redirect_url = "https://genie.yourcompany.com/auth/callback"
 
 [hitl]
 always_allowed = ["run_shell"]

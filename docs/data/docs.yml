@@ -110,27 +110,39 @@ config_sections:
           - ["max_concurrent", "int", "`5`", "Max concurrent requests processing"]
           - ["max_body_bytes", "int", "`1048576`", "Max request body size in bytes (1MB)"]
     subsections:
-      - label: "\U0001F512 Authentication ([messenger.agui.auth])"
+      - label: "\U0001F512 Password Auth ([messenger.agui.auth.password])"
         columns: [Key, Type, Default, Description]
         rows:
-          - ["password_protected", "bool", "`false`", "Require password authentication. When true, every request must include the password via `X-AGUI-Password` header or `?password=` query param"]
-          - ["password", "string", "\u2014", "Plaintext password (prefer `${AGUI_PASSWORD}` env var). Resolution order: config \u2192 `AGUI_PASSWORD` env \u2192 OS keyring \u2192 auto-generated (shown in stdout)"]
+          - ["enabled", "bool", "`false`", "Require password authentication. When true, every request must include the password via `X-AGUI-Password` header or `?password=` query param"]
+          - ["value", "string", "\u2014", "Plaintext password (prefer `${AGUI_PASSWORD}` env var). Resolution order: config \u2192 `AGUI_PASSWORD` env \u2192 OS keyring \u2192 auto-generated (shown in stdout)"]
+      - label: "\U0001F510 JWT / OIDC Auth ([messenger.agui.auth.jwt])"
+        columns: [Key, Type, Default, Description]
+        rows:
           - ["trusted_issuers", "string[]", "`[]`", "OIDC issuer URLs whose JWT tokens are accepted. JWKS is auto-discovered via `/.well-known/openid-configuration`. Example: `[\"https://accounts.google.com\"]`"]
           - ["allowed_audiences", "string[]", "`[]`", "When set, JWT `aud` claim must match at least one value. When empty, any audience is accepted"]
+      - label: "\U0001F310 OAuth / Login with Google ([messenger.agui.auth.oauth])"
+        columns: [Key, Type, Default, Description]
+        rows:
+          - ["client_id", "string", "\u2014", "Google OAuth 2.0 Client ID from the Cloud Console"]
+          - ["client_secret", "string", "\u2014", "Google OAuth 2.0 Client Secret (prefer env var)"]
+          - ["allowed_domains", "string[]", "`[]`", "Restrict login to these Google Workspace domains. E.g. `[\"yourcompany.com\"]`. When empty, any Google account is allowed"]
+          - ["cookie_secret", "string", "\u2014", "32+ byte key for HMAC signing session cookies. If empty, auto-generated (sessions won't survive restarts). Can be set via `AGUI_COOKIE_SECRET` env var"]
+          - ["redirect_url", "string", "\u2014", "Full callback URL registered in Google Cloud Console. E.g. `https://genie.example.com/auth/callback`. If empty, auto-detected from request Host"]
       - label: Password Resolution Order
         columns: [Priority, Source, Description]
         rows:
-          - ["1", "Config file", "`password = \"mypass\"` in `[messenger.agui.auth]`"]
+          - ["1", "Config file", "`value = \"mypass\"` in `[messenger.agui.auth.password]`"]
           - ["2", "Environment variable", "`AGUI_PASSWORD` env var"]
           - ["3", "OS keyring", "macOS Keychain / Windows Credential Manager / Linux Secret Service (key: `agui-password`)"]
           - ["4", "Auto-generate", "A random 32-char hex password is generated and printed to stdout at startup"]
       - label: Security Best Practices
         columns: [Scenario, Recommendation]
         rows:
-          - ["Local development", "Use `password_protected = true` \u2014 Genie auto-generates a password and prints it to the console"]
+          - ["Local development", "Use `[messenger.agui.auth.password]` with `enabled = true` \u2014 Genie auto-generates a password and prints it to the console"]
           - ["Team/cloud deployment", "Set `AGUI_PASSWORD` via K8s Secret or AWS Secrets Manager. Or use JWT with a corporate identity provider"]
-          - ["Enterprise SSO", "Set `trusted_issuers` to your IdP (Google, Okta, Azure AD, Cognito) and optionally restrict `allowed_audiences` to your client ID"]
-          - ["Defense-in-depth", "Enable both password AND JWT \u2014 JWT is checked first, password is the fallback"]
+          - ["Enterprise SSO", "Set `trusted_issuers` under `[messenger.agui.auth.jwt]` to your IdP (Google, Okta, Azure AD, Cognito) and optionally restrict `allowed_audiences`"]
+          - ["Browser SSO", "Configure `[messenger.agui.auth.oauth]` with Google OAuth 2.0 credentials and restrict `allowed_domains` to your company domain"]
+          - ["Defense-in-depth", "Enable password AND JWT/OAuth \u2014 OAuth session is checked first, then JWT, then password"]
     code_example:
       label: Example TOML
       code: |
@@ -139,14 +151,21 @@ config_sections:
         cors_origins = ["https://myapp.com"]
 
         # Password protection (simplest)
-        [messenger.agui.auth]
-        password_protected = true
-        # password is resolved from AGUI_PASSWORD env var, or auto-generated
+        [messenger.agui.auth.password]
+        enabled = true
+        # value is resolved from AGUI_PASSWORD env var, or auto-generated
 
         # JWT/OIDC protection (enterprise)
-        # [messenger.agui.auth]
+        # [messenger.agui.auth.jwt]
         # trusted_issuers = ["https://accounts.google.com"]
         # allowed_audiences = ["my-client-id"]
+
+        # OAuth / Login with Google (browser SSO)
+        # [messenger.agui.auth.oauth]
+        # client_id = "YOUR_ID.apps.googleusercontent.com"
+        # client_secret = "${GOOGLE_OAUTH_CLIENT_SECRET}"
+        # allowed_domains = ["yourcompany.com"]
+        # redirect_url = "https://genie.yourcompany.com/auth/callback"
 
 
 

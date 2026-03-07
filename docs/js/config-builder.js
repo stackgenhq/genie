@@ -38,7 +38,7 @@
             teams: { app_id: 'TEAMS_APP_ID', app_password: 'TEAMS_APP_PASSWORD', listen_addr: ':3978' },
             googlechat: {},
             whatsapp: {},
-            agui: { port: 9876, cors_origins: ['https://stackgenhq.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576, auth: { password_protected: false, password: '', trusted_issuers: [], allowed_audiences: [] } }
+            agui: { port: 9876, cors_origins: ['https://stackgenhq.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576, auth: { password: { enabled: false, value: '' }, jwt: { trusted_issuers: [], allowed_audiences: [] }, oauth: { client_id: '', client_secret: '', allowed_domains: [], redirect_url: '' } } }
         },
         scm: { provider: '', token: 'SCM_TOKEN', base_url: '' },
         pm: { provider: '', api_token: 'PM_API_TOKEN', base_url: '', email: '' },
@@ -842,19 +842,36 @@
             fieldNumber('Max Body Bytes', a.max_body_bytes, function (v) { a.max_body_bytes = v; renderOutput(); }, 0, 104857600, 'Max request body size in bytes')
         ]));
 
-        // ── Auth ──
+        // ── Auth: Password ──
         c.appendChild(el('div', { className: 'mt-6 pt-4', style: 'border-top: 1px solid rgba(0,0,0,0.06)' }, [
             el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3' }, '🔒 Authentication'),
+            el('p', { className: 'text-xs text-gray-400 mb-3' }, 'Password'),
             el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
-                fieldToggle('Password Protected', au.password_protected, function (v) { au.password_protected = v; renderAll(); },
+                fieldToggle('Password Enabled', au.password.enabled, function (v) { au.password.enabled = v; renderAll(); },
                     'Require X-AGUI-Password header. Password is resolved: config → AGUI_PASSWORD env var → OS keyring → auto-generated.'),
-                au.password_protected ? fieldEnvVar('Password', au.password, function (v) { au.password = v; renderOutput(); }, 'AGUI_PASSWORD',
-                    'Env var holding the password. If not set, a random password is auto-generated and printed to stdout.') : null,
-                fieldText('Trusted OIDC Issuers (comma-separated)', (au.trusted_issuers || []).join(', '), function (v) { au.trusted_issuers = splitCSV(v); renderOutput(); },
+                au.password.enabled ? fieldEnvVar('Password', au.password.value, function (v) { au.password.value = v; renderOutput(); }, 'AGUI_PASSWORD',
+                    'Env var holding the password. If not set, a random password is auto-generated and printed to stdout.') : null
+            ].filter(Boolean)),
+            // ── Auth: JWT ──
+            el('p', { className: 'text-xs text-gray-400 mb-3 mt-4' }, 'JWT / OIDC'),
+            el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+                fieldText('Trusted OIDC Issuers (comma-separated)', (au.jwt.trusted_issuers || []).join(', '), function (v) { au.jwt.trusted_issuers = splitCSV(v); renderOutput(); },
                     'https://accounts.google.com', 'OIDC issuers whose JWT tokens are accepted (JWKS auto-discovered). When set, Bearer tokens are validated.'),
-                hasItems(au.trusted_issuers) ? fieldText('Allowed Audiences (comma-separated)', (au.allowed_audiences || []).join(', '), function (v) { au.allowed_audiences = splitCSV(v); renderOutput(); },
+                hasItems(au.jwt.trusted_issuers) ? fieldText('Allowed Audiences (comma-separated)', (au.jwt.allowed_audiences || []).join(', '), function (v) { au.jwt.allowed_audiences = splitCSV(v); renderOutput(); },
                     'my-client-id', 'Optional: restrict accepted tokens to these audience values. Leave empty to accept any audience.') : null
-            ].filter(Boolean))
+            ].filter(Boolean)),
+            // ── Auth: OAuth ──
+            el('p', { className: 'text-xs text-gray-400 mb-3 mt-4' }, 'OAuth / Login with Google'),
+            el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+                fieldText('OAuth Client ID', au.oauth.client_id, function (v) { au.oauth.client_id = v; renderOutput(); },
+                    'YOUR_ID.apps.googleusercontent.com', 'Google OAuth 2.0 Client ID from Cloud Console.'),
+                fieldEnvVar('OAuth Client Secret', au.oauth.client_secret, function (v) { au.oauth.client_secret = v; renderOutput(); }, 'GOOGLE_OAUTH_CLIENT_SECRET',
+                    'Google OAuth 2.0 Client Secret.'),
+                fieldText('Allowed Domains (comma-separated)', (au.oauth.allowed_domains || []).join(', '), function (v) { au.oauth.allowed_domains = splitCSV(v); renderOutput(); },
+                    'yourcompany.com', 'Restrict login to these Google Workspace domains. Leave empty for any.'),
+                fieldText('Redirect URL', au.oauth.redirect_url, function (v) { au.oauth.redirect_url = v; renderOutput(); },
+                    'https://genie.example.com/auth/callback', 'The /auth/callback URL registered in Google Cloud Console. Leave empty for auto-detect.')
+            ])
         ]));
     }
 
@@ -1365,12 +1382,24 @@
         lines.push('');
 
         var au = a.auth;
-        if (au.password_protected || hasItems(au.trusted_issuers)) {
-            lines.push('[messenger.agui.auth]');
-            if (au.password_protected) lines.push('password_protected = true');
-            if (au.password) lines.push('password = ' + q('${' + au.password + '}'));
-            if (hasItems(au.trusted_issuers)) lines.push('trusted_issuers = [' + au.trusted_issuers.filter(Boolean).map(q).join(', ') + ']');
-            if (hasItems(au.allowed_audiences)) lines.push('allowed_audiences = [' + au.allowed_audiences.filter(Boolean).map(q).join(', ') + ']');
+        if (au.password.enabled) {
+            lines.push('[messenger.agui.auth.password]');
+            lines.push('enabled = true');
+            if (au.password.value) lines.push('value = ' + q('${' + au.password.value + '}'));
+            lines.push('');
+        }
+        if (hasItems(au.jwt.trusted_issuers)) {
+            lines.push('[messenger.agui.auth.jwt]');
+            lines.push('trusted_issuers = [' + au.jwt.trusted_issuers.filter(Boolean).map(q).join(', ') + ']');
+            if (hasItems(au.jwt.allowed_audiences)) lines.push('allowed_audiences = [' + au.jwt.allowed_audiences.filter(Boolean).map(q).join(', ') + ']');
+            lines.push('');
+        }
+        if (au.oauth.client_id) {
+            lines.push('[messenger.agui.auth.oauth]');
+            lines.push('client_id = ' + q(au.oauth.client_id));
+            if (au.oauth.client_secret) lines.push('client_secret = ' + q('${' + au.oauth.client_secret + '}'));
+            if (hasItems(au.oauth.allowed_domains)) lines.push('allowed_domains = [' + au.oauth.allowed_domains.filter(Boolean).map(q).join(', ') + ']');
+            if (au.oauth.redirect_url) lines.push('redirect_url = ' + q(au.oauth.redirect_url));
             lines.push('');
         }
     }
@@ -1979,18 +2008,34 @@
         lines.push(inner + 'max_body_bytes: ' + a.max_body_bytes);
 
         var au = a.auth;
-        if (au.password_protected || hasItems(au.trusted_issuers)) {
+        var hasAuth = au.password.enabled || hasItems(au.jwt.trusted_issuers) || au.oauth.client_id;
+        if (hasAuth) {
             var ai = inner + '  ';
+            var ai2 = ai + '  ';
             lines.push(inner + 'auth:');
-            if (au.password_protected) lines.push(ai + 'password_protected: true');
-            if (au.password) lines.push(ai + 'password: ' + yq('${' + au.password + '}'));
-            if (hasItems(au.trusted_issuers)) {
-                lines.push(ai + 'trusted_issuers:');
-                au.trusted_issuers.filter(Boolean).forEach(function (iss) { lines.push(ai + '  - ' + yq(iss)); });
+            if (au.password.enabled) {
+                lines.push(ai + 'password:');
+                lines.push(ai2 + 'enabled: true');
+                if (au.password.value) lines.push(ai2 + 'value: ' + yq('${' + au.password.value + '}'));
             }
-            if (hasItems(au.allowed_audiences)) {
-                lines.push(ai + 'allowed_audiences:');
-                au.allowed_audiences.filter(Boolean).forEach(function (aud) { lines.push(ai + '  - ' + yq(aud)); });
+            if (hasItems(au.jwt.trusted_issuers)) {
+                lines.push(ai + 'jwt:');
+                lines.push(ai2 + 'trusted_issuers:');
+                au.jwt.trusted_issuers.filter(Boolean).forEach(function (iss) { lines.push(ai2 + '  - ' + yq(iss)); });
+                if (hasItems(au.jwt.allowed_audiences)) {
+                    lines.push(ai2 + 'allowed_audiences:');
+                    au.jwt.allowed_audiences.filter(Boolean).forEach(function (aud) { lines.push(ai2 + '  - ' + yq(aud)); });
+                }
+            }
+            if (au.oauth.client_id) {
+                lines.push(ai + 'oauth:');
+                lines.push(ai2 + 'client_id: ' + yq(au.oauth.client_id));
+                if (au.oauth.client_secret) lines.push(ai2 + 'client_secret: ' + yq('${' + au.oauth.client_secret + '}'));
+                if (hasItems(au.oauth.allowed_domains)) {
+                    lines.push(ai2 + 'allowed_domains:');
+                    au.oauth.allowed_domains.filter(Boolean).forEach(function (d) { lines.push(ai2 + '  - ' + yq(d)); });
+                }
+                if (au.oauth.redirect_url) lines.push(ai2 + 'redirect_url: ' + yq(au.oauth.redirect_url));
             }
         }
     }

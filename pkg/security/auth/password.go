@@ -27,8 +27,8 @@ const (
 // (the caller already checked that password protection is enabled).
 func resolvePassword(cfg Config) []byte {
 	// 1. Explicit config value.
-	if cfg.Password != "" {
-		return []byte(cfg.Password)
+	if cfg.Password.Value != "" {
+		return []byte(cfg.Password.Value)
 	}
 
 	// 2. Environment variable.

@@ -11,7 +11,7 @@
 //
 // Usage:
 //
-//	cfg := auth.Config{PasswordProtected: true, Password: "s3cret"}
+//	cfg := auth.Config{Password: auth.PasswordConfig{Enabled: true, Value: "s3cret"}}
 //	mw := auth.NewMiddleware(cfg)
 //	router.Use(mw)
 package auth
@@ -28,11 +28,16 @@ import (
 // no-op passthrough. The caller does not need to know which strategy is active.
 //
 // Resolution order per request:
-//  1. If trusted OIDC issuers are configured → validate Authorization: Bearer <jwt>
-//  2. If password protection is enabled → validate X-AGUI-Password header
-//  3. Otherwise → pass through (no auth)
-func Middleware(cfg Config) func(http.Handler) http.Handler {
-	guard := newGuard(cfg)
+//  1. If OAuth session cookie is valid → pass through (user already logged in)
+//  2. If trusted OIDC issuers are configured → validate Authorization: Bearer <jwt>
+//  3. If password protection is enabled → validate X-AGUI-Password header or ?password= query
+//  4. Otherwise → pass through (no auth)
+func Middleware(cfg Config, oauthHandler ...*OAuthHandler) func(http.Handler) http.Handler {
+	var oh *OAuthHandler
+	if len(oauthHandler) > 0 {
+		oh = oauthHandler[0]
+	}
+	guard := newGuard(cfg, oh)
 	if guard == nil {
 		return func(next http.Handler) http.Handler { return next }
 	}
@@ -45,22 +50,30 @@ type guard struct {
 	password []byte
 	// jwtValidator handles OIDC/JWT verification against trusted issuers. Nil when not configured.
 	jwtValidator *jwtValidator
+	// oauthHandler validates OAuth session cookies. Nil when OAuth is not configured.
+	oauthHandler *OAuthHandler
 }
 
 // newGuard creates a guard from the config. Returns nil when no protection is needed.
-func newGuard(cfg Config) *guard {
-	hasJWT := len(cfg.TrustedIssuers) > 0
-	hasPassword := cfg.PasswordProtected
+func newGuard(cfg Config, oh *OAuthHandler) *guard {
+	hasJWT := cfg.JWT.Enabled()
+	hasPassword := cfg.Password.Enabled
+	hasOAuth := oh != nil
 
-	if !hasJWT && !hasPassword {
+	if !hasJWT && !hasPassword && !hasOAuth {
 		return nil
 	}
 
 	g := &guard{}
 
+	// Set up OAuth session validation.
+	if hasOAuth {
+		g.oauthHandler = oh
+	}
+
 	// Set up JWT validation if issuers are configured.
 	if hasJWT {
-		g.jwtValidator = newJWTValidator(cfg.TrustedIssuers, cfg.AllowedAudiences)
+		g.jwtValidator = newJWTValidator(cfg.JWT)
 	}
 
 	// Resolve password (config → env → keyring → auto-generate).
@@ -74,7 +87,15 @@ func newGuard(cfg Config) *guard {
 // middleware is the http.Handler middleware that enforces authentication.
 func (g *guard) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Try JWT first (Authorization: Bearer <token>).
+		// 1. Check OAuth session cookie first (browser SSO).
+		if g.oauthHandler != nil {
+			if session := g.oauthHandler.ValidateSession(r); session != nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+
+		// 2. Try JWT (Authorization: Bearer <token>).
 		if g.jwtValidator != nil {
 			authHeader := r.Header.Get("Authorization")
 			if strings.HasPrefix(authHeader, "Bearer ") {
@@ -88,21 +109,51 @@ func (g *guard) middleware(next http.Handler) http.Handler {
 				return
 			}
 			// No Bearer header but JWT is configured. Fall through to password
-			// if also configured; otherwise reject.
-			if len(g.password) == 0 {
+			// if also configured; otherwise check OAuth or reject.
+			if len(g.password) == 0 && g.oauthHandler == nil {
 				writeJSON(w, http.StatusUnauthorized, "missing_token", "Authorization: Bearer <token> required")
 				return
 			}
 		}
 
-		// Try password (X-AGUI-Password header).
+		// 3. Try password (X-AGUI-Password header or ?password= query param).
 		if len(g.password) > 0 {
 			provided := r.Header.Get("X-AGUI-Password")
-			if subtle.ConstantTimeCompare(g.password, []byte(provided)) == 1 {
+			if provided == "" {
+				provided = r.URL.Query().Get("password")
+			}
+			if provided != "" && subtle.ConstantTimeCompare(g.password, []byte(provided)) == 1 {
 				next.ServeHTTP(w, r)
 				return
 			}
+
+			// If OAuth is configured, send a special response so the UI knows to offer login.
+			if g.oauthHandler != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]interface{}{ //nolint:errcheck
+					"error":         "auth_required",
+					"message":       "Authentication required",
+					"oauth_enabled": true,
+					"login_url":     "/auth/login",
+				})
+				return
+			}
+
 			writeJSON(w, http.StatusUnauthorized, "invalid_password", "Password required to connect")
+			return
+		}
+
+		// 4. Only OAuth is configured but no session → redirect hint.
+		if g.oauthHandler != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]interface{}{ //nolint:errcheck
+				"error":         "auth_required",
+				"message":       "Authentication required",
+				"oauth_enabled": true,
+				"login_url":     "/auth/login",
+			})
 			return
 		}
 

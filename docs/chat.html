@@ -153,9 +153,12 @@
                             <p class="text-xs text-gray-400">
                                 Run: <code
                                     class="text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded text-xs font-mono">genie grant</code>
-                                · Or open with <code
+                                · Open with <code
                                     class="text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded text-xs font-mono">?url=<var>GENIE_URL</var></code>
-                                to connect in one click.
+                                to connect in one click
+                                · Add <code
+                                    class="text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded text-xs font-mono">&token=<var>JWT</var></code>
+                                for JWT auth.
                             </p>
                         </div>
 
@@ -260,20 +263,77 @@
         </div>
     </main>
 
-    <!-- Password required modal (shown when server returns 401) -->
-    <div id="password-modal-overlay" class="password-modal-overlay" style="display: none;" role="dialog"
-        aria-modal="true" aria-labelledby="password-modal-title" onclick="genie.closePasswordModal()">
+    <!-- Auth modal (shown when server returns 401 — supports password & JWT token) -->
+    <div id="auth-modal-overlay" class="password-modal-overlay" style="display: none;" role="dialog" aria-modal="true"
+        aria-labelledby="auth-modal-title" onclick="genie.closeAuthModal()">
         <div class="password-modal" onclick="event.stopPropagation()">
-            <h2 id="password-modal-title" class="password-modal-title">Password required</h2>
-            <p class="password-modal-message">This Genie requires a password to connect. Enter it below.</p>
-            <input id="agui-password-input" type="password" class="form-input password-modal-input"
-                placeholder="Password" aria-label="AG-UI password" autocomplete="current-password"
-                onkeydown="if (event.key === 'Enter') { event.preventDefault(); genie.connectWithPassword(); }">
-            <p id="agui-password-error" class="password-modal-error" style="display: none;"></p>
+            <h2 id="auth-modal-title" class="password-modal-title">Authentication required</h2>
+            <p class="password-modal-message">This Genie requires authentication. Choose a method below.</p>
+
+            <!-- Auth method tabs -->
+            <div class="auth-tabs" role="tablist">
+                <button type="button" id="auth-tab-oauth" class="auth-tab" role="tab" aria-selected="false"
+                    aria-controls="auth-panel-oauth" onclick="genie.switchAuthTab('oauth')" style="display: none;">🔐
+                    Google</button>
+                <button type="button" id="auth-tab-password" class="auth-tab active" role="tab" aria-selected="true"
+                    aria-controls="auth-panel-password" onclick="genie.switchAuthTab('password')">🔑 Password</button>
+                <button type="button" id="auth-tab-token" class="auth-tab" role="tab" aria-selected="false"
+                    aria-controls="auth-panel-token" onclick="genie.switchAuthTab('token')">🪪 JWT Token</button>
+            </div>
+
+            <!-- OAuth / Google Login panel -->
+            <div id="auth-panel-oauth" class="auth-panel" role="tabpanel" aria-labelledby="auth-tab-oauth"
+                style="display: none;">
+                <div class="flex flex-col items-center gap-3 py-4">
+                    <p class="text-sm text-gray-600 text-center">Sign in with your Google Workspace account to access
+                        Genie.</p>
+                    <button type="button" id="google-login-btn" onclick="genie.loginWithGoogle()"
+                        class="inline-flex items-center gap-2 px-6 py-2.5 bg-white border border-gray-300 rounded-lg shadow-sm hover:shadow-md hover:bg-gray-50 transition-all text-sm font-medium text-gray-700"
+                        style="min-width: 220px;">
+                        <svg width="18" height="18" viewBox="0 0 24 24">
+                            <path
+                                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"
+                                fill="#4285F4" />
+                            <path
+                                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                                fill="#34A853" />
+                            <path
+                                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                                fill="#FBBC05" />
+                            <path
+                                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                                fill="#EA4335" />
+                        </svg>
+                        Sign in with Google
+                    </button>
+                    <p id="oauth-domain-hint" class="text-xs text-gray-400 mt-1" style="display: none;"></p>
+                </div>
+            </div>
+
+            <!-- Password panel -->
+            <div id="auth-panel-password" class="auth-panel" role="tabpanel" aria-labelledby="auth-tab-password">
+                <input id="agui-password-input" type="password" class="form-input password-modal-input"
+                    placeholder="Password" aria-label="AG-UI password" autocomplete="current-password"
+                    onkeydown="if (event.key === 'Enter') { event.preventDefault(); genie.connectWithPassword(); }">
+            </div>
+
+            <!-- JWT Token panel -->
+            <div id="auth-panel-token" class="auth-panel" role="tabpanel" aria-labelledby="auth-tab-token"
+                style="display: none;">
+                <textarea id="agui-token-input" class="form-input password-modal-input" rows="3"
+                    placeholder="Paste your JWT / Bearer token here" aria-label="JWT Bearer token"
+                    style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; resize: vertical; min-height: 4rem;"
+                    onkeydown="if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); genie.connectWithToken(); }"></textarea>
+                <p class="text-xs text-gray-400 mt-1">
+                    Token from your OIDC / OAuth2 provider (Google, Azure AD, Okta, etc.)
+                </p>
+            </div>
+
+            <p id="agui-auth-error" class="password-modal-error" style="display: none;"></p>
             <div class="password-modal-actions">
-                <button type="button" class="btn-secondary" onclick="genie.closePasswordModal()">Cancel</button>
-                <button type="button" class="btn-primary" onclick="genie.connectWithPassword()">Connect with
-                    password</button>
+                <button type="button" class="btn-secondary" onclick="genie.closeAuthModal()">Cancel</button>
+                <button type="button" id="auth-submit-btn" class="btn-primary"
+                    onclick="genie.connectWithActiveAuth()">Connect</button>
             </div>
         </div>
     </div>

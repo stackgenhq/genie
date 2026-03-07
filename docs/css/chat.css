@@ -1109,6 +1109,48 @@
     margin-top: 1rem;
 }
 
+/* Auth method tabs (password / JWT token) */
+.auth-tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 1rem;
+    border-bottom: 2px solid #e5e7eb;
+}
+
+.auth-tab {
+    flex: 1;
+    padding: 0.5rem 1rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #6b7280;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-bottom: -2px;
+}
+
+.auth-tab:hover {
+    color: #374151;
+    background: #f9fafb;
+}
+
+.auth-tab.active {
+    color: #8247E7;
+    border-bottom-color: #8247E7;
+    font-weight: 600;
+}
+
+.auth-panel {
+    animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
 .history-sidebar {
     position: fixed;
     top: 0;
