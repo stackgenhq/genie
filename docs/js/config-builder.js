@@ -1673,6 +1673,88 @@
         return lines.join('\n');
     }
 
+    /** Assemble K8s Deployment YAML output. */
+    function toK8s() {
+        var tomlOutput = toToml();
+        var indentedToml = tomlOutput.split('\n').map(function (line) { return '    ' + line; }).join('\n');
+        return [
+            'apiVersion: v1',
+            'kind: ConfigMap',
+            'metadata:',
+            '  name: genie-config',
+            '  namespace: default',
+            'data:',
+            '  genie.toml: |',
+            indentedToml,
+            '---',
+            'apiVersion: apps/v1',
+            'kind: Deployment',
+            'metadata:',
+            '  name: genie-deployment',
+            '  namespace: default',
+            '  labels:',
+            '    app: genie',
+            'spec:',
+            '  replicas: 1',
+            '  selector:',
+            '    matchLabels:',
+            '      app: genie',
+            '  template:',
+            '    metadata:',
+            '      labels:',
+            '        app: genie',
+            '    spec:',
+            '      containers:',
+            '        - name: genie',
+            '          image: ghcr.io/stackgenhq/genie:latest',
+            '          imagePullPolicy: Always',
+            '          ports:',
+            '            - containerPort: 8080',
+            '          volumeMounts:',
+            '            - name: config-volume',
+            '              mountPath: /app/genie.toml',
+            '              subPath: genie.toml',
+            '      volumes:',
+            '        - name: config-volume',
+            '          configMap:',
+            '            name: genie-config',
+            '---',
+            'apiVersion: v1',
+            'kind: Service',
+            'metadata:',
+            '  name: genie-service',
+            '  namespace: default',
+            'spec:',
+            '  selector:',
+            '    app: genie',
+            '  ports:',
+            '    - protocol: TCP',
+            '      port: 80',
+            '      targetPort: 8080',
+            '  type: ClusterIP',
+            '---',
+            'apiVersion: networking.k8s.io/v1',
+            'kind: Ingress',
+            'metadata:',
+            '  name: genie-ingress',
+            '  namespace: default',
+            '  annotations:',
+            '    nginx.ingress.kubernetes.io/rewrite-target: /',
+            'spec:',
+            '  rules:',
+            '    - host: genie.local',
+            '      http:',
+            '        paths:',
+            '          - path: /',
+            '            pathType: Prefix',
+            '            backend:',
+            '              service:',
+            '                name: genie-service',
+            '                port:',
+            '                  number: 80'
+        ].join('\n');
+    }
+
     function scmToYaml(lines) {
         var s = state.scm;
         if (!s.provider) return;
@@ -2048,8 +2130,7 @@
         if (overlay) return;
 
         var currentOS = detectOS();
-        var ext = state.format === 'toml' ? '.toml' : '.yaml';
-        var configFile = '.genie' + ext;
+        var configFile = state.format === 'k8s' ? 'deployment.yaml' : state.format === 'yaml' ? '.genie.yaml' : '.genie.toml';
 
         function stepsHtml(osKey) {
             var data = INSTALL_STEPS[osKey] || INSTALL_STEPS.other;
@@ -2115,7 +2196,7 @@
     function renderOutput() {
         var code = $('output-code');
         if (!code) return;
-        code.textContent = state.format === 'toml' ? toToml() : toYaml();
+        code.textContent = state.format === 'toml' ? toToml() : state.format === 'yaml' ? toYaml() : toK8s();
     }
 
     window.toggleSection = function (id) {
@@ -2147,11 +2228,11 @@
 
     window.downloadConfig = function () {
         var content = $('output-code').textContent;
-        var ext = state.format === 'toml' ? '.toml' : '.yaml';
+        var filename = state.format === 'k8s' ? 'deployment.yaml' : state.format === 'yaml' ? '.genie.yaml' : '.genie.toml';
         var blob = new Blob([content], { type: 'text/plain' });
         var a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = '.genie' + ext;
+        a.download = filename;
         a.click();
         URL.revokeObjectURL(a.href);
     };

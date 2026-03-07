@@ -3,7 +3,7 @@
 #   make serve        — start local server on http://localhost:8080
 #   make serve PORT=3000  — use a custom port
 
-PORT ?= 8080
+PORT ?= 9877
 
 .PHONY: serve
 serve:
