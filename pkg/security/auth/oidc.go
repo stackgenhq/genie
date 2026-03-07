@@ -241,9 +241,16 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	returnTo := "/ui/chat.html"
 	if rUrl, ok := statePayload["return_to"]; ok && rUrl != "" {
-		// Basic protection against open redirects: only allow relative paths
-		if parsed, err := url.Parse(rUrl); err == nil && parsed.Host == "" && strings.HasPrefix(rUrl, "/") && !strings.HasPrefix(rUrl, "//") && !strings.HasPrefix(rUrl, "/\\") {
-			returnTo = rUrl
+		if parsed, err := url.Parse(rUrl); err == nil && parsed.Scheme == "" && parsed.Host == "" {
+			if strings.HasPrefix(parsed.Path, "/") && !strings.HasPrefix(parsed.Path, "//") {
+				// Reconstruct the URL safely to drop any malicious parts and satisfy static analysis.
+				safeURL := url.URL{
+					Path:     parsed.Path,
+					RawQuery: parsed.RawQuery,
+					Fragment: parsed.Fragment,
+				}
+				returnTo = safeURL.String()
+			}
 		}
 	}
 

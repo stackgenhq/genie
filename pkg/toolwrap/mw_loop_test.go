@@ -59,6 +59,26 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 		}
 	})
 
+	It("should allow exempt tools to be called multiple times with identical args", func() {
+		mw := toolwrap.LoopDetectionMiddleware()
+		next, count := counting(passthrough("ok"))
+		handler := mw.Wrap(next)
+
+		tc1 := &toolwrap.ToolCallContext{ToolName: "read_notes", Args: []byte(`{}`)}
+		_, err := handler(context.Background(), tc1)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = handler(context.Background(), tc1)
+		Expect(err).NotTo(HaveOccurred())
+
+		tc2 := &toolwrap.ToolCallContext{ToolName: "note", Args: []byte(`{"text":"hello"}`)}
+		_, err = handler(context.Background(), tc2)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = handler(context.Background(), tc2)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(atomic.LoadInt32(count)).To(Equal(int32(4)))
+	})
+
 	It("should cancel context when CancelCauseFunc is set", func() {
 		mw := toolwrap.LoopDetectionMiddleware()
 		handler := mw.Wrap(passthrough("ok"))

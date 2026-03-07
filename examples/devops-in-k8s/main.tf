@@ -388,13 +388,12 @@ resource "kubernetes_deployment" "genie" {
           image_pull_policy = "Always"
 
           security_context {
-            # Run as root to install tools, then drop privileges via su-exec.
-            run_as_user = 0
+            run_as_non_root = true
+            run_as_user     = 65532
           }
 
           command = ["/bin/sh", "-c"]
-          # Install AWS CLI, kubectl and other tools, then drop privileges to run Genie.
-          args = ["apk add --no-cache aws-cli kubectl jq curl bash su-exec && mkdir -p /home/stackgen/.kube && chown 65532:65532 /home/stackgen/.kube && exec su-exec 65532:65532 /usr/local/bin/genie --config /app/genie.toml"]
+          args    = ["mkdir -p /home/stackgen/.kube && exec /usr/local/bin/genie --config /app/genie.toml"]
 
           port {
             container_port = var.genie.port

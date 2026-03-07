@@ -72,7 +72,7 @@
 
     var PROVIDERS = ['openai', 'gemini', 'anthropic'];
     var MODELS_BY_PROVIDER = {
-        openai: ['gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-thinking', 'gpt-5.4', 'gpt-5.3-codex', 'gpt-5.2', 'o4-mini'],
+        openai: ['gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-thinking', 'gpt-5-mini', 'gpt-5.3-codex', 'gpt-5.2', 'o4-mini'],
         gemini: ['gemini-3-pro', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
         anthropic: ['claude-opus-4.6', 'claude-sonnet-4.5', 'claude-haiku-4.5', 'claude-sonnet-4', 'claude-opus-4']
     };
