@@ -69,8 +69,8 @@ builds:
       -w
       -s
       -extldflags '-static'
-      -X github.com/stackgenhq/genie/cmd.Version={{.Version}}
-      -X github.com/stackgenhq/genie/cmd.BuildDate={{.Date}}
+      -X github.com/stackgenhq/genie/pkg/config.Version={{.Version}}
+      -X github.com/stackgenhq/genie/pkg/config.BuildDate={{.Date}}
   - id: darwin-build
     binary: *binaryName
     goos:

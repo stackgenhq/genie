@@ -8,6 +8,8 @@ agent_name  = "devops-copilot"
 file = "./AGENTS.md"
 disable_resume = true
 
+
+
 [db_config]
 db_file = "${PWD}/.genie.db"
 
@@ -197,15 +199,16 @@ token = "${GITHUB_TOKEN}"
 
 # ── Vector Memory ───────────────────────────────────────────────────
 [vector_memory]
-embedding_provider = "ollama"
-ollama_url = "http://localhost:11434"
-ollama_model = "nomic-embed-text"
+embedding_provider = "openai"
+openai_model = "text-embedding-3-small"
 persistence_dir = "${PWD}/.genie/vector_store"
 
 # ── AG-UI Server ────────────────────────────────────────────────────
 [messenger.agui]
 port = 9876
 cors_origins = ["https://stackgenhq.github.io", "http://localhost:8123"]
+rate_limit = 16.67
+rate_burst = 100
 
 # ── AG-UI Authentication ────────────────────────────────────────────
 # Password protection is enabled by default. Set the auth.password value
@@ -213,15 +216,15 @@ cors_origins = ["https://stackgenhq.github.io", "http://localhost:8123"]
 # corresponding environment-variable wiring in this example) to use a
 # static password. If left empty, an auto-generated password will be
 # logged during container startup.
-[messenger.agui.auth.password]
-enabled = true
+# [messenger.agui.auth.password]
+# enabled = true
 
 # To use OIDC (Single Sign-On) instead, comment out the password section
 # above and uncomment the section below. Supply values via variables.tf.
-# [messenger.agui.auth.oidc]
-# issuer_url = "${OIDC_ISSUER_URL}"
-# client_id = "${OIDC_CLIENT_ID}"
-# client_secret = "${OIDC_CLIENT_SECRET}"
+[messenger.agui.auth.oidc]
+issuer_url = "${OIDC_ISSUER_URL}"
+client_id = "${OIDC_CLIENT_ID}"
+client_secret = "${OIDC_CLIENT_SECRET}"
 
 [hitl]
 always_allowed = []

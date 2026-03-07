@@ -38,8 +38,8 @@ func (l *ipRateLimiter) get(ip string) *rate.Limiter {
 func rateLimitMiddleware(rl *ipRateLimiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// not for approval request
-			if r.URL.Path == "/approve" {
+			// bypass rate limiting for approval requests, health checks, and static UI assets
+			if r.URL.Path == "/approve" || r.URL.Path == "/health" || strings.HasPrefix(r.URL.Path, "/ui/") {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -72,6 +72,12 @@ func concurrencyLimitMiddleware(maxConcurrent int) func(http.Handler) http.Handl
 	sem := make(chan struct{}, maxConcurrent)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// bypass concurrency limit for health checks and static UI assets
+			if r.URL.Path == "/health" || strings.HasPrefix(r.URL.Path, "/ui/") {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			select {
 			case sem <- struct{}{}:
 				defer func() { <-sem }()
