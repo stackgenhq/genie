@@ -335,7 +335,7 @@ resource "kubernetes_deployment" "genie" {
 
           command = ["/bin/sh", "-c"]
           # Install AWS CLI and other tools, then drop privileges to run Genie.
-          args = ["apk add --no-cache aws-cli jq curl bash su-exec && exec su-exec stackgen /usr/local/bin/genie-beta"]
+          args = ["apk add --no-cache aws-cli jq curl bash su-exec && exec su-exec stackgen /usr/local/bin/genie"]
 
           port {
             container_port = var.genie.port
