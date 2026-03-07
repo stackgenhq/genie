@@ -2,6 +2,7 @@ package doctor_test
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -21,6 +22,9 @@ func TestDoctor(t *testing.T) {
 var _ = Describe("Doctor", func() {
 	Describe("Run", func() {
 		It("returns no model_config error when no providers configured", func(ctx context.Context) {
+			if os.Getenv("CI") == "true" {
+				Skip("Skipping in CI since API tokens are not present")
+			}
 			cfg := config.GenieConfig{}
 			results := doctor.Run(ctx, cfg, "", security.NewEnvProvider())
 			Expect(results).NotTo(BeNil())
