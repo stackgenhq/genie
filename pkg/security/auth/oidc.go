@@ -312,6 +312,7 @@ func (h *OIDCHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   isSecureRequest(r),
 	})
 	writeJSON(w, http.StatusOK, "logged_out", "Session cleared")
 }

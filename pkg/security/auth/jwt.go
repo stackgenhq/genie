@@ -78,6 +78,11 @@ func (v *jwtValidator) validate(ctx context.Context, token string) (*oidc.IDToke
 		return nil, fmt.Errorf("invalid token: %w", err)
 	}
 
+	// Reject tokens with alg:none (or empty) to block the well-known "alg:none" attack.
+	if alg := peekAlg(token); alg == "" || strings.EqualFold(alg, "none") {
+		return nil, fmt.Errorf("rejected JWT with unsafe algorithm: %q", alg)
+	}
+
 	// Check the issuer is trusted.
 	if !v.isTrusted(issuer) {
 		return nil, fmt.Errorf("untrusted issuer: %s", issuer)
@@ -167,6 +172,26 @@ func peekIssuer(token string) (string, error) {
 		return "", fmt.Errorf("no issuer (iss) in JWT")
 	}
 	return claims.Issuer, nil
+}
+
+// peekAlg extracts the "alg" field from a JWT header without verifying the signature.
+// Returns an empty string if the header cannot be parsed.
+func peekAlg(token string) string {
+	parts := strings.SplitN(token, ".", 3)
+	if len(parts) < 1 {
+		return ""
+	}
+	header, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return ""
+	}
+	var h struct {
+		Alg string `json:"alg"`
+	}
+	if err := json.Unmarshal(header, &h); err != nil {
+		return ""
+	}
+	return h.Alg
 }
 
 // audienceMatch checks if any token audience matches any allowed audience.
