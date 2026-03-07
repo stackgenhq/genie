@@ -137,7 +137,7 @@ docker: ## Build the docker image
 	docker buildx build $(DOCKER_BUILD_ARGS) .
 
 .PHONY: docker/push
-docker/push: docker ## Build and push the multi-arch docker image
+docker/push: ## Build and push the multi-arch docker image
 	docker buildx build $(DOCKER_BUILD_ARGS) \
 		--push \
 		-t ghcr.io/stackgenhq/genie-beta:${GIT_VERSION} .
