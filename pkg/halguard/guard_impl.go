@@ -86,12 +86,9 @@ func (g *guard) PreCheck(ctx context.Context, req PreCheckRequest) (PreCheckResu
 	// Score the goal using multi-signal analysis.
 	_, signals := scoreGoal(req.Goal)
 
-	// Also check the context field if provided.
-	// Context penalties are weighted at 70% since context is supplementary.
-	if req.Context != "" {
-		_, ctxSignals := scoreGoal(req.Context)
-		signals = signals.MergeScaled(ctxSignals, 0.7)
-	}
+	// Context often contains summarized message history which naturally has high
+	// information density and specific metrics from past tool calls.
+	// Applying scoreGoal to it causes false positive hallucination flags.
 
 	penalty := signals.Penalty()
 	confidence := 1.0 - penalty
@@ -169,30 +166,28 @@ func (g *guard) PostCheck(ctx context.Context, req PostCheckRequest) (Verificati
 func (g *guard) selectTier(req PostCheckRequest) VerifyTier {
 	outputLen := len(req.Output)
 
-	// Short, tool-grounded outputs are likely factual.
-	if outputLen < g.config.LightThresholdChars && req.ToolCallsMade > 0 {
-		return TierNone
+	// Tool-grounded outputs are likely factual and contain actual data.
+	// Because independent models in TierFull don't have tool access, they cannot
+	// verify this data and will incorrectly flag it as a contradiction.
+	if req.ToolCallsMade > 0 {
+		// Short responses are safe; longer ones get a light single-model sanity check.
+		// We skip scoreGoal(req.Output) here because summarized tool results
+		// naturally trigger information density / specific metric penalties.
+		if outputLen < g.config.LightThresholdChars {
+			return TierNone
+		}
+		return TierLight
 	}
 
-	// Check for fabrication signals in the output itself.
+	// For purely generative (no tools) output, check for fabrication signals.
 	outputPenalty, _ := scoreGoal(req.Output)
 	if outputPenalty > 0.3 {
 		return TierFull
 	}
 
 	// No tool calls at all is suspicious — the output is pure generation.
-	if req.ToolCallsMade == 0 && outputLen > g.config.LightThresholdChars {
-		return TierFull
-	}
-
-	// Long outputs get full verification.
-	if outputLen >= g.config.FullThresholdChars {
-		return TierFull
-	}
-
-	// Medium-length outputs get light verification.
 	if outputLen >= g.config.LightThresholdChars {
-		return TierLight
+		return TierFull
 	}
 
 	return TierNone

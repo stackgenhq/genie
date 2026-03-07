@@ -527,8 +527,9 @@
 
                         // NEW: Automatically redirect to login since oauth is the preferred method
                         try {
-                            const loginUrl = new URL(serverOAuthLoginUrl, serverUrl).toString();
-                            window.location.href = loginUrl;
+                            const loginUrl = new URL(serverOAuthLoginUrl, serverUrl);
+                            loginUrl.searchParams.set('return_to', window.location.pathname + window.location.search + window.location.hash);
+                            window.location.href = loginUrl.toString();
                             return; // Ensure no modal is shown on redirect
                         } catch (e) {
                             // If URL construction fails, log and fall through to showing the auth modal.
@@ -665,7 +666,13 @@
     // loginWithGoogle redirects the browser to the Genie server's OAuth login endpoint.
     function loginWithGoogle() {
         if (!serverUrl) return;
-        window.location.href = serverUrl + serverOAuthLoginUrl;
+        try {
+            const loginUrl = new URL(serverOAuthLoginUrl, serverUrl);
+            loginUrl.searchParams.set('return_to', window.location.pathname + window.location.search + window.location.hash);
+            window.location.href = loginUrl.toString();
+        } catch (e) {
+            window.location.href = serverUrl + serverOAuthLoginUrl;
+        }
     }
 
     // Connection failure UI: error + optional CORS hint, auto-removed after 30 seconds.

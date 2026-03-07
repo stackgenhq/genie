@@ -769,6 +769,25 @@ func (req CreateAgentRequest) flow(ctx context.Context) ControlFlowType {
 func (t *createAgentTool) executePlan(ctx context.Context, req CreateAgentRequest) (CreateAgentResponse, error) {
 	logr := logger.GetLogger(ctx).With("fn", "createAgentTool.executePlan", "name", req.AgentName, "steps", len(req.Steps))
 
+	// Inject the parent's top-level goal and context into every step.
+	// This ensures that when the planner sets an overarching persona, AWS credentials,
+	// or environment context in the top-level goal (e.g., "You are an AWS Copilot..."),
+	// the individual step agents aren't spawned completely blind to that context.
+	parentCtx := req.Context
+	if parentCtx == "" {
+		parentCtx = "Top-level plan objective constraints: " + req.Goal
+	} else {
+		parentCtx = fmt.Sprintf("Top-level plan objective constraints: %s\n\nAdditional Context:\n%s", req.Goal, req.Context)
+	}
+
+	for i := range req.Steps {
+		if req.Steps[i].Context != "" {
+			req.Steps[i].Context = parentCtx + "\n\nStep Context:\n" + req.Steps[i].Context
+		} else {
+			req.Steps[i].Context = parentCtx
+		}
+	}
+
 	// Map flow_type string to ControlFlowType.
 	flow := req.flow(ctx)
 
