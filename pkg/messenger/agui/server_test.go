@@ -749,6 +749,38 @@ var _ = Describe("AG-UI Server", func() {
 		})
 	})
 
+	Describe("Auth Routes", func() {
+		It("should register /auth/login as public but / as protected when OIDC is enabled", func() {
+			handler := &aguifakes.FakeExpert{}
+			// Setup server with OIDC and Password auth (which forces auth on protected routes)
+			server := agui.NewServer(messenger.AGUIConfig{
+				Auth: auth.Config{
+					Password: auth.PasswordConfig{Enabled: true},
+					OIDC: auth.OIDCConfig{
+						IssuerURL:    "http://example.com",
+						ClientID:     "client",
+						ClientSecret: "secret",
+					},
+				},
+			}, handler, nil, nil, nil, nil, nil, "")
+
+			// Test /auth/login - should be public. Since "http://example.com" is a fake issuer,
+			// it fails OIDC discovery and returns 500. This proves the handler was reached
+			// and wasn't blocked by the auth middleware (which would return 401).
+			req := httptest.NewRequest(http.MethodGet, "/auth/login", nil)
+			recorder := httptest.NewRecorder()
+			server.Handler().ServeHTTP(recorder, req)
+			Expect(recorder.Code).To(Equal(http.StatusInternalServerError))
+
+			// Test / - should be protected and return 401
+			req2 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"messages":[]}`))
+			req2.Header.Set("Content-Type", "application/json")
+			recorder2 := httptest.NewRecorder()
+			server.Handler().ServeHTTP(recorder2, req2)
+			Expect(recorder2.Code).To(Equal(http.StatusUnauthorized))
+		})
+	})
+
 	Describe("Client disconnect", func() {
 		It("should stop streaming when context is cancelled", func() {
 			// Create a handler that blocks until context is cancelled

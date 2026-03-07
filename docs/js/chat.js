@@ -517,15 +517,21 @@
                 let preferredTab = 'password';
                 try {
                     const errBody = await res.json();
-                    if (errBody && errBody.oauth_enabled) {
+                    if ((errBody && errBody.auth_method === 'oidc') || (errBody && errBody.oauth_enabled)) {
                         serverSupportsOAuth = true;
                         serverOAuthLoginUrl = errBody.login_url || '/auth/login';
                         preferredTab = 'oauth';
                         // Show the Google tab.
                         const oauthTab = document.getElementById('auth-tab-oauth');
                         if (oauthTab) oauthTab.style.display = '';
-                    } else if (errBody && (errBody.error === 'missing_token' || errBody.error === 'invalid_token')) {
+
+                        // NEW: Automatically redirect to login since oauth is the preferred method
+                        window.location.href = serverUrl + serverOAuthLoginUrl;
+                        return; // Ensure no modal is shown on redirect
+                    } else if ((errBody && errBody.auth_method === 'jwt') || (errBody && errBody.error === 'missing_token') || (errBody && errBody.error === 'invalid_token')) {
                         preferredTab = 'token';
+                    } else if (errBody && errBody.auth_method === 'apikey') {
+                        preferredTab = 'token'; // fallback token for api key UI
                     }
                 } catch (_parseErr) { /* fallback to password tab */ }
                 showAuthModal(preferredTab);

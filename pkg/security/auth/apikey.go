@@ -41,7 +41,7 @@ func (a *apiKeyAuth) Authenticate(w http.ResponseWriter, r *http.Request) *authc
 	}
 
 	if token == "" {
-		writeJSON(w, http.StatusUnauthorized, "missing_api_key", "API Key required (Authorization: Bearer <key> or X-API-Key: <key>)")
+		writeJSON(w, http.StatusUnauthorized, "missing_api_key", "API Key required (Authorization: Bearer <key> or X-API-Key: <key>)", "apikey")
 		return nil
 	}
 
@@ -62,6 +62,6 @@ func (a *apiKeyAuth) Authenticate(w http.ResponseWriter, r *http.Request) *authc
 		}
 	}
 
-	writeJSON(w, http.StatusUnauthorized, "invalid_api_key", "Invalid API Key")
+	writeJSON(w, http.StatusUnauthorized, "invalid_api_key", "Invalid API Key", "apikey")
 	return nil
 }

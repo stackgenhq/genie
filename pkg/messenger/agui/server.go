@@ -395,6 +395,23 @@ func GetAguiPasswordFromKeyring(ctx context.Context) ([]byte, error) {
 func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
 
+	s.applySecurityMiddlewares(r)
+
+	// OIDC routes — these must not use the standard auth structure because they perform the auth themselves
+	if s.oidcHandler != nil {
+		r.Get("/auth/login", s.oidcHandler.HandleLogin)
+		r.Get("/auth/callback", s.oidcHandler.HandleCallback)
+		r.Post("/auth/logout", s.oidcHandler.HandleLogout)
+		r.Get("/auth/info", s.oidcHandler.HandleAuthInfo)
+	}
+
+	// Protected endpoints in a new chi.Group that applies authMiddleware
+	s.registerProtectedRoutes(r)
+
+	return r
+}
+
+func (s *Server) applySecurityMiddlewares(r chi.Router) {
 	// DDoS protection middleware — applied before CORS and route handlers.
 	if s.maxBodyBytes > 0 {
 		r.Use(maxBodyMiddleware(s.maxBodyBytes))
@@ -405,65 +422,58 @@ func (s *Server) Handler() http.Handler {
 	if s.maxConcurrent > 0 {
 		r.Use(concurrencyLimitMiddleware(s.maxConcurrent))
 	}
-
 	if len(s.corsOrigins) != 0 {
 		r.Use(s.corsMiddleware)
 	}
+}
 
-	// OIDC routes — mounted BEFORE auth middleware (they must be public).
-	if s.oidcHandler != nil {
-		r.Get("/auth/login", s.oidcHandler.HandleLogin)
-		r.Get("/auth/callback", s.oidcHandler.HandleCallback)
-		r.Post("/auth/logout", s.oidcHandler.HandleLogout)
-		r.Get("/auth/info", s.oidcHandler.HandleAuthInfo)
-	}
+func (s *Server) registerProtectedRoutes(r chi.Router) {
+	r.Group(func(protected chi.Router) {
+		protected.Use(s.authMiddleware)
 
-	r.Use(s.authMiddleware)
+		// AG-UI run endpoint
+		protected.Post("/", s.handleRun)
 
-	// AG-UI run endpoint
-	r.Post("/", s.handleRun)
-
-	// HITL approval endpoint — only registered when approval store is configured.
-	if s.approvalStore != nil {
-		r.Post("/approve", s.handleApprove)
-	}
-
-	// Event Gateway endpoint
-	r.Post("/api/v1/events", s.handleEventsEndpoint)
-	r.Post("/api/v1/inject", s.handleInjectFeedback)
-	r.Get("/api/v1/resume", s.handleResumeEndpoint)
-	r.Post("/api/v1/clarify", s.handleClarify)
-
-	// AI stance / capabilities — which tools are available and approval policy.
-	if s.capabilities != nil {
-		r.Get("/api/v1/capabilities", s.handleCapabilities)
-	}
-
-	// Health check
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		payload := map[string]string{
-			"status":     "ok",
-			"uptime":     time.Since(s.startedAt).String(),
-			"started_at": s.startedAt.Format(time.RFC3339),
-			"version":    config.Version,
-			"build_date": config.BuildDate,
-			"agent_name": s.agentName,
+		// HITL approval endpoint — only registered when approval store is configured.
+		if s.approvalStore != nil {
+			protected.Post("/approve", s.handleApprove)
 		}
-		if name, _ := oauth.GetStoredUserInfo(); name != "" {
-			payload["user"] = name
+
+		// Event Gateway endpoint
+		protected.Post("/api/v1/events", s.handleEventsEndpoint)
+		protected.Post("/api/v1/inject", s.handleInjectFeedback)
+		protected.Get("/api/v1/resume", s.handleResumeEndpoint)
+		protected.Post("/api/v1/clarify", s.handleClarify)
+
+		// AI stance / capabilities — which tools are available and approval policy.
+		if s.capabilities != nil {
+			protected.Get("/api/v1/capabilities", s.handleCapabilities)
 		}
-		json.NewEncoder(w).Encode(payload) //nolint:errcheck
+
+		// Health check
+		protected.Get("/health", func(w http.ResponseWriter, req *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			payload := map[string]string{
+				"status":     "ok",
+				"uptime":     time.Since(s.startedAt).String(),
+				"started_at": s.startedAt.Format(time.RFC3339),
+				"version":    config.Version,
+				"build_date": config.BuildDate,
+				"agent_name": s.agentName,
+			}
+			if name, _ := oauth.GetStoredUserInfo(); name != "" {
+				payload["user"] = name
+			}
+			json.NewEncoder(w).Encode(payload) //nolint:errcheck
+		})
+
+		// Serve static documentation from local docs/ directory at /ui
+		// Serve documentation via reverse proxy to GitHub Pages
+		// This ensures users always see the latest docs without needing local files.
+		protected.Handle("/ui", http.RedirectHandler("/ui/", http.StatusMovedPermanently))
+		protected.Handle("/ui/*", http.StripPrefix("/ui", newDocsProxy()))
 	})
-
-	// Serve static documentation from local docs/ directory at /ui
-	// Serve documentation via reverse proxy to GitHub Pages
-	// This ensures users always see the latest docs without needing local files.
-	r.Handle("/ui", http.RedirectHandler("/ui/", http.StatusMovedPermanently))
-	r.Handle("/ui/*", http.StripPrefix("/ui", newDocsProxy()))
-
-	return r
 }
 
 // newDocsProxy creates a reverse proxy to the Genie GitHub Pages documentation.

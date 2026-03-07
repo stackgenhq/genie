@@ -15,6 +15,8 @@ type ExpertConfig struct {
 	ReasoningContentMode string
 	// PersonaTokenThreshold is the warning limit for the system prompt size (default: 2000)
 	PersonaTokenThreshold int
+	// Silent disables emitting events to the TUI, useful for background tasks (default: false)
+	Silent bool
 }
 
 // DefaultExpertConfig returns sensible defaults for token optimization.

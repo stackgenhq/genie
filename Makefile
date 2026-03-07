@@ -54,7 +54,7 @@ deps:
 
 # ------------------------------ build commands ------------------------------
 .PHONY: build
-build: setup only-build ## Build the binary
+build: only-build ## Build the binary
 
 # Build the binary only
 .PHONY: only-build

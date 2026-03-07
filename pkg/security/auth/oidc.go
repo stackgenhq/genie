@@ -94,10 +94,11 @@ func (h *OIDCHandler) Authenticate(w http.ResponseWriter, r *http.Request) *auth
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
 	json.NewEncoder(w).Encode(map[string]interface{}{ //nolint:errcheck
-		"error":         "auth_required",
-		"message":       "Authentication required",
+		"error":         "missing_token",
+		"message":       "Authorization: Bearer <token> or X-AGUI-Password required",
 		"oauth_enabled": true,
 		"login_url":     "/auth/login",
+		"auth_method":   "oidc",
 	})
 	return nil
 }
@@ -314,7 +315,7 @@ func (h *OIDCHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true,
 		Secure:   isSecureRequest(r),
 	})
-	writeJSON(w, http.StatusOK, "logged_out", "Session cleared")
+	writeJSON(w, http.StatusOK, "logged_out", "Session cleared", "oidc")
 }
 
 // ValidateSession checks if the request has a valid session cookie.
