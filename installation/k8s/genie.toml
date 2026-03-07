@@ -1,0 +1,219 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Genie Configuration Template
+# ─────────────────────────────────────────────────────────────────────────────
+# Customize this file for your deployment. Environment variables referenced
+# as ${VAR_NAME} are injected via the K8s Secret "genie-secrets" (populated
+# by the ExternalSecret from AWS Secrets Manager).
+#
+# See: https://github.com/stackgenhq/genie/tree/main/examples/devops-copilot
+# ─────────────────────────────────────────────────────────────────────────────
+
+skills_roots = ["./skills"]
+agent_name = "genie"
+
+[persona]
+file = "./AGENTS.md"
+disable_resume = true
+
+[db_config]
+db_file = "${PWD}/.genie.db"
+
+# ── Model Configuration ─────────────────────────────────────────────────────
+[model_config]
+
+[[model_config.providers]]
+provider = "anthropic"
+model_name = "claude-opus-4-5"
+token = "${ANTHROPIC_API_KEY}"
+good_for_task = "planning"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "tool_calling"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-pro-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "summarizer"
+
+[[model_config.providers]]
+provider = "anthropic"
+model_name = "claude-sonnet-4-5-20250929"
+token = "${ANTHROPIC_API_KEY}"
+good_for_task = "terminal_calling"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "frontdesk"
+
+[[model_config.providers]]
+provider = "openai"
+model_name = "gpt-4.1"
+token = "${OPENAI_API_KEY}"
+good_for_task = "general_task"
+
+# ── Efficiency models (used by halguard for cross-model verification) ────────
+
+[[model_config.providers]]
+provider = "openai"
+model_name = "gpt-4.1-mini"
+token = "${OPENAI_API_KEY}"
+good_for_task = "efficiency"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-2.0-flash"
+token = "${GEMINI_API_KEY}"
+good_for_task = "efficiency"
+
+[[model_config.providers]]
+provider = "anthropic"
+model_name = "claude-haiku-3-5"
+token = "${ANTHROPIC_API_KEY}"
+good_for_task = "efficiency"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "efficiency"
+
+# ── Hallucination Guard ──────────────────────────────────────────────────────
+[halguard]
+enable_pre_check = true
+enable_post_check = true
+pre_check_threshold = 0.4
+cross_model_samples = 3
+
+# ── MCP Servers ──────────────────────────────────────────────────────────────
+# Each MCP server gives Genie structured access to a platform.
+# Uncomment/add sections for the tools you need.
+[mcp]
+
+# Grafana: dashboards, alerts, datasources, explore queries
+[[mcp.servers]]
+name = "grafana"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@anthropic/grafana-mcp-server"]
+env = { GRAFANA_URL = "${GRAFANA_URL}", GRAFANA_API_KEY = "${GRAFANA_API_KEY}" }
+
+# GitHub: repos, PRs, issues, actions, code search
+[[mcp.servers]]
+name = "github"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@anthropic/github-mcp-server"]
+env = { GITHUB_TOKEN = "${GITHUB_TOKEN}" }
+
+# Terraform: validate, plan, state inspection
+[[mcp.servers]]
+name = "terraform"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@anthropic/terraform-mcp-server"]
+
+# ── Uncomment additional MCP servers as needed ──────────────────────────────
+
+# Datadog
+# [[mcp.servers]]
+# name = "datadog"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@anthropic/datadog-mcp-server"]
+# env = { DD_API_KEY = "${DD_API_KEY}", DD_APP_KEY = "${DD_APP_KEY}" }
+
+# Sentry
+# [[mcp.servers]]
+# name = "sentry"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@anthropic/sentry-mcp-server"]
+# env = { SENTRY_AUTH_TOKEN = "${SENTRY_AUTH_TOKEN}" }
+
+# Kubernetes
+# [[mcp.servers]]
+# name = "kubernetes"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@anthropic/kubernetes-mcp-server"]
+# env = { KUBECONFIG = "${KUBECONFIG}" }
+
+# PostgreSQL
+# [[mcp.servers]]
+# name = "postgres"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@anthropic/postgres-mcp-server"]
+# env = { DATABASE_URL = "${DATABASE_URL}" }
+
+# ── Application Settings ────────────────────────────────────────────────────
+
+[ops]
+max_pages = 5
+enable_verification = true
+max_verification_runs = 3
+
+[scm]
+provider = "github"
+token = "${GITHUB_TOKEN}"
+
+[vector_memory]
+embedding_provider = "ollama"
+ollama_url = "http://localhost:11434"
+ollama_model = "nomic-embed-text"
+persistence_dir = "${PWD}/.genie/vector_store"
+
+# ── AG-UI Server ────────────────────────────────────────────────────────────
+[messenger.agui]
+port = 9876
+cors_origins = ["https://stackgenhq.github.io", "http://localhost:8123"]
+
+# ── Authentication ──────────────────────────────────────────────────────────
+# When deployed to the cloud, Genie MUST be password-protected at minimum.
+# The password is resolved in order: config → AGUI_PASSWORD env var → auto-generate.
+# For production, prefer JWT/OIDC authentication with trusted issuers.
+[messenger.agui.auth]
+password_protected = true
+# password is injected via the AGUI_PASSWORD env var from the K8s Secret.
+# To use JWT/OIDC instead (or in addition), uncomment the lines below:
+# trusted_issuers = [
+#   "https://accounts.google.com",
+#   # "https://login.microsoftonline.com/{tenant-id}/v2.0",
+#   # "https://dev-12345.okta.com/oauth2/default",
+#   # "https://cognito-idp.{region}.amazonaws.com/{user-pool-id}",
+# ]
+# allowed_audiences = ["your-client-id"]
+
+[hitl]
+always_allowed = ["run_shell"]
+
+# ── PII Redaction ────────────────────────────────────────────────────────────
+[pii]
+entropy_threshold = 4.8
+min_secret_length = 16
+
+[[pii.safe_regexes]]
+name = "aws_arn"
+pattern = '(?i)arn:aws:[a-z0-9-]+:[a-z0-9-]*:[0-9]{12}:[a-zA-Z0-9-/_]+'
+
+[[pii.safe_regexes]]
+name = "aws_resource_id"
+pattern = '(?i)(i|vol|snap|ami|subnet|vpc|igw|nat|eni|sg|rtb|eipalloc)-[0-9a-f]{8,17}'
+
+[[pii.safe_regexes]]
+name = "kubernetes_version"
+pattern = '(?i)\bv?[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.]+)?\b'
+
+[[pii.safe_regexes]]
+name = "cloud_resource_type"
+pattern = '(?i)\b(VirtualMachines|VMScaleSets|virtualNetworks|storageAccounts|containerRegistries|aksCluster|managedClusters|networkSecurityGroups|publicIPAddresses|loadBalancers|keyVaults|disks|snapshots|networkInterfaces)\b'
+
+[[pii.safe_regexes]]
+name = "provisioning_state"
+pattern = '(?i)\b(Succeeded|Failed|Creating|Updating|Deleting|Canceled|InProgress|Registered|NotRegistered)\b'

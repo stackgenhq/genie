@@ -1,3 +1,15 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Genie – Kubernetes Manifests (Reference Only)
+# ─────────────────────────────────────────────────────────────────────────────
+# NOTE: The recommended deployment method is Terraform (see main.tf).
+# This YAML is provided as a reference for non-Terraform workflows.
+#
+# If using this file directly:
+#   1. Replace ${...} placeholders with real values
+#   2. Create the AWS Secrets Manager secret with your API keys
+#   3. Ensure External Secrets Operator is installed
+#   4. kubectl apply -f deployment.yaml
+# ─────────────────────────────────────────────────────────────────────────────
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -5,7 +17,66 @@ metadata:
   namespace: default
 data:
   genie.toml: |
-    # Place your genie.toml configuration here
+    # Place your genie.toml configuration here.
+    # See genie.toml in this directory for a full template.
+---
+apiVersion: external-secrets.io/v1beta1
+kind: SecretStore
+metadata:
+  name: genie-secret-store
+  namespace: default
+spec:
+  provider:
+    aws:
+      service: SecretsManager
+      region: us-west-2 # Update to your region
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: genie-secrets
+  namespace: default
+spec:
+  refreshInterval: 15m
+  secretStoreRef:
+    name: genie-secret-store
+    kind: SecretStore
+  target:
+    name: genie-secrets
+    creationPolicy: Owner
+  data:
+    - secretKey: OPENAI_API_KEY
+      remoteRef:
+        key: "${AWS_SECRETS_MANAGER_ARN}" # Replace with your secret ARN
+        property: OPENAI_API_KEY
+    - secretKey: ANTHROPIC_API_KEY
+      remoteRef:
+        key: "${AWS_SECRETS_MANAGER_ARN}"
+        property: ANTHROPIC_API_KEY
+    - secretKey: GEMINI_API_KEY
+      remoteRef:
+        key: "${AWS_SECRETS_MANAGER_ARN}"
+        property: GEMINI_API_KEY
+    - secretKey: GITHUB_TOKEN
+      remoteRef:
+        key: "${AWS_SECRETS_MANAGER_ARN}"
+        property: GITHUB_TOKEN
+    - secretKey: GRAFANA_URL
+      remoteRef:
+        key: "${AWS_SECRETS_MANAGER_ARN}"
+        property: GRAFANA_URL
+    - secretKey: GRAFANA_API_KEY
+      remoteRef:
+        key: "${AWS_SECRETS_MANAGER_ARN}"
+        property: GRAFANA_API_KEY
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: genie-sa
+  namespace: default
+  annotations:
+    eks.amazonaws.com/role-arn: "${GENIE_IAM_ROLE_ARN}" # Replace with IRSA role ARN
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -24,15 +95,19 @@ spec:
       labels:
         app: genie
     spec:
+      serviceAccountName: genie-sa
       containers:
         - name: genie
           image: ghcr.io/stackgenhq/genie:latest
           imagePullPolicy: Always
           ports:
-            - containerPort: 8080 # Update this to the correct port Genie listens on
+            - containerPort: 9876
+          envFrom:
+            - secretRef:
+                name: genie-secrets
           volumeMounts:
             - name: config-volume
-              mountPath: /app/genie.toml # Update to correct expected path
+              mountPath: /app/genie.toml
               subPath: genie.toml
       volumes:
         - name: config-volume
@@ -49,8 +124,8 @@ spec:
     app: genie
   ports:
     - protocol: TCP
-      port: 80 # The port exposed by the service
-      targetPort: 8080 # The port the container listens on
+      port: 80
+      targetPort: 9876
   type: ClusterIP
 ---
 apiVersion: networking.k8s.io/v1
@@ -58,11 +133,13 @@ kind: Ingress
 metadata:
   name: genie-ingress
   namespace: default
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
+  annotations: {}
+    # nginx.org/mergeable-ingress-type: minion          # NGINX Inc controller
+    # nginx.ingress.kubernetes.io/rewrite-target: /     # NGINX OSS controller
 spec:
+  ingressClassName: nginx
   rules:
-    - host: genie.local # Update this to your desired hostname
+    - host: genie.example.com # Update to your hostname
       http:
         paths:
           - path: /

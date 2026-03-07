@@ -12,3 +12,5 @@ examples/**/*.sh
 examples/**/.genie/*
 *.out
 .genie
+examples/devops-in-k8s/.terraform
+examples/devops-in-k8s/dev.tfvars

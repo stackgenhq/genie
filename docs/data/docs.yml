@@ -90,7 +90,7 @@ config_sections:
   - id: agui
     icon: "🖥️"
     name: agui
-    sidebar_desc: Web UI Server
+    sidebar_desc: Web UI Server & Auth
     detail_title: "🖥️ agui"
     detail_desc: >
       <strong>The Web Interface Server.</strong><br>
@@ -109,6 +109,44 @@ config_sections:
           - ["rate_burst", "int", "`3`", "Burst request allowance"]
           - ["max_concurrent", "int", "`5`", "Max concurrent requests processing"]
           - ["max_body_bytes", "int", "`1048576`", "Max request body size in bytes (1MB)"]
+    subsections:
+      - label: "\U0001F512 Authentication ([messenger.agui.auth])"
+        columns: [Key, Type, Default, Description]
+        rows:
+          - ["password_protected", "bool", "`false`", "Require password authentication. When true, every request must include the password via `X-AGUI-Password` header or `?password=` query param"]
+          - ["password", "string", "\u2014", "Plaintext password (prefer `${AGUI_PASSWORD}` env var). Resolution order: config \u2192 `AGUI_PASSWORD` env \u2192 OS keyring \u2192 auto-generated (shown in stdout)"]
+          - ["trusted_issuers", "string[]", "`[]`", "OIDC issuer URLs whose JWT tokens are accepted. JWKS is auto-discovered via `/.well-known/openid-configuration`. Example: `[\"https://accounts.google.com\"]`"]
+          - ["allowed_audiences", "string[]", "`[]`", "When set, JWT `aud` claim must match at least one value. When empty, any audience is accepted"]
+      - label: Password Resolution Order
+        columns: [Priority, Source, Description]
+        rows:
+          - ["1", "Config file", "`password = \"mypass\"` in `[messenger.agui.auth]`"]
+          - ["2", "Environment variable", "`AGUI_PASSWORD` env var"]
+          - ["3", "OS keyring", "macOS Keychain / Windows Credential Manager / Linux Secret Service (key: `agui-password`)"]
+          - ["4", "Auto-generate", "A random 32-char hex password is generated and printed to stdout at startup"]
+      - label: Security Best Practices
+        columns: [Scenario, Recommendation]
+        rows:
+          - ["Local development", "Use `password_protected = true` \u2014 Genie auto-generates a password and prints it to the console"]
+          - ["Team/cloud deployment", "Set `AGUI_PASSWORD` via K8s Secret or AWS Secrets Manager. Or use JWT with a corporate identity provider"]
+          - ["Enterprise SSO", "Set `trusted_issuers` to your IdP (Google, Okta, Azure AD, Cognito) and optionally restrict `allowed_audiences` to your client ID"]
+          - ["Defense-in-depth", "Enable both password AND JWT \u2014 JWT is checked first, password is the fallback"]
+    code_example:
+      label: Example TOML
+      code: |
+        [messenger.agui]
+        port = 9876
+        cors_origins = ["https://myapp.com"]
+
+        # Password protection (simplest)
+        [messenger.agui.auth]
+        password_protected = true
+        # password is resolved from AGUI_PASSWORD env var, or auto-generated
+
+        # JWT/OIDC protection (enterprise)
+        # [messenger.agui.auth]
+        # trusted_issuers = ["https://accounts.google.com"]
+        # allowed_audiences = ["my-client-id"]
 
 
 

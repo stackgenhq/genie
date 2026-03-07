@@ -215,7 +215,7 @@ func buildMessengerConfig(in WizardInputs, securitySecrets map[string]string) me
 	agui.RateLimit = 30 // 30 requests per second per IP (wizard default)
 	agui.RateBurst = 60 // burst allowance for 30 req/s
 	agui.CORSOrigins = []string{"https://stackgenhq.github.io"}
-	agui.PasswordProtected = in.AGUIPasswordProtected
+	agui.Auth.PasswordProtected = in.AGUIPasswordProtected
 	mc := messenger.Config{
 		AGUI: agui,
 	}

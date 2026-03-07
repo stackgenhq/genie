@@ -38,7 +38,7 @@
             teams: { app_id: 'TEAMS_APP_ID', app_password: 'TEAMS_APP_PASSWORD', listen_addr: ':3978' },
             googlechat: {},
             whatsapp: {},
-            agui: { port: 9876, cors_origins: ['https://stackgenhq.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576 }
+            agui: { port: 9876, cors_origins: ['https://stackgenhq.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576, auth: { password_protected: false, password: '', trusted_issuers: [], allowed_audiences: [] } }
         },
         scm: { provider: '', token: 'SCM_TOKEN', base_url: '' },
         pm: { provider: '', api_token: 'PM_API_TOKEN', base_url: '', email: '' },
@@ -832,6 +832,7 @@
         if (!c) return;
         c.innerHTML = '';
         var a = state.messenger.agui;
+        var au = a.auth;
         c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
             fieldNumber('Port', a.port, function (v) { a.port = v; renderOutput(); }, 1024, 65535, 'HTTP server port'),
             fieldText('CORS Origins (comma-separated)', (a.cors_origins || []).join(', '), function (v) { a.cors_origins = splitCSV(v); renderOutput(); }, 'https://myapp.com', 'Allowed origins for browser access'),
@@ -839,6 +840,21 @@
             fieldNumber('Rate Burst', a.rate_burst, function (v) { a.rate_burst = v; renderOutput(); }, 1, 100, 'Burst allowance'),
             fieldNumber('Max Concurrent', a.max_concurrent, function (v) { a.max_concurrent = v; renderOutput(); }, 0, 1000, 'Max in-flight requests'),
             fieldNumber('Max Body Bytes', a.max_body_bytes, function (v) { a.max_body_bytes = v; renderOutput(); }, 0, 104857600, 'Max request body size in bytes')
+        ]));
+
+        // ── Auth ──
+        c.appendChild(el('div', { className: 'mt-6 pt-4', style: 'border-top: 1px solid rgba(0,0,0,0.06)' }, [
+            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3' }, '🔒 Authentication'),
+            el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+                fieldToggle('Password Protected', au.password_protected, function (v) { au.password_protected = v; renderAll(); },
+                    'Require X-AGUI-Password header. Password is resolved: config → AGUI_PASSWORD env var → OS keyring → auto-generated.'),
+                au.password_protected ? fieldEnvVar('Password', au.password, function (v) { au.password = v; renderOutput(); }, 'AGUI_PASSWORD',
+                    'Env var holding the password. If not set, a random password is auto-generated and printed to stdout.') : null,
+                fieldText('Trusted OIDC Issuers (comma-separated)', (au.trusted_issuers || []).join(', '), function (v) { au.trusted_issuers = splitCSV(v); renderOutput(); },
+                    'https://accounts.google.com', 'OIDC issuers whose JWT tokens are accepted (JWKS auto-discovered). When set, Bearer tokens are validated.'),
+                hasItems(au.trusted_issuers) ? fieldText('Allowed Audiences (comma-separated)', (au.allowed_audiences || []).join(', '), function (v) { au.allowed_audiences = splitCSV(v); renderOutput(); },
+                    'my-client-id', 'Optional: restrict accepted tokens to these audience values. Leave empty to accept any audience.') : null
+            ].filter(Boolean))
         ]));
     }
 
@@ -1347,6 +1363,16 @@
         lines.push('max_concurrent = ' + a.max_concurrent);
         lines.push('max_body_bytes = ' + a.max_body_bytes);
         lines.push('');
+
+        var au = a.auth;
+        if (au.password_protected || hasItems(au.trusted_issuers)) {
+            lines.push('[messenger.agui.auth]');
+            if (au.password_protected) lines.push('password_protected = true');
+            if (au.password) lines.push('password = ' + q('${' + au.password + '}'));
+            if (hasItems(au.trusted_issuers)) lines.push('trusted_issuers = [' + au.trusted_issuers.filter(Boolean).map(q).join(', ') + ']');
+            if (hasItems(au.allowed_audiences)) lines.push('allowed_audiences = [' + au.allowed_audiences.filter(Boolean).map(q).join(', ') + ']');
+            lines.push('');
+        }
     }
 
     function personaToToml(lines) {
@@ -1951,6 +1977,22 @@
         lines.push(inner + 'rate_burst: ' + a.rate_burst);
         lines.push(inner + 'max_concurrent: ' + a.max_concurrent);
         lines.push(inner + 'max_body_bytes: ' + a.max_body_bytes);
+
+        var au = a.auth;
+        if (au.password_protected || hasItems(au.trusted_issuers)) {
+            var ai = inner + '  ';
+            lines.push(inner + 'auth:');
+            if (au.password_protected) lines.push(ai + 'password_protected: true');
+            if (au.password) lines.push(ai + 'password: ' + yq('${' + au.password + '}'));
+            if (hasItems(au.trusted_issuers)) {
+                lines.push(ai + 'trusted_issuers:');
+                au.trusted_issuers.filter(Boolean).forEach(function (iss) { lines.push(ai + '  - ' + yq(iss)); });
+            }
+            if (hasItems(au.allowed_audiences)) {
+                lines.push(ai + 'allowed_audiences:');
+                au.allowed_audiences.filter(Boolean).forEach(function (aud) { lines.push(ai + '  - ' + yq(aud)); });
+            }
+        }
     }
 
     function langfuseToYaml(lines) {
