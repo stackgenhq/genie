@@ -304,8 +304,6 @@ kind: Ingress
 metadata:
   name: genie-ingress
   namespace: default
-  annotations:
-    nginx.org/mergeable-ingress-type: minion
 spec:
   ingressClassName: nginx
   rules:

@@ -31,72 +31,18 @@ terraform {
   }
 }
 
-# ── Variables ───────────────────────────────────────────────────────────────
-
-variable "aws_region" {
-  description = "AWS region where the EKS cluster lives"
-  type        = string
-  default     = "us-east-1"
-}
-
-variable "eks_cluster_name" {
-  description = "Name of the existing EKS cluster"
-  type        = string
-}
-
-variable "namespace" {
-  description = "Kubernetes namespace to deploy Genie into"
-  type        = string
-  default     = "default"
-}
-
-variable "create_namespace" {
-  description = "Whether to create the namespace (set false if it already exists)"
-  type        = bool
-  default     = false
-}
-
-variable "genie_image" {
-  description = "Container image for the Genie deployment"
-  type        = string
-  default     = "ghcr.io/stackgenhq/genie:latest"
-}
-
-variable "genie_replicas" {
-  description = "Number of Genie pod replicas"
-  type        = number
-  default     = 1
-}
-
-variable "ingress_host" {
-  description = "Hostname for the Ingress resource"
-  type        = string
-  default     = "genie.dev.stackgen.com"
-}
-
-variable "agui_port" {
-  description = "Port the AG-UI server listens on inside the container"
-  type        = number
-  default     = 9876
-}
-
-variable "aws_secrets_manager_arn" {
-  description = "ARN of the AWS Secrets Manager secret containing API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, GITHUB_TOKEN, etc.)"
-  type        = string
-}
-
 # ── Providers ───────────────────────────────────────────────────────────────
 
 provider "aws" {
-  region = var.aws_region
+  region = var.aws.region
 }
 
 data "aws_eks_cluster" "this" {
-  name = var.eks_cluster_name
+  name = var.aws.eks_cluster_name
 }
 
 data "aws_eks_cluster_auth" "this" {
-  name = var.eks_cluster_name
+  name = var.aws.eks_cluster_name
 }
 
 provider "kubernetes" {
@@ -137,7 +83,7 @@ data "aws_iam_policy_document" "genie_assume_role" {
     condition {
       test     = "StringEquals"
       variable = "${local.oidc_issuer}:sub"
-      values   = ["system:serviceaccount:${var.namespace}:genie-sa"]
+      values   = ["system:serviceaccount:${var.kubernetes.namespace}:genie-sa"]
     }
 
     condition {
@@ -169,10 +115,10 @@ resource "aws_iam_role_policy_attachment" "readonly" {
 # ═════════════════════════════════════════════════════════════════════════════
 
 resource "kubernetes_namespace" "genie" {
-  count = var.create_namespace ? 1 : 0
+  count = var.kubernetes.create_namespace ? 1 : 0
 
   metadata {
-    name = var.namespace
+    name = var.kubernetes.namespace
   }
 }
 
@@ -187,13 +133,13 @@ resource "kubernetes_manifest" "secret_store" {
     kind       = "SecretStore"
     metadata = {
       name      = "genie-secret-store"
-      namespace = var.namespace
+      namespace = var.kubernetes.namespace
     }
     spec = {
       provider = {
         aws = {
           service = "SecretsManager"
-          region  = var.aws_region
+          region  = var.aws.region
         }
       }
     }
@@ -207,7 +153,7 @@ resource "kubernetes_manifest" "external_secret" {
     kind       = "ExternalSecret"
     metadata = {
       name      = "genie-secrets"
-      namespace = var.namespace
+      namespace = var.kubernetes.namespace
     }
     spec = {
       refreshInterval = "15m"
@@ -223,42 +169,42 @@ resource "kubernetes_manifest" "external_secret" {
         {
           secretKey = "OPENAI_API_KEY"
           remoteRef = {
-            key      = var.aws_secrets_manager_arn
+            key      = var.aws.secrets_manager_arn
             property = "OPENAI_API_KEY"
           }
         },
         {
           secretKey = "ANTHROPIC_API_KEY"
           remoteRef = {
-            key      = var.aws_secrets_manager_arn
+            key      = var.aws.secrets_manager_arn
             property = "ANTHROPIC_API_KEY"
           }
         },
         {
           secretKey = "GEMINI_API_KEY"
           remoteRef = {
-            key      = var.aws_secrets_manager_arn
+            key      = var.aws.secrets_manager_arn
             property = "GEMINI_API_KEY"
           }
         },
         {
           secretKey = "GITHUB_TOKEN"
           remoteRef = {
-            key      = var.aws_secrets_manager_arn
+            key      = var.aws.secrets_manager_arn
             property = "GITHUB_TOKEN"
           }
         },
         {
           secretKey = "GRAFANA_URL"
           remoteRef = {
-            key      = var.aws_secrets_manager_arn
+            key      = var.aws.secrets_manager_arn
             property = "GRAFANA_URL"
           }
         },
         {
           secretKey = "GRAFANA_API_KEY"
           remoteRef = {
-            key      = var.aws_secrets_manager_arn
+            key      = var.aws.secrets_manager_arn
             property = "GRAFANA_API_KEY"
           }
         },
@@ -279,11 +225,27 @@ resource "kubernetes_manifest" "external_secret" {
 resource "kubernetes_config_map" "genie" {
   metadata {
     name      = "genie-config"
-    namespace = var.namespace
+    namespace = var.kubernetes.namespace
   }
 
   data = {
     "genie.toml" = file("${path.module}/genie.toml")
+  }
+}
+
+# ── Secret: Local Auth Credentials ──────────────────────────────────────────
+
+resource "kubernetes_secret" "genie_local_secrets" {
+  metadata {
+    name      = "genie-local-secrets"
+    namespace = var.kubernetes.namespace
+  }
+
+  data = {
+    AGUI_PASSWORD      = var.auth.password
+    OIDC_ISSUER_URL    = var.auth.oidc_issuer_url
+    OIDC_CLIENT_ID     = var.auth.oidc_client_id
+    OIDC_CLIENT_SECRET = var.auth.oidc_client_secret
   }
 }
 
@@ -292,7 +254,7 @@ resource "kubernetes_config_map" "genie" {
 resource "kubernetes_service_account" "genie" {
   metadata {
     name      = "genie-sa"
-    namespace = var.namespace
+    namespace = var.kubernetes.namespace
 
     annotations = {
       "eks.amazonaws.com/role-arn" = aws_iam_role.genie_readonly.arn
@@ -309,7 +271,7 @@ resource "kubernetes_service_account" "genie" {
 resource "kubernetes_deployment" "genie" {
   metadata {
     name      = "genie-deployment"
-    namespace = var.namespace
+    namespace = var.kubernetes.namespace
 
     labels = {
       app = "genie"
@@ -317,7 +279,7 @@ resource "kubernetes_deployment" "genie" {
   }
 
   spec {
-    replicas = var.genie_replicas
+    replicas = var.genie.replicas
 
     selector {
       match_labels = {
@@ -337,16 +299,23 @@ resource "kubernetes_deployment" "genie" {
 
         container {
           name              = "genie"
-          image             = var.genie_image
+          image             = var.genie.image
           image_pull_policy = "Always"
 
           port {
-            container_port = var.agui_port
+            container_port = var.genie.port
           }
 
           env_from {
             secret_ref {
               name     = "genie-secrets"
+              optional = true
+            }
+          }
+
+          env_from {
+            secret_ref {
+              name     = kubernetes_secret.genie_local_secrets.metadata[0].name
               optional = true
             }
           }
@@ -375,7 +344,7 @@ resource "kubernetes_deployment" "genie" {
 resource "kubernetes_service" "genie" {
   metadata {
     name      = "genie-service"
-    namespace = var.namespace
+    namespace = var.kubernetes.namespace
   }
 
   spec {
@@ -386,7 +355,7 @@ resource "kubernetes_service" "genie" {
     port {
       protocol    = "TCP"
       port        = 80
-      target_port = var.agui_port
+      target_port = var.genie.port
     }
 
     type = "ClusterIP"
@@ -398,18 +367,14 @@ resource "kubernetes_service" "genie" {
 resource "kubernetes_ingress_v1" "genie" {
   metadata {
     name      = "genie-ingress"
-    namespace = var.namespace
-
-    annotations = {
-      "nginx.org/mergeable-ingress-type" = "minion"
-    }
+    namespace = var.kubernetes.namespace
   }
 
   spec {
     ingress_class_name = "nginx"
 
     rule {
-      host = var.ingress_host
+      host = var.kubernetes.ingress_host
 
       http {
         path {
@@ -445,10 +410,10 @@ output "service_account_name" {
 
 output "service_endpoint" {
   description = "Internal cluster service endpoint"
-  value       = "${kubernetes_service.genie.metadata[0].name}.${var.namespace}.svc.cluster.local"
+  value       = "${kubernetes_service.genie.metadata[0].name}.${var.kubernetes.namespace}.svc.cluster.local"
 }
 
 output "ingress_host" {
   description = "Ingress hostname for external access"
-  value       = var.ingress_host
+  value       = var.kubernetes.ingress_host
 }
