@@ -1744,6 +1744,7 @@
 
     /** Assemble K8s Deployment YAML output. */
     function toK8s() {
+        var a = state.messenger.agui;
         var tomlOutput = toToml();
         var indentedToml = tomlOutput.split('\n').map(function (line) { return line ? '    ' + line : ''; }).join('\n');
         return [
@@ -1778,7 +1779,7 @@
             '          image: ghcr.io/stackgenhq/genie:latest',
             '          imagePullPolicy: Always',
             '          ports:',
-            '            - containerPort: 8080',
+            '            - containerPort: ' + a.port,
             '          volumeMounts:',
             '            - name: config-volume',
             '              mountPath: /app/genie.toml',
@@ -1799,7 +1800,7 @@
             '  ports:',
             '    - protocol: TCP',
             '      port: 80',
-            '      targetPort: 8080',
+            '      targetPort: ' + a.port,
             '  type: ClusterIP',
             '---',
             'apiVersion: networking.k8s.io/v1',
@@ -2275,7 +2276,9 @@
             ]),
             el('p', { className: 'install-modal-copied' }, 'Your config has been copied to the clipboard.'),
             el('p', { className: 'install-modal-congrats' }, 'Congratulations on taking the first step to having a secure assistant.'),
-            el('p', { className: 'install-modal-hint' }, 'Config file: ' + configFile + ' in your home directory or project root. Prefer terminal? Run genie setup for guided config creation.'),
+            el('p', { className: 'install-modal-hint' }, state.format === 'k8s'
+                ? 'Apply your deployment with: kubectl apply -f deployment.yaml'
+                : 'Config file: ' + configFile + ' in your home directory or project root. Prefer terminal? Run genie setup for guided config creation.'),
             el('div', { className: 'install-modal-tabs' }, tabButtons),
             el('div', { id: 'install-modal-body', className: 'install-modal-body' }, stepsHtml(currentOS))
         ]);

@@ -16,7 +16,7 @@ const (
 	// aguiPasswordEnv is the environment variable checked for the password.
 	aguiPasswordEnv = "AGUI_PASSWORD"
 
-	// generatedPasswordBytes is the number of random bytes for auto-generated passwords (32 bytes = 64 hex chars).
+	// generatedPasswordBytes is the number of random bytes for auto-generated passwords (16 bytes = 32 hex chars).
 	generatedPasswordBytes = 16
 )
 

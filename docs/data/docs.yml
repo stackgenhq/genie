@@ -113,7 +113,7 @@ config_sections:
       - label: "\U0001F512 Password Auth ([messenger.agui.auth.password])"
         columns: [Key, Type, Default, Description]
         rows:
-          - ["enabled", "bool", "`false`", "Require password authentication. When true, every request must include the password via `X-AGUI-Password` header or `?password=` query param"]
+          - ["enabled", "bool", "`false`", "Require password authentication. When true, every request must include the password via `X-AGUI-Password` header"]
           - ["value", "string", "\u2014", "Plaintext password (prefer `${AGUI_PASSWORD}` env var). Resolution order: config \u2192 `AGUI_PASSWORD` env \u2192 OS keyring \u2192 auto-generated (shown in stdout)"]
       - label: "\U0001F510 JWT / OIDC Auth ([messenger.agui.auth.jwt])"
         columns: [Key, Type, Default, Description]
@@ -148,7 +148,7 @@ config_sections:
           - ["Enterprise SSO", "Set `trusted_issuers` under `[messenger.agui.auth.jwt]` to your IdP (Google, Okta, Azure AD, Cognito) and optionally restrict `allowed_audiences`"]
           - ["Browser SSO", "Configure `[messenger.agui.auth.oidc]` with your IdP's issuer URL and credentials, restrict `allowed_domains` to your company domain"]
           - ["Machine-to-Machine", "Use `[messenger.agui.auth.api_keys]` for CI/CD pipelines, bots, and scripts that need non-interactive access"]
-          - ["Auth precedence", "Only ONE strategy is active. Precedence: OIDC > API Keys > JWT > Password"]
+          - ["Auth precedence", "Only ONE strategy is active per request. Precedence: OIDC > API Keys > JWT > Password. For stronger defense-in-depth, combine Genie auth with network-layer controls (VPN, IP allowlists) or a reverse proxy/WAF."]
     code_example:
       label: Example TOML
       code: |

@@ -205,7 +205,7 @@ enabled = true
 # redirect_url = "https://genie.yourcompany.com/auth/callback"
 
 [hitl]
-always_allowed = ["run_shell"]
+always_allowed = []
 
 # ── PII Redaction ────────────────────────────────────────────────────────────
 [pii]

@@ -418,9 +418,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/auth/info", s.oidcHandler.HandleAuthInfo)
 	}
 
-	if s.authMiddleware != nil {
-		r.Use(s.authMiddleware)
-	}
+	r.Use(s.authMiddleware)
 
 	// AG-UI run endpoint
 	r.Post("/", s.handleRun)

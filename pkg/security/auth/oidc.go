@@ -127,6 +127,9 @@ func (h *OIDCHandler) getProvider(ctx context.Context) (*oidc.Provider, error) {
 	if initErr != nil {
 		return nil, fmt.Errorf("OIDC provider init: %w", initErr)
 	}
+	if h.provider == nil {
+		return nil, fmt.Errorf("OIDC provider init: provider is nil")
+	}
 	return h.provider, nil
 }
 
@@ -200,10 +203,12 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Clear the state cookie.
 	http.SetCookie(w, &http.Cookie{
-		Name:   stateCookieName,
-		Value:  "",
-		Path:   "/auth",
-		MaxAge: -1,
+		Name:     stateCookieName,
+		Value:    "",
+		Path:     "/auth",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   isSecureRequest(r),
 	})
 
 	// Check for errors from provider.
