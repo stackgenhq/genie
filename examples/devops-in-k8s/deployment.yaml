@@ -271,6 +271,13 @@ spec:
         - name: genie
           image: ghcr.io/stackgenhq/genie:latest
           imagePullPolicy: Always
+          securityContext:
+            runAsUser: 0
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - apk add --no-cache aws-cli jq curl bash su-exec && exec su-exec stackgen /usr/local/bin/genie
           ports:
             - containerPort: 9876
           envFrom:

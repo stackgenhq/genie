@@ -302,6 +302,13 @@ resource "kubernetes_deployment" "genie" {
           image             = var.genie.image
           image_pull_policy = "Always"
 
+          security_context {
+            run_as_user = 0
+          }
+
+          command = ["/bin/sh", "-c"]
+          args    = ["apk add --no-cache aws-cli jq curl bash su-exec && exec su-exec stackgen /usr/local/bin/genie"]
+
           port {
             container_port = var.genie.port
           }
