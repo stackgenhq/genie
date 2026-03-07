@@ -526,8 +526,14 @@
                         if (oauthTab) oauthTab.style.display = '';
 
                         // NEW: Automatically redirect to login since oauth is the preferred method
-                        window.location.href = serverUrl + serverOAuthLoginUrl;
-                        return; // Ensure no modal is shown on redirect
+                        try {
+                            const loginUrl = new URL(serverOAuthLoginUrl, serverUrl).toString();
+                            window.location.href = loginUrl;
+                            return; // Ensure no modal is shown on redirect
+                        } catch (e) {
+                            // If URL construction fails, log and fall through to showing the auth modal.
+                            console.error('Invalid OAuth login URL', e);
+                        }
                     } else if ((errBody && errBody.auth_method === 'jwt') || (errBody && errBody.error === 'missing_token') || (errBody && errBody.error === 'invalid_token')) {
                         preferredTab = 'token';
                     } else if (errBody && errBody.auth_method === 'apikey') {

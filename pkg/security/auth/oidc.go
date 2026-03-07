@@ -95,7 +95,7 @@ func (h *OIDCHandler) Authenticate(w http.ResponseWriter, r *http.Request) *auth
 	w.WriteHeader(http.StatusUnauthorized)
 	json.NewEncoder(w).Encode(map[string]interface{}{ //nolint:errcheck
 		"error":         "missing_token",
-		"message":       "Authorization: Bearer <token> or X-AGUI-Password required",
+		"message":       "OIDC login required. Use login_url to start the browser-based login flow; subsequent requests must include the session cookie.",
 		"oauth_enabled": true,
 		"login_url":     "/auth/login",
 		"auth_method":   "oidc",

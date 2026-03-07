@@ -9,8 +9,8 @@ import (
 
 func DemoUser() authcontext.Principal {
 	return authcontext.Principal{
-		ID:               "demo-genie-user",
-		Name:             "Demo Genie User",
+		ID:               "demo-user",
+		Name:             "Demo User",
 		Role:             "demo",
 		AuthenticatedVia: "none",
 	}

@@ -233,21 +233,37 @@ resource "kubernetes_config_map" "genie" {
   }
 }
 
-# ── Secret: Local Auth Credentials ──────────────────────────────────────────
+# ── Secret: Local Auth Credentials (not managed by Terraform) ──────────────
+#
+# IMPORTANT SECURITY NOTE:
+#   Do NOT store real authentication credentials in Terraform-managed
+#   Kubernetes secrets, as they will be persisted in Terraform state.
+#
+#   Instead, create the following Kubernetes Secret out-of-band (for example
+#   using:
+#     - an external secrets solution (e.g., AWS Secrets Manager + External
+#       Secrets Operator), or
+#     - a separate secure deployment step / kubectl manifest),
+#   and ensure it exists in the target namespace:
+#
+#   apiVersion: v1
+#   kind: Secret
+#   metadata:
+#     name: genie-local-secrets
+#     namespace: <your-namespace>
+#   type: Opaque
+#   stringData:
+#     AGUI_PASSWORD: "<strong-password>"
+#     OIDC_ISSUER_URL: "<your-oidc-issuer-url>"
+#     OIDC_CLIENT_ID: "<your-oidc-client-id>"
+#     OIDC_CLIENT_SECRET: "<your-oidc-client-secret>"
+#
+#   The rest of this Terraform configuration assumes that a Secret named
+#   "genie-local-secrets" with these keys is present, but it no longer
+#   manages or sees the secret values themselves.
 
-resource "kubernetes_secret" "genie_local_secrets" {
-  metadata {
-    name      = "genie-local-secrets"
-    namespace = var.kubernetes.namespace
-  }
-
-  data = {
-    AGUI_PASSWORD      = var.auth.password
-    OIDC_ISSUER_URL    = var.auth.oidc_issuer_url
-    OIDC_CLIENT_ID     = var.auth.oidc_client_id
-    OIDC_CLIENT_SECRET = var.auth.oidc_client_secret
-  }
-}
+# NOTE: No kubernetes_secret resource is defined here on purpose to avoid
+# leaking credentials into Terraform state.
 
 # ── ServiceAccount: annotated with the IRSA role ARN ────────────────────────
 
@@ -303,11 +319,13 @@ resource "kubernetes_deployment" "genie" {
           image_pull_policy = "Always"
 
           security_context {
-            run_as_user = 0
+            # Run as non-root; ensure this UID exists in the image.
+            run_as_user = 1000
           }
 
           command = ["/bin/sh", "-c"]
-          args    = ["apk add --no-cache aws-cli jq curl bash su-exec && exec su-exec stackgen /usr/local/bin/genie"]
+          # Assume required tools are baked into the image; just run Genie.
+          args    = ["exec /usr/local/bin/genie"]
 
           port {
             container_port = var.genie.port
@@ -322,7 +340,7 @@ resource "kubernetes_deployment" "genie" {
 
           env_from {
             secret_ref {
-              name     = kubernetes_secret.genie_local_secrets.metadata[0].name
+              name     = "genie-local-secrets"
               optional = true
             }
           }
