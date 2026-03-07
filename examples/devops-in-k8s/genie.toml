@@ -207,6 +207,22 @@ persistence_dir = "${PWD}/.genie/vector_store"
 port = 9876
 cors_origins = ["https://stackgenhq.github.io", "http://localhost:8123"]
 
+# ── AG-UI Authentication ────────────────────────────────────────────
+# Password protection is enabled by default. Set the auth.password value
+# (for example via the Terraform variable path var.auth.password or its
+# corresponding environment-variable wiring in this example) to use a
+# static password. If left empty, an auto-generated password will be
+# logged during container startup.
+[messenger.agui.auth.password]
+enabled = true
+
+# To use OIDC (Single Sign-On) instead, comment out the password section
+# above and uncomment the section below. Supply values via variables.tf.
+# [messenger.agui.auth.oidc]
+# issuer_url = "${OIDC_ISSUER_URL}"
+# client_id = "${OIDC_CLIENT_ID}"
+# client_secret = "${OIDC_CLIENT_SECRET}"
+
 [hitl]
 always_allowed = []
 

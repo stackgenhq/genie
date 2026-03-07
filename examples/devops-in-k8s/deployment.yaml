@@ -271,6 +271,10 @@ spec:
         - name: genie
           image: ghcr.io/stackgenhq/genie:latest
           imagePullPolicy: Always
+          securityContext:
+            runAsNonRoot: true
+          command:
+            - /usr/local/bin/genie
           ports:
             - containerPort: 9876
           envFrom:
@@ -304,8 +308,6 @@ kind: Ingress
 metadata:
   name: genie-ingress
   namespace: default
-  annotations:
-    nginx.org/mergeable-ingress-type: minion
 spec:
   ingressClassName: nginx
   rules:

@@ -28,10 +28,11 @@ const maxAccumulatedContentLen = 50000
 // This adapter exists to bridge the gap between the agent's event stream and the TUI's message system.
 // Without this adapter, the TUI would not be able to understand and display agent events.
 type EventAdapter struct {
-	agentName            string
-	currentMessageID     string // tracks open TEXT_MESSAGE for lifecycle
-	accumulatedContent   string // buffer for current message (for repetition detection)
-	repetitionSuppressed bool   // when true, do not emit more text for this message
+	agentName                string
+	currentMessageID         string // tracks open TEXT_MESSAGE for lifecycle
+	accumulatedContent       string // buffer for current message (for repetition detection)
+	repetitionSuppressed     bool   // when true, do not emit more text for this message
+	streamedInCurrentLLMStep bool   // tracks if we've seen stream chunks before Done
 }
 
 // NewEventAdapter creates a new event adapter for the given agent name.
@@ -158,11 +159,31 @@ func (a *EventAdapter) ConvertEvent(evt *event.Event) []interface{} {
 		// of the stream (runaway LLM output), we truncate and close the message so
 		// the UI does not hang on an unbounded stream.
 		streamContent := choice.Delta.Content
-		if streamContent == "" {
-			streamContent = choice.Message.Content
-		}
 		isFinalAccumulated := evt.Done && !evt.IsPartial
-		if streamContent != "" && (!isFinalAccumulated || a.currentMessageID == "") {
+
+		if isFinalAccumulated {
+			if !a.streamedInCurrentLLMStep {
+				// If we never streamed, take the full accumulated message text
+				if streamContent == "" {
+					streamContent = choice.Message.Content
+				}
+			} else {
+				// If we DID stream, we already emitted the text chunk-by-chunk. Ignore the accumulated text.
+				streamContent = ""
+			}
+		} else if evt.IsPartial {
+			// Mark that this step is streaming
+			a.streamedInCurrentLLMStep = true
+			if streamContent == "" {
+				streamContent = choice.Message.Content
+			}
+		} else {
+			if streamContent == "" {
+				streamContent = choice.Message.Content
+			}
+		}
+
+		if streamContent != "" {
 			// Emit TEXT_MESSAGE_START on the first chunk of a new message.
 			if a.currentMessageID == "" {
 				a.currentMessageID = uuid.NewString()
@@ -280,6 +301,11 @@ func (a *EventAdapter) ConvertEvent(evt *event.Event) []interface{} {
 				})
 			}
 		}
+	}
+
+	// Reset streaming flag when the LLM step is completely finished
+	if evt.Done && !evt.IsPartial {
+		a.streamedInCurrentLLMStep = false
 	}
 
 	return messages

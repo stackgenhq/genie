@@ -517,15 +517,27 @@
                 let preferredTab = 'password';
                 try {
                     const errBody = await res.json();
-                    if (errBody && errBody.oauth_enabled) {
+                    if ((errBody && errBody.auth_method === 'oidc') || (errBody && errBody.oauth_enabled)) {
                         serverSupportsOAuth = true;
                         serverOAuthLoginUrl = errBody.login_url || '/auth/login';
                         preferredTab = 'oauth';
                         // Show the Google tab.
                         const oauthTab = document.getElementById('auth-tab-oauth');
                         if (oauthTab) oauthTab.style.display = '';
-                    } else if (errBody && (errBody.error === 'missing_token' || errBody.error === 'invalid_token')) {
+
+                        // NEW: Automatically redirect to login since oauth is the preferred method
+                        try {
+                            const loginUrl = new URL(serverOAuthLoginUrl, serverUrl).toString();
+                            window.location.href = loginUrl;
+                            return; // Ensure no modal is shown on redirect
+                        } catch (e) {
+                            // If URL construction fails, log and fall through to showing the auth modal.
+                            console.error('Invalid OAuth login URL', e);
+                        }
+                    } else if ((errBody && errBody.auth_method === 'jwt') || (errBody && errBody.error === 'missing_token') || (errBody && errBody.error === 'invalid_token')) {
                         preferredTab = 'token';
+                    } else if (errBody && errBody.auth_method === 'apikey') {
+                        preferredTab = 'token'; // fallback token for api key UI
                     }
                 } catch (_parseErr) { /* fallback to password tab */ }
                 showAuthModal(preferredTab);

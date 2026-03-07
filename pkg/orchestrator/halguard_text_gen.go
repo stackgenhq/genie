@@ -57,6 +57,7 @@ func newHalguardTextGenerator(auditor audit.Auditor, toolwrapSvc *toolwrap.Servi
 			Mode: expert.ExpertConfig{
 				MaxLLMCalls:       1,
 				MaxToolIterations: 0,
+				Silent:            true,
 			},
 		})
 		if err != nil {

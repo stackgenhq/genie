@@ -310,7 +310,9 @@ func (e *expert) Do(ctx context.Context, req Request) (Response, error) {
 		if ev.Response != nil && ev.Usage != nil {
 			response.Usage = ev.Usage
 		}
-		e.emitEventToTUI(ctx, ev)
+		if !req.Mode.Silent {
+			e.emitEventToTUI(ctx, ev)
+		}
 
 		// Debug: log agent thought preview (short to avoid log spam)
 		for _, choice := range ev.Choices {

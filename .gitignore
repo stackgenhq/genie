@@ -13,5 +13,6 @@ examples/**/.genie/*
 *.out
 .genie
 examples/devops-in-k8s/.terraform
-examples/devops-in-k8s/dev.tfvars
+examples/devops-in-k8s/*auto.tfvars
 installation/k8s/.terraform
+backend.tf

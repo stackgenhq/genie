@@ -229,7 +229,7 @@ var _ = Describe("Auth Middleware", func() {
 			Expect(body["login_url"]).To(Equal("/auth/login"))
 		})
 
-		It("returns auth_required when only OIDC configured", func() {
+		It("returns missing_token when only OIDC configured", func() {
 			oh := auth.NewOIDCHandler(oidcCfg("test-id", "test-secret", func(c *auth.Config) {
 				c.OIDC.CookieSecret = "test-cookie-secret-32-bytes-long!"
 			}))
@@ -243,7 +243,7 @@ var _ = Describe("Auth Middleware", func() {
 
 			var body map[string]interface{}
 			Expect(json.NewDecoder(rec.Body).Decode(&body)).To(Succeed())
-			Expect(body["error"]).To(Equal("auth_required"))
+			Expect(body["error"]).To(Equal("missing_token"))
 			Expect(body["oauth_enabled"]).To(BeTrue())
 		})
 	})

@@ -7,6 +7,15 @@ import (
 	"github.com/stackgenhq/genie/pkg/security/authcontext"
 )
 
+func DemoUser() authcontext.Principal {
+	return authcontext.Principal{
+		ID:               "demo-user",
+		Name:             "Demo User",
+		Role:             "demo",
+		AuthenticatedVia: "none",
+	}
+}
+
 // Authenticator defines a pluggable authentication strategy.
 // An authenticator is responsible for verifying the request and issuing HTTP
 // error responses if the request is unauthorized.
@@ -31,12 +40,7 @@ func Middleware(cfg Config, oidcHandler ...*OIDCHandler) func(http.Handler) http
 		// No auth configured → inject a demo principal and pass through.
 		return func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				ctx := authcontext.WithPrincipal(r.Context(), authcontext.Principal{
-					ID:               "demo-user",
-					Name:             "Demo User",
-					Role:             "demo",
-					AuthenticatedVia: "none",
-				})
+				ctx := authcontext.WithPrincipal(r.Context(), DemoUser())
 				next.ServeHTTP(w, r.WithContext(ctx))
 			})
 		}
@@ -77,11 +81,15 @@ func resolveAuthenticator(cfg Config, oh *OIDCHandler) Authenticator {
 }
 
 // writeJSON writes a JSON error response.
-func writeJSON(w http.ResponseWriter, status int, code, message string) {
+func writeJSON(w http.ResponseWriter, status int, code, message, authMethod string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]interface{}{ //nolint:errcheck
+	payload := map[string]interface{}{
 		"error":   code,
 		"message": message,
-	})
+	}
+	if authMethod != "" {
+		payload["auth_method"] = authMethod
+	}
+	json.NewEncoder(w).Encode(payload) //nolint:errcheck
 }

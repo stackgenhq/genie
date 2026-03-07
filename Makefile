@@ -54,11 +54,12 @@ deps:
 
 # ------------------------------ build commands ------------------------------
 .PHONY: build
-build: setup only-build ## Build the binary
+build: only-build ## Build the binary
 
 # Build the binary only
 .PHONY: only-build
 only-build: 
+	@mkdir -p $(DIST_DIR)
 	@$(GO_BUILD) $(GO_BUILD_FLAGS) -o $(DIST_DIR)/$(BINARY_NAME) .
 
 # Build for multiple platforms

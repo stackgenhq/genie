@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Refactored `examples/devops-in-k8s` Terraform configurations to use structured input objects (`aws`, `genie`, `kubernetes`, `auth`) and properly inject local authentication configuration.
+- Updated `examples/devops-in-k8s` k8s deployments to launch as root (`runAsUser: 0`) and included additional required runtime utilities (`aws-cli jq curl bash su-exec`).
 - `Authenticator.Authenticate` now returns `*authcontext.Principal` instead of `bool`, enabling the auth middleware to inject identity metadata into the request context. When no auth is configured, a demo principal (`demo-user`) is injected as a pass-through.
 - Parallelized execution of cross-model text generation during the `halguard` Post-Check using `errgroup`, significantly reducing latency.
 - Refactored `semanticrouter` gatekeeper integration in the orchestrator to consume the `IRouter` interface, lowering code coupling.

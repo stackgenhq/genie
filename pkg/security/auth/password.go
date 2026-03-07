@@ -38,7 +38,7 @@ func (p *passwordAuth) Authenticate(w http.ResponseWriter, r *http.Request) *aut
 			AuthenticatedVia: "password",
 		}
 	}
-	writeJSON(w, http.StatusUnauthorized, "invalid_password", "Password required to connect")
+	writeJSON(w, http.StatusUnauthorized, "invalid_password", "Password required to connect", "password")
 	return nil
 }
 
