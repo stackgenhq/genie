@@ -343,6 +343,22 @@
 
     <script src="js/nav.js"></script>
     <script src="js/chat.js?v=1"></script>
+    <script>
+        window.addEventListener('load', function () {
+            if (window.location.hostname !== "stackgenhq.github.io") {
+                const params = new URLSearchParams(window.location.search);
+                if (!params.get('url') && !params.get('genie_url')) {
+                    const endpointInput = document.getElementById('endpoint-input');
+                    if (endpointInput) {
+                        endpointInput.value = window.location.origin;
+                        if (window.genie && typeof window.genie.connectToServer === 'function') {
+                            setTimeout(window.genie.connectToServer, 100);
+                        }
+                    }
+                }
+            }
+        });
+    </script>
 
 </body>
 

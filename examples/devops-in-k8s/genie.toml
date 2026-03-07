@@ -216,6 +216,7 @@ rate_burst = 100
 issuer_url = "${OIDC_ISSUER_URL}"
 client_id = "${OIDC_CLIENT_ID}"
 client_secret = "${OIDC_CLIENT_SECRET}"
+allowed_domains = ["stackgen.com"]
 
 
 # ── AG-UI Authentication ────────────────────────────────────────────

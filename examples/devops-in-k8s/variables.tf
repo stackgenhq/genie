@@ -28,15 +28,3 @@ variable "kubernetes" {
   })
   default = {}
 }
-
-variable "auth" {
-  description = "Authentication configuration for the AG-UI server"
-  type = object({
-    password           = optional(string, "")
-    oidc_issuer_url    = optional(string, "")
-    oidc_client_id     = optional(string, "")
-    oidc_client_secret = optional(string, "")
-  })
-  sensitive = true
-  default   = {}
-}
