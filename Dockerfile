@@ -23,16 +23,16 @@ FROM alpine:3.23@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f21
 RUN apk add --no-cache ca-certificates
 
 # Run as a non-root user for security best practices.
-RUN addgroup -S genie && adduser -S -G genie -u 65532 genie \
-    && mkdir -p /home/genie/.config /workspace \
-    && chown -R genie:genie /home/genie /workspace
+RUN addgroup -S stackgen && adduser -S -G stackgen -u 65532 stackgen \
+    && mkdir -p /home/stackgen/.config /workspace \
+    && chown -R stackgen:stackgen /home/stackgen /workspace
 
 COPY --from=builder /usr/local/bin/genie /usr/local/bin/genie
 
-USER genie
+USER stackgen
 
 # Default config directory
-VOLUME ["/home/genie/.config"]
+VOLUME ["/home/stackgen/.config"]
 
 # Default working directory for project files
 WORKDIR /workspace
