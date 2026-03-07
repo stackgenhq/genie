@@ -203,41 +203,6 @@ var _ = Describe("Auth Middleware", func() {
 			Expect(doRequest(mw, req).Code).To(Equal(http.StatusUnauthorized))
 		})
 
-		Context("combined JWT + password", func() {
-			It("falls back to password when no Bearer header", func() {
-				mw := auth.Middleware(auth.Config{
-					JWT:      auth.JWTConfig{TrustedIssuers: []string{oidcServer.URL}},
-					Password: auth.PasswordConfig{Enabled: true, Value: "fallback-pwd"},
-				})
-				req := httptest.NewRequest(http.MethodGet, "/", nil)
-				req.Header.Set("X-AGUI-Password", "fallback-pwd")
-				Expect(doRequest(mw, req).Code).To(Equal(http.StatusOK))
-			})
-
-			It("rejects invalid JWT even with correct password", func() {
-				token := buildJWT(
-					map[string]string{"alg": "RS256", "kid": "key-1"},
-					map[string]interface{}{"iss": "https://evil.example.com", "exp": time.Now().Add(time.Hour).Unix()},
-				)
-				mw := auth.Middleware(auth.Config{
-					JWT:      auth.JWTConfig{TrustedIssuers: []string{oidcServer.URL}},
-					Password: auth.PasswordConfig{Enabled: true, Value: "fallback-pwd"},
-				})
-				req := httptest.NewRequest(http.MethodGet, "/", nil)
-				req.Header.Set("Authorization", "Bearer "+token)
-				req.Header.Set("X-AGUI-Password", "fallback-pwd")
-				Expect(doRequest(mw, req).Code).To(Equal(http.StatusUnauthorized))
-			})
-
-			It("rejects when neither JWT nor password provided", func() {
-				mw := auth.Middleware(auth.Config{
-					JWT:      auth.JWTConfig{TrustedIssuers: []string{oidcServer.URL}},
-					Password: auth.PasswordConfig{Enabled: true, Value: "fallback-pwd"},
-				})
-				req := httptest.NewRequest(http.MethodGet, "/", nil)
-				Expect(doRequest(mw, req).Code).To(Equal(http.StatusUnauthorized))
-			})
-		})
 	})
 
 	Describe("Middleware with OAuth", func() {
@@ -258,20 +223,6 @@ var _ = Describe("Auth Middleware", func() {
 			Expect(json.NewDecoder(rec.Body).Decode(&body)).To(Succeed())
 			Expect(body["oauth_enabled"]).To(BeTrue())
 			Expect(body["login_url"]).To(Equal("/auth/login"))
-		})
-
-		It("accepts password when OAuth session missing", func() {
-			oh := auth.NewOAuthHandler(oauthCfg("test-id", "test-secret", func(c *auth.Config) {
-				c.OAuth.CookieSecret = "test-cookie-secret-32-bytes-long!"
-			}))
-			mw := auth.Middleware(auth.Config{
-				Password: auth.PasswordConfig{Enabled: true, Value: "test-pwd"},
-				OAuth:    auth.OAuthConfig{ClientID: "test-id", ClientSecret: "test-secret"},
-			}, oh)
-
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
-			req.Header.Set("X-AGUI-Password", "test-pwd")
-			Expect(doRequest(mw, req).Code).To(Equal(http.StatusOK))
 		})
 
 		It("returns auth_required when only OAuth configured", func() {

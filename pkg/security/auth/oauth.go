@@ -78,6 +78,23 @@ func NewOAuthHandler(cfg Config) *OAuthHandler {
 	}
 }
 
+// Authenticate implements the Authenticator interface.
+func (h *OAuthHandler) Authenticate(w http.ResponseWriter, r *http.Request) bool {
+	if session := h.ValidateSession(r); session != nil {
+		return true
+	}
+	// Return a special JSON payload the UI uses to offer login
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	json.NewEncoder(w).Encode(map[string]interface{}{ //nolint:errcheck
+		"error":         "auth_required",
+		"message":       "Authentication required",
+		"oauth_enabled": true,
+		"login_url":     "/auth/login",
+	})
+	return false
+}
+
 // resolveCookieSecret resolves the cookie signing key from config, env, or auto-generates one.
 func resolveCookieSecret(configured string) []byte {
 	if configured != "" {

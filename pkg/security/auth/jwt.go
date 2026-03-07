@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 
@@ -31,6 +32,21 @@ func newJWTValidator(cfg JWTConfig) *jwtValidator {
 		audiences:      cfg.AllowedAudiences,
 		verifiers:      make(map[string]*oidc.IDTokenVerifier),
 	}
+}
+
+// Authenticate implements the Authenticator interface.
+func (v *jwtValidator) Authenticate(w http.ResponseWriter, r *http.Request) bool {
+	authHeader := r.Header.Get("Authorization")
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		writeJSON(w, http.StatusUnauthorized, "missing_token", "Authorization: Bearer <token> required")
+		return false
+	}
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	if err := v.validate(r.Context(), token); err == nil {
+		return true
+	}
+	writeJSON(w, http.StatusUnauthorized, "invalid_token", "Bearer token validation failed")
+	return false
 }
 
 // validate checks that the token is a valid JWT signed by one of the trusted issuers.

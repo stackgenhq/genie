@@ -2,8 +2,10 @@ package auth
 
 import (
 	cryptorand "crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"os"
 
 	"github.com/stackgenhq/genie/pkg/security/keyring"
@@ -16,6 +18,26 @@ const (
 	// generatedPasswordBytes is the number of random bytes for auto-generated passwords (32 bytes = 64 hex chars).
 	generatedPasswordBytes = 16
 )
+
+func newPasswordAuth(cfg Config) Authenticator {
+	return &passwordAuth{password: resolvePassword(cfg)}
+}
+
+type passwordAuth struct {
+	password []byte
+}
+
+func (p *passwordAuth) Authenticate(w http.ResponseWriter, r *http.Request) bool {
+	provided := r.Header.Get("X-AGUI-Password")
+	if provided == "" {
+		provided = r.URL.Query().Get("password")
+	}
+	if provided != "" && subtle.ConstantTimeCompare(p.password, []byte(provided)) == 1 {
+		return true
+	}
+	writeJSON(w, http.StatusUnauthorized, "invalid_password", "Password required to connect")
+	return false
+}
 
 // resolvePassword determines the AG-UI password from the first available source:
 //  1. Config.Password field (set directly in genie.toml / struct)
