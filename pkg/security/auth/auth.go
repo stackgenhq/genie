@@ -3,15 +3,18 @@ package auth
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/stackgenhq/genie/pkg/security/authcontext"
 )
 
 // Authenticator defines a pluggable authentication strategy.
 // An authenticator is responsible for verifying the request and issuing HTTP
 // error responses if the request is unauthorized.
 type Authenticator interface {
-	// Authenticate inspects the request. Returns true if authorized.
-	// If false, it must write the appropriate HTTP error to the ResponseWriter.
-	Authenticate(w http.ResponseWriter, r *http.Request) bool
+	// Authenticate inspects the request. Returns a non-nil Principal on success.
+	// On failure it must write the appropriate HTTP error to the ResponseWriter
+	// and return nil.
+	Authenticate(w http.ResponseWriter, r *http.Request) *authcontext.Principal
 }
 
 // Middleware returns an http.Handler middleware that enforces authentication
@@ -25,7 +28,18 @@ func Middleware(cfg Config, oidcHandler ...*OIDCHandler) func(http.Handler) http
 
 	auth := resolveAuthenticator(cfg, oh)
 	if auth == nil {
-		return func(next http.Handler) http.Handler { return next } // no-op passthrough
+		// No auth configured → inject a demo principal and pass through.
+		return func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				ctx := authcontext.WithPrincipal(r.Context(), authcontext.Principal{
+					ID:               "demo-user",
+					Name:             "Demo User",
+					Role:             "demo",
+					AuthenticatedVia: "none",
+				})
+				next.ServeHTTP(w, r.WithContext(ctx))
+			})
+		}
 	}
 
 	return func(next http.Handler) http.Handler {
@@ -36,8 +50,9 @@ func Middleware(cfg Config, oidcHandler ...*OIDCHandler) func(http.Handler) http
 				return
 			}
 
-			if auth.Authenticate(w, r) {
-				next.ServeHTTP(w, r)
+			if p := auth.Authenticate(w, r); p != nil {
+				ctx := authcontext.WithPrincipal(r.Context(), *p)
+				next.ServeHTTP(w, r.WithContext(ctx))
 			}
 		})
 	}

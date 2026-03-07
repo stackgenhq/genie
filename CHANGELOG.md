@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- New `coding` task type (`TaskCoding`) for pure code generation, algorithmic problem solving, and script writing — benchmarked via HumanEval / MBPP / LiveCodeBench. Orchestrator `create_agent` tool description and JSON schema updated to surface the new option alongside `planning`, `tool_calling`, `terminal_calling`, and `efficiency`.
 - Hallucination guard module (`halguard`) providing a two-phase check: a pre-execution multi-signal verification using weighted signals (e.g., Role-Play detection, Information Density) and a post-execution multi-model consistency checker based on Finch-Zk to catch potential LLM hallucinations.
 - OpenTelemetry (OTel) spans and attributes recorded for hallucination guard `PreCheck` and `PostCheck` execution.
 - Direct EventBus emission via `emitShortCircuit` for refused/out-of-scope orchestrator responses, bypassing the EventAdapter to ensure timely delivery to the AG-UI.
@@ -27,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `Authenticator.Authenticate` now returns `*authcontext.Principal` instead of `bool`, enabling the auth middleware to inject identity metadata into the request context. When no auth is configured, a demo principal (`demo-user`) is injected as a pass-through.
 - Parallelized execution of cross-model text generation during the `halguard` Post-Check using `errgroup`, significantly reducing latency.
 - Refactored `semanticrouter` gatekeeper integration in the orchestrator to consume the `IRouter` interface, lowering code coupling.
 - Simplified `semanticrouter.New` constructor by handling built-in and configured route merging internally.
