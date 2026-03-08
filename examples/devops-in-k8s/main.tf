@@ -393,7 +393,7 @@ resource "kubernetes_deployment" "genie" {
           }
 
           command = ["/bin/sh", "-c"]
-          args    = ["mkdir -p /home/stackgen/.kube && exec /usr/local/bin/genie --config /app/genie.toml"]
+          args    = ["exec /usr/local/bin/genie --config /app/genie.toml"]
 
           port {
             container_port = var.genie.port

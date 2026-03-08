@@ -21,6 +21,12 @@ token = "${ANTHROPIC_API_KEY}"
 good_for_task = "planning"
 
 [[model_config.providers]]
+provider = "openai"
+model_name = "o4-mini"
+token = "${OPENAI_API_KEY}"
+good_for_task = "planning"
+
+[[model_config.providers]]
 provider = "gemini"
 model_name = "gemini-3-flash-preview"
 token = "${GEMINI_API_KEY}"
@@ -46,9 +52,15 @@ good_for_task = "frontdesk"
 
 [[model_config.providers]]
 provider = "openai"
-model_name = "gpt-5.4"
+model_name = "gpt-5.1-codex-mini"
 token = "${OPENAI_API_KEY}"
 good_for_task = "general_task"
+
+[[model_config.providers]]
+provider = "openai"
+model_name = "gpt-5.3-codex"
+token = "${OPENAI_API_KEY}"
+good_for_task = "coding"
 
 # ── Efficiency models (used by halguard for cross-model verification) ──
 # These fast/cheap models from 3 different providers give halguard
@@ -56,7 +68,7 @@ good_for_task = "general_task"
 
 [[model_config.providers]]
 provider = "openai"
-model_name = "gpt-5.4"
+model_name = "gpt-4.1-mini"
 token = "${OPENAI_API_KEY}"
 good_for_task = "efficiency"
 
