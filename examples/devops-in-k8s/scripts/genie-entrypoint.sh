@@ -11,7 +11,7 @@
 set -e
 
 # Install CLI tools (runs as root)
-apk add --no-cache kubectl jq curl bash su-exec
+apk add --no-cache aws-cli kubectl jq curl bash su-exec
 
 # Copy pre-generated kubeconfig from shared volume
 mkdir -p /home/stackgen/.kube

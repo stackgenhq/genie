@@ -614,11 +614,12 @@ resource "kubernetes_deployment" "genie" {
           }
         }
 
-        # ── Main Container: Genie (user-facing) ──────────────────────
-        # SECURITY: This container has ZERO secret env vars and NO IRSA
-        # token mount. Users can run `printenv`, `env`, `cat` on any path
-        # and will NOT find any credentials. The genie binary reads its
-        # resolved config (with real API keys) from the shared volume.
+        # ── 3. Main container: genie ─────────────────────────────────────
+        # This container runs the genie binary that executes user-facing
+        # commands (shell, kubectl, aws, etc.). As a DevOps copilot it
+        # needs AWS CLI and kubectl access with IRSA credentials.
+        # API keys and other secrets are NOT in env vars — they are read
+        # from the resolved genie.toml on the shared volume.
         container {
           name              = "genie"
           image             = var.genie.image
@@ -635,10 +636,35 @@ resource "kubernetes_deployment" "genie" {
             container_port = var.genie.port
           }
 
-          # Only non-sensitive env vars are set here.
           env {
             name  = "KUBECONFIG"
             value = "/home/stackgen/.kube/config"
+          }
+
+          # IRSA credentials — needed for aws CLI and kubectl auth
+          env {
+            name  = "AWS_REGION"
+            value = var.aws.region
+          }
+
+          env {
+            name  = "AWS_DEFAULT_REGION"
+            value = var.aws.region
+          }
+
+          env {
+            name  = "AWS_ROLE_ARN"
+            value = aws_iam_role.genie_readonly.arn
+          }
+
+          env {
+            name  = "AWS_WEB_IDENTITY_TOKEN_FILE"
+            value = "/var/run/secrets/eks.amazonaws.com/serviceaccount/token"
+          }
+
+          env {
+            name  = "AWS_STS_REGIONAL_ENDPOINTS"
+            value = "regional"
           }
 
           # Suppress the protobuf registration conflict between Qdrant and
@@ -650,9 +676,8 @@ resource "kubernetes_deployment" "genie" {
             value = "warn"
           }
 
-          # NOTE: NO env_from blocks — no secrets in this container's env.
-          # NOTE: NO AWS_WEB_IDENTITY_TOKEN_FILE — no IRSA token access.
-          # NOTE: NO AWS_ROLE_ARN — no role to assume.
+          # NOTE: NO env_from blocks — API keys are NOT in env vars.
+          # They are resolved into genie.toml by the init container.
 
           volume_mount {
             name       = "config-volume"
@@ -677,7 +702,12 @@ resource "kubernetes_deployment" "genie" {
             read_only  = true
           }
 
-          # NOTE: NO aws-iam-token volume mount — token is not accessible.
+          # IRSA token — needed for aws CLI and kubectl EKS auth
+          volume_mount {
+            name       = "aws-iam-token"
+            mount_path = "/var/run/secrets/eks.amazonaws.com/serviceaccount"
+            read_only  = true
+          }
         }
 
         volume {
