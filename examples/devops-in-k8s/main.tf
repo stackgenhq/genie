@@ -379,6 +379,8 @@ resource "kubernetes_persistent_volume_claim" "genie_data" {
     namespace = var.kubernetes.namespace
   }
 
+  wait_until_bound = false
+
   spec {
     access_modes = ["ReadWriteOnce"]
 
