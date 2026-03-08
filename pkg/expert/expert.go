@@ -189,10 +189,15 @@ func (e *expert) getRunner(ctx context.Context, req Request) (runner.Runner, err
 		"hasOrigin", !origin.IsZero(),
 		"origin", fmt.Sprintf("%v", origin),
 	)
-	wrappedTools := e.toolwrapSvc.Wrap(allTools, toolwrap.WrapRequest{
-		WorkingMemory: req.WorkingMemory,
-		AgentName:     e.bio.Name,
-	})
+	var wrappedTools []tool.Tool
+	if e.toolwrapSvc != nil {
+		wrappedTools = e.toolwrapSvc.Wrap(allTools, toolwrap.WrapRequest{
+			WorkingMemory: req.WorkingMemory,
+			AgentName:     e.bio.Name,
+		})
+	} else {
+		wrappedTools = allTools
+	}
 
 	// Debug: Log tool definitions being sent
 	logr.Info("tools prepared for expert",

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
@@ -55,10 +56,15 @@ func (t *ShellTool) Call(ctx context.Context, input []byte) (any, error) {
 	fullCommand := fmt.Sprintf(`export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:$PATH"; %s`, args.Command)
 
 	// Adapt single command to CodeExecutionInput
+	lang := "sh"
+	if _, err := exec.LookPath("bash"); err == nil {
+		lang = "bash"
+	}
+
 	execInput := codeexecutor.CodeExecutionInput{
 		CodeBlocks: []codeexecutor.CodeBlock{
 			{
-				Language: "bash",
+				Language: lang,
 				Code:     fullCommand,
 			},
 		},

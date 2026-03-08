@@ -10,6 +10,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/stackgenhq/genie/pkg/memory/vector"
+	"github.com/stackgenhq/genie/pkg/memory/vector/qdrantstore"
 	"github.com/stackgenhq/genie/pkg/security"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
@@ -277,5 +278,77 @@ var _ = Describe("AllowedMetadataKeys", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result).NotTo(BeNil())
 		Expect(fmt.Sprint(result)).To(ContainSubstring("AI SRE feature"))
+	})
+})
+
+var _ = Describe("NewStore provider validation", func() {
+	It("rejects an invalid vector_store_provider", func() {
+		cfg := vector.Config{
+			EmbeddingProvider:   "dummy",
+			VectorStoreProvider: "invalid_provider",
+		}
+		_, err := cfg.NewStore(context.Background())
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("invalid vector_store_provider"))
+		Expect(err.Error()).To(ContainSubstring("invalid_provider"))
+	})
+
+	It("accepts explicit inmemory provider", func() {
+		cfg := vector.Config{
+			EmbeddingProvider:   "dummy",
+			VectorStoreProvider: "inmemory",
+		}
+		store, err := cfg.NewStore(context.Background())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(store).NotTo(BeNil())
+	})
+
+	It("handles case-insensitive and whitespace-trimmed provider names", func() {
+		cfg := vector.Config{
+			EmbeddingProvider:   "dummy",
+			VectorStoreProvider: "  InMemory  ",
+		}
+		store, err := cfg.NewStore(context.Background())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(store).NotTo(BeNil())
+	})
+
+	It("defaults to inmemory when provider is empty", func() {
+		cfg := vector.Config{
+			EmbeddingProvider:   "dummy",
+			VectorStoreProvider: "",
+		}
+		store, err := cfg.NewStore(context.Background())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(store).NotTo(BeNil())
+	})
+})
+
+var _ = Describe("QdrantConfig", func() {
+	It("has sensible zero-value defaults", func() {
+		cfg := qdrantstore.Config{}
+		Expect(cfg.Host).To(BeEmpty())
+		Expect(cfg.Port).To(Equal(0))
+		Expect(cfg.APIKey).To(BeEmpty())
+		Expect(cfg.UseTLS).To(BeFalse())
+		Expect(cfg.CollectionName).To(BeEmpty())
+		Expect(cfg.Dimension).To(Equal(0))
+	})
+
+	It("round-trips non-default values", func() {
+		cfg := qdrantstore.Config{
+			Host:           "qdrant.example.com",
+			Port:           6334,
+			APIKey:         "test-key",
+			UseTLS:         true,
+			CollectionName: "my_collection",
+			Dimension:      768,
+		}
+		Expect(cfg.Host).To(Equal("qdrant.example.com"))
+		Expect(cfg.Port).To(Equal(6334))
+		Expect(cfg.APIKey).To(Equal("test-key"))
+		Expect(cfg.UseTLS).To(BeTrue())
+		Expect(cfg.CollectionName).To(Equal("my_collection"))
+		Expect(cfg.Dimension).To(Equal(768))
 	})
 })

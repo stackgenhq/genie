@@ -27,7 +27,7 @@
         skill_load: { max_loaded_skills: 3, skills_roots: ['./skills'] },
         mcp_servers: [],
         web_search: { provider: 'duckduckgo', google_api_key: 'GOOGLE_API_KEY', google_cx: 'GOOGLE_CSE_ID', bing_api_key: 'BING_API_KEY' },
-        vector_memory: { persistence_dir: '', embedding_provider: 'dummy', api_key: 'OPENAI_API_KEY', ollama_url: '', ollama_model: '', huggingface_url: '', gemini_api_key: 'GOOGLE_API_KEY', gemini_model: '', vector_store_provider: 'inmemory', allowed_metadata_keys: [], milvus: { address: '', username: '', password: '', db_name: '', api_key: 'MILVUS_API_KEY', collection_name: '', dimension: 0 } },
+        vector_memory: { persistence_dir: '', embedding_provider: 'dummy', api_key: 'OPENAI_API_KEY', ollama_url: '', ollama_model: '', huggingface_url: '', gemini_api_key: 'GOOGLE_API_KEY', gemini_model: '', vector_store_provider: 'inmemory', allowed_metadata_keys: [], qdrant: { host: '', port: 6334, api_key: 'QDRANT_API_KEY', use_tls: false, collection_name: '', dimension: 0 }, milvus: { address: '', username: '', password: '', db_name: '', api_key: 'MILVUS_API_KEY', collection_name: '', dimension: 0 } },
         graph: { disabled: false, data_dir: '' },
         data_sources: { enabled: false, sync_interval: '15m', search_keywords: [], gmail: { enabled: false, label_ids: [] }, gdrive: { enabled: false, folder_ids: [] }, github: { enabled: false, repos: [] }, gitlab: { enabled: false, repos: [] } },
         messenger: {
@@ -72,7 +72,7 @@
 
     var PROVIDERS = ['openai', 'gemini', 'anthropic'];
     var MODELS_BY_PROVIDER = {
-        openai: ['gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-thinking', 'gpt-5.4-fast', 'gpt-5.3-codex', 'gpt-5.2', 'o4-mini'],
+        openai: ['gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-thinking', 'gpt-5.3-codex', 'gpt-5.2', 'o4-mini'],
         gemini: ['gemini-3-pro', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
         anthropic: ['claude-opus-4.6', 'claude-sonnet-4.5', 'claude-haiku-4.5', 'claude-sonnet-4', 'claude-opus-4']
     };
@@ -80,7 +80,7 @@
         'novel_reasoning', 'general_task', 'mathematical', 'long_horizon_autonomy', 'efficiency', 'computer_operations'];
     var MCP_TRANSPORTS = ['stdio', 'streamable_http', 'sse'];
     var EMBED_PROVIDERS = ['dummy', 'openai', 'ollama', 'huggingface', 'gemini'];
-    var VECTOR_STORE_PROVIDERS = ['inmemory', 'milvus'];
+    var VECTOR_STORE_PROVIDERS = ['inmemory', 'qdrant', 'milvus'];
     var PLATFORMS = ['', 'slack', 'discord', 'telegram', 'teams', 'googlechat', 'whatsapp'];
 
     var SEARCH_PROVIDERS = ['duckduckgo', 'google', 'bing'];
@@ -429,7 +429,7 @@
         c.innerHTML = '';
         var vm = state.vector_memory;
         var fields = [
-            fieldSelect('Vector Store Provider', vm.vector_store_provider, VECTOR_STORE_PROVIDERS, function (v) { vm.vector_store_provider = v; renderAll(); }, 'Backend for storing vectors — inmemory is simple/local, Milvus is production-grade and scalable'),
+            fieldSelect('Vector Store Provider', vm.vector_store_provider, VECTOR_STORE_PROVIDERS, function (v) { vm.vector_store_provider = v; renderAll(); }, 'Backend for storing vectors — inmemory is simple/local, Qdrant and Milvus are production-grade and scalable'),
             fieldSelect('Embedding Provider', vm.embedding_provider, EMBED_PROVIDERS, function (v) { vm.embedding_provider = v; renderAll(); }, 'How Genie creates memory embeddings — OpenAI is best quality, Gemini is great, HuggingFace TEI is self-hosted, Ollama is free/local'),
             fieldText('Allowed Metadata Keys (comma-separated)', (vm.allowed_metadata_keys || []).join(', '), function (v) { vm.allowed_metadata_keys = splitCSV(v); renderOutput(); }, 'product, category, source', 'Optional list of metadata keys allowed in memory_store and memory_search — use for product/category buckets; leave empty to allow any key')
         ];
@@ -446,6 +446,14 @@
         } else if (vm.embedding_provider === 'gemini') {
             fields.push(fieldEnvVar('Google API Key', vm.gemini_api_key, function (v) { vm.gemini_api_key = v; renderOutput(); }, 'GOOGLE_API_KEY', 'Google API key for Gemini embedding models'));
             fields.push(fieldText('Gemini Model', vm.gemini_model, function (v) { vm.gemini_model = v; renderOutput(); }, 'gemini-embedding-exp-03-07', 'Which Gemini model to use for embeddings (leave empty for default)'));
+        }
+        if (vm.vector_store_provider === 'qdrant') {
+            fields.push(fieldText('Qdrant Host', vm.qdrant.host, function (v) { vm.qdrant.host = v; renderOutput(); }, 'localhost', 'Qdrant server hostname — required for Qdrant backend'));
+            fields.push(fieldNumber('Qdrant Port', vm.qdrant.port, function (v) { vm.qdrant.port = v; renderOutput(); }, 1, 65535, 'Qdrant gRPC port — defaults to 6334'));
+            fields.push(fieldEnvVar('Qdrant API Key', vm.qdrant.api_key, function (v) { vm.qdrant.api_key = v; renderOutput(); }, 'QDRANT_API_KEY', 'API key for Qdrant Cloud authentication — leave empty for local'));
+            fields.push(fieldToggle('Use TLS', vm.qdrant.use_tls, function (v) { vm.qdrant.use_tls = v; renderOutput(); }, 'Enable TLS for secure connections — required for Qdrant Cloud'));
+            fields.push(fieldText('Qdrant Collection Name', vm.qdrant.collection_name, function (v) { vm.qdrant.collection_name = v; renderOutput(); }, 'trpc_agent_documents', 'Collection name in Qdrant — defaults to trpc_agent_documents if empty'));
+            fields.push(fieldNumber('Qdrant Dimension', vm.qdrant.dimension, function (v) { vm.qdrant.dimension = v; renderOutput(); }, 0, 10000, 'Vector dimension — must match embedder dimension, defaults to embedder dimension if 0'));
         }
         if (vm.vector_store_provider === 'milvus') {
             fields.push(fieldText('Milvus Address', vm.milvus.address, function (v) { vm.milvus.address = v; renderOutput(); }, 'localhost:19530', 'Milvus server address and port — required for Milvus backend'));
@@ -1012,6 +1020,16 @@
         if (vm.gemini_model) lines.push('gemini_model = ' + q(vm.gemini_model));
         if (vm.allowed_metadata_keys && vm.allowed_metadata_keys.length) {
             lines.push('allowed_metadata_keys = [' + vm.allowed_metadata_keys.filter(Boolean).map(q).join(', ') + ']');
+        }
+        if (vm.vector_store_provider === 'qdrant') {
+            lines.push('');
+            lines.push('[vector_memory.qdrant]');
+            if (vm.qdrant.host) lines.push('host = ' + q(vm.qdrant.host));
+            if (vm.qdrant.port && vm.qdrant.port !== 6334) lines.push('port = ' + vm.qdrant.port);
+            if (vm.qdrant.api_key) lines.push('api_key = ' + q('${' + vm.qdrant.api_key + '}'));
+            if (vm.qdrant.use_tls) lines.push('use_tls = true');
+            if (vm.qdrant.collection_name) lines.push('collection_name = ' + q(vm.qdrant.collection_name));
+            if (vm.qdrant.dimension > 0) lines.push('dimension = ' + vm.qdrant.dimension);
         }
         if (vm.vector_store_provider === 'milvus') {
             lines.push('');
@@ -1612,6 +1630,15 @@
         if (vm.allowed_metadata_keys && vm.allowed_metadata_keys.length) {
             lines.push('  allowed_metadata_keys:');
             vm.allowed_metadata_keys.filter(Boolean).forEach(function (k) { lines.push('    - ' + yq(k)); });
+        }
+        if (vm.vector_store_provider === 'qdrant') {
+            lines.push('  qdrant:');
+            if (vm.qdrant.host) lines.push('    host: ' + yq(vm.qdrant.host));
+            if (vm.qdrant.port && vm.qdrant.port !== 6334) lines.push('    port: ' + vm.qdrant.port);
+            if (vm.qdrant.api_key) lines.push('    api_key: ' + yq('${' + vm.qdrant.api_key + '}'));
+            if (vm.qdrant.use_tls) lines.push('    use_tls: true');
+            if (vm.qdrant.collection_name) lines.push('    collection_name: ' + yq(vm.qdrant.collection_name));
+            if (vm.qdrant.dimension > 0) lines.push('    dimension: ' + vm.qdrant.dimension);
         }
         if (vm.vector_store_provider === 'milvus') {
             lines.push('  milvus:');

@@ -256,6 +256,7 @@ type ToolApprovalRequestMsg struct {
 	ToolName      string
 	Arguments     string
 	Justification string // why the LLM is making this tool call
+	AutoApproved  bool   // true if this tool call was automatically approved (skip human challenge)
 }
 
 func (m ToolApprovalRequestMsg) AGUIType() string {

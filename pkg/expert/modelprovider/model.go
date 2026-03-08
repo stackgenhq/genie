@@ -16,6 +16,8 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/model/huggingface"
 	"trpc.group/trpc-go/trpc-agent-go/model/ollama"
 	"trpc.group/trpc-go/trpc-agent-go/model/openai"
+
+	"github.com/openai/openai-go/option"
 )
 
 const (
@@ -278,7 +280,7 @@ func (p ProviderConfig) Validate(ctx context.Context, sp security.SecretProvider
 		return v
 	}
 	switch strings.ToLower(p.Provider) {
-	case "openai":
+	case "openai", "openai-completion", "openai-completions":
 		if p.Token != "" {
 			return nil
 		}
@@ -325,6 +327,15 @@ func (p ProviderConfig) enableTokenTailoring() bool {
 func (p ProviderConfig) toModel(ctx context.Context) (model.Model, error) {
 	tailoring := p.enableTokenTailoring()
 	switch strings.ToLower(p.Provider) {
+	case "openai-completions", "openai-completion":
+		opts := []option.RequestOption{}
+		if p.Token != "" {
+			opts = append(opts, option.WithAPIKey(p.Token))
+		}
+		if p.Host != "" {
+			opts = append(opts, option.WithBaseURL(p.Host))
+		}
+		return NewOpenAICompletionModel(p.ModelName, opts...), nil
 	case "openai":
 		opts := []openai.Option{}
 		if tailoring {

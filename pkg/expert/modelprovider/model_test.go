@@ -277,6 +277,11 @@ var _ = Describe("ModelProvider", func() {
 				p := modelprovider.ProviderConfig{Provider: "openai", ModelName: "gpt-4"}
 				Expect(p.Validate(ctx, &securityfakes.FakeSecretProvider{})).To(MatchError(ContainSubstring("missing API key")))
 			})
+			It("succeeds for openai-completions when OPENAI_API_KEY is set", func(ctx context.Context) {
+				p := modelprovider.ProviderConfig{Provider: "openai-completions", ModelName: "gpt-5.1-codex-mini"}
+				sp := newFakeSP(map[string]string{"OPENAI_API_KEY": "sk-secret"})
+				Expect(p.Validate(ctx, sp)).NotTo(HaveOccurred())
+			})
 		})
 		Context("ollama and huggingface", func() {
 			It("succeeds for ollama without credentials", func(ctx context.Context) {
@@ -349,11 +354,12 @@ var _ = Describe("ModelProvider", func() {
 			cfg := &modelprovider.ModelConfig{
 				Providers: modelprovider.ProviderConfigs{
 					{Provider: "openai", ModelName: "gpt-4", Token: "sk"},
+					{Provider: "openai-completions", ModelName: "gpt-5.1-codex-mini", Token: "sk2", Host: "http://localhost"},
 					{Provider: "ollama", ModelName: "llama3"},
 				},
 			}
 			Expect(cfg.ValidateAndFilter(ctx, &securityfakes.FakeSecretProvider{}, modelprovider.SkipEchoCheck())).NotTo(HaveOccurred())
-			Expect(cfg.Providers).To(HaveLen(2))
+			Expect(cfg.Providers).To(HaveLen(3))
 		})
 	})
 
@@ -469,5 +475,26 @@ var _ = Describe("ModelProvider", func() {
 				Expect(m).NotTo(BeNil())
 			})
 		})
+	})
+})
+
+var _ = Describe("NewSingleModelProvider", func() {
+	It("returns the same model for any task type", func() {
+		fake := &modelproviderfakes.FakeModel{}
+		fake.InfoReturns(model.Info{Name: "test-model"})
+
+		provider := modelprovider.NewSingleModelProvider("my-key", fake)
+
+		m1, err := provider.GetModel(context.Background(), modelprovider.TaskEfficiency)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(m1).To(HaveKey("my-key"))
+
+		m2, err := provider.GetModel(context.Background(), modelprovider.TaskPlanning)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(m2).To(HaveKey("my-key"))
+
+		// Both should return the same model instance
+		Expect(m1["my-key"].Info().Name).To(Equal("test-model"))
+		Expect(m2["my-key"].Info().Name).To(Equal("test-model"))
 	})
 })

@@ -191,6 +191,34 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 		_, err := handler(context.Background(), tc)
 		Expect(err).NotTo(HaveOccurred())
 	})
+
+	It("should exempt read_notes from loop detection", func() {
+		mw := toolwrap.LoopDetectionMiddleware()
+		next, count := counting(passthrough("notes content"))
+		handler := mw.Wrap(next)
+		tc := &toolwrap.ToolCallContext{ToolName: "read_notes", Args: []byte(`{}`)}
+
+		// Call the same tool with same args multiple times — should NOT trigger loop
+		for i := 0; i < 5; i++ {
+			_, err := handler(context.Background(), tc)
+			Expect(err).NotTo(HaveOccurred())
+		}
+		Expect(atomic.LoadInt32(count)).To(Equal(int32(5)))
+	})
+
+	It("should exempt note from loop detection", func() {
+		mw := toolwrap.LoopDetectionMiddleware()
+		next, count := counting(passthrough("saved"))
+		handler := mw.Wrap(next)
+		tc := &toolwrap.ToolCallContext{ToolName: "note", Args: []byte(`{"text":"remember this"}`)}
+
+		// Call the same tool with same args multiple times — should NOT trigger loop
+		for i := 0; i < 5; i++ {
+			_, err := handler(context.Background(), tc)
+			Expect(err).NotTo(HaveOccurred())
+		}
+		Expect(atomic.LoadInt32(count)).To(Equal(int32(5)))
+	})
 })
 
 var _ = Describe("FailureLimitMiddleware", func() {

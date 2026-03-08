@@ -179,6 +179,19 @@ type createAgentTool struct {
 	// inflight deduplicates identical parallel create_agent calls
 	// from the LLM (same agent_name + goal). Backed by singleflight.
 	inflight dedup.Group[CreateAgentResponse]
+
+	skipSummarize bool
+}
+
+// CreateAgentOption configures the create_agent tool.
+type CreateAgentOption func(*createAgentTool)
+
+// WithSkipSummarizeMarker configures whether the tool should add a context
+// marker telling the upstream summarizer to bypass summarization.
+func WithSkipSummarizeMarker(skip bool) CreateAgentOption {
+	return func(t *createAgentTool) {
+		t.skipSummarize = skip
+	}
 }
 
 // orchestrationOnlyTools lists tool names that are available to the main agent
@@ -202,6 +215,7 @@ func NewCreateAgentTool(
 	toolWrapSvc *toolwrap.Service,
 	vectorStore vector.IStore,
 	halGuard halguard.Guard,
+	opts ...CreateAgentOption,
 ) *createAgentTool {
 	// Build a sub-agent registry that excludes orchestration-only tools.
 	// Sub-agents must not call create_agent (no recursive spawning) or
@@ -222,6 +236,10 @@ func NewCreateAgentTool(
 		episodic:         episodic,
 		vectorStore:      vectorStore,
 		halGuard:         halGuard,
+	}
+
+	for _, opt := range opts {
+		opt(t)
 	}
 
 	t.description = fmt.Sprintf(
@@ -268,6 +286,10 @@ func (t *createAgentTool) GetTool() tool.Tool {
 }
 
 func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (CreateAgentResponse, error) {
+	if t.skipSummarize {
+		agentutils.SetSkipSummarize(ctx)
+	}
+
 	logr := logger.GetLogger(ctx).With("fn", "createAgentTool.execute", "goal", toolwrap.TruncateForAudit(req.Goal, 80), "name", req.AgentName)
 	logr.Info("create_agent invoked", "tool_names", req.ToolNames, "task_type", req.TaskType, "steps", len(req.Steps))
 
@@ -553,20 +575,31 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 				if choice.Message.Role == model.RoleAssistant && choice.Message.Content != "" {
 					sb.WriteString(choice.Message.Content)
 				}
+				// Count unique tool calls via ToolID or ToolCalls array to avoid
+				// over-counting when streamed chunks arrive. We check this
+				// independently of Content because some models return empty
+				// content chunks when streaming tool executions or responses.
+				if tid := choice.Message.ToolID; tid != "" {
+					if _, seen := seenToolIDs[tid]; !seen {
+						seenToolIDs[tid] = struct{}{}
+						toolCallCount++
+					}
+				}
+				for _, tc := range choice.Message.ToolCalls {
+					if tid := tc.ID; tid != "" {
+						if _, seen := seenToolIDs[tid]; !seen {
+							seenToolIDs[tid] = struct{}{}
+							toolCallCount++
+						}
+					}
+				}
+
 				// Capture tool result content as partial findings.
 				// Tool results carry the actual data (file contents, search
 				// results, etc.) that the sub-agent gathered. When the sub-agent
 				// exhausts its budget before producing a final summary, these
 				// results are the only record of what was learned.
 				if (choice.Message.ToolID != "" || ev.Object == model.ObjectTypeToolResponse) && choice.Message.Content != "" && toolResultsSB.Len() < maxToolResultsLen {
-					// Count unique tool calls (not per-chunk) to avoid over-counting
-					// when multiple streamed chunks arrive for a single tool response.
-					if tid := choice.Message.ToolID; tid != "" {
-						if _, seen := seenToolIDs[tid]; !seen {
-							seenToolIDs[tid] = struct{}{}
-							toolCallCount++
-						}
-					}
 					remaining := maxToolResultsLen - toolResultsSB.Len()
 					content := choice.Message.Content
 					if len(content) > remaining {
@@ -768,6 +801,25 @@ func (req CreateAgentRequest) flow(ctx context.Context) ControlFlowType {
 // a graph from those subgoals.
 func (t *createAgentTool) executePlan(ctx context.Context, req CreateAgentRequest) (CreateAgentResponse, error) {
 	logr := logger.GetLogger(ctx).With("fn", "createAgentTool.executePlan", "name", req.AgentName, "steps", len(req.Steps))
+
+	// Inject the parent's top-level goal and context into every step.
+	// This ensures that when the planner sets an overarching persona, AWS credentials,
+	// or environment context in the top-level goal (e.g., "You are an AWS Copilot..."),
+	// the individual step agents aren't spawned completely blind to that context.
+	parentCtx := req.Context
+	if parentCtx == "" {
+		parentCtx = "Top-level plan objective constraints: " + req.Goal
+	} else {
+		parentCtx = fmt.Sprintf("Top-level plan objective constraints: %s\n\nAdditional Context:\n%s", req.Goal, req.Context)
+	}
+
+	for i := range req.Steps {
+		if req.Steps[i].Context != "" {
+			req.Steps[i].Context = parentCtx + "\n\nStep Context:\n" + req.Steps[i].Context
+		} else {
+			req.Steps[i].Context = parentCtx
+		}
+	}
 
 	// Map flow_type string to ControlFlowType.
 	flow := req.flow(ctx)

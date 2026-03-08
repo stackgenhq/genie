@@ -156,12 +156,14 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 
 		// Skip if tool is in allowlist.
 		if m.store.IsAllowed(tc.ToolName) {
+			m.emitAutoApproved(ctx, tc.ToolName, string(tc.Args), tc.Justification)
 			return next(ctx, tc)
 		}
 
 		// Skip if tool+args match the in-memory approve list (blind or args filter).
 		if m.approveList != nil && m.approveList.IsApproved(tc.ToolName, string(tc.Args)) {
 			logr.Debug("HITL approve list hit — auto-approved (temporary allow)")
+			m.emitAutoApproved(ctx, tc.ToolName, string(tc.Args), tc.Justification)
 			return next(ctx, tc)
 		}
 
@@ -172,6 +174,7 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 		approvalKey := approvalFingerprint(tid, tc.ToolName, string(tc.Args))
 		if m.cache.has(approvalKey) {
 			logr.Debug("HITL cache hit — auto-approved (same session + tool + args)")
+			m.emitAutoApproved(ctx, tc.ToolName, string(tc.Args), tc.Justification)
 			return next(ctx, tc)
 		}
 
@@ -248,6 +251,16 @@ func (m *hitlApprovalMiddleware) emitApprovalRequest(ctx context.Context, approv
 		ToolName:      toolName,
 		Arguments:     args,
 		Justification: justification,
+	})
+}
+
+func (m *hitlApprovalMiddleware) emitAutoApproved(ctx context.Context, toolName, args, justification string) {
+	agui.Emit(ctx, agui.ToolApprovalRequestMsg{
+		Type:          agui.EventToolApprovalRequest,
+		ToolName:      toolName,
+		Arguments:     args,
+		Justification: justification,
+		AutoApproved:  true,
 	})
 }
 

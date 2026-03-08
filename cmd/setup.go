@@ -357,10 +357,9 @@ func (s setupCmd) runSetup(cmd *cobra.Command, args []string) error {
 	var vectorOverride *vector.Config
 	if modelprovider.OllamaReachable(ctx, "") {
 		vectorOverride = &vector.Config{
-			EmbeddingProvider:   "ollama",
-			OllamaURL:           modelprovider.DefaultOllamaURL,
-			OllamaModel:         "nomic-embed-text",
-			VectorStoreProvider: "inmemory",
+			EmbeddingProvider: "ollama",
+			OllamaURL:         modelprovider.DefaultOllamaURL,
+			OllamaModel:       "nomic-embed-text",
 		}
 	}
 	if err := setup.WriteConfigFile(absPath, inputs, nil, vectorOverride); err != nil {

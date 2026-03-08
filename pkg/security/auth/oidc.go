@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -151,18 +152,31 @@ func (h *OIDCHandler) oauth2Config(ctx context.Context, r *http.Request) (*oauth
 
 // HandleLogin redirects the user to the provider's consent screen.
 func (h *OIDCHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
-	state := generateState()
+	csrf := generateState()
 
-	// Store state in a short-lived cookie for CSRF protection.
+	// Store CSRF state in a short-lived cookie for protection.
 	http.SetCookie(w, &http.Cookie{
 		Name:     stateCookieName,
-		Value:    state,
+		Value:    csrf,
 		Path:     "/auth",
 		MaxAge:   300, // 5 minutes
 		HttpOnly: true,
 		Secure:   isSecureRequest(r),
 		SameSite: http.SameSiteLaxMode,
 	})
+
+	// Encode CSRF and return_to into the OAuth state parameter.
+	returnTo := r.URL.Query().Get("return_to")
+	statePayload := map[string]string{"csrf": csrf}
+	if returnTo != "" {
+		statePayload["return_to"] = returnTo
+	}
+	stateBytes, err := json.Marshal(statePayload)
+	if err != nil {
+		http.Error(w, "Failed to encode state: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	oauthState := base64.RawURLEncoding.EncodeToString(stateBytes)
 
 	cfg, err := h.oauth2Config(r.Context(), r)
 	if err != nil {
@@ -186,7 +200,7 @@ func (h *OIDCHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		opts = append(opts, oauth2.SetAuthURLParam("hd", h.allowedDomains[0]))
 	}
 
-	http.Redirect(w, r, cfg.AuthCodeURL(state, opts...), http.StatusFound)
+	http.Redirect(w, r, cfg.AuthCodeURL(oauthState, opts...), http.StatusFound)
 }
 
 // HandleCallback processes the OAuth callback from the provider.
@@ -197,7 +211,20 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Missing OAuth state cookie. Please try logging in again.", http.StatusBadRequest)
 		return
 	}
-	if r.URL.Query().Get("state") != stateCookie.Value {
+	// Decode returned OAuth state parameter.
+	encodedState := r.URL.Query().Get("state")
+	stateBytes, err := base64.RawURLEncoding.DecodeString(encodedState)
+	if err != nil {
+		http.Error(w, "Invalid OAuth state format. Please try logging in again.", http.StatusBadRequest)
+		return
+	}
+	var statePayload map[string]string
+	if err := json.Unmarshal(stateBytes, &statePayload); err != nil {
+		http.Error(w, "Invalid OAuth state payload. Please try logging in again.", http.StatusBadRequest)
+		return
+	}
+
+	if statePayload["csrf"] != stateCookie.Value {
 		http.Error(w, "Invalid OAuth state (possible CSRF). Please try logging in again.", http.StatusBadRequest)
 		return
 	}
@@ -211,6 +238,14 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true,
 		Secure:   isSecureRequest(r),
 	})
+
+	returnTo := "/ui/chat.html"
+	if rUrl, ok := statePayload["return_to"]; ok && rUrl != "" {
+		// Basic protection against open redirects: only allow relative paths
+		if parsed, err := url.Parse(rUrl); err == nil && parsed.Host == "" && strings.HasPrefix(rUrl, "/") && !strings.HasPrefix(rUrl, "//") && !strings.HasPrefix(rUrl, "/\\") {
+			returnTo = rUrl
+		}
+	}
 
 	// Check for errors from provider.
 	if errCode := r.URL.Query().Get("error"); errCode != "" {
@@ -271,10 +306,18 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify domain restriction.
+	// Verify domain restriction (only when allowed_domains is configured).
+	// When no allowed domains are set, any authenticated user is accepted.
 	if len(h.allowedDomains) > 0 {
 		if !isDomainAllowed(claims.Domain, h.allowedDomains) && !isDomainAllowed(claims.Email, h.allowedDomains) {
-			http.Error(w, fmt.Sprintf("Access denied: domain %q is not in the allowed list", claims.Domain), http.StatusForbidden)
+			domainError := claims.Domain
+			if domainError == "" {
+				parts := strings.Split(claims.Email, "@")
+				if len(parts) == 2 {
+					domainError = parts[1]
+				}
+			}
+			http.Error(w, fmt.Sprintf("Access denied: domain %q is not in the allowed list", domainError), http.StatusForbidden)
 			return
 		}
 	}
@@ -301,8 +344,8 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 	})
 
-	// Redirect to the chat UI.
-	http.Redirect(w, r, "/ui/chat.html", http.StatusFound)
+	// Redirect to the original URL or chat UI.
+	http.Redirect(w, r, returnTo, http.StatusFound)
 }
 
 // HandleLogout clears the session cookie.

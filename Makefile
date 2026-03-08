@@ -27,6 +27,7 @@ endif
 GO_BUILD_FLAGS=-ldflags="-s -w \
 	-X 'github.com/stackgenhq/genie/pkg/config.Version=${GIT_VERSION}' \
 	-X 'github.com/stackgenhq/genie/pkg/config.BuildDate=$(shell date +%D)' \
+	-X 'google.golang.org/protobuf/reflect/protoregistry.conflictPolicy=warn' \
 	$(GO_GOOGLE_OAUTH_LDFLAGS)" \
 	-mod=mod
 DIST_DIR=build
@@ -95,7 +96,7 @@ generate: ## Generate code (if needed)
 test: test/unit ## Run tests
 
 test/unit: ## Run unit tests
-	go tool ginkgo ${ARGS} -mod=mod --race -r --junit-report=testreports/report.xml --cover --coverprofile=coverage.out
+	GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn go tool ginkgo ${ARGS} -mod=mod --race -r --junit-report=testreports/report.xml --cover --coverprofile=coverage.out
 
 # ------------------------------ lint commands ------------------------------
 
@@ -125,6 +126,26 @@ install:
 .PHONY: run
 run:
 	$(GO_CMD) run .
+
+# ------------------------------ docker commands ------------------------------
+
+DOCKER_BUILD_ARGS=--platform linux/amd64,linux/arm64 \
+	--build-arg GIT_VERSION="${GIT_VERSION}" \
+	-t ghcr.io/stackgenhq/genie-beta:latest
+
+.PHONY: docker
+docker: ## Build the docker image
+	docker buildx build $(DOCKER_BUILD_ARGS) .
+
+.PHONY: docker/push
+docker/push: ## Build and push the multi-arch docker image
+	docker buildx build $(DOCKER_BUILD_ARGS) \
+		--push \
+		-t ghcr.io/stackgenhq/genie-beta:${GIT_VERSION} .
+
+.PHONY: docker/tag
+docker/tag: docker ## Build and tag the docker image with the active version
+	docker tag ghcr.io/stackgenhq/genie-beta:latest ghcr.io/stackgenhq/genie-beta:${GIT_VERSION}
 
 .PHONY: help
 help: ## Display this help message

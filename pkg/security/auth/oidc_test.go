@@ -1,6 +1,7 @@
 package auth_test
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -24,6 +25,11 @@ func oidcCfg(clientID, clientSecret string, opts ...func(*auth.Config)) auth.Con
 		o(&cfg)
 	}
 	return cfg
+}
+
+func createTestState(csrf string) string {
+	b, _ := json.Marshal(map[string]string{"csrf": csrf})
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 var _ = Describe("OIDCHandler", func() {
@@ -164,7 +170,7 @@ var _ = Describe("OIDCHandler", func() {
 
 		It("rejects mismatching state", func() {
 			handler := auth.NewOIDCHandler(oidcCfg("test-id", "test-secret"))
-			req := httptest.NewRequest(http.MethodGet, "/auth/callback?state=wrong&code=xyz", nil)
+			req := httptest.NewRequest(http.MethodGet, "/auth/callback?state="+createTestState("wrong")+"&code=xyz", nil)
 			req.AddCookie(&http.Cookie{Name: "genie_oauth_state", Value: "correct"})
 			rec := httptest.NewRecorder()
 			handler.HandleCallback(rec, req)
@@ -174,7 +180,7 @@ var _ = Describe("OIDCHandler", func() {
 
 		It("handles error response", func() {
 			handler := auth.NewOIDCHandler(oidcCfg("test-id", "test-secret"))
-			req := httptest.NewRequest(http.MethodGet, "/auth/callback?error=access_denied&state=abc", nil)
+			req := httptest.NewRequest(http.MethodGet, "/auth/callback?error=access_denied&state="+createTestState("abc"), nil)
 			req.AddCookie(&http.Cookie{Name: "genie_oauth_state", Value: "abc"})
 			rec := httptest.NewRecorder()
 			handler.HandleCallback(rec, req)
@@ -184,7 +190,7 @@ var _ = Describe("OIDCHandler", func() {
 
 		It("rejects without code", func() {
 			handler := auth.NewOIDCHandler(oidcCfg("test-id", "test-secret"))
-			req := httptest.NewRequest(http.MethodGet, "/auth/callback?state=abc", nil)
+			req := httptest.NewRequest(http.MethodGet, "/auth/callback?state="+createTestState("abc"), nil)
 			req.AddCookie(&http.Cookie{Name: "genie_oauth_state", Value: "abc"})
 			rec := httptest.NewRecorder()
 			handler.HandleCallback(rec, req)
@@ -196,7 +202,7 @@ var _ = Describe("OIDCHandler", func() {
 			handler := auth.NewOIDCHandler(oidcCfg("test-id", "test-secret", func(c *auth.Config) {
 				c.OIDC.IssuerURL = "http://localhost:12345/not-found"
 			}))
-			req := httptest.NewRequest(http.MethodGet, "/auth/callback?state=s&code=c", nil)
+			req := httptest.NewRequest(http.MethodGet, "/auth/callback?state="+createTestState("s")+"&code=c", nil)
 			req.AddCookie(&http.Cookie{Name: "genie_oauth_state", Value: "s"})
 			rec := httptest.NewRecorder()
 			handler.HandleCallback(rec, req)

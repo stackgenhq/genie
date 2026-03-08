@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -224,14 +225,14 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 
 	// --- Database ---
 	var err error
-	a.db, err = geniedb.Open(a.cfg.DBConfig.DBFile)
+	a.db, err = geniedb.OpenConfig(a.cfg.DBConfig)
 	if err != nil {
 		return fmt.Errorf("database open: %w", err)
 	}
 	if err := geniedb.AutoMigrate(a.db); err != nil {
 		return fmt.Errorf("database migrate: %w", err)
 	}
-	log.Info("Central database opened", "path", a.cfg.DBConfig.DBFile)
+	log.Info("Central database opened", "path", a.cfg.DBConfig.DisplayPath())
 
 	// --- Audit (before Messenger so secret provider can audit lookups) ---
 	if a.cfg.AuditPath != "" {
@@ -500,7 +501,7 @@ func (a *Application) Start(ctx context.Context) error {
 	// --- Startup banner ---
 	fmt.Fprintf(os.Stderr, "\n🧞 Genie starting\n")
 	fmt.Fprintf(os.Stderr, "   Working directory: %s\n", a.workingDir)
-	fmt.Fprintf(os.Stderr, "   Database:          %s\n", a.cfg.DBConfig.DBFile)
+	fmt.Fprintf(os.Stderr, "   Database:          %s\n", a.cfg.DBConfig.DisplayPath())
 	fmt.Fprintf(os.Stderr, "   Audit log:         %s\n", a.auditPath)
 	fmt.Fprintf(os.Stderr, "   Messenger:         %s\n", a.msgr.Platform())
 	if a.msgr.Platform() == messenger.PlatformAGUI {
@@ -1839,7 +1840,7 @@ func truncateForLog(s string, maxLen int) string {
 // The tags are joined with commas because OTel baggage values are strings.
 // The langfuse exporter interprets the comma-separated value as an array.
 func withLangfuseTraceBaggage(ctx context.Context, tags ...string) context.Context {
-	value := strings.Join(tags, ",")
+	value := url.QueryEscape(strings.Join(tags, ","))
 	member, err := baggage.NewMember("langfuse.trace.tags", value)
 	if err != nil {
 		logger.GetLogger(ctx).Warn("failed to create langfuse trace baggage member", "error", err, "tags", tags)

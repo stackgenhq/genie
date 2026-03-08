@@ -122,6 +122,9 @@ func initializeStores(ctx context.Context, cfg Config) (vector.IStore, vector.IS
 	if routeCfg.PersistenceDir != "" {
 		routeCfg.PersistenceDir = filepath.Join(routeCfg.PersistenceDir, "routes")
 	}
+	if routeCfg.Qdrant.CollectionName != "" {
+		routeCfg.Qdrant.CollectionName = routeCfg.Qdrant.CollectionName + "_routes"
+	}
 	if routeCfg.Milvus.CollectionName != "" {
 		routeCfg.Milvus.CollectionName = routeCfg.Milvus.CollectionName + "_routes"
 	}
@@ -136,6 +139,9 @@ func initializeStores(ctx context.Context, cfg Config) (vector.IStore, vector.IS
 		cacheCfg := cfg.VectorStore
 		if cacheCfg.PersistenceDir != "" {
 			cacheCfg.PersistenceDir = filepath.Join(cacheCfg.PersistenceDir, "cache")
+		}
+		if cacheCfg.Qdrant.CollectionName != "" {
+			cacheCfg.Qdrant.CollectionName = cacheCfg.Qdrant.CollectionName + "_cache"
 		}
 		if cacheCfg.Milvus.CollectionName != "" {
 			cacheCfg.Milvus.CollectionName = cacheCfg.Milvus.CollectionName + "_cache"

@@ -216,16 +216,14 @@ var _ = Describe("Guard", func() {
 		})
 
 		Context("with context field containing fabrication", func() {
-			It("should penalize fabricated context", func() {
+			It("should not penalize context because it may be summarized past messages", func() {
 				result, err := g.PreCheck(ctx, halguard.PreCheckRequest{
 					Goal:    "Investigate the issue",
 					Context: "The dashboard shows p99 latency spiked from 200ms to 3000ms in the last 15 minutes.",
 				})
 				Expect(err).NotTo(HaveOccurred())
-				Expect(result.Confidence).To(BeNumerically("<", 0.8))
-				// Should have context-prefixed signals
-				hasContextSignal := result.Signals.FabricationPattern > 0
-				Expect(hasContextSignal).To(BeTrue())
+				// The main goal is fine, so confidence should remain extremely high.
+				Expect(result.Confidence).To(BeNumerically("==", 1.0))
 			})
 		})
 
@@ -556,9 +554,9 @@ var _ = Describe("Guard", func() {
 				Expect(result.CorrectedText).To(Equal("The module uses Go 1.22.\n\nThe module has 15 dependencies.\n\nThe build system uses Make."))
 			})
 
-			It("should use full tier for outputs with fabrication signals", func() {
+			It("should use full tier for outputs with fabrication signals when no tools used", func() {
 				// An output that contains fabrication-pattern signals should trigger full tier
-				// even if it's not very long.
+				// even if it's not very long, provided NO tools were used.
 				fakeProvider, fakeModel := setupFakeModelProvider("")
 				callCount := 0
 				fakeModel.GenerateContentStub = func(_ context.Context, _ *model.Request) (<-chan *model.Response, error) {
@@ -579,7 +577,7 @@ var _ = Describe("Guard", func() {
 				result, err := g.PostCheck(ctx, halguard.PostCheckRequest{
 					Goal:            "check system status",
 					Output:          output,
-					ToolCallsMade:   2,
+					ToolCallsMade:   0,
 					GenerationModel: modelprovider.ModelMap{"openai/gpt-4": fakeModel},
 				})
 				Expect(err).NotTo(HaveOccurred())
@@ -639,22 +637,17 @@ var _ = Describe("Guard", func() {
 				Expect(result.Tier).To(Equal(halguard.TierFull))
 			})
 
-			It("should select full tier for long output with tool calls", func() {
+			It("should select light tier for long output with tool calls", func() {
 				fakeProvider, fakeModel := setupFakeModelProvider("")
-				callCount := 0
 				fakeModel.GenerateContentStub = func(_ context.Context, _ *model.Request) (<-chan *model.Response, error) {
-					callCount++
-					if callCount <= 3 {
-						return fakeModelResponse("Reference."), nil
-					}
-					return fakeModelResponse(`[{"block": 1, "label": "ACCURATE", "reason": "ok"}]`), nil
+					return fakeModelResponse(`{"is_factual": true, "reason": "output is grounded in tool results"}`), nil
 				}
 				g := halguard.New(fakeProvider, directTextGenerator(),
 					halguard.WithLightThreshold(10),
 					halguard.WithFullThreshold(30),
 				)
 
-				// Long output that exceeds full threshold
+				// Long output that exceeds full threshold, but has tool calls
 				longOutput := "First section of content that is long. " +
 					"Second section of content. Third section of content."
 				result, err := g.PostCheck(ctx, halguard.PostCheckRequest{
@@ -664,7 +657,7 @@ var _ = Describe("Guard", func() {
 					GenerationModel: modelprovider.ModelMap{"google/gemini-2.0-flash": fakeModel},
 				})
 				Expect(err).NotTo(HaveOccurred())
-				Expect(result.Tier).To(Equal(halguard.TierFull))
+				Expect(result.Tier).To(Equal(halguard.TierLight)) // now limited to TierLight instead of TierFull
 			})
 		})
 	})
