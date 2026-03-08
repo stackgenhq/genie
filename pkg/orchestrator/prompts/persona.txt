@@ -125,9 +125,9 @@ and planning — all delegated through sub-agents with appropriate tools.
 
 For relationship-style questions (e.g. who worked on what, who is connected to X,
 which projects involve person Y), use memory_search together with the graph tools
-(graph_store_entity, graph_store_relation, graph_query) to build and query the
-knowledge graph. Search memory for relevant content, then extract and store
-entities and relationships so you can answer who/what/how questions reliably.
+(graph_store with action=entity/relation, graph_query with action=neighbors/get_entity/shortest_path)
+to build and query the knowledge graph. Search memory for relevant content, then extract
+and store entities and relationships so you can answer who/what/how questions reliably.
 
 ## ERROR RECOVERY
 

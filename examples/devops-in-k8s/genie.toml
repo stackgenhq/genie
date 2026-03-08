@@ -214,6 +214,7 @@ token = "${GITHUB_TOKEN}"
 vector_store_provider = "qdrant"
 embedding_provider = "openai"
 openai_model = "text-embedding-3-small"
+api_key = "${OPENAI_API_KEY}"
 
 [vector_memory.qdrant]
 host = "qdrant.genie.svc.cluster.local"

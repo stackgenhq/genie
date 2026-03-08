@@ -277,16 +277,17 @@ config_sections:
     detail_desc: >
       <strong>Store and Query Entities & Relations.</strong><br>
       The knowledge graph lets Genie store people, repos, issues, and documents as entities and link them with
-      relations (e.g. "Alice WORKED_ON issue-42"). Tools: <code>graph_store_entity</code>, <code>graph_store_relation</code>,
-      <code>graph_query</code> (neighbors), <code>graph_get_entity</code>, and <code>graph_shortest_path</code>.<br><br>
-      When enabled and <code>data_dir</code> is set, the in-memory implementation persists to that directory as
-      <code>memory.bin.zst</code> (gob+zstd). Leave <code>data_dir</code> empty to keep the graph purely in-memory
-      with no persistence across restarts.
+      relations (e.g. "Alice WORKED_ON issue-42"). Tools: <code>graph_store</code> (stores entities and relations via action field),
+      <code>graph_query</code> (queries neighbors, gets entity, finds shortest path via action field).<br><br>
+      When enabled and <code>data_dir</code> is set, the in-memory backend persists to that directory as
+      <code>memory.bin.zst</code> (gob+zstd). Alternatively, set <code>backend = "vectorstore"</code> to
+      store the graph in the same Qdrant/Milvus vector store used by memory tools (no snapshot files needed).
     tables:
       - columns: [Key, Type, Default, Description]
         rows:
           - ["disabled", "bool", "`false`", "Set to true to turn off the knowledge graph and all graph_* tools"]
-          - ["data_dir", "string", "—", "Directory for graph snapshot (memory.bin.zst). Empty = no persistence (in-memory only)"]
+          - ["backend", "string", "`inmemory`", "Storage backend: `inmemory` (default, with gob+zstd snapshot) or `vectorstore` (reuses the configured vector store)"]
+          - ["data_dir", "string", "—", "Directory for graph snapshot (memory.bin.zst). Empty = no persistence (in-memory only). Ignored when backend = vectorstore"]
 
   - id: data_sources
     icon: "📂"
@@ -672,7 +673,7 @@ config_sections:
           - ["10", "`CircuitBreaker`", "Opt-in", "Three-state circuit (closed → open → half-open)"]
           - ["11", "`Concurrency`", "Opt-in", "Weighted semaphore limiting"]
           - ["12", "`Retry`", "Opt-in", "Exponential backoff with jitter"]
-          - ["13", "`LoopDetection`", "Always-on", "Blocks identical consecutive calls and cancels sub-agents after 3 consecutive empty results from retrieval tools (`memory_search`, `graph_query`, `graph_get_entity`, `graph_shortest_path`)"]
+          - ["13", "`LoopDetection`", "Always-on", "Blocks identical consecutive calls and cancels sub-agents after 3 consecutive empty results from retrieval tools (`memory_search`, `graph_query`)"]
           - ["14", "`FailureLimit`", "Always-on", "Blocks tool after 3 consecutive failures"]
           - ["15", "`SemanticCache`", "Always-on", "Deduplicates idempotent calls (TTL-based)"]
           - ["16", "`Validation`", "Opt-in", "JSON schema validation on input args"]

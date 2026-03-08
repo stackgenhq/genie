@@ -288,19 +288,31 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 		log.Info("Vector memory initialized")
 	}
 
-	// --- Graph memory (interface-driven; in-memory implementation for now) ---
+	// --- Graph memory (interface-driven; in-memory or vector-backed) ---
 	if !a.cfg.Graph.Disabled {
-		dataDir := a.cfg.Graph.DataDir
-		opts := []graph.InMemoryStoreOption{}
-		if dataDir != "" {
-			opts = append(opts, graph.WithPersistenceDir(dataDir))
-		}
-		graphStore, gErr := graph.NewInMemoryStore(opts...)
-		if gErr != nil {
-			log.Warn("failed to initialize graph store, skipping graph tools", "error", gErr)
+		if a.cfg.Graph.IsVectorStoreBackend() && vectorStore != nil {
+			// Reuse the configured vector store (Qdrant/Milvus) for graph storage.
+			graphStore, gErr := graph.NewVectorBackedStore(vectorStore)
+			if gErr != nil {
+				log.Warn("failed to initialize vector-backed graph store, skipping graph tools", "error", gErr)
+			} else {
+				a.graphStore = graphStore
+				log.Info("Graph memory initialized (vector-backed)")
+			}
 		} else {
-			a.graphStore = graphStore
-			log.Info("Graph memory initialized", "data_dir", dataDir)
+			// Default: in-memory with optional gob+zstd persistence.
+			dataDir := a.cfg.Graph.DataDir
+			opts := []graph.InMemoryStoreOption{}
+			if dataDir != "" {
+				opts = append(opts, graph.WithPersistenceDir(dataDir))
+			}
+			graphStore, gErr := graph.NewInMemoryStore(opts...)
+			if gErr != nil {
+				log.Warn("failed to initialize graph store, skipping graph tools", "error", gErr)
+			} else {
+				a.graphStore = graphStore
+				log.Info("Graph memory initialized", "data_dir", dataDir)
+			}
 		}
 	}
 

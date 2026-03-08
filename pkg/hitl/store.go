@@ -209,9 +209,6 @@ var defaultReadOnlyTools = []string{
 	"wikipedia_search",
 	"youtube_transcript",
 	"create_agent",
-	graph.StoreEntityToolName,
-	graph.StoreRelationToolName,
+	graph.GraphStoreToolName,
 	graph.GraphQueryToolName,
-	graph.GetEntityToolName,
-	graph.ShortestPathToolName,
 }
