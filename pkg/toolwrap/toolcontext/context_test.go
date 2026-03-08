@@ -38,4 +38,33 @@ var _ = Describe("ToolContext", func() {
 			Expect(toolcontext.GetJustification(ctx)).To(BeEmpty())
 		})
 	})
+
+	Describe("WithSkipSummarizeSetter / GetSkipSummarizeSetter", func() {
+		It("should round-trip a setter function through context", func() {
+			called := false
+			setter := func() { called = true }
+			ctx := toolcontext.WithSkipSummarizeSetter(context.Background(), setter)
+			retrieved := toolcontext.GetSkipSummarizeSetter(ctx)
+			Expect(retrieved).NotTo(BeNil())
+			retrieved()
+			Expect(called).To(BeTrue())
+		})
+
+		It("should return a no-op function from a bare context", func() {
+			setter := toolcontext.GetSkipSummarizeSetter(context.Background())
+			Expect(setter).NotTo(BeNil())
+			// Should not panic when called
+			setter()
+		})
+
+		It("should return the most recently set setter", func() {
+			firstCalled := false
+			secondCalled := false
+			ctx := toolcontext.WithSkipSummarizeSetter(context.Background(), func() { firstCalled = true })
+			ctx = toolcontext.WithSkipSummarizeSetter(ctx, func() { secondCalled = true })
+			toolcontext.GetSkipSummarizeSetter(ctx)()
+			Expect(firstCalled).To(BeFalse())
+			Expect(secondCalled).To(BeTrue())
+		})
+	})
 })

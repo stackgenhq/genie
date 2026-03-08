@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
+	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 )
 
 var _ = Describe("AutoSummarizeMiddleware", func() {
@@ -93,5 +94,25 @@ var _ = Describe("AutoSummarizeMiddleware", func() {
 		})
 		_, err := handler(context.Background(), makeTC("http_request"))
 		Expect(err).To(HaveOccurred())
+	})
+
+	It("skips summarization when the context skip setter is invoked", func() {
+		largeResponse := strings.Repeat("y", 600) // exceeds threshold
+		mw := toolwrap.AutoSummarizeMiddleware(
+			func(_ context.Context, _ string) (string, error) {
+				Fail("summarizer should not be called when skip is set")
+				return "", nil
+			},
+			100,
+		)
+		// Wrap a handler that invokes the skip setter during tool execution
+		handler := mw.Wrap(func(ctx context.Context, _ *toolwrap.ToolCallContext) (any, error) {
+			setter := toolcontext.GetSkipSummarizeSetter(ctx)
+			setter() // signal: skip summarization
+			return largeResponse, nil
+		})
+		result, err := handler(context.Background(), makeTC("create_agent"))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result).To(Equal(largeResponse))
 	})
 })

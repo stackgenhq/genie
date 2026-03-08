@@ -52,6 +52,42 @@ var _ = Describe("OpenConfig", func() {
 		_, statErr := os.Stat(dbPath)
 		Expect(statErr).NotTo(HaveOccurred(), "database file should exist on disk")
 	})
+
+	It("opens a SQLite database with empty DBFile (uses default path)", func() {
+		// OpenConfig with empty config should fall through to openSQLite
+		// which defaults the path. We test that it doesn't error.
+		gormDB, err := OpenConfig(Config{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(gormDB).NotTo(BeNil())
+		Expect(Close(gormDB)).To(Succeed())
+	})
+
+	It("dispatches to openPostgres when DSN is set", func() {
+		// This will fail to connect since there's no real Postgres, but
+		// it exercises the isPostgres() branch and the openPostgres path.
+		_, err := OpenConfig(Config{DSN: "postgres://fakeuser:fakepass@localhost:59999/fakedb?sslmode=disable&connect_timeout=1"})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("PostgreSQL"))
+	})
+})
+
+var _ = Describe("DefaultConfig", func() {
+	It("returns a config with a non-empty DBFile", func() {
+		cfg := DefaultConfig()
+		Expect(cfg.DBFile).NotTo(BeEmpty())
+		Expect(cfg.DSN).To(BeEmpty())
+	})
+
+	It("DisplayPath returns the DBFile for default config", func() {
+		cfg := DefaultConfig()
+		Expect(cfg.DisplayPath()).To(Equal(cfg.DBFile))
+	})
+
+	It("DisplayPath returns the default path when both are empty", func() {
+		cfg := Config{}
+		dp := cfg.DisplayPath()
+		Expect(dp).To(ContainSubstring("genie.db"))
+	})
 })
 
 var _ = Describe("Open (backward compat)", func() {
