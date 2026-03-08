@@ -291,6 +291,7 @@ func NewOrchestrator(
 		toolWrapSvc,
 		vectorStore,
 		halGuard,
+		reactree.WithSkipSummarizeMarker(true),
 	)
 	createAgentTool.SetHalGuardThreshold(oo.halGuardConfig.PreCheckThreshold)
 	// Log tool counts so operators can verify email, gmail, etc. are wired for sub-agents.

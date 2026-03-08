@@ -161,8 +161,8 @@ func LoadGenieConfig(ctx context.Context, sp security.SecretProvider, path strin
 		cfg.VectorMemory.EmbeddingProvider = "huggingface"
 	}
 	// Auto-detect Milvus if MILVUS_ADDRESS is set and vector_store_provider is not explicitly set
-	if cfg.VectorMemory.Milvus.Address != "" && cfg.VectorMemory.VectorStoreProvider == "" {
-		cfg.VectorMemory.VectorStoreProvider = "milvus"
+	if cfg.VectorMemory.Qdrant.Host != "" && cfg.VectorMemory.VectorStoreProvider == "" {
+		cfg.VectorMemory.VectorStoreProvider = "qdrant"
 	}
 
 	if path == "" {

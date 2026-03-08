@@ -179,6 +179,19 @@ type createAgentTool struct {
 	// inflight deduplicates identical parallel create_agent calls
 	// from the LLM (same agent_name + goal). Backed by singleflight.
 	inflight dedup.Group[CreateAgentResponse]
+
+	skipSummarize bool
+}
+
+// CreateAgentOption configures the create_agent tool.
+type CreateAgentOption func(*createAgentTool)
+
+// WithSkipSummarizeMarker configures whether the tool should add a context
+// marker telling the upstream summarizer to bypass summarization.
+func WithSkipSummarizeMarker(skip bool) CreateAgentOption {
+	return func(t *createAgentTool) {
+		t.skipSummarize = skip
+	}
 }
 
 // orchestrationOnlyTools lists tool names that are available to the main agent
@@ -202,6 +215,7 @@ func NewCreateAgentTool(
 	toolWrapSvc *toolwrap.Service,
 	vectorStore vector.IStore,
 	halGuard halguard.Guard,
+	opts ...CreateAgentOption,
 ) *createAgentTool {
 	// Build a sub-agent registry that excludes orchestration-only tools.
 	// Sub-agents must not call create_agent (no recursive spawning) or
@@ -222,6 +236,10 @@ func NewCreateAgentTool(
 		episodic:         episodic,
 		vectorStore:      vectorStore,
 		halGuard:         halGuard,
+	}
+
+	for _, opt := range opts {
+		opt(t)
 	}
 
 	t.description = fmt.Sprintf(
@@ -268,6 +286,10 @@ func (t *createAgentTool) GetTool() tool.Tool {
 }
 
 func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (CreateAgentResponse, error) {
+	if t.skipSummarize {
+		agentutils.SetSkipSummarize(ctx)
+	}
+
 	logr := logger.GetLogger(ctx).With("fn", "createAgentTool.execute", "goal", toolwrap.TruncateForAudit(req.Goal, 80), "name", req.AgentName)
 	logr.Info("create_agent invoked", "tool_names", req.ToolNames, "task_type", req.TaskType, "steps", len(req.Steps))
 

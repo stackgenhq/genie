@@ -9,7 +9,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/expert"
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
 	"github.com/stackgenhq/genie/pkg/logger"
-	"github.com/stackgenhq/genie/pkg/toolwrap"
+	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
@@ -87,7 +87,7 @@ func NewSummarizer(ctx context.Context, modelProvider modelprovider.ModelProvide
 		Description: "Summarizes content into structured output formats",
 	}
 
-	exp, err := bio.ToExpert(ctx, modelProvider, auditor, toolwrap.NewService(auditor, nil, nil))
+	exp, err := bio.ToExpert(ctx, modelProvider, auditor, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create summarizer expert: %w", err)
 	}
@@ -197,4 +197,10 @@ func NewSummarizerTool(s Summarizer) tool.Tool {
 
 func (st *summarizeTool) execute(ctx context.Context, req SummarizeRequest) (string, error) {
 	return st.summarizer.Summarize(ctx, req)
+}
+
+// SetSkipSummarize instructs the upstream auto-summarize middleware to bypass
+// summarization for the current tool call, returning its verbatim output.
+func SetSkipSummarize(ctx context.Context) {
+	toolcontext.GetSkipSummarizeSetter(ctx)()
 }

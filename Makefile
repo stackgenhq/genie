@@ -27,6 +27,7 @@ endif
 GO_BUILD_FLAGS=-ldflags="-s -w \
 	-X 'github.com/stackgenhq/genie/pkg/config.Version=${GIT_VERSION}' \
 	-X 'github.com/stackgenhq/genie/pkg/config.BuildDate=$(shell date +%D)' \
+	-X 'google.golang.org/protobuf/reflect/protoregistry.conflictPolicy=warn' \
 	$(GO_GOOGLE_OAUTH_LDFLAGS)" \
 	-mod=mod
 DIST_DIR=build
@@ -95,7 +96,7 @@ generate: ## Generate code (if needed)
 test: test/unit ## Run tests
 
 test/unit: ## Run unit tests
-	go tool ginkgo ${ARGS} -mod=mod --race -r --junit-report=testreports/report.xml --cover --coverprofile=coverage.out
+	GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn go tool ginkgo ${ARGS} -mod=mod --race -r --junit-report=testreports/report.xml --cover --coverprofile=coverage.out
 
 # ------------------------------ lint commands ------------------------------
 

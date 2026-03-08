@@ -209,9 +209,14 @@ token = "${GITHUB_TOKEN}"
 
 # ── Vector Memory ───────────────────────────────────────────────────
 [vector_memory]
+vector_store_provider = "qdrant"
 embedding_provider = "openai"
 openai_model = "text-embedding-3-small"
-persistence_dir = "/data/vector_store"
+
+[vector_memory.qdrant]
+host = "qdrant.genie.svc.cluster.local"
+port = 6334
+collection_name = "genie_documents"
 
 # ── AG-UI Server ────────────────────────────────────────────────────
 [messenger.agui]

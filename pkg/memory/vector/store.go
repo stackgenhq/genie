@@ -60,10 +60,10 @@ type Config struct {
 	GeminiAPIKey      string `yaml:"gemini_api_key,omitempty" toml:"gemini_api_key,omitempty"`
 	GeminiModel       string `yaml:"gemini_model,omitempty" toml:"gemini_model,omitempty"`
 	// VectorStoreProvider specifies the vector store backend to use.
-	// Options: "inmemory" (default), "milvus"
+	// Options: "inmemory" (default), "milvus", "qdrant"
 	VectorStoreProvider string `yaml:"vector_store_provider,omitempty" toml:"vector_store_provider,omitempty"`
-	// Milvus configuration (only used when VectorStoreProvider is "milvus")
-	Milvus MilvusConfig `yaml:"milvus,omitempty" toml:"milvus,omitempty"`
+	// Qdrant configuration (only used when VectorStoreProvider is "qdrant")
+	Qdrant QdrantConfig `yaml:"qdrant,omitempty" toml:"qdrant,omitempty"`
 	// AllowedMetadataKeys optionally restricts which metadata keys may be used in
 	// memory_store and memory_search. If non-empty, only these keys are accepted
 	// for metadata (store) and filter (search), enabling product/category buckets.
@@ -93,13 +93,10 @@ func DefaultConfig(ctx context.Context, sp security.SecretProvider) Config {
 		HuggingFaceURL:      get("HUGGINGFACE_URL"),
 		GeminiAPIKey:        get("GOOGLE_API_KEY"),
 		GeminiModel:         get("GEMINI_EMBED_MODEL"),
-		Milvus: MilvusConfig{
-			Address:        get("MILVUS_ADDRESS"),
-			Username:       get("MILVUS_USERNAME"),
-			Password:       get("MILVUS_PASSWORD"),
-			DBName:         get("MILVUS_DB_NAME"),
-			APIKey:         get("MILVUS_API_KEY"),
-			CollectionName: get("MILVUS_COLLECTION_NAME"),
+		Qdrant: QdrantConfig{
+			Host:           get("QDRANT_HOST"),
+			APIKey:         get("QDRANT_API_KEY"),
+			CollectionName: get("QDRANT_COLLECTION_NAME"),
 		},
 	}
 }
@@ -137,11 +134,11 @@ type persistedEntry struct {
 // its state to disk after every Add and restores it on startup.
 // When using Milvus, persistence is handled by Milvus itself.
 type Store struct {
-	vs         vectorstore.VectorStore
-	embedder   embedder.Embedder
-	mu         sync.Mutex
-	persistDir string
-	useMilvus  bool // true if using Milvus (skip snapshots)
+	vs               vectorstore.VectorStore
+	embedder         embedder.Embedder
+	mu               sync.Mutex
+	persistDir       string
+	useExternalStore bool // true if using Milvus or Qdrant (skip snapshots)
 }
 
 // NewStore creates a new vector store backed by trpc-agent-go/knowledge.
@@ -154,7 +151,7 @@ func (cfg Config) NewStore(ctx context.Context) (*Store, error) {
 	}
 
 	var vs vectorstore.VectorStore
-	useMilvus := false
+	useExternalStore := false
 
 	// Determine which vector store to use (case-insensitive)
 	vectorStoreProvider := strings.ToLower(strings.TrimSpace(cfg.VectorStoreProvider))
@@ -163,27 +160,27 @@ func (cfg Config) NewStore(ctx context.Context) (*Store, error) {
 	}
 
 	switch vectorStoreProvider {
-	case "milvus":
-		vs, err = cfg.buildMilvusStore(ctx, emb)
+	case "qdrant":
+		vs, err = cfg.buildQdrantStore(ctx, emb)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create Milvus store: %w", err)
+			return nil, fmt.Errorf("failed to create Qdrant store: %w", err)
 		}
-		useMilvus = true
+		useExternalStore = true
 	case "inmemory":
 		vs = inmemory.New()
 	default:
-		return nil, fmt.Errorf("invalid vector_store_provider: %q (valid options: inmemory, milvus)", cfg.VectorStoreProvider)
+		return nil, fmt.Errorf("invalid vector_store_provider: %q (valid options: inmemory, milvus, qdrant)", cfg.VectorStoreProvider)
 	}
 
 	s := &Store{
-		vs:         vs,
-		embedder:   emb,
-		persistDir: cfg.PersistenceDir,
-		useMilvus:  useMilvus,
+		vs:               vs,
+		embedder:         emb,
+		persistDir:       cfg.PersistenceDir,
+		useExternalStore: useExternalStore,
 	}
 
 	// Restore from disk if a snapshot exists (only for in-memory store).
-	if !useMilvus && cfg.PersistenceDir != "" {
+	if !useExternalStore && cfg.PersistenceDir != "" {
 		if err := s.loadSnapshot(ctx); err != nil {
 			return nil, fmt.Errorf("failed to load snapshot: %w", err)
 		}
@@ -230,7 +227,7 @@ func (s *Store) Add(ctx context.Context, items ...BatchItem) error {
 	}
 
 	// Single snapshot after all documents are added (only for in-memory store).
-	if !s.useMilvus {
+	if !s.useExternalStore {
 		if err := s.saveSnapshot(ctx); err != nil {
 			return fmt.Errorf("failed to save snapshot: %w", err)
 		}
@@ -327,7 +324,7 @@ func (s *Store) Delete(ctx context.Context, ids ...string) error {
 	}
 
 	// Single snapshot after all deletes (only for in-memory store).
-	if !s.useMilvus {
+	if !s.useExternalStore {
 		if err := s.saveSnapshot(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("failed to save snapshot after delete: %w", err))
 		}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/stackgenhq/genie/pkg/htmlutils"
 	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 )
 
 const (
@@ -154,9 +155,17 @@ func (m *summarizeMiddleware) Wrap(next Handler) Handler {
 		return next
 	}
 	return func(ctx context.Context, tc *ToolCallContext) (any, error) {
+		skipped := false
+		ctx = toolcontext.WithSkipSummarizeSetter(ctx, func() { skipped = true })
+
 		output, err := next(ctx, tc)
 		if err != nil {
 			return output, err
+		}
+
+		if skipped {
+			logger.GetLogger(ctx).Debug("skipping auto-summarization due to context marker", "tool", tc.ToolName)
+			return output, nil
 		}
 
 		responseStr := fmt.Sprintf("%v", output)

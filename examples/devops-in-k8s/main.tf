@@ -28,6 +28,10 @@ terraform {
       source  = "hashicorp/kubernetes"
       version = "~> 2.25"
     }
+    helm = {
+      source  = "hashicorp/helm"
+      version = "~> 2.12"
+    }
   }
 }
 
@@ -53,6 +57,14 @@ provider "kubernetes" {
   host                   = data.aws_eks_cluster.this.endpoint
   cluster_ca_certificate = base64decode(data.aws_eks_cluster.this.certificate_authority[0].data)
   token                  = data.aws_eks_cluster_auth.this.token
+}
+
+provider "helm" {
+  kubernetes {
+    host                   = data.aws_eks_cluster.this.endpoint
+    cluster_ca_certificate = base64decode(data.aws_eks_cluster.this.certificate_authority[0].data)
+    token                  = data.aws_eks_cluster_auth.this.token
+  }
 }
 
 # ── Data Sources ────────────────────────────────────────────────────────────
@@ -613,6 +625,34 @@ resource "kubernetes_ingress_v1" "genie" {
   }
 }
 
+# ═════════════════════════════════════════════════════════════════════════════
+# PART 6 – Qdrant Vector Store
+# ═════════════════════════════════════════════════════════════════════════════
+
+module "vectorstore" {
+  source = "./modules/vectorstore"
+
+  namespace         = var.kubernetes.namespace
+  s3_bucket         = var.vectorstore.s3_bucket
+  s3_region         = var.aws.region
+  oidc_provider_arn = local.oidc_provider_arn
+  oidc_issuer       = local.oidc_issuer
+  tags              = var.tags
+
+  qdrant = {
+    replicas           = var.vectorstore.replicas
+    storage_size       = var.vectorstore.storage_size
+    image_tag          = var.vectorstore.image_tag
+    api_key            = var.vectorstore.api_key
+    resources_limits   = var.vectorstore.resources_limits
+    resources_requests = var.vectorstore.resources_requests
+  }
+
+  depends_on = [
+    kubernetes_namespace.genie,
+  ]
+}
+
 # ── Outputs ─────────────────────────────────────────────────────────────────
 
 output "iam_role_arn" {
@@ -633,4 +673,14 @@ output "service_endpoint" {
 output "ingress_host" {
   description = "Ingress hostname for external access"
   value       = var.kubernetes.ingress_host
+}
+
+output "qdrant_http_endpoint" {
+  description = "Internal cluster HTTP endpoint for Qdrant"
+  value       = module.vectorstore.http_endpoint
+}
+
+output "qdrant_grpc_endpoint" {
+  description = "Internal cluster gRPC endpoint for Qdrant"
+  value       = module.vectorstore.grpc_endpoint
 }
