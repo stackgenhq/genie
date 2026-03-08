@@ -35,6 +35,10 @@ terraform {
 
 provider "aws" {
   region = var.aws.region
+
+  default_tags {
+    tags = var.tags
+  }
 }
 
 data "aws_eks_cluster" "this" {
@@ -108,6 +112,19 @@ resource "aws_iam_role" "genie_readonly" {
 resource "aws_iam_role_policy_attachment" "readonly" {
   role       = aws_iam_role.genie_readonly.name
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+}
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PART 1.5 – EKS Access Entry
+# Map the SA's AWS IAM role to the Kubernetes cluster so the Copilot can log in
+# seamlessly via `aws eks update-kubeconfig`.
+# ═════════════════════════════════════════════════════════════════════════════
+
+resource "aws_eks_access_entry" "genie_readonly" {
+  cluster_name      = var.aws.eks_cluster_name
+  principal_arn     = aws_iam_role.genie_readonly.arn
+  kubernetes_groups = ["genie-readonly-group"]
+  type              = "STANDARD"
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -345,6 +362,32 @@ resource "kubernetes_cluster_role_binding" "genie_readonly" {
     name      = kubernetes_service_account.genie.metadata[0].name
     namespace = var.kubernetes.namespace
   }
+
+  # Bind the group mapped to the AWS IAM role (via EKS Access Entry)
+  subject {
+    kind      = "Group"
+    name      = "genie-readonly-group"
+    api_group = "rbac.authorization.k8s.io"
+  }
+}
+
+# ── Persistent Volume Claim ─────────────────────────────────────────────────
+
+resource "kubernetes_persistent_volume_claim" "genie_data" {
+  metadata {
+    name      = "genie-data"
+    namespace = var.kubernetes.namespace
+  }
+
+  spec {
+    access_modes = ["ReadWriteOnce"]
+
+    resources {
+      requests = {
+        storage = "10Gi"
+      }
+    }
+  }
 }
 
 # ── Deployment ──────────────────────────────────────────────────────────────
@@ -394,7 +437,7 @@ resource "kubernetes_deployment" "genie" {
 
           command = ["/bin/sh", "-c"]
           # Install AWS CLI, kubectl and other tools, then drop privileges to run Genie.
-          args = ["apk add --no-cache aws-cli kubectl jq curl bash su-exec && mkdir -p /home/stackgen/.kube && chown 65532:65532 /home/stackgen/.kube && exec su-exec 65532:65532 /usr/local/bin/genie --config /app/genie.toml --log-level debug"]
+          args = ["apk add --no-cache aws-cli kubectl jq curl bash su-exec && mkdir -p /home/stackgen/.kube && chown 65532:65532 /home/stackgen/.kube && chown -R 65532:65532 /data && exec su-exec 65532:65532 /usr/local/bin/genie --config /app/genie.toml --log-level debug"]
 
           port {
             container_port = var.genie.port
@@ -449,6 +492,11 @@ resource "kubernetes_deployment" "genie" {
             mount_path = "/var/run/secrets/eks.amazonaws.com/serviceaccount"
             read_only  = true
           }
+
+          volume_mount {
+            name       = "genie-data"
+            mount_path = "/data"
+          }
         }
 
         volume {
@@ -467,13 +515,40 @@ resource "kubernetes_deployment" "genie" {
 
             sources {
               service_account_token {
-                audience          = "sts.amazonaws.com"
+                audience           = "sts.amazonaws.com"
                 expiration_seconds = 86400
-                path              = "token"
+                path               = "token"
               }
             }
           }
         }
+
+        volume {
+          name = "genie-data"
+
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.genie_data.metadata[0].name
+          }
+        }
+      }
+    }
+  }
+}
+
+# ── Pod Disruption Budget ───────────────────────────────────────────────────
+
+resource "kubernetes_pod_disruption_budget_v1" "genie" {
+  metadata {
+    name      = "genie-pdb"
+    namespace = var.kubernetes.namespace
+  }
+
+  spec {
+    min_available = 1
+
+    selector {
+      match_labels = {
+        app = "genie"
       }
     }
   }

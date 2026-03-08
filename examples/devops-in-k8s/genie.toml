@@ -9,7 +9,7 @@ file = "/app/AGENTS.md"
 disable_resume = true
 
 [db_config]
-db_file = "/tmp/.genie.db"
+db_file = "/data/.genie.db"
 
 # ── Model Configuration ─────────────────────────────────────────────
 [model_config]
@@ -20,11 +20,11 @@ model_name = "claude-opus-4-5"
 token = "${ANTHROPIC_API_KEY}"
 good_for_task = "planning"
 
-[[model_config.providers]]
-provider = "openai"
-model_name = "o4-mini"
-token = "${OPENAI_API_KEY}"
-good_for_task = "planning"
+# [[model_config.providers]]
+# provider = "openai"
+# model_name = "o4-mini"
+# token = "${OPENAI_API_KEY}"
+# good_for_task = "planning"
 
 [[model_config.providers]]
 provider = "gemini"
@@ -51,13 +51,13 @@ token = "${GEMINI_API_KEY}"
 good_for_task = "frontdesk"
 
 [[model_config.providers]]
-provider = "openai"
+provider = "openai-completions"
 model_name = "gpt-5.1-codex-mini"
 token = "${OPENAI_API_KEY}"
 good_for_task = "general_task"
 
 [[model_config.providers]]
-provider = "openai"
+provider = "openai-completions"
 model_name = "gpt-5.3-codex"
 token = "${OPENAI_API_KEY}"
 good_for_task = "coding"
@@ -211,7 +211,7 @@ token = "${GITHUB_TOKEN}"
 [vector_memory]
 embedding_provider = "openai"
 openai_model = "text-embedding-3-small"
-persistence_dir = "/tmp/vector_store"
+persistence_dir = "/data/vector_store"
 
 # ── AG-UI Server ────────────────────────────────────────────────────
 [messenger.agui]
