@@ -1,7 +1,7 @@
 package vector
 
 // This file documents the protobuf registration conflict between gRPC-based
-// vector store clients (e.g. Qdrant) and other dependencies.
+// vector store clients (e.g. Qdrant, Milvus) and other dependencies.
 //
 // Some libraries register a proto file named "common.proto" with different
 // Go packages and different message types. This triggers the default "panic"
