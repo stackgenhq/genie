@@ -44,8 +44,8 @@ func (m *openAICompletionModel) GenerateContent(ctx context.Context, request *mo
 		Model:  openai.CompletionNewParamsModel(m.name),
 		Prompt: openai.CompletionNewParamsPromptUnion{OfString: openai.String(prompt.String())},
 	}
-	if request.GenerationConfig.MaxTokens != nil {
-		body.MaxTokens = openai.Int(int64(*request.GenerationConfig.MaxTokens))
+	if request.MaxTokens != nil {
+		body.MaxTokens = openai.Int(int64(*request.MaxTokens))
 	} else {
 		// Default max tokens if not set to avoid minimal generation
 		body.MaxTokens = openai.Int(1024)
@@ -112,27 +112,4 @@ func (m *openAICompletionModel) GenerateContent(ctx context.Context, request *mo
 	}
 	close(ch)
 	return ch, nil
-}
-
-type normalizeModel struct {
-	model.Model
-	modelName string
-}
-
-func (m *normalizeModel) GenerateContent(ctx context.Context, request *model.Request) (<-chan *model.Response, error) {
-	if request != nil && isReasoningModel(m.modelName) {
-		reqCopy := *request
-		// Overwrite unsupported generation parameters for reasoning models.
-		reqCopy.Temperature = nil
-		reqCopy.TopP = nil
-		reqCopy.PresencePenalty = nil
-		reqCopy.FrequencyPenalty = nil
-		return m.Model.GenerateContent(ctx, &reqCopy)
-	}
-	return m.Model.GenerateContent(ctx, request)
-}
-
-func isReasoningModel(name string) bool {
-	n := strings.ToLower(name)
-	return strings.HasPrefix(n, "o1") || strings.HasPrefix(n, "o3") || strings.HasPrefix(n, "o4") || strings.HasPrefix(n, "gpt-5")
 }

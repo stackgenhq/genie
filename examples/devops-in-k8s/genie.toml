@@ -9,7 +9,9 @@ file = "/app/AGENTS.md"
 disable_resume = true
 
 [db_config]
-db_file = "/data/.genie.db"
+# PostgreSQL — DSN is injected from Secrets Manager via ExternalSecrets.
+# When DSN is set, the SQLite db_file is ignored.
+dsn = "${POSTGRES_DSN}"
 
 # ── Model Configuration ─────────────────────────────────────────────
 [model_config]

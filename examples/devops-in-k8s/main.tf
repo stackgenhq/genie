@@ -419,6 +419,13 @@ resource "kubernetes_deployment" "genie" {
   spec {
     replicas = var.genie.replicas
 
+    # Recreate strategy avoids ReadWriteOnce PVC multi-attach deadlock
+    # during rollouts: the old pod must fully terminate before the new
+    # pod can mount the volume.
+    strategy {
+      type = "Recreate"
+    }
+
     selector {
       match_labels = {
         app = "genie"
@@ -486,6 +493,13 @@ resource "kubernetes_deployment" "genie" {
             secret_ref {
               name     = "genie-secrets"
               optional = true
+            }
+          }
+
+          # PostgreSQL credentials (POSTGRES_DSN, POSTGRES_USER, etc.)
+          env_from {
+            secret_ref {
+              name = module.database.secret_name
             }
           }
 
@@ -626,7 +640,18 @@ resource "kubernetes_ingress_v1" "genie" {
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
-# PART 6 – Qdrant Vector Store
+# PART 6 – PostgreSQL Database
+# ═════════════════════════════════════════════════════════════════════════════
+
+module "database" {
+  source = "./modules/database"
+
+  namespace = var.kubernetes.namespace
+  tags      = var.tags
+}
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PART 7 – Qdrant Vector Store
 # ═════════════════════════════════════════════════════════════════════════════
 
 module "vectorstore" {
@@ -683,4 +708,9 @@ output "qdrant_http_endpoint" {
 output "qdrant_grpc_endpoint" {
   description = "Internal cluster gRPC endpoint for Qdrant"
   value       = module.vectorstore.grpc_endpoint
+}
+
+output "postgres_host" {
+  description = "Internal cluster hostname for PostgreSQL"
+  value       = module.database.host
 }
