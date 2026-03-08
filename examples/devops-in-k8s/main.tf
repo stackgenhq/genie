@@ -305,6 +305,21 @@ resource "kubernetes_config_map" "genie" {
   }
 }
 
+# ── ConfigMap: container entrypoint scripts ─────────────────────────────────
+
+resource "kubernetes_config_map" "scripts" {
+  metadata {
+    name      = "genie-scripts"
+    namespace = var.kubernetes.namespace
+  }
+
+  data = {
+    "credential-bootstrap.sh" = file("${path.module}/scripts/credential-bootstrap.sh")
+    "credential-refresh.sh"   = file("${path.module}/scripts/credential-refresh.sh")
+    "genie-entrypoint.sh"     = file("${path.module}/scripts/genie-entrypoint.sh")
+  }
+}
+
 # ── ServiceAccount: annotated with the IRSA role ARN ────────────────────────
 
 resource "kubernetes_service_account" "genie" {
@@ -405,6 +420,24 @@ resource "kubernetes_persistent_volume_claim" "genie_data" {
 }
 
 # ── Deployment ──────────────────────────────────────────────────────────────
+#
+# SECURITY: Credential Isolation via Init Container + Sidecar Pattern
+# ====================================================================
+# The genie container where users can run arbitrary shell commands via the
+# AG-UI agent MUST NOT have direct access to secrets or IRSA tokens.
+# Otherwise, a user can simply run `printenv` or `cat $AWS_WEB_IDENTITY_TOKEN_FILE`
+# to exfiltrate API keys, database credentials, and AWS IAM tokens.
+#
+# Architecture:
+#   1. Init container "credential-bootstrap": Has all secrets + IRSA token.
+#      Generates kubeconfig, resolves genie.toml with real credentials, and
+#      writes both to a shared emptyDir volume.
+#   2. Sidecar "credential-refresh": Periodically refreshes the kubeconfig
+#      token (IRSA tokens expire in 24h) so kubectl keeps working.
+#   3. Main container "genie": Has ZERO secret env vars, NO IRSA token mount.
+#      Reads resolved config and kubeconfig from the shared volume only.
+#
+# This ensures `printenv`, `env`, `cat` on any path cannot reveal credentials.
 
 resource "kubernetes_deployment" "genie" {
   metadata {
@@ -414,6 +447,11 @@ resource "kubernetes_deployment" "genie" {
     labels = {
       app = "genie"
     }
+  }
+
+  timeouts {
+    create = "1m"
+    update = "1m"
   }
 
   spec {
@@ -446,24 +484,18 @@ resource "kubernetes_deployment" "genie" {
           fs_group = 65532
         }
 
-        container {
-          name              = "genie"
-          image             = var.genie.image
-          image_pull_policy = "Always"
+        # ── Init Container: Credential Bootstrap ──────────────────────
+        # Runs BEFORE the main container starts. Has access to all secrets
+        # and the IRSA token. Generates kubeconfig and resolves genie.toml
+        # with real credential values, writing both to /shared-credentials.
+        init_container {
+          name              = "credential-bootstrap"
+          image             = "amazon/aws-cli:latest"
+          image_pull_policy = "IfNotPresent"
 
-          security_context {
-            # Run as root to install tools, then drop privileges via su-exec.
-            run_as_user = 0
-          }
+          command = ["/bin/sh", "/scripts/credential-bootstrap.sh"]
 
-          command = ["/bin/sh", "-c"]
-          # Install AWS CLI, kubectl and other tools, then drop privileges to run Genie.
-          args = ["apk add --no-cache aws-cli kubectl jq curl bash su-exec && mkdir -p /home/stackgen/.kube && chown 65532:65532 /home/stackgen/.kube && chown -R 65532:65532 /data && exec su-exec 65532:65532 /usr/local/bin/genie --config /app/genie.toml --log-level debug"]
-
-          port {
-            container_port = var.genie.port
-          }
-
+          # IRSA environment variables — only in this init container
           env {
             name  = "AWS_REGION"
             value = var.aws.region
@@ -472,11 +504,6 @@ resource "kubernetes_deployment" "genie" {
           env {
             name  = "EKS_CLUSTER_NAME"
             value = var.aws.eks_cluster_name
-          }
-
-          env {
-            name  = "KUBECONFIG"
-            value = "/home/stackgen/.kube/config"
           }
 
           env {
@@ -489,6 +516,7 @@ resource "kubernetes_deployment" "genie" {
             value = aws_iam_role.genie_readonly.arn
           }
 
+          # All application secrets — only in this init container
           env_from {
             secret_ref {
               name     = "genie-secrets"
@@ -496,23 +524,10 @@ resource "kubernetes_deployment" "genie" {
             }
           }
 
-          # PostgreSQL credentials (POSTGRES_DSN, POSTGRES_USER, etc.)
           env_from {
             secret_ref {
               name = module.database.secret_name
             }
-          }
-
-          volume_mount {
-            name       = "config-volume"
-            mount_path = "/app/genie.toml"
-            sub_path   = "genie.toml"
-          }
-
-          volume_mount {
-            name       = "config-volume"
-            mount_path = "/app/AGENTS.md"
-            sub_path   = "AGENTS.md"
           }
 
           volume_mount {
@@ -522,9 +537,147 @@ resource "kubernetes_deployment" "genie" {
           }
 
           volume_mount {
+            name       = "config-volume"
+            mount_path = "/app-config"
+            read_only  = true
+          }
+
+          volume_mount {
+            name       = "shared-credentials"
+            mount_path = "/shared-credentials"
+          }
+
+          volume_mount {
+            name       = "scripts-volume"
+            mount_path = "/scripts"
+            read_only  = true
+          }
+        }
+
+        # ── Sidecar: Credential Refresh ───────────────────────────────
+        # Runs alongside the main container. Periodically refreshes the
+        # kubeconfig so the IRSA token (24h expiry) stays valid.
+        # This container has secrets but is NOT user-accessible.
+        container {
+          name              = "credential-refresh"
+          image             = "amazon/aws-cli:latest"
+          image_pull_policy = "IfNotPresent"
+
+          command = ["/bin/sh", "/scripts/credential-refresh.sh"]
+
+          env {
+            name  = "AWS_REGION"
+            value = var.aws.region
+          }
+
+          env {
+            name  = "EKS_CLUSTER_NAME"
+            value = var.aws.eks_cluster_name
+          }
+
+          env {
+            name  = "AWS_WEB_IDENTITY_TOKEN_FILE"
+            value = "/var/run/secrets/eks.amazonaws.com/serviceaccount/token"
+          }
+
+          env {
+            name  = "AWS_ROLE_ARN"
+            value = aws_iam_role.genie_readonly.arn
+          }
+
+          volume_mount {
+            name       = "aws-iam-token"
+            mount_path = "/var/run/secrets/eks.amazonaws.com/serviceaccount"
+            read_only  = true
+          }
+
+          volume_mount {
+            name       = "shared-credentials"
+            mount_path = "/shared-credentials"
+          }
+
+          volume_mount {
+            name       = "scripts-volume"
+            mount_path = "/scripts"
+            read_only  = true
+          }
+
+          resources {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              cpu    = "50m"
+              memory = "64Mi"
+            }
+          }
+        }
+
+        # ── Main Container: Genie (user-facing) ──────────────────────
+        # SECURITY: This container has ZERO secret env vars and NO IRSA
+        # token mount. Users can run `printenv`, `env`, `cat` on any path
+        # and will NOT find any credentials. The genie binary reads its
+        # resolved config (with real API keys) from the shared volume.
+        container {
+          name              = "genie"
+          image             = var.genie.image
+          image_pull_policy = "Always"
+
+          security_context {
+            # Run as root to install tools, then drop privileges via su-exec.
+            run_as_user = 0
+          }
+
+          command = ["/bin/sh", "/scripts/genie-entrypoint.sh"]
+
+          port {
+            container_port = var.genie.port
+          }
+
+          # Only non-sensitive env vars are set here.
+          env {
+            name  = "KUBECONFIG"
+            value = "/home/stackgen/.kube/config"
+          }
+
+          # Suppress the protobuf registration conflict between Qdrant and
+          # Milvus gRPC clients — both register "common.proto" but with
+          # different (unrelated) message types.  The "warn" policy logs it
+          # instead of panicking.
+          env {
+            name  = "GOLANG_PROTOBUF_REGISTRATION_CONFLICT"
+            value = "warn"
+          }
+
+          # NOTE: NO env_from blocks — no secrets in this container's env.
+          # NOTE: NO AWS_WEB_IDENTITY_TOKEN_FILE — no IRSA token access.
+          # NOTE: NO AWS_ROLE_ARN — no role to assume.
+
+          volume_mount {
+            name       = "config-volume"
+            mount_path = "/app/AGENTS.md"
+            sub_path   = "AGENTS.md"
+          }
+
+          volume_mount {
+            name       = "shared-credentials"
+            mount_path = "/shared-credentials"
+            read_only  = true
+          }
+
+          volume_mount {
             name       = "genie-data"
             mount_path = "/data"
           }
+
+          volume_mount {
+            name       = "scripts-volume"
+            mount_path = "/scripts"
+            read_only  = true
+          }
+
+          # NOTE: NO aws-iam-token volume mount — token is not accessible.
         }
 
         volume {
@@ -536,10 +689,22 @@ resource "kubernetes_deployment" "genie" {
         }
 
         volume {
+          name = "scripts-volume"
+
+          config_map {
+            name         = kubernetes_config_map.scripts.metadata[0].name
+            default_mode = "0755"
+          }
+        }
+
+        # IRSA token volume — mounted ONLY in init and sidecar containers,
+        # NOT in the user-facing genie container.
+        volume {
           name = "aws-iam-token"
 
           projected {
-            default_mode = "0644"
+            # Restrictive permissions: owner-read only (was 0644).
+            default_mode = "0400"
 
             sources {
               service_account_token {
@@ -548,6 +713,17 @@ resource "kubernetes_deployment" "genie" {
                 path               = "token"
               }
             }
+          }
+        }
+
+        # Shared emptyDir for credential handoff from init/sidecar → genie.
+        # Contains: kubeconfig (with embedded short-lived token) and
+        # resolved genie.toml (with real API keys substituted).
+        volume {
+          name = "shared-credentials"
+
+          empty_dir {
+            medium = "Memory"
           }
         }
 

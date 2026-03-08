@@ -80,7 +80,7 @@ type SessionState struct {
 	UserID    string    `gorm:"primaryKey;type:text" json:"user_id"`
 	SessionID string    `gorm:"primaryKey;type:text" json:"session_id"`
 	Key       string    `gorm:"primaryKey;type:text" json:"key"`
-	Value     []byte    `gorm:"type:blob" json:"value"`
+	Value     []byte    `json:"value"`
 	UpdatedAt time.Time `gorm:"not null" json:"updated_at"`
 }
 
@@ -90,7 +90,7 @@ func (SessionState) TableName() string { return "session_states" }
 type AppState struct {
 	AppName   string    `gorm:"primaryKey;type:text" json:"app_name"`
 	Key       string    `gorm:"primaryKey;type:text" json:"key"`
-	Value     []byte    `gorm:"type:blob" json:"value"`
+	Value     []byte    `json:"value"`
 	UpdatedAt time.Time `gorm:"not null" json:"updated_at"`
 }
 
@@ -101,7 +101,7 @@ type UserState struct {
 	AppName   string    `gorm:"primaryKey;type:text" json:"app_name"`
 	UserID    string    `gorm:"primaryKey;type:text" json:"user_id"`
 	Key       string    `gorm:"primaryKey;type:text" json:"key"`
-	Value     []byte    `gorm:"type:blob" json:"value"`
+	Value     []byte    `json:"value"`
 	UpdatedAt time.Time `gorm:"not null" json:"updated_at"`
 }
 

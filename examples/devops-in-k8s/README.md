@@ -183,6 +183,11 @@ kubectl annotate externalsecret genie-secrets -n genie \
 | `kubernetes_service.genie` | Service | ClusterIP service (port 80 → 9876) |
 | `kubernetes_ingress_v1.genie` | Ingress | NGINX ingress at the configured hostname |
 
+## Check logs
+
+```sh
+kubectl logs -l app=genie --tail 100000 -f --all-containers --max-log-requests 100
+```
 ## Files
 
 ```
@@ -227,3 +232,4 @@ terraform destroy -var-file=dev.tfvars
 ```
 
 This will remove all Kubernetes and AWS resources. The AWS Secrets Manager secret is **not** managed by Terraform and will remain.
+
