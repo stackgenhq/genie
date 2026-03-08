@@ -18,12 +18,6 @@ import (
 )
 
 var _ = Describe("DDoS Protection Middleware", func() {
-	// var fakeExpert agui.Expert
-
-	// BeforeEach(func() {
-	// 	fakeExpert = &aguifakes.FakeExpert{}
-	// })
-
 	// Helper: create a simple server with the given config and a handler that
 	// writes a single text chunk, optionally sleeping to simulate work.
 	newTestServer := func(cfg messenger.AGUIConfig, sleepDur time.Duration) *agui.Server {
@@ -285,7 +279,7 @@ var _ = Describe("DDoS Protection Middleware", func() {
 	})
 
 	Describe("Health endpoint bypass", func() {
-		It("should not rate-limit the health check endpoint", func() {
+		It("should not rate-limit the /health endpoint even after rate limit is exhausted", func() {
 			srv := newTestServer(messenger.AGUIConfig{
 				RateLimit: 0.001,
 				RateBurst: 1,
@@ -299,10 +293,93 @@ var _ = Describe("DDoS Protection Middleware", func() {
 			handler.ServeHTTP(rec1, req1)
 			Expect(rec1.Code).To(Equal(http.StatusOK))
 
-			// Health check should still work (different method/path, but same IP will be limited)
-			// Note: the rate limiter applies globally to all routes since it's a chi middleware.
-			// This is a design choice — health checks from the same IP count toward the limit.
-			// In production, health checks typically come from a load balancer with a separate IP.
+			// Same IP should be rate-limited on POST /
+			req2 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(validBody))
+			req2.Header.Set("Content-Type", "application/json")
+			rec2 := httptest.NewRecorder()
+			handler.ServeHTTP(rec2, req2)
+			Expect(rec2.Code).To(Equal(http.StatusTooManyRequests))
+
+			// /health should still succeed (bypasses rate limiter)
+			reqHealth := httptest.NewRequest(http.MethodGet, "/health", nil)
+			recHealth := httptest.NewRecorder()
+			handler.ServeHTTP(recHealth, reqHealth)
+			Expect(recHealth.Code).To(Equal(http.StatusOK))
+		})
+	})
+
+	Describe("UI static assets bypass", func() {
+		It("should not rate-limit /ui/ paths even after rate limit is exhausted", func() {
+			srv := newTestServer(messenger.AGUIConfig{
+				RateLimit: 0.001,
+				RateBurst: 1,
+			}, 0)
+			handler := srv.Handler()
+
+			// Exhaust the rate limit
+			req1 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(validBody))
+			req1.Header.Set("Content-Type", "application/json")
+			rec1 := httptest.NewRecorder()
+			handler.ServeHTTP(rec1, req1)
+			Expect(rec1.Code).To(Equal(http.StatusOK))
+
+			// Same IP should be rate-limited on POST /
+			req2 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(validBody))
+			req2.Header.Set("Content-Type", "application/json")
+			rec2 := httptest.NewRecorder()
+			handler.ServeHTTP(rec2, req2)
+			Expect(rec2.Code).To(Equal(http.StatusTooManyRequests))
+
+			// /ui/chat.html should still succeed (bypasses rate limiter)
+			reqUI := httptest.NewRequest(http.MethodGet, "/ui/chat.html", nil)
+			recUI := httptest.NewRecorder()
+			handler.ServeHTTP(recUI, reqUI)
+			Expect(recUI.Code).ToNot(Equal(http.StatusTooManyRequests))
+		})
+	})
+
+	Describe("Concurrency bypass for health and UI", func() {
+		It("should not concurrency-limit /health when all slots are occupied", func() {
+			srv := newTestServer(messenger.AGUIConfig{MaxConcurrent: 1}, 500*time.Millisecond)
+			handler := srv.Handler()
+
+			var wg sync.WaitGroup
+			var secondCode int32
+
+			// Start a long request that occupies the only slot
+			started := make(chan struct{})
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(validBody))
+				req.Header.Set("Content-Type", "application/json")
+				rec := httptest.NewRecorder()
+				close(started)
+				handler.ServeHTTP(rec, req)
+			}()
+
+			<-started
+			time.Sleep(50 * time.Millisecond)
+
+			// /health should still succeed even though slot is occupied
+			reqHealth := httptest.NewRequest(http.MethodGet, "/health", nil)
+			recHealth := httptest.NewRecorder()
+			handler.ServeHTTP(recHealth, reqHealth)
+			Expect(recHealth.Code).To(Equal(http.StatusOK))
+
+			// POST / should be rejected (503)
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(validBody))
+				req.Header.Set("Content-Type", "application/json")
+				rec := httptest.NewRecorder()
+				handler.ServeHTTP(rec, req)
+				atomic.StoreInt32(&secondCode, int32(rec.Code))
+			}()
+
+			wg.Wait()
+			Expect(atomic.LoadInt32(&secondCode)).To(Equal(int32(http.StatusServiceUnavailable)))
 		})
 	})
 })

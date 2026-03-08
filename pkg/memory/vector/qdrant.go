@@ -61,7 +61,7 @@ type QdrantConfig struct {
 // buildQdrantStore creates a Qdrant vector store instance based on the configuration.
 // This function exists to initialize Qdrant with proper configuration options.
 // Without this function, Qdrant support would not be available and users would be
-// limited to in-memory and Milvus stores only.
+// limited to in-memory stores only.
 func (cfg Config) buildQdrantStore(ctx context.Context, emb embedder.Embedder) (vectorstore.VectorStore, error) {
 	var opts []qdrantvs.Option
 

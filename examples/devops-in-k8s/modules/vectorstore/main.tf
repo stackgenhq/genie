@@ -142,7 +142,7 @@ resource "helm_release" "qdrant" {
   repository = "https://qdrant.to/helm"
   chart      = "qdrant"
   namespace  = var.namespace
-  version    = null # latest stable
+  version    = "1.17.0" # pinned for reproducibility; review before bumping
   wait = true
 
   # ── Replicas ──────────────────────────────────────────────────────────────

@@ -49,8 +49,8 @@ type BatchItem struct {
 type Config struct {
 	// PersistenceDir is the directory where the vector store snapshot is
 	// saved as a JSON file. If empty, the store is ephemeral (in-memory only).
-	// Note: PersistenceDir is ignored when using Milvus as the vector store,
-	// as Milvus handles persistence internally.
+	// Note: PersistenceDir is ignored when using Qdrant as the vector store,
+	// as Qdrant handles persistence internally.
 	PersistenceDir    string `yaml:"persistence_dir,omitempty" toml:"persistence_dir,omitempty"`
 	EmbeddingProvider string `yaml:"embedding_provider,omitempty" toml:"embedding_provider,omitempty"` // "openai", "ollama", "huggingface", "gemini"
 	APIKey            string `yaml:"api_key,omitempty" toml:"api_key,omitempty"`
@@ -60,7 +60,7 @@ type Config struct {
 	GeminiAPIKey      string `yaml:"gemini_api_key,omitempty" toml:"gemini_api_key,omitempty"`
 	GeminiModel       string `yaml:"gemini_model,omitempty" toml:"gemini_model,omitempty"`
 	// VectorStoreProvider specifies the vector store backend to use.
-	// Options: "inmemory" (default), "milvus", "qdrant"
+	// Options: "inmemory" (default), "qdrant"
 	VectorStoreProvider string `yaml:"vector_store_provider,omitempty" toml:"vector_store_provider,omitempty"`
 	// Qdrant configuration (only used when VectorStoreProvider is "qdrant")
 	Qdrant QdrantConfig `yaml:"qdrant,omitempty" toml:"qdrant,omitempty"`
@@ -132,18 +132,18 @@ type persistedEntry struct {
 // provide simple add/search operations for agent memory.
 // When PersistenceDir is set and using in-memory store, the store snapshots
 // its state to disk after every Add and restores it on startup.
-// When using Milvus, persistence is handled by Milvus itself.
+// When using Qdrant, persistence is handled by Qdrant itself.
 type Store struct {
 	vs               vectorstore.VectorStore
 	embedder         embedder.Embedder
 	mu               sync.Mutex
 	persistDir       string
-	useExternalStore bool // true if using Milvus or Qdrant (skip snapshots)
+	useExternalStore bool // true if using Qdrant (skip snapshots)
 }
 
 // NewStore creates a new vector store backed by trpc-agent-go/knowledge.
 // If cfg.PersistenceDir is set and using in-memory store, existing data is loaded from disk.
-// If using Milvus, persistence is handled by Milvus itself.
+// If using Qdrant, persistence is handled by Qdrant itself.
 func (cfg Config) NewStore(ctx context.Context) (*Store, error) {
 	emb, err := cfg.buildEmbedder(ctx)
 	if err != nil {
@@ -169,7 +169,7 @@ func (cfg Config) NewStore(ctx context.Context) (*Store, error) {
 	case "inmemory":
 		vs = inmemory.New()
 	default:
-		return nil, fmt.Errorf("invalid vector_store_provider: %q (valid options: inmemory, milvus, qdrant)", cfg.VectorStoreProvider)
+		return nil, fmt.Errorf("invalid vector_store_provider: %q (valid options: inmemory, qdrant)", cfg.VectorStoreProvider)
 	}
 
 	s := &Store{
@@ -337,7 +337,7 @@ func (s *Store) Delete(ctx context.Context, ids ...string) error {
 }
 
 // Close flushes any pending state to disk (if persistence is configured).
-// For Milvus stores, it closes the Milvus client connection.
+// For Qdrant stores, it closes the Qdrant client connection.
 // It is safe to call multiple times.
 func (s *Store) Close(ctx context.Context) error {
 	if s.vs != nil {
