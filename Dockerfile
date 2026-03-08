@@ -20,7 +20,7 @@ RUN CGO_ENABLED=1 go build -mod=mod -trimpath \
 # ── Stage 2: Runtime ────────────────────────────────────────
 FROM alpine:3.23@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659
 
-RUN apk add --no-cache ca-certificates aws-cli kubectl jq curl bash su-exec
+RUN apk add --no-cache ca-certificates
 
 # Run as a non-root user for security best practices.
 RUN addgroup -S stackgen && adduser -S -G stackgen -u 65532 stackgen \

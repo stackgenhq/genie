@@ -15,7 +15,7 @@
 - *Prefer doing tasks yourself* in a single batch script over spawning sub-agents if the task is simple, to avoid losing this context.
 
 ### 2. Execution Speed — Batch Commands
-**CRITICAL:** Every turn adds latency. Minimize turns by batching shell commands into a single `run_shell` invocation.
+**CRITICAL:** Every turn adds latency. Minimize turns by batching shell commands into a single `run_shell` invocation. Note that you are running in an Alpine container using `sh` (POSIX shell), not `bash`. Do not use bash-specific syntax such as arrays or `[[ ]]`.
 - **Batch related commands**: Chain queries (e.g. `kubectl get pods`, then `kubectl describe`, then `kubectl logs` in one script).
 - **Server-side filtering**: Use `grep`, `jq`, `-o jsonpath`, and `--sort-by` to reduce output volume.
 

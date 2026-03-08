@@ -9,7 +9,7 @@ file = "/app/AGENTS.md"
 disable_resume = true
 
 [db_config]
-db_file = "${PWD}/.genie.db"
+db_file = "/tmp/.genie.db"
 
 # ── Model Configuration ─────────────────────────────────────────────
 [model_config]
@@ -211,7 +211,7 @@ token = "${GITHUB_TOKEN}"
 [vector_memory]
 embedding_provider = "openai"
 openai_model = "text-embedding-3-small"
-persistence_dir = "${PWD}/.genie/vector_store"
+persistence_dir = "/tmp/vector_store"
 
 # ── AG-UI Server ────────────────────────────────────────────────────
 [messenger.agui]

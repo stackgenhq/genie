@@ -112,7 +112,7 @@ func BuildGenieConfig(in WizardInputs, securitySecrets map[string]string, toolAn
 					Variant:     "default",
 					Token:       token,
 					Host:        host,
-					GoodForTask: modelprovider.TaskEfficiency,
+					GoodForTask: modelprovider.TaskGeneralTask,
 				},
 			},
 		},

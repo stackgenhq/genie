@@ -16,7 +16,7 @@ file = "./AGENTS.md"
 disable_resume = true
 
 [db_config]
-db_file = "${PWD}/.genie.db"
+db_file = ".genie.db"
 
 # ── Model Configuration ─────────────────────────────────────────────────────
 [model_config]
@@ -149,7 +149,7 @@ token = "${GITHUB_TOKEN}"
 embedding_provider = "ollama"
 ollama_url = "http://localhost:11434"
 ollama_model = "nomic-embed-text"
-persistence_dir = "${PWD}/.genie/vector_store"
+persistence_dir = "/tmp/vector_store"
 
 # ── AG-UI Server ────────────────────────────────────────────────────────────
 [messenger.agui]
