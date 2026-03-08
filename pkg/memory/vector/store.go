@@ -44,14 +44,6 @@ type BatchItem struct {
 	Metadata map[string]string
 }
 
-// QdrantConfig is an alias to qdrantstore.Config, exposed for backward
-// compatibility so consumers can reference vector.QdrantConfig.
-type QdrantConfig = qdrantstore.Config
-
-// MilvusConfig is an alias to milvusstore.Config, exposed for backward
-// compatibility so consumers can reference vector.MilvusConfig.
-type MilvusConfig = milvusstore.Config
-
 // Config holds the configuration for the vector store.
 // It supports OpenAI, Ollama (via OpenAI-compatible endpoint), HuggingFace
 // Text-Embeddings-Inference, Gemini, and a deterministic dummy embedder
@@ -73,9 +65,9 @@ type Config struct {
 	// Options: "inmemory" (default), "qdrant", "milvus"
 	VectorStoreProvider string `yaml:"vector_store_provider,omitempty" toml:"vector_store_provider,omitempty"`
 	// Qdrant configuration (only used when VectorStoreProvider is "qdrant")
-	Qdrant QdrantConfig `yaml:"qdrant,omitempty" toml:"qdrant,omitempty"`
+	Qdrant qdrantstore.Config `yaml:"qdrant,omitempty" toml:"qdrant,omitempty"`
 	// Milvus configuration (only used when VectorStoreProvider is "milvus")
-	Milvus MilvusConfig `yaml:"milvus,omitempty" toml:"milvus,omitempty"`
+	Milvus milvusstore.Config `yaml:"milvus,omitempty" toml:"milvus,omitempty"`
 	// AllowedMetadataKeys optionally restricts which metadata keys may be used in
 	// memory_store and memory_search. If non-empty, only these keys are accepted
 	// for metadata (store) and filter (search), enabling product/category buckets.
@@ -105,12 +97,12 @@ func DefaultConfig(ctx context.Context, sp security.SecretProvider) Config {
 		HuggingFaceURL:      get("HUGGINGFACE_URL"),
 		GeminiAPIKey:        get("GOOGLE_API_KEY"),
 		GeminiModel:         get("GEMINI_EMBED_MODEL"),
-		Qdrant: QdrantConfig{
+		Qdrant: qdrantstore.Config{
 			Host:           get("QDRANT_HOST"),
 			APIKey:         get("QDRANT_API_KEY"),
 			CollectionName: get("QDRANT_COLLECTION_NAME"),
 		},
-		Milvus: MilvusConfig{
+		Milvus: milvusstore.Config{
 			Address:        get("MILVUS_ADDRESS"),
 			Username:       get("MILVUS_USERNAME"),
 			Password:       get("MILVUS_PASSWORD"),

@@ -306,21 +306,20 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify domain restriction.
-	if len(h.allowedDomains) == 0 {
-		http.Error(w, "Access denied: OIDC login requires specific allowed domains to be configured", http.StatusForbidden)
-		return
-	}
-	if !isDomainAllowed(claims.Domain, h.allowedDomains) && !isDomainAllowed(claims.Email, h.allowedDomains) {
-		domainError := claims.Domain
-		if domainError == "" {
-			parts := strings.Split(claims.Email, "@")
-			if len(parts) == 2 {
-				domainError = parts[1]
+	// Verify domain restriction (only when allowed_domains is configured).
+	// When no allowed domains are set, any authenticated user is accepted.
+	if len(h.allowedDomains) > 0 {
+		if !isDomainAllowed(claims.Domain, h.allowedDomains) && !isDomainAllowed(claims.Email, h.allowedDomains) {
+			domainError := claims.Domain
+			if domainError == "" {
+				parts := strings.Split(claims.Email, "@")
+				if len(parts) == 2 {
+					domainError = parts[1]
+				}
 			}
+			http.Error(w, fmt.Sprintf("Access denied: domain %q is not in the allowed list", domainError), http.StatusForbidden)
+			return
 		}
-		http.Error(w, fmt.Sprintf("Access denied: domain %q is not in the allowed list", domainError), http.StatusForbidden)
-		return
 	}
 
 	// Create session cookie.

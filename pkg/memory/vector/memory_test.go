@@ -10,6 +10,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/stackgenhq/genie/pkg/memory/vector"
+	"github.com/stackgenhq/genie/pkg/memory/vector/qdrantstore"
 	"github.com/stackgenhq/genie/pkg/security"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
@@ -325,7 +326,7 @@ var _ = Describe("NewStore provider validation", func() {
 
 var _ = Describe("QdrantConfig", func() {
 	It("has sensible zero-value defaults", func() {
-		cfg := vector.QdrantConfig{}
+		cfg := qdrantstore.Config{}
 		Expect(cfg.Host).To(BeEmpty())
 		Expect(cfg.Port).To(Equal(0))
 		Expect(cfg.APIKey).To(BeEmpty())
@@ -335,7 +336,7 @@ var _ = Describe("QdrantConfig", func() {
 	})
 
 	It("round-trips non-default values", func() {
-		cfg := vector.QdrantConfig{
+		cfg := qdrantstore.Config{
 			Host:           "qdrant.example.com",
 			Port:           6334,
 			APIKey:         "test-key",
