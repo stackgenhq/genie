@@ -35,6 +35,10 @@ terraform {
 
 provider "aws" {
   region = var.aws.region
+
+  default_tags {
+    tags = var.tags
+  }
 }
 
 data "aws_eks_cluster" "this" {
@@ -111,6 +115,19 @@ resource "aws_iam_role_policy_attachment" "readonly" {
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
+# PART 1.5 – EKS Access Entry
+# Map the SA's AWS IAM role to the Kubernetes cluster so the Copilot can log in
+# seamlessly via `aws eks update-kubeconfig`.
+# ═════════════════════════════════════════════════════════════════════════════
+
+resource "aws_eks_access_entry" "genie_readonly" {
+  cluster_name      = var.aws.eks_cluster_name
+  principal_arn     = aws_iam_role.genie_readonly.arn
+  kubernetes_groups = ["genie-readonly-group"]
+  type              = "STANDARD"
+}
+
+# ═════════════════════════════════════════════════════════════════════════════
 # PART 2 – Kubernetes Namespace (optional)
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -167,6 +184,27 @@ resource "kubernetes_manifest" "external_secret" {
       }
       data = [
         {
+          secretKey = "LANGFUSE_HOST"
+          remoteRef = {
+            key      = var.aws.secrets_manager_arn
+            property = "LANGFUSE_HOST"
+          }
+        },
+        {
+          secretKey = "LANGFUSE_PUBLIC_KEY"
+          remoteRef = {
+            key      = var.aws.secrets_manager_arn
+            property = "LANGFUSE_PUBLIC_KEY"
+          }
+        },
+        {
+          secretKey = "LANGFUSE_SECRET_KEY"
+          remoteRef = {
+            key      = var.aws.secrets_manager_arn
+            property = "LANGFUSE_SECRET_KEY"
+          }
+        },
+        {
           secretKey = "OPENAI_API_KEY"
           remoteRef = {
             key      = var.aws.secrets_manager_arn
@@ -208,6 +246,27 @@ resource "kubernetes_manifest" "external_secret" {
             property = "GRAFANA_API_KEY"
           }
         },
+        {
+          secretKey = "OIDC_ISSUER_URL"
+          remoteRef = {
+            key      = var.aws.secrets_manager_arn
+            property = "OIDC_ISSUER_URL"
+          }
+        },
+        {
+          secretKey = "OIDC_CLIENT_ID"
+          remoteRef = {
+            key      = var.aws.secrets_manager_arn
+            property = "OIDC_CLIENT_ID"
+          }
+        },
+        {
+          secretKey = "OIDC_CLIENT_SECRET"
+          remoteRef = {
+            key      = var.aws.secrets_manager_arn
+            property = "OIDC_CLIENT_SECRET"
+          }
+        },
       ]
     }
   }
@@ -230,40 +289,9 @@ resource "kubernetes_config_map" "genie" {
 
   data = {
     "genie.toml" = file("${path.module}/genie.toml")
+    "AGENTS.md"  = file("${path.module}/AGENTS.md")
   }
 }
-
-# ── Secret: Local Auth Credentials (not managed by Terraform) ──────────────
-#
-# IMPORTANT SECURITY NOTE:
-#   Do NOT store real authentication credentials in Terraform-managed
-#   Kubernetes secrets, as they will be persisted in Terraform state.
-#
-#   Instead, create the following Kubernetes Secret out-of-band (for example
-#   using:
-#     - an external secrets solution (e.g., AWS Secrets Manager + External
-#       Secrets Operator), or
-#     - a separate secure deployment step / kubectl manifest),
-#   and ensure it exists in the target namespace:
-#
-#   apiVersion: v1
-#   kind: Secret
-#   metadata:
-#     name: genie-local-secrets
-#     namespace: <your-namespace>
-#   type: Opaque
-#   stringData:
-#     AGUI_PASSWORD: "<strong-password>"
-#     OIDC_ISSUER_URL: "<your-oidc-issuer-url>"
-#     OIDC_CLIENT_ID: "<your-oidc-client-id>"
-#     OIDC_CLIENT_SECRET: "<your-oidc-client-secret>"
-#
-#   The rest of this Terraform configuration assumes that a Secret named
-#   "genie-local-secrets" with these keys is present, but it no longer
-#   manages or sees the secret values themselves.
-
-# NOTE: No kubernetes_secret resource is defined here on purpose to avoid
-# leaking credentials into Terraform state.
 
 # ── ServiceAccount: annotated with the IRSA role ARN ────────────────────────
 
@@ -278,6 +306,88 @@ resource "kubernetes_service_account" "genie" {
 
     labels = {
       app = "genie"
+    }
+  }
+}
+
+resource "kubernetes_cluster_role" "genie_readonly" {
+  metadata {
+    name = "genie-cluster-readonly"
+  }
+
+  rule {
+    api_groups = [""]
+    resources  = ["pods", "pods/log", "namespaces", "nodes", "events", "services", "configmaps", "persistentvolumes", "persistentvolumeclaims"]
+    verbs      = ["get", "list", "watch"]
+  }
+
+  rule {
+    api_groups = ["apps"]
+    resources  = ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs      = ["get", "list", "watch"]
+  }
+
+  rule {
+    api_groups = ["batch"]
+    resources  = ["jobs", "cronjobs"]
+    verbs      = ["get", "list", "watch"]
+  }
+
+  rule {
+    api_groups = ["networking.k8s.io"]
+    resources  = ["ingresses", "networkpolicies"]
+    verbs      = ["get", "list", "watch"]
+  }
+
+  rule {
+    api_groups = ["autoscaling"]
+    resources  = ["horizontalpodautoscalers"]
+    verbs      = ["get", "list", "watch"]
+  }
+}
+
+resource "kubernetes_cluster_role_binding" "genie_readonly" {
+  metadata {
+    name = "genie-cluster-readonly-binding"
+  }
+
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "ClusterRole"
+    name      = kubernetes_cluster_role.genie_readonly.metadata[0].name
+  }
+
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account.genie.metadata[0].name
+    namespace = var.kubernetes.namespace
+  }
+
+  # Bind the group mapped to the AWS IAM role (via EKS Access Entry)
+  subject {
+    kind      = "Group"
+    name      = "genie-readonly-group"
+    api_group = "rbac.authorization.k8s.io"
+  }
+}
+
+# ── Persistent Volume Claim ─────────────────────────────────────────────────
+
+resource "kubernetes_persistent_volume_claim" "genie_data" {
+  metadata {
+    name      = "genie-data"
+    namespace = var.kubernetes.namespace
+  }
+
+  wait_until_bound = false
+
+  spec {
+    access_modes = ["ReadWriteOnce"]
+
+    resources {
+      requests = {
+        storage = "10Gi"
+      }
     }
   }
 }
@@ -313,22 +423,51 @@ resource "kubernetes_deployment" "genie" {
       spec {
         service_account_name = kubernetes_service_account.genie.metadata[0].name
 
+        security_context {
+          fs_group = 65532
+        }
+
         container {
           name              = "genie"
           image             = var.genie.image
           image_pull_policy = "Always"
 
           security_context {
-            # Run as non-root; ensure this UID exists in the image.
-            run_as_user = 1000
+            # Run as root to install tools, then drop privileges via su-exec.
+            run_as_user = 0
           }
 
           command = ["/bin/sh", "-c"]
-          # Assume required tools are baked into the image; just run Genie.
-          args    = ["exec /usr/local/bin/genie"]
+          # Install AWS CLI, kubectl and other tools, then drop privileges to run Genie.
+          args = ["apk add --no-cache aws-cli kubectl jq curl bash su-exec && mkdir -p /home/stackgen/.kube && chown 65532:65532 /home/stackgen/.kube && chown -R 65532:65532 /data && exec su-exec 65532:65532 /usr/local/bin/genie --config /app/genie.toml --log-level debug"]
 
           port {
             container_port = var.genie.port
+          }
+
+          env {
+            name  = "AWS_REGION"
+            value = var.aws.region
+          }
+
+          env {
+            name  = "EKS_CLUSTER_NAME"
+            value = var.aws.eks_cluster_name
+          }
+
+          env {
+            name  = "KUBECONFIG"
+            value = "/home/stackgen/.kube/config"
+          }
+
+          env {
+            name  = "AWS_WEB_IDENTITY_TOKEN_FILE"
+            value = "/var/run/secrets/eks.amazonaws.com/serviceaccount/token"
+          }
+
+          env {
+            name  = "AWS_ROLE_ARN"
+            value = aws_iam_role.genie_readonly.arn
           }
 
           env_from {
@@ -338,17 +477,27 @@ resource "kubernetes_deployment" "genie" {
             }
           }
 
-          env_from {
-            secret_ref {
-              name     = "genie-local-secrets"
-              optional = true
-            }
-          }
-
           volume_mount {
             name       = "config-volume"
             mount_path = "/app/genie.toml"
             sub_path   = "genie.toml"
+          }
+
+          volume_mount {
+            name       = "config-volume"
+            mount_path = "/app/AGENTS.md"
+            sub_path   = "AGENTS.md"
+          }
+
+          volume_mount {
+            name       = "aws-iam-token"
+            mount_path = "/var/run/secrets/eks.amazonaws.com/serviceaccount"
+            read_only  = true
+          }
+
+          volume_mount {
+            name       = "genie-data"
+            mount_path = "/data"
           }
         }
 
@@ -359,6 +508,49 @@ resource "kubernetes_deployment" "genie" {
             name = kubernetes_config_map.genie.metadata[0].name
           }
         }
+
+        volume {
+          name = "aws-iam-token"
+
+          projected {
+            default_mode = "0644"
+
+            sources {
+              service_account_token {
+                audience           = "sts.amazonaws.com"
+                expiration_seconds = 86400
+                path               = "token"
+              }
+            }
+          }
+        }
+
+        volume {
+          name = "genie-data"
+
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.genie_data.metadata[0].name
+          }
+        }
+      }
+    }
+  }
+}
+
+# ── Pod Disruption Budget ───────────────────────────────────────────────────
+
+resource "kubernetes_pod_disruption_budget_v1" "genie" {
+  metadata {
+    name      = "genie-pdb"
+    namespace = var.kubernetes.namespace
+  }
+
+  spec {
+    min_available = 1
+
+    selector {
+      match_labels = {
+        app = "genie"
       }
     }
   }

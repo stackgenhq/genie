@@ -5,11 +5,11 @@
 skills_roots = ["./skills"]
 agent_name  = "devops-copilot"
 [persona]
-file = "./AGENTS.md"
+file = "/app/AGENTS.md"
 disable_resume = true
 
 [db_config]
-db_file = "${PWD}/.genie.db"
+db_file = "/data/.genie.db"
 
 # ── Model Configuration ─────────────────────────────────────────────
 [model_config]
@@ -19,6 +19,12 @@ provider = "anthropic"
 model_name = "claude-opus-4-5"
 token = "${ANTHROPIC_API_KEY}"
 good_for_task = "planning"
+
+# [[model_config.providers]]
+# provider = "openai"
+# model_name = "o4-mini"
+# token = "${OPENAI_API_KEY}"
+# good_for_task = "planning"
 
 [[model_config.providers]]
 provider = "gemini"
@@ -45,10 +51,16 @@ token = "${GEMINI_API_KEY}"
 good_for_task = "frontdesk"
 
 [[model_config.providers]]
-provider = "openai"
-model_name = "gpt-5.4"
+provider = "openai-completions"
+model_name = "gpt-5.1-codex-mini"
 token = "${OPENAI_API_KEY}"
 good_for_task = "general_task"
+
+[[model_config.providers]]
+provider = "openai-completions"
+model_name = "gpt-5.3-codex"
+token = "${OPENAI_API_KEY}"
+good_for_task = "coding"
 
 # ── Efficiency models (used by halguard for cross-model verification) ──
 # These fast/cheap models from 3 different providers give halguard
@@ -56,7 +68,7 @@ good_for_task = "general_task"
 
 [[model_config.providers]]
 provider = "openai"
-model_name = "gpt-5.4-fast"
+model_name = "gpt-4.1-mini"
 token = "${OPENAI_API_KEY}"
 good_for_task = "efficiency"
 
@@ -68,7 +80,7 @@ good_for_task = "efficiency"
 
 [[model_config.providers]]
 provider = "anthropic"
-model_name = "claude-haiku-3-5"
+model_name = "claude-haiku-4-5"
 token = "${ANTHROPIC_API_KEY}"
 good_for_task = "efficiency"
 
@@ -197,15 +209,26 @@ token = "${GITHUB_TOKEN}"
 
 # ── Vector Memory ───────────────────────────────────────────────────
 [vector_memory]
-embedding_provider = "ollama"
-ollama_url = "http://localhost:11434"
-ollama_model = "nomic-embed-text"
-persistence_dir = "${PWD}/.genie/vector_store"
+embedding_provider = "openai"
+openai_model = "text-embedding-3-small"
+persistence_dir = "/data/vector_store"
 
 # ── AG-UI Server ────────────────────────────────────────────────────
 [messenger.agui]
 port = 9876
 cors_origins = ["https://stackgenhq.github.io", "http://localhost:8123"]
+rate_limit = 16.67
+rate_burst = 100
+
+# OIDC (Single Sign-On) is configured as the active auth method.
+# To use password-based auth instead, comment out this OIDC section and
+# uncomment the password section below. Supply OIDC values via variables.tf.
+[messenger.agui.auth.oidc]
+issuer_url = "${OIDC_ISSUER_URL}"
+client_id = "${OIDC_CLIENT_ID}"
+client_secret = "${OIDC_CLIENT_SECRET}"
+allowed_domains = ["stackgen.com"]
+
 
 # ── AG-UI Authentication ────────────────────────────────────────────
 # Password protection is enabled by default. Set the auth.password value
@@ -213,15 +236,8 @@ cors_origins = ["https://stackgenhq.github.io", "http://localhost:8123"]
 # corresponding environment-variable wiring in this example) to use a
 # static password. If left empty, an auto-generated password will be
 # logged during container startup.
-[messenger.agui.auth.password]
-enabled = true
-
-# To use OIDC (Single Sign-On) instead, comment out the password section
-# above and uncomment the section below. Supply values via variables.tf.
-# [messenger.agui.auth.oidc]
-# issuer_url = "${OIDC_ISSUER_URL}"
-# client_id = "${OIDC_CLIENT_ID}"
-# client_secret = "${OIDC_CLIENT_SECRET}"
+# [messenger.agui.auth.password]
+# enabled = true
 
 [hitl]
 always_allowed = []

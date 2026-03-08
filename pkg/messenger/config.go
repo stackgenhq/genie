@@ -121,8 +121,8 @@ func DefaultAGUIConfig() AGUIConfig {
 		// work out of the box. Tighten via config for production deployments.
 		CORSOrigins:   []string{"*"},
 		Port:          DefaultAGUIPort,
-		RateLimit:     0.5, // 30 req/min per IP
-		RateBurst:     3,
+		RateLimit:     16.67, // 1000 req/min per IP
+		RateBurst:     100,
 		MaxConcurrent: 5,
 		MaxBodyBytes:  1 << 20, // 1 MB
 	}

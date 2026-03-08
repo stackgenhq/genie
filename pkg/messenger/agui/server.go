@@ -405,6 +405,12 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/auth/info", s.oidcHandler.HandleAuthInfo)
 	}
 
+	// Serve static documentation / chat UI
+	// Serve documentation via reverse proxy to GitHub Pages
+	// This ensures users always see the latest docs without needing local files.
+	r.Handle("/ui", http.RedirectHandler("/ui/", http.StatusMovedPermanently))
+	r.Handle("/ui/*", http.StripPrefix("/ui", newDocsProxy()))
+
 	// Protected endpoints in a new chi.Group that applies authMiddleware
 	s.registerProtectedRoutes(r)
 
@@ -468,11 +474,6 @@ func (s *Server) registerProtectedRoutes(r chi.Router) {
 			json.NewEncoder(w).Encode(payload) //nolint:errcheck
 		})
 
-		// Serve static documentation from local docs/ directory at /ui
-		// Serve documentation via reverse proxy to GitHub Pages
-		// This ensures users always see the latest docs without needing local files.
-		protected.Handle("/ui", http.RedirectHandler("/ui/", http.StatusMovedPermanently))
-		protected.Handle("/ui/*", http.StripPrefix("/ui", newDocsProxy()))
 	})
 }
 
