@@ -1123,9 +1123,13 @@
 
             case 'TOOL_APPROVAL_REQUEST':
                 hideThinking();
-                addApprovalCard(event.approvalId, event.toolCallName, event.content, event.justification);
-                showNotification('Approval required', (event.toolCallName || 'A tool') + ' needs your approval', 'approval-' + (event.approvalId || ''));
-                vibrateBrief();
+                if (event.autoApproved) {
+                    addAutoApprovedCard(event.toolCallName, event.content, event.justification);
+                } else {
+                    addApprovalCard(event.approvalId, event.toolCallName, event.content, event.justification);
+                    showNotification('Approval required', (event.toolCallName || 'A tool') + ' needs your approval', 'approval-' + (event.approvalId || ''));
+                    vibrateBrief();
+                }
                 break;
 
             case 'CLARIFICATION_REQUEST':
@@ -1550,6 +1554,32 @@
             itemEl.remove();
             updateApprovalsColumnVisibility();
         }, POOF_DURATION_MS);
+    }
+
+    function addAutoApprovedCard(toolName, args, justification) {
+        if (!approvalsColumnListEl) return;
+        const domId = 'auto-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+
+        const div = document.createElement('div');
+        div.className = 'flex justify-start approvals-column-item';
+        div.innerHTML = `
+<div class="approval-card" id="${domId}" style="border-left: 3px solid #10b981; transition: opacity 0.5s ease; opacity: 1;">
+  <div class="approval-header" style="color: #065f46;">✅ Auto-approved — ${escapeHtml(toolName || 'tool')}</div>
+  <div class="approval-args" style="max-height: 4.5rem; overflow: hidden; font-size: 0.75rem; margin-top: 0.25rem; opacity: 0.8;">${escapeHtml(prettyPrintArgs(args))}</div>
+</div>
+        `;
+        approvalsColumnListEl.appendChild(div);
+        updateApprovalsColumnVisibility();
+
+        // fade out and remove after 3.5 seconds
+        setTimeout(() => {
+            const el = document.getElementById(domId);
+            if (el) el.style.opacity = '0';
+            setTimeout(() => {
+                if (div.parentNode) div.parentNode.removeChild(div);
+                updateApprovalsColumnVisibility();
+            }, 600); // Wait 0.6s to allow opacity transition
+        }, 3500);
     }
 
     function addApprovalCard(approvalId, toolName, args, justification) {

@@ -44,6 +44,7 @@ type aguiEvent struct {
 	// HITL approval fields
 	ApprovalID    string `json:"approvalId,omitempty"`
 	Justification string `json:"justification,omitempty"`
+	AutoApproved  bool   `json:"autoApproved,omitempty"`
 }
 
 // MapEvent converts an internal TUI event to an AG-UI wire-format event.
@@ -173,6 +174,7 @@ func MapEvent(event interface{}, threadID, runID string) ([]byte, string, error)
 			ToolCallName:  e.ToolName,
 			Content:       e.Arguments,
 			Justification: e.Justification,
+			AutoApproved:  e.AutoApproved,
 		}
 
 	case aguitypes.ClarificationRequestMsg:
