@@ -477,3 +477,24 @@ var _ = Describe("ModelProvider", func() {
 		})
 	})
 })
+
+var _ = Describe("NewSingleModelProvider", func() {
+	It("returns the same model for any task type", func() {
+		fake := &modelproviderfakes.FakeModel{}
+		fake.InfoReturns(model.Info{Name: "test-model"})
+
+		provider := modelprovider.NewSingleModelProvider("my-key", fake)
+
+		m1, err := provider.GetModel(context.Background(), modelprovider.TaskEfficiency)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(m1).To(HaveKey("my-key"))
+
+		m2, err := provider.GetModel(context.Background(), modelprovider.TaskPlanning)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(m2).To(HaveKey("my-key"))
+
+		// Both should return the same model instance
+		Expect(m1["my-key"].Info().Name).To(Equal("test-model"))
+		Expect(m2["my-key"].Info().Name).To(Equal("test-model"))
+	})
+})
