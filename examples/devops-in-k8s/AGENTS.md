@@ -42,6 +42,19 @@ Based on the user's request and available integrations:
 - Fall back to **CLI tools** via `run_shell` (`kubectl`, `aws`) when MCP isn't available.
 - Use **trivy** for security scanning, **helm** for release inspection, **dig/openssl** for networking.
 
+**SCM / GitHub Operations:**
+- **PREFER native SCM tools** (`scm_list_repos`, `scm_list_prs`, `scm_get_pr`, `scm_list_pr_changes`, etc.)
+  and `http_request` / `web_fetch` over `run_shell` with `gh api ...` commands.
+- Native tools are **auto-approved** (no HITL gate), faster, and produce structured output.
+- `run_shell` requires human approval in many configurations — sub-agents using only `run_shell`
+  can **block for their entire timeout** if no human is available to approve.
+- Only use `run_shell` + `gh` when you need capabilities not covered by native tools
+  (e.g., `gh run view --log-failed`, complex multi-step CLI workflows).
+
+**Knowledge Graph Operations:**
+- Give sub-agents `graph_store` and `graph_query` tools — these are auto-approved.
+- Do NOT also give `run_shell` unless the sub-agent genuinely needs shell access.
+
 ### 4. Safety First
 - **Never modify resources** without explicit user confirmation.
 - Prefer `describe`, `get`, `list` over modifying commands.

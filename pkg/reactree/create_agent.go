@@ -660,93 +660,138 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 
 	status, result := req.resolveStatus(timedOut, lastErr, result, toolResultsSB.String())
 
-	// --- Zero-tool-use guard ---
-	// When a sub-agent has action tools (e.g. run_shell) but made ZERO tool
-	// calls and instead produced a text-only response, it likely echoed
-	// scripts/commands as text or refused with "I don't know." This is a
-	// behavioral failure — the sub-agent should have used its tools.
-	if toolCallCount == 0 && result != "" && status != "error" && !timedOut && len(selectedTools) > 0 {
-		logr.Warn("sub-agent produced output without making any tool calls",
-			"agent_name", req.AgentName,
-			"output_length", len(result),
-			"available_tools", len(selectedTools))
+	// --- Post-execution pipeline ---
+	// Each stage is an independently testable method.
+	sar := subAgentResult{
+		output:        result,
+		status:        status,
+		toolCallCount: toolCallCount,
+		timedOut:      timedOut,
+		toolNameList:  toolNameList,
+		numTools:      len(selectedTools),
+	}
 
-		result = fmt.Sprintf(
+	sar = t.applyZeroToolUseGuard(ctx, req, sar)
+	sar = t.runHalGuardPostCheck(ctx, req, sar, modelToUse)
+	t.storeResults(ctx, req, sar)
+	sar = t.summarizeOutput(ctx, req, sar)
+
+	return CreateAgentResponse{
+		Output: sar.output,
+		Status: sar.status,
+	}, nil
+}
+
+// subAgentResult carries the output, status, and metadata through the
+// post-execution pipeline stages. Each stage reads and returns a
+// (possibly modified) copy, keeping the pipeline composable and each
+// stage independently testable.
+type subAgentResult struct {
+	output        string
+	status        string
+	toolCallCount int
+	timedOut      bool
+	toolNameList  []string
+	numTools      int
+}
+
+// applyZeroToolUseGuard detects when a sub-agent had action tools but made
+// zero tool calls, producing text-only output. This indicates the sub-agent
+// echoed commands as text or refused the task. It annotates the output and
+// sets status to "tool_use_failure" so the caller can auto-retry.
+func (t *createAgentTool) applyZeroToolUseGuard(_ context.Context, req CreateAgentRequest, sar subAgentResult) subAgentResult {
+	if sar.toolCallCount == 0 && sar.output != "" && sar.status != "error" && !sar.timedOut && sar.numTools > 0 {
+		sar.output = fmt.Sprintf(
 			"⚠️ SUB-AGENT DID NOT USE TOOLS: The sub-agent produced a text-only response "+
 				"without calling any of its available tools (%s). This likely means it echoed "+
 				"commands as text or refused the task instead of executing it. "+
 				"The sub-agent should be re-spawned. Original output follows:\n\n%s",
-			strings.Join(toolNameList, ", "), result)
-		status = "tool_use_failure"
+			strings.Join(sar.toolNameList, ", "), sar.output)
+		sar.status = "tool_use_failure"
+	}
+	return sar
+}
+
+// runHalGuardPostCheck verifies sub-agent output for hallucinations using
+// cross-model consistency. Only runs when halGuard is configured and the
+// sub-agent completed successfully with actual output. Skips timed-out,
+// budget-exceeded, and tool_use_failure statuses because those produce
+// boilerplate text without meaningful factual content to verify.
+func (t *createAgentTool) runHalGuardPostCheck(ctx context.Context, req CreateAgentRequest, sar subAgentResult, modelToUse modelprovider.ModelMap) subAgentResult {
+	if t.halGuard == nil || sar.output == "" || sar.status != "success" {
+		return sar
 	}
 
-	// --- Post-execution verification (P1) ---
-	// Verify sub-agent output for hallucinations using cross-model consistency.
-	// Only runs when halGuard is configured and the sub-agent produced output.
-	// Uses tiered verification: short tool-grounded outputs skip heavy checks.
-	if t.halGuard != nil && result != "" && status != "error" {
-		postTracer := otel.Tracer("genie")
-		postCtx, postSpan := postTracer.Start(ctx, "halguard.PostCheck")
+	logr := logger.GetLogger(ctx).With("fn", "runHalGuardPostCheck", "name", req.AgentName)
+	postTracer := otel.Tracer("genie")
+	postCtx, postSpan := postTracer.Start(ctx, "halguard.PostCheck")
+	postSpan.SetAttributes(
+		attribute.String("halguard.agent_name", req.AgentName),
+		attribute.Int("halguard.postcheck.output_len", len(sar.output)),
+		attribute.Int("halguard.postcheck.tool_calls", sar.toolCallCount),
+	)
+	vr, verifyErr := t.halGuard.PostCheck(postCtx, halguard.PostCheckRequest{
+		Goal:            req.Goal,
+		Context:         req.Context,
+		Output:          sar.output,
+		ToolCallsMade:   sar.toolCallCount,
+		GenerationModel: modelToUse,
+	})
+	if verifyErr != nil {
+		postSpan.RecordError(verifyErr)
+		postSpan.SetStatus(codes.Error, verifyErr.Error())
+		postSpan.End()
+		logr.Warn("halguard post-check failed, using unverified output", "error", verifyErr)
+	} else if !vr.IsFactual {
 		postSpan.SetAttributes(
-			attribute.String("halguard.agent_name", req.AgentName),
-			attribute.Int("halguard.postcheck.output_len", len(result)),
-			attribute.Int("halguard.postcheck.tool_calls", toolCallCount),
+			attribute.String("halguard.postcheck.tier", string(vr.Tier)),
+			attribute.Bool("halguard.postcheck.is_factual", false),
+			attribute.Int("halguard.postcheck.contradictions", len(vr.BlockScores)),
 		)
-		vr, verifyErr := t.halGuard.PostCheck(postCtx, halguard.PostCheckRequest{
-			Goal:            req.Goal,
-			Context:         req.Context,
-			Output:          result,
-			ToolCallsMade:   toolCallCount,
-			GenerationModel: modelToUse,
-		})
-		if verifyErr != nil {
-			postSpan.RecordError(verifyErr)
-			postSpan.SetStatus(codes.Error, verifyErr.Error())
-			postSpan.End()
-			logr.Warn("halguard post-check failed, using unverified output", "error", verifyErr)
-		} else if !vr.IsFactual {
-			postSpan.SetAttributes(
-				attribute.String("halguard.postcheck.tier", string(vr.Tier)),
-				attribute.Bool("halguard.postcheck.is_factual", false),
-				attribute.Int("halguard.postcheck.contradictions", len(vr.BlockScores)),
-			)
-			postSpan.SetStatus(codes.Error, "hallucination detected")
-			postSpan.End()
-			logr.Warn("halguard detected hallucination in sub-agent output",
-				"tier", vr.Tier, "contradictions", len(vr.BlockScores))
-			result = vr.CorrectedText
-			status = "verified_corrected"
-		} else {
-			postSpan.SetAttributes(
-				attribute.String("halguard.postcheck.tier", string(vr.Tier)),
-				attribute.Bool("halguard.postcheck.is_factual", true),
-			)
-			postSpan.SetStatus(codes.Ok, "")
-			postSpan.End()
-			logr.Info("halguard post-check passed", "tier", vr.Tier)
-		}
+		postSpan.SetStatus(codes.Error, "hallucination detected")
+		postSpan.End()
+		logr.Warn("halguard detected hallucination in sub-agent output",
+			"tier", vr.Tier, "contradictions", len(vr.BlockScores))
+		sar.output = vr.CorrectedText
+		sar.status = "verified_corrected"
+	} else {
+		postSpan.SetAttributes(
+			attribute.String("halguard.postcheck.tier", string(vr.Tier)),
+			attribute.Bool("halguard.postcheck.is_factual", true),
+		)
+		postSpan.SetStatus(codes.Ok, "")
+		postSpan.End()
+		logr.Info("halguard post-check passed", "tier", vr.Tier)
 	}
+	return sar
+}
+
+// storeResults persists the sub-agent result into working memory and
+// episodic memory for future retrieval by the parent agent and similar
+// future goals respectively.
+func (t *createAgentTool) storeResults(ctx context.Context, req CreateAgentRequest, sar subAgentResult) {
+	logr := logger.GetLogger(ctx).With("fn", "storeResults", "name", req.AgentName)
 
 	// Store sub-agent result in working memory so the parent can retrieve
 	// it via memory_search and compose a single user-facing message.
-	if t.workingMemory != nil && result != "" {
+	if t.workingMemory != nil && sar.output != "" {
 		wmKey := fmt.Sprintf("subagent:%s:result", req.AgentName)
-		t.workingMemory.Store(wmKey, result)
-		logr.Info("sub-agent result stored in working memory", "key", wmKey, "length", len(result))
+		t.workingMemory.Store(wmKey, sar.output)
+		logr.Info("sub-agent result stored in working memory", "key", wmKey, "length", len(sar.output))
 	}
 
 	// Store result as an episode for future in-context retrieval.
 	// Paper Section 4.2: episodic memory stores subgoal-level experiences
 	// so future agent nodes with similar goals get relevant examples.
-	if t.episodic != nil && result != "" {
-		trajectory := result
+	if t.episodic != nil && sar.output != "" {
+		trajectory := sar.output
 		const maxTrajectoryRunes = 500
 		runes := []rune(trajectory)
 		if len(runes) > maxTrajectoryRunes {
 			trajectory = string(runes[:maxTrajectoryRunes]) + "... (truncated)"
 		}
 		episodeStatus := memory.EpisodeSuccess
-		if timedOut {
+		if sar.timedOut {
 			episodeStatus = memory.EpisodeFailure
 		}
 		t.episodic.Store(ctx, memory.Episode{
@@ -756,28 +801,29 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 		})
 		logr.Info("sub-agent result stored in episodic memory", "goal", toolwrap.TruncateForAudit(req.Goal, 60))
 	}
+}
 
-	// Summarize large sub-agent output only when the caller explicitly opted in.
-	// By default raw output is returned so the parent agent sees full detail.
-	// Skip summarization if we already timed out — the summarizer would also fail.
-	if req.SummarizeOutput && !timedOut && t.summarizer != nil && len(result) > summarizeThreshold {
-		logr.Info("summarizing large sub-agent output", "original_length", len(result), "threshold", summarizeThreshold)
-		summarized, err := t.summarizer.Summarize(ctx, agentutils.SummarizeRequest{
-			Content:              result,
-			RequiredOutputFormat: agentutils.OutputFormatMarkdown,
-		})
-		if err == nil {
-			logr.Info("sub-agent output summarized", "original_length", len(result), "summarized_length", len(summarized))
-			result = summarized
-		} else {
-			logr.Warn("sub-agent output summarization failed, using original", "error", err)
-		}
+// summarizeOutput compresses large sub-agent output when the caller
+// explicitly opted in via SummarizeOutput. Skips summarization if
+// the sub-agent timed out (the summarizer would likely also fail).
+func (t *createAgentTool) summarizeOutput(ctx context.Context, req CreateAgentRequest, sar subAgentResult) subAgentResult {
+	if !req.SummarizeOutput || sar.timedOut || t.summarizer == nil || len(sar.output) <= summarizeThreshold {
+		return sar
 	}
 
-	return CreateAgentResponse{
-		Output: result,
-		Status: status,
-	}, nil
+	logr := logger.GetLogger(ctx).With("fn", "summarizeOutput", "name", req.AgentName)
+	logr.Info("summarizing large sub-agent output", "original_length", len(sar.output), "threshold", summarizeThreshold)
+	summarized, err := t.summarizer.Summarize(ctx, agentutils.SummarizeRequest{
+		Content:              sar.output,
+		RequiredOutputFormat: agentutils.OutputFormatMarkdown,
+	})
+	if err == nil {
+		logr.Info("sub-agent output summarized", "original_length", len(sar.output), "summarized_length", len(summarized))
+		sar.output = summarized
+	} else {
+		logr.Warn("sub-agent output summarization failed, using original", "error", err)
+	}
+	return sar
 }
 
 func (req CreateAgentRequest) flow(ctx context.Context) ControlFlowType {

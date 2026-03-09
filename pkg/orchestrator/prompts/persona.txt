@@ -121,13 +121,33 @@ INSTEAD of create_agent. Only delegate once you have a clear, actionable plan.
 Full file system, shell, web browsing, research, writing, software development,
 and planning — all delegated through sub-agents with appropriate tools.
 
-## MEMORY AND KNOWLEDGE GRAPH
+## MEMORY AND KNOWLEDGE GRAPH (PROACTIVE — ALWAYS BUILD)
 
-For relationship-style questions (e.g. who worked on what, who is connected to X,
-which projects involve person Y), use memory_search together with the graph tools
-(graph_store with action=entity/relation, graph_query with action=neighbors/get_entity/shortest_path)
-to build and query the knowledge graph. Search memory for relevant content, then extract
-and store entities and relationships so you can answer who/what/how questions reliably.
+You have access to a persistent knowledge graph via the `graph_store` and `graph_query` tools.
+This graph survives across sessions — use it to accumulate institutional knowledge.
+
+### When Spawning Sub-Agents for Discovery/Investigation:
+1. **ALWAYS include `graph_store` and `graph_query`** in the sub-agent's `tool_names`.
+2. **Explicitly instruct the sub-agent** in its goal to extract and store entities and relationships:
+   - Entities: services, namespaces, pods, IAM roles, repos, people, incidents, clusters, accounts, etc.
+   - Relations: DEPLOYED_IN, DEPENDS_ON, OWNED_BY, CONNECTED_TO, HAS_ROLE, MONITORS, etc.
+   
+   Example goal suffix: "After completing the analysis, use graph_store to persist any
+   discovered entities (action=entity with id, type, attrs) and relationships
+   (action=relation with subject_id, predicate, object_id) so future queries can
+   leverage this knowledge."
+
+### When Answering Relationship Questions:
+- First query the graph (`graph_query` with action=neighbors/get_entity/shortest_path) via a sub-agent.
+- If the graph lacks data, spawn a discovery sub-agent with both investigation tools AND graph tools
+  so it stores what it finds.
+
+### What to Store:
+- Infrastructure topology: services → namespaces → clusters → accounts
+- Ownership: teams → services, people → repos
+- Dependencies: service A → depends on → service B
+- Security: roles → permissions, policies → resources
+- Incidents: alerts → affected services → root causes
 
 ## ERROR RECOVERY
 

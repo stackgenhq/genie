@@ -3,12 +3,18 @@ package reactree
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/agentutils/agentutilsfakes"
+	"github.com/stackgenhq/genie/pkg/halguard"
+	"github.com/stackgenhq/genie/pkg/halguard/halguardfakes"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/memory/vector/vectorfakes"
+	"github.com/stackgenhq/genie/pkg/reactree/memory"
+	"github.com/stackgenhq/genie/pkg/reactree/memory/memoryfakes"
 	"github.com/stackgenhq/genie/pkg/tools"
 	"github.com/stackgenhq/genie/pkg/tools/toolsfakes"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
@@ -294,80 +300,329 @@ var _ = Describe("createAgentTool halguard integration", func() {
 	})
 })
 
-var _ = Describe("zero-tool-use guard", func() {
-	// The zero-tool-use guard fires when:
-	// toolCallCount == 0 && result != "" && status != "error" && !timedOut && len(selectedTools) > 0
-	// It annotates the output and sets status = "tool_use_failure"
+var _ = Describe("applyZeroToolUseGuard", func() {
+	// Tests the extracted method directly instead of mirroring the condition.
+	var cat *createAgentTool
+	req := CreateAgentRequest{AgentName: "test-agent"}
 
-	type guardInput struct {
-		toolCallCount    int
-		result           string
-		status           string
-		timedOut         bool
-		numSelectedTools int
-	}
-
-	shouldFire := func(gi guardInput) bool {
-		return gi.toolCallCount == 0 && gi.result != "" && gi.status != "error" && !gi.timedOut && gi.numSelectedTools > 0
-	}
-
-	DescribeTable("fires or skips based on conditions",
-		func(gi guardInput, expectFire bool) {
-			Expect(shouldFire(gi)).To(Equal(expectFire))
-		},
-		Entry("fires: zero tool calls, has result, has tools, not error, not timed out",
-			guardInput{toolCallCount: 0, result: "some output", status: "success", timedOut: false, numSelectedTools: 3},
-			true,
-		),
-		Entry("skips: sub-agent made tool calls",
-			guardInput{toolCallCount: 2, result: "some output", status: "success", timedOut: false, numSelectedTools: 3},
-			false,
-		),
-		Entry("skips: empty result (nothing to annotate)",
-			guardInput{toolCallCount: 0, result: "", status: "success", timedOut: false, numSelectedTools: 3},
-			false,
-		),
-		Entry("skips: status is error",
-			guardInput{toolCallCount: 0, result: "error message", status: "error", timedOut: false, numSelectedTools: 3},
-			false,
-		),
-		Entry("skips: sub-agent timed out",
-			guardInput{toolCallCount: 0, result: "partial output", status: "partial", timedOut: true, numSelectedTools: 3},
-			false,
-		),
-		Entry("skips: no tools available (ask_clarifying_question only agents)",
-			guardInput{toolCallCount: 0, result: "some answer", status: "success", timedOut: false, numSelectedTools: 0},
-			false,
-		),
-		Entry("fires: single tool available but unused",
-			guardInput{toolCallCount: 0, result: "I don't have access to Azure", status: "success", timedOut: false, numSelectedTools: 1},
-			true,
-		),
-	)
-
-	It("annotates output with tool_use_failure message", func() {
-		// Simulate what the guard does to the output
-		originalOutput := "I don't know. I do not have access to the 'appcd-demo' Azure subscription"
-		toolNames := "run_shell, read_file"
-
-		annotated := fmt.Sprintf(
-			"⚠️ SUB-AGENT DID NOT USE TOOLS: The sub-agent produced a text-only response "+
-				"without calling any of its available tools (%s). This likely means it echoed "+
-				"commands as text or refused the task instead of executing it. "+
-				"The sub-agent should be re-spawned. Original output follows:\n\n%s",
-			toolNames, originalOutput)
-
-		Expect(annotated).To(ContainSubstring("SUB-AGENT DID NOT USE TOOLS"))
-		Expect(annotated).To(ContainSubstring("run_shell"))
-		Expect(annotated).To(ContainSubstring("re-spawned"))
-		Expect(annotated).To(ContainSubstring(originalOutput))
+	BeforeEach(func() {
+		cat = &createAgentTool{}
 	})
 
-	It("sets status to tool_use_failure", func() {
-		status := "tool_use_failure"
-		Expect(status).To(Equal("tool_use_failure"))
-		Expect(status).NotTo(Equal("success"))
-		Expect(status).NotTo(Equal("error"))
+	It("fires when zero tool calls, has result, has tools, success, not timed out", func() {
+		sar := cat.applyZeroToolUseGuard(context.Background(), req, subAgentResult{
+			output:        "I don't have access",
+			status:        "success",
+			toolCallCount: 0,
+			timedOut:      false,
+			toolNameList:  []string{"run_shell", "read_file"},
+			numTools:      2,
+		})
+		Expect(sar.status).To(Equal("tool_use_failure"))
+		Expect(sar.output).To(ContainSubstring("SUB-AGENT DID NOT USE TOOLS"))
+		Expect(sar.output).To(ContainSubstring("run_shell"))
+		Expect(sar.output).To(ContainSubstring("I don't have access"))
+	})
+
+	It("does not fire when sub-agent made tool calls", func() {
+		sar := cat.applyZeroToolUseGuard(context.Background(), req, subAgentResult{
+			output:        "result from tools",
+			status:        "success",
+			toolCallCount: 3,
+			numTools:      2,
+		})
+		Expect(sar.status).To(Equal("success"))
+		Expect(sar.output).To(Equal("result from tools"))
+	})
+
+	It("does not fire when result is empty", func() {
+		sar := cat.applyZeroToolUseGuard(context.Background(), req, subAgentResult{
+			output:   "",
+			status:   "success",
+			numTools: 2,
+		})
+		Expect(sar.status).To(Equal("success"))
+	})
+
+	It("does not fire when status is error", func() {
+		sar := cat.applyZeroToolUseGuard(context.Background(), req, subAgentResult{
+			output:   "error message",
+			status:   "error",
+			numTools: 2,
+		})
+		Expect(sar.status).To(Equal("error"))
+	})
+
+	It("does not fire when timed out", func() {
+		sar := cat.applyZeroToolUseGuard(context.Background(), req, subAgentResult{
+			output:   "partial",
+			status:   "partial",
+			timedOut: true,
+			numTools: 2,
+		})
+		Expect(sar.status).To(Equal("partial"))
+	})
+
+	It("does not fire when no tools available", func() {
+		sar := cat.applyZeroToolUseGuard(context.Background(), req, subAgentResult{
+			output:   "answer",
+			status:   "success",
+			numTools: 0,
+		})
+		Expect(sar.status).To(Equal("success"))
+		Expect(sar.output).To(Equal("answer"))
+	})
+})
+
+var _ = Describe("runHalGuardPostCheck", func() {
+	var (
+		cat       *createAgentTool
+		fakeGuard *halguardfakes.FakeGuard
+		req       CreateAgentRequest
+	)
+
+	BeforeEach(func() {
+		fakeGuard = &halguardfakes.FakeGuard{}
+		cat = &createAgentTool{halGuard: fakeGuard}
+		req = CreateAgentRequest{AgentName: "test-agent", Goal: "list PRs"}
+	})
+
+	It("calls PostCheck when status is success with output", func() {
+		fakeGuard.PostCheckReturns(halguard.VerificationResult{IsFactual: true, Tier: halguard.TierLight}, nil)
+
+		sar := cat.runHalGuardPostCheck(context.Background(), req, subAgentResult{
+			output: "PR data here",
+			status: "success",
+		}, nil)
+
+		Expect(fakeGuard.PostCheckCallCount()).To(Equal(1))
+		Expect(sar.status).To(Equal("success"))
+		Expect(sar.output).To(Equal("PR data here"))
+	})
+
+	It("skips PostCheck when status is partial (timed out)", func() {
+		sar := cat.runHalGuardPostCheck(context.Background(), req, subAgentResult{
+			output:   "[TIME LIMIT REACHED] partial data",
+			status:   "partial",
+			timedOut: true,
+		}, nil)
+
+		Expect(fakeGuard.PostCheckCallCount()).To(Equal(0))
+		Expect(sar.status).To(Equal("partial"))
+	})
+
+	It("skips PostCheck when status is partial (budget exceeded)", func() {
+		sar := cat.runHalGuardPostCheck(context.Background(), req, subAgentResult{
+			output: "[BUDGET EXCEEDED] partial findings",
+			status: "partial",
+		}, nil)
+
+		Expect(fakeGuard.PostCheckCallCount()).To(Equal(0))
+		Expect(sar.status).To(Equal("partial"))
+	})
+
+	It("skips PostCheck when status is error", func() {
+		sar := cat.runHalGuardPostCheck(context.Background(), req, subAgentResult{
+			output: "sub-agent error: connection refused",
+			status: "error",
+		}, nil)
+
+		Expect(fakeGuard.PostCheckCallCount()).To(Equal(0))
+		Expect(sar.status).To(Equal("error"))
+	})
+
+	It("skips PostCheck when status is tool_use_failure", func() {
+		sar := cat.runHalGuardPostCheck(context.Background(), req, subAgentResult{
+			output: "⚠️ SUB-AGENT DID NOT USE TOOLS: ...",
+			status: "tool_use_failure",
+		}, nil)
+
+		Expect(fakeGuard.PostCheckCallCount()).To(Equal(0))
+		Expect(sar.status).To(Equal("tool_use_failure"))
+	})
+
+	It("skips PostCheck when output is empty", func() {
+		sar := cat.runHalGuardPostCheck(context.Background(), req, subAgentResult{
+			output: "",
+			status: "success",
+		}, nil)
+
+		Expect(fakeGuard.PostCheckCallCount()).To(Equal(0))
+		Expect(sar.output).To(BeEmpty())
+	})
+
+	It("skips PostCheck when halGuard is nil", func() {
+		cat.halGuard = nil
+		sar := cat.runHalGuardPostCheck(context.Background(), req, subAgentResult{
+			output: "valid output",
+			status: "success",
+		}, nil)
+
+		Expect(sar.status).To(Equal("success"))
+		Expect(sar.output).To(Equal("valid output"))
+	})
+
+	It("corrects output when PostCheck detects hallucination", func() {
+		fakeGuard.PostCheckReturns(halguard.VerificationResult{
+			IsFactual:     false,
+			CorrectedText: "corrected output",
+			Tier:          halguard.TierFull,
+			BlockScores:   []halguard.BlockScore{{Label: halguard.BlockContradiction}},
+		}, nil)
+
+		sar := cat.runHalGuardPostCheck(context.Background(), req, subAgentResult{
+			output: "hallucinated data",
+			status: "success",
+		}, nil)
+
+		Expect(fakeGuard.PostCheckCallCount()).To(Equal(1))
+		Expect(sar.status).To(Equal("verified_corrected"))
+		Expect(sar.output).To(Equal("corrected output"))
+	})
+
+	It("keeps original output when PostCheck errors", func() {
+		fakeGuard.PostCheckReturns(halguard.VerificationResult{}, fmt.Errorf("model unavailable"))
+
+		sar := cat.runHalGuardPostCheck(context.Background(), req, subAgentResult{
+			output: "valid data",
+			status: "success",
+		}, nil)
+
+		Expect(fakeGuard.PostCheckCallCount()).To(Equal(1))
+		Expect(sar.status).To(Equal("success"))
+		Expect(sar.output).To(Equal("valid data"))
+	})
+})
+
+var _ = Describe("storeResults", func() {
+	It("stores result in working memory", func() {
+		wm := memory.NewWorkingMemory()
+		cat := &createAgentTool{workingMemory: wm}
+		req := CreateAgentRequest{AgentName: "test-agent", Goal: "find files"}
+
+		cat.storeResults(context.Background(), req, subAgentResult{
+			output: "found 3 files",
+		})
+
+		stored, ok := wm.Recall("subagent:test-agent:result")
+		Expect(ok).To(BeTrue())
+		Expect(stored).To(Equal("found 3 files"))
+	})
+
+	It("does not store empty output", func() {
+		wm := memory.NewWorkingMemory()
+		cat := &createAgentTool{workingMemory: wm}
+		req := CreateAgentRequest{AgentName: "test-agent", Goal: "find files"}
+
+		cat.storeResults(context.Background(), req, subAgentResult{
+			output: "",
+		})
+
+		_, ok := wm.Recall("subagent:test-agent:result")
+		Expect(ok).To(BeFalse())
+	})
+
+	It("stores in episodic memory with success status", func() {
+		fakeEpisodic := &memoryfakes.FakeEpisodicMemory{}
+		cat := &createAgentTool{episodic: fakeEpisodic}
+		req := CreateAgentRequest{AgentName: "test-agent", Goal: "find files"}
+
+		cat.storeResults(context.Background(), req, subAgentResult{
+			output:   "found 3 files",
+			timedOut: false,
+		})
+
+		Expect(fakeEpisodic.StoreCallCount()).To(Equal(1))
+		_, episode := fakeEpisodic.StoreArgsForCall(0)
+		Expect(episode.Goal).To(Equal("find files"))
+		Expect(episode.Status).To(Equal(memory.EpisodeSuccess))
+	})
+
+	It("stores in episodic memory with failure status when timed out", func() {
+		fakeEpisodic := &memoryfakes.FakeEpisodicMemory{}
+		cat := &createAgentTool{episodic: fakeEpisodic}
+		req := CreateAgentRequest{AgentName: "test-agent", Goal: "find files"}
+
+		cat.storeResults(context.Background(), req, subAgentResult{
+			output:   "partial results",
+			timedOut: true,
+		})
+
+		Expect(fakeEpisodic.StoreCallCount()).To(Equal(1))
+		_, episode := fakeEpisodic.StoreArgsForCall(0)
+		Expect(episode.Status).To(Equal(memory.EpisodeFailure))
+	})
+})
+
+var _ = Describe("summarizeOutput", func() {
+	req := CreateAgentRequest{AgentName: "test-agent", SummarizeOutput: true}
+
+	It("summarizes when output exceeds threshold", func() {
+		fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
+		fakeSummarizer.SummarizeReturns("short summary", nil)
+		cat := &createAgentTool{summarizer: fakeSummarizer}
+
+		longOutput := strings.Repeat("x", summarizeThreshold+100)
+		sar := cat.summarizeOutput(context.Background(), req, subAgentResult{
+			output: longOutput,
+		})
+
+		Expect(fakeSummarizer.SummarizeCallCount()).To(Equal(1))
+		Expect(sar.output).To(Equal("short summary"))
+	})
+
+	It("skips when output is below threshold", func() {
+		fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
+		cat := &createAgentTool{summarizer: fakeSummarizer}
+
+		sar := cat.summarizeOutput(context.Background(), req, subAgentResult{
+			output: "short output",
+		})
+
+		Expect(fakeSummarizer.SummarizeCallCount()).To(Equal(0))
+		Expect(sar.output).To(Equal("short output"))
+	})
+
+	It("skips when SummarizeOutput is false", func() {
+		fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
+		cat := &createAgentTool{summarizer: fakeSummarizer}
+		noSumReq := CreateAgentRequest{AgentName: "test-agent", SummarizeOutput: false}
+
+		longOutput := strings.Repeat("x", summarizeThreshold+100)
+		sar := cat.summarizeOutput(context.Background(), noSumReq, subAgentResult{
+			output: longOutput,
+		})
+
+		Expect(fakeSummarizer.SummarizeCallCount()).To(Equal(0))
+		Expect(sar.output).To(Equal(longOutput))
+	})
+
+	It("skips when timed out", func() {
+		fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
+		cat := &createAgentTool{summarizer: fakeSummarizer}
+
+		longOutput := strings.Repeat("x", summarizeThreshold+100)
+		sar := cat.summarizeOutput(context.Background(), req, subAgentResult{
+			output:   longOutput,
+			timedOut: true,
+		})
+
+		Expect(fakeSummarizer.SummarizeCallCount()).To(Equal(0))
+		Expect(sar.output).To(Equal(longOutput))
+	})
+
+	It("keeps original when summarizer errors", func() {
+		fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
+		fakeSummarizer.SummarizeReturns("", fmt.Errorf("model unavailable"))
+		cat := &createAgentTool{summarizer: fakeSummarizer}
+
+		longOutput := strings.Repeat("x", summarizeThreshold+100)
+		sar := cat.summarizeOutput(context.Background(), req, subAgentResult{
+			output: longOutput,
+		})
+
+		Expect(fakeSummarizer.SummarizeCallCount()).To(Equal(1))
+		Expect(sar.output).To(Equal(longOutput))
 	})
 })
 
@@ -393,19 +648,6 @@ var _ = Describe("auto-retry on tool_use_failure", func() {
 		agentName := "azure-functions-check"
 		retryName := agentName + "-retry"
 		Expect(retryName).To(Equal("azure-functions-check-retry"))
-	})
-
-	It("preserves the original goal in the retry prompt", func() {
-		originalGoal := "```bash\naz functionapp list --query '[].{Name:name}'\n```"
-		retryGoal := "[RETRY — PREVIOUS ATTEMPT FAILED] " +
-			"Your previous attempt FAILED because you echoed commands as text instead of executing them. " +
-			"You MUST call the run_shell tool to execute the script below. " +
-			"Do NOT output the script as text. Call run_shell with the script as the command argument.\n\n" +
-			originalGoal
-
-		Expect(retryGoal).To(ContainSubstring("az functionapp list"))
-		Expect(retryGoal).To(ContainSubstring("RETRY"))
-		Expect(retryGoal).To(ContainSubstring("run_shell"))
 	})
 
 	It("retry is only triggered when status is tool_use_failure", func() {

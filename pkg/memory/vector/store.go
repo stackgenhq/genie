@@ -286,15 +286,8 @@ func (s *Store) SearchWithFilter(ctx context.Context, query string, limit int, f
 	)
 	defer span.End()
 
-	embedding, err := s.embedder.GetEmbedding(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
-	}
-
 	searchQuery := &vectorstore.SearchQuery{
-		Vector:     embedding,
-		Limit:      limit,
-		SearchMode: vectorstore.SearchModeVector,
+		Limit: limit,
 	}
 
 	// Apply metadata filter if provided.
@@ -306,6 +299,24 @@ func (s *Store) SearchWithFilter(ctx context.Context, query string, limit int, f
 		searchQuery.Filter = &vectorstore.SearchFilter{
 			Metadata: metaFilter,
 		}
+	}
+
+	// When query is empty and filters are present, use filter-only mode
+	// to skip embedding entirely. This fixes the "text cannot be empty"
+	// error that occurs when graph GetEntity calls SearchWithFilter("", ...)
+	// for metadata-based entity lookups.
+	if query == "" && len(filter) > 0 {
+		searchQuery.SearchMode = vectorstore.SearchModeFilter
+	} else if query == "" {
+		// No query and no filter — nothing meaningful to search for.
+		return nil, fmt.Errorf("SearchWithFilter requires a non-empty query or at least one filter")
+	} else {
+		embedding, err := s.embedder.GetEmbedding(ctx, query)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate query embedding: %w", err)
+		}
+		searchQuery.Vector = embedding
+		searchQuery.SearchMode = vectorstore.SearchModeVector
 	}
 
 	res, err := s.vs.Search(ctx, searchQuery)

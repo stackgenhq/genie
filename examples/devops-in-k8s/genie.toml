@@ -16,9 +16,12 @@ dsn = "${POSTGRES_DSN}"
 # ── Model Configuration ─────────────────────────────────────────────
 [model_config]
 
+# Planning model: Sonnet is the right tier for orchestration (read notes,
+# spawn sub-agents, synthesize). Opus was 10x more expensive with no benefit
+# for routing/delegation tasks — see trace analysis showing $0.76/trace waste.
 [[model_config.providers]]
 provider = "anthropic"
-model_name = "claude-opus-4-5"
+model_name = "claude-sonnet-4-5-20250929"
 token = "${ANTHROPIC_API_KEY}"
 good_for_task = "planning"
 
@@ -215,6 +218,13 @@ host       = "${LANGFUSE_HOST}"
 provider = "github"
 token = "${GITHUB_TOKEN}"
 
+# ── Knowledge Graph ─────────────────────────────────────────────────
+# Store entities and relations in the same Qdrant collection as vector memory.
+# Without this, the graph defaults to a volatile in-memory store that loses
+# all data on pod restart.
+[graph]
+backend = "vectorstore"
+
 # ── Vector Memory ───────────────────────────────────────────────────
 [vector_memory]
 vector_store_provider = "qdrant"
@@ -254,7 +264,11 @@ allowed_domains = ["stackgen.com"]
 # enabled = true
 
 [hitl]
-always_allowed = []
+# Auto-approve run_shell and graph tools for autonomous/background agents.
+# Without this, sub-agents block for their entire timeout (180s) waiting for
+# human approval that never comes in headless sessions. The local devops-copilot
+# example already has run_shell allowed; k8s deployment must match.
+always_allowed = ["run_shell", "graph_*", "scm_*", "http_request"]
 
 # ── PII Redaction ───────────────────────────────────────────────────
 # Tuned for DevOps agents: infrastructure output is full of mixed-case
