@@ -387,12 +387,63 @@
     // ── Browser notifications (approval + updates) ──
     const NOTIFICATION_PROMPT_DISMISSED_KEY = 'genie-notification-prompt-dismissed';
 
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+            navigator.serviceWorker.register('./sw.js').catch(function (err) {
+                console.warn('Service worker registration failed:', err);
+            });
+        });
+
+        navigator.serviceWorker.addEventListener('message', function (event) {
+            const data = event.data;
+            if (data && data.category === 'genie-action') {
+                if (data.action === 'approve') {
+                    if (window.genie && window.genie.resolveApproval) window.genie.resolveApproval(data.approvalId, 'approved');
+                } else if (data.action === 'reject') {
+                    if (window.genie && window.genie.resolveApproval) window.genie.resolveApproval(data.approvalId, 'rejected');
+                } else if (data.action === 'recheck') {
+                    if (window.genie && window.genie.revisitApproval) window.genie.revisitApproval(data.approvalId);
+                }
+            }
+        });
+    }
+
     function notificationsSupported() {
         return typeof Notification !== 'undefined';
     }
 
-    function showNotification(title, body, tag) {
+    function showNotification(title, body, tag, extraData) {
         if (!notificationsSupported() || Notification.permission !== 'granted') return;
+
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.ready.then(function (reg) {
+                const options = {
+                    body: body || '',
+                    tag: tag || 'genie',
+                    icon: '/favicon.ico',
+                    data: extraData || {}
+                };
+                if (extraData && extraData.type === 'APPROVAL_REQUEST') {
+                    options.requireInteraction = true;
+                    // Max actions supported differs by OS/Browser, typically 2 or 3.
+                    options.actions = [
+                        { action: 'approve', title: '✅ Approve' },
+                        { action: 'reject', title: '❌ Reject' },
+                        { action: 'recheck', title: '🔄 Recheck' }
+                    ];
+                }
+                reg.showNotification(title, options).catch(function (e) {
+                    fallbackNotification(title, body, tag);
+                });
+            }).catch(e => {
+                fallbackNotification(title, body, tag);
+            });
+        } else {
+            fallbackNotification(title, body, tag);
+        }
+    }
+
+    function fallbackNotification(title, body, tag) {
         try {
             const n = new Notification(title, {
                 body: body || '',
@@ -1365,7 +1416,10 @@
                     addAutoApprovedCard(event.toolCallName, event.content, event.justification);
                 } else {
                     addApprovalCard(event.approvalId, event.toolCallName, event.content, event.justification);
-                    showNotification('Approval required', (event.toolCallName || 'A tool') + ' needs your approval', 'approval-' + (event.approvalId || ''));
+                    showNotification('Approval required', (event.toolCallName || 'A tool') + ' needs your approval', 'approval-' + (event.approvalId || ''), {
+                        type: 'APPROVAL_REQUEST',
+                        approvalId: event.approvalId
+                    });
                     vibrateBrief();
                 }
                 break;
