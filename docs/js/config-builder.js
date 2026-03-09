@@ -46,6 +46,7 @@
         browser: { blocked_domains: [] },
         email: { provider: '', host: '', port: 587, username: '', password: '', imap_host: '', imap_port: 993 },
         hitl: { always_allowed: [], denied_tools: [], cache_ttl: '' },
+        shell_tool: { allowed_env: [] },
         toolwrap: {
             context_mode: { enabled: false, threshold: 20000, max_chunks: 10, chunk_size: 800, min_term_len: 3, per_tool: '' },
             timeout: { enabled: false, default_timeout: '30s', per_tool: '' },
@@ -222,6 +223,7 @@
         renderBrowser();
         renderEmail();
         renderHITL();
+        renderShellTool();
         renderToolwrap();
         renderSecurity();
         renderPII();
@@ -626,6 +628,19 @@
             fieldText('Read-Only Tools (comma-separated)', (h.always_allowed || []).join(', '), function (v) { h.always_allowed = splitCSV(v); renderOutput(); }, 'read_file, list_file', 'Tools that skip human approval — safe read-only operations'),
             fieldText('Denied Tools (comma-separated)', (h.denied_tools || []).join(', '), function (v) { h.denied_tools = splitCSV(v); renderOutput(); }, 'execute_code, run_shell', 'Tools that are completely blocked — the agent cannot use these at all. Supports wildcards (e.g. browser_*)'),
             fieldText('Approval Cache TTL', h.cache_ttl || '', function (v) { h.cache_ttl = v; renderOutput(); }, '10m', 'How long an approved tool+args combination stays auto-approved before requiring fresh human approval (e.g. 5m, 15m, 1h). Default: 10m')
+        ]));
+    }
+
+    // ── Shell Tool Security ──
+    function renderShellTool() {
+        var c = $('shelltool-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var st = state.shell_tool;
+        c.appendChild(el('div', { className: 'space-y-4' }, [
+            fieldText('Allowed Env Vars (comma-separated)', (st.allowed_env || []).join(', '), function (v) { st.allowed_env = splitCSV(v); renderOutput(); }, 'HOME, USER, GOPATH, TERM',
+                'Only these environment variables (plus PATH) are visible to run_shell commands. Leave empty to inherit all host env vars (default). Set this to limit exposure of secrets like cloud credentials.'),
+            el('p', { className: 'text-xs text-gray-400 mt-1' }, 'PATH is always included automatically. When set, shell commands run with env -i so only listed variables are visible.')
         ]));
     }
 
@@ -1169,6 +1184,7 @@
         browserToToml(lines);
         emailToToml(lines);
         hitlToToml(lines);
+        shellToolToToml(lines);
         toolwrapToToml(lines);
         dbConfigToToml(lines);
 
@@ -1253,6 +1269,14 @@
         if (hasItems(h.always_allowed)) lines.push('always_allowed = [' + h.always_allowed.filter(Boolean).map(q).join(', ') + ']');
         if (hasItems(h.denied_tools)) lines.push('denied_tools = [' + h.denied_tools.filter(Boolean).map(q).join(', ') + ']');
         if (h.cache_ttl) lines.push('cache_ttl = ' + q(h.cache_ttl));
+        lines.push('');
+    }
+
+    function shellToolToToml(lines) {
+        var st = state.shell_tool;
+        if (!hasItems(st.allowed_env)) return;
+        lines.push('[shell_tool]');
+        lines.push('allowed_env = [' + st.allowed_env.filter(Boolean).map(q).join(', ') + ']');
         lines.push('');
     }
 
@@ -1787,6 +1811,7 @@
         browserToYaml(lines);
         emailToYaml(lines);
         hitlToYaml(lines);
+        shellToolToYaml(lines);
         toolwrapToYaml(lines);
         dbConfigToYaml(lines);
 
@@ -1957,6 +1982,15 @@
             h.denied_tools.filter(Boolean).forEach(function (t) { lines.push('    - ' + t); });
         }
         if (h.cache_ttl) lines.push('  cache_ttl: ' + h.cache_ttl);
+        lines.push('');
+    }
+
+    function shellToolToYaml(lines) {
+        var st = state.shell_tool;
+        if (!hasItems(st.allowed_env)) return;
+        lines.push('shell_tool:');
+        lines.push('  allowed_env:');
+        st.allowed_env.filter(Boolean).forEach(function (e) { lines.push('    - ' + e); });
         lines.push('');
     }
 

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stackgenhq/genie/pkg/agui"
+	"github.com/stackgenhq/genie/pkg/audit"
 	"github.com/stackgenhq/genie/pkg/hitl"
 	"github.com/stackgenhq/genie/pkg/interrupt"
 	"github.com/stackgenhq/genie/pkg/logger"
@@ -77,7 +78,8 @@ type hitlApprovalMiddleware struct {
 	wm          *rtmemory.WorkingMemory
 	blocking    bool // true = block in WaitForResolution; false = return interrupt.Error
 	cache       *approvalCache
-	approveList *ApproveList // optional in-memory temporary allowlist (blind or args-filter)
+	approveList *ApproveList  // optional in-memory temporary allowlist (blind or args-filter)
+	auditor     audit.Auditor // optional durable auditor for HITL decisions
 }
 
 // HITLOption configures the behaviour of the HITL approval middleware.
@@ -136,6 +138,12 @@ func WithApproveListOption(list *ApproveList) HITLOption {
 	return func(m *hitlApprovalMiddleware) { m.approveList = list }
 }
 
+// WithHITLAuditor injects an auditor so HITL approval/rejection decisions
+// are written to the durable audit trail (not just the AG-UI event bus).
+func WithHITLAuditor(a audit.Auditor) HITLOption {
+	return func(m *hitlApprovalMiddleware) { m.auditor = a }
+}
+
 func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 	return func(ctx context.Context, tc *ToolCallContext) (any, error) {
 		// Always extract _justification — the audit middleware needs it
@@ -157,6 +165,7 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 		// Skip if tool is in allowlist.
 		if m.store.IsAllowed(tc.ToolName) {
 			m.emitAutoApproved(ctx, tc.ToolName, string(tc.Args), tc.Justification)
+			m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "auto_approved", "always_allowed")
 			return next(ctx, tc)
 		}
 
@@ -164,6 +173,7 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 		if m.approveList != nil && m.approveList.IsApproved(tc.ToolName, string(tc.Args)) {
 			logr.Debug("HITL approve list hit — auto-approved (temporary allow)")
 			m.emitAutoApproved(ctx, tc.ToolName, string(tc.Args), tc.Justification)
+			m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "auto_approved", "approve_list")
 			return next(ctx, tc)
 		}
 
@@ -175,6 +185,7 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 		if m.cache.has(approvalKey) {
 			logr.Debug("HITL cache hit — auto-approved (same session + tool + args)")
 			m.emitAutoApproved(ctx, tc.ToolName, string(tc.Args), tc.Justification)
+			m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "auto_approved", "cache_hit")
 			return next(ctx, tc)
 		}
 
@@ -216,10 +227,12 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 		case resolved.Status == hitl.StatusRejected && resolved.Feedback != "":
 			m.storeFeedback(tc.ToolName, resolved.Feedback)
 			logr.Info("tool call rejected with feedback", "feedback", resolved.Feedback)
+			m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "rejected", resolved.Feedback)
 			return nil, fmt.Errorf("tool call %s rejected by user: %s", tc.ToolName, resolved.Feedback)
 
 		case resolved.Status == hitl.StatusRejected:
 			logr.Info("tool call rejected by user")
+			m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "rejected", "")
 			return nil, fmt.Errorf("tool call %s rejected by user", tc.ToolName)
 
 		case resolved.Feedback != "":
@@ -232,6 +245,7 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 
 		logr.Info("tool call approved by user")
 		m.cache.add(approvalKey)
+		m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "approved", "")
 		return next(ctx, tc)
 	}
 }
@@ -285,4 +299,34 @@ func approvalFingerprint(threadID, toolName, args string) string {
 	h.Write([]byte("|"))
 	h.Write([]byte(args))
 	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
+// AuditEventHITLDecision is the audit event type for HITL approval/rejection.
+const AuditEventHITLDecision audit.EventType = "hitl_decision"
+
+// auditHITLDecision logs an HITL approval or rejection decision to the
+// durable audit trail. The decision field is "approved", "rejected",
+// or "auto_approved" (with reason for the auto path).
+func (m *hitlApprovalMiddleware) auditHITLDecision(ctx context.Context, toolName, args, justification, decision, reason string) {
+	if m.auditor == nil {
+		return
+	}
+	metadata := map[string]any{
+		"tool":          toolName,
+		"decision":      decision,
+		"justification": justification,
+		"timestamp":     time.Now().UTC().Format(time.RFC3339),
+	}
+	if reason != "" {
+		metadata["reason"] = reason
+	}
+	if len(args) > 0 {
+		metadata["args"] = TruncateForAudit(args, 512)
+	}
+	m.auditor.Log(ctx, audit.LogRequest{
+		EventType: AuditEventHITLDecision,
+		Actor:     "hitl",
+		Action:    "tool_" + decision,
+		Metadata:  metadata,
+	})
 }

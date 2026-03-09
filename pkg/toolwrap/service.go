@@ -125,9 +125,10 @@ func (s *Service) Wrap(tools []tool.Tool, req WrapRequest) []tool.Tool {
 	// --- HITL approval gate (only when an approval store is configured) ---
 	otherMws := []Middleware{}
 	if s.approvalStore != nil {
-		opts := []HITLOption{WithSharedApprovalCache(s.hitlCache)}
-		if s.approveList != nil {
-			opts = append(opts, WithApproveListOption(s.approveList))
+		opts := []HITLOption{
+			WithSharedApprovalCache(s.hitlCache),
+			WithHITLAuditor(s.auditor),
+			WithApproveListOption(s.approveList),
 		}
 		otherMws = append(otherMws, HITLApprovalMiddleware(
 			s.approvalStore,

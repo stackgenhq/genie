@@ -1,4 +1,4 @@
-package shelltool_test
+package unix_test
 
 import (
 	"testing"
@@ -7,8 +7,8 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestShellTool(t *testing.T) {
+func TestUnix(t *testing.T) {
 	t.Parallel()
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "ShellTool Suite")
+	RunSpecs(t, "Unix Shell Tool Suite")
 }

@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"unicode/utf8"
-
 	"time"
+	"unicode/utf8"
 
 	"github.com/stackgenhq/genie/pkg/agentutils"
 	"github.com/stackgenhq/genie/pkg/agui"
+	"github.com/stackgenhq/genie/pkg/audit"
 	"github.com/stackgenhq/genie/pkg/dedup"
 	"github.com/stackgenhq/genie/pkg/expert"
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
@@ -181,6 +181,11 @@ type createAgentTool struct {
 	inflight dedup.Group[CreateAgentResponse]
 
 	skipSummarize bool
+
+	// auditor is the optional durable audit trail for sub-agent creation.
+	// When set, each sub-agent creation emits an audit event recording
+	// the agent name, goal, delegated tools, and budget parameters.
+	auditor audit.Auditor
 }
 
 // CreateAgentOption configures the create_agent tool.
@@ -192,6 +197,12 @@ func WithSkipSummarizeMarker(skip bool) CreateAgentOption {
 	return func(t *createAgentTool) {
 		t.skipSummarize = skip
 	}
+}
+
+// WithAuditor injects an auditor so sub-agent creation events are written
+// to the durable audit trail.
+func WithAuditor(a audit.Auditor) CreateAgentOption {
+	return func(t *createAgentTool) { t.auditor = a }
 }
 
 // orchestrationOnlyTools lists tool names that are available to the main agent
@@ -292,6 +303,9 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 
 	logr := logger.GetLogger(ctx).With("fn", "createAgentTool.execute", "goal", toolwrap.TruncateForAudit(req.Goal, 80), "name", req.AgentName)
 	logr.Info("create_agent invoked", "tool_names", req.ToolNames, "task_type", req.TaskType, "steps", len(req.Steps))
+
+	// Audit: record sub-agent creation as a delegation-of-authority event.
+	t.auditSubAgentCreation(ctx, req)
 
 	// Dedup: identical parallel calls (same name+goal) are collapsed
 	// via singleflight so only one sub-agent runs.
@@ -1018,4 +1032,33 @@ func (t *createAgentTool) isMemoryEmpty(ctx context.Context) bool {
 		return false
 	}
 	return len(results) == 0
+}
+
+// AuditEventSubAgentCreated is the audit event type for sub-agent creation.
+const AuditEventSubAgentCreated audit.EventType = "subagent_created"
+
+// auditSubAgentCreation emits a durable audit event when a sub-agent is created.
+// This records the delegation of authority: which tools were given, the goal,
+// task type, and budget parameters.
+func (t *createAgentTool) auditSubAgentCreation(ctx context.Context, req CreateAgentRequest) {
+	if t.auditor == nil {
+		return
+	}
+	metadata := map[string]any{
+		"agent_name":          req.AgentName,
+		"goal":                toolwrap.TruncateForAudit(req.Goal, 200),
+		"tool_names":          req.ToolNames,
+		"task_type":           string(req.TaskType),
+		"max_tool_iterations": req.clampedMaxToolIterations(),
+		"max_llm_calls":       req.clampedMaxLLMCalls(),
+		"timeout_seconds":     req.timeout().Seconds(),
+		"step_count":          len(req.Steps),
+		"timestamp":           time.Now().UTC().Format(time.RFC3339),
+	}
+	t.auditor.Log(ctx, audit.LogRequest{
+		EventType: AuditEventSubAgentCreated,
+		Actor:     "orchestrator",
+		Action:    "create_agent",
+		Metadata:  metadata,
+	})
 }

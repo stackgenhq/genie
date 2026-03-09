@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stackgenhq/genie/pkg/tools/skills/dynamicskills"
+	"github.com/stackgenhq/genie/pkg/tools/unix"
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor"
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor/local"
 	"trpc.group/trpc-go/trpc-agent-go/skill"
@@ -57,25 +58,30 @@ func (p *FileToolProvider) GetTools() []tool.Tool {
 // interface. It encapsulates code executor configuration.
 type ShellToolProvider struct {
 	workingDir string
-	timeout    time.Duration
+	config     unix.ShellToolConfig
 }
 
-// NewShellToolProvider creates a ToolProvider for the shell_exec tool.
-func NewShellToolProvider(workingDir string) *ShellToolProvider {
+// NewShellToolProvider creates a ToolProvider for the run_shell tool.
+// The config controls security features like env var filtering and binary allowlists.
+func NewShellToolProvider(workingDir string, config unix.ShellToolConfig) *ShellToolProvider {
 	return &ShellToolProvider{
 		workingDir: workingDir,
-		timeout:    10 * time.Minute,
+		config:     config,
 	}
 }
 
 // GetTools returns the shell tool backed by a local code executor.
 func (p *ShellToolProvider) GetTools() []tool.Tool {
+	timeout := p.config.Timeout
+	if timeout <= 0 {
+		timeout = 10 * time.Minute
+	}
 	exec := local.New(
 		local.WithWorkDir(p.workingDir),
-		local.WithTimeout(p.timeout),
+		local.WithTimeout(timeout),
 		local.WithCleanTempFiles(true),
 	)
-	return Tools{NewShellTool(exec)}
+	return Tools{unix.NewShellTool(exec, p.config)}
 }
 
 // PensieveToolProvider wraps the Pensieve context management tools

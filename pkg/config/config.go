@@ -23,6 +23,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/pii"
 	"github.com/stackgenhq/genie/pkg/tools"
+	unixtools "github.com/stackgenhq/genie/pkg/tools/unix"
 
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/semanticrouter"
@@ -88,6 +89,11 @@ type GenieConfig struct {
 	Security security.Config           `yaml:"security,omitempty" toml:"security,omitempty"`
 	PII      pii.Config                `yaml:"pii,omitempty" toml:"pii,omitempty"`
 	Toolwrap toolwrap.MiddlewareConfig `yaml:"toolwrap,omitempty" toml:"toolwrap,omitempty"`
+
+	// ShellTool configures the run_shell tool's security behaviour.
+	// Use shell_tool.allowed_env to restrict which environment variables
+	// are visible to shell commands (principle of least privilege).
+	ShellTool unixtools.ShellToolConfig `yaml:"shell_tool,omitempty" toml:"shell_tool,omitempty"`
 
 	// DisablePensieve disables the Pensieve context management tools
 	// (delete_context, check_budget, note, read_notes) from arXiv:2602.12108.
