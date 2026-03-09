@@ -27,8 +27,11 @@ import (
 // The base64 character class [A-Za-z0-9+/=] intentionally excludes whitespace
 // so the match stops at the first newline after the encoded data. The
 // decodeDataURL function handles any internal whitespace separately.
-var dataURLFilePattern = regexp.MustCompile(
-	`\[file:([^:]+):([^\]]+)\]\s*(data:[^;]+;base64,[A-Za-z0-9+/=]+)`,
+var (
+	dataURLFilePattern = regexp.MustCompile(
+		`\[file:([^:]+):([^\]]+)\]\s*(data:[^;]+;base64,[A-Za-z0-9+/=]+)`,
+	)
+	safeExtPattern = regexp.MustCompile(`[^a-zA-Z0-9.\-]`)
 )
 
 // ExtractDataURLFiles scans the message text for embedded data-URL file blocks,
@@ -54,7 +57,7 @@ func ExtractDataURLFiles(message, tempDir string) (cleanMessage string, attachme
 	}
 
 	// Ensure temp dir exists.
-	if err := os.MkdirAll(safeTempDir, 0o755); err != nil {
+	if err := os.MkdirAll(safeTempDir, 0o700); err != nil {
 		return message, nil
 	}
 
@@ -87,21 +90,19 @@ func ExtractDataURLFiles(message, tempDir string) (cleanMessage string, attachme
 			mime = declaredMIME
 		}
 
-		// Save to disk with a unique name.
-		// Sanitize fileName to prevent path traversal.
-		cleanFileName := filepath.Base(filepath.Clean(fileName))
-		if cleanFileName == "." || cleanFileName == "/" || cleanFileName == "\\" {
-			cleanFileName = "file"
-		}
-		ext := filepath.Ext(cleanFileName)
-		base := strings.TrimSuffix(cleanFileName, ext)
+		// Save to disk with a secure, generated name.
+		// We ignore the user-provided filename for the on-disk file to prevent any
+		// path traversal risks, and only store it as metadata.
+		ext := filepath.Ext(fileName)
 		if ext == "" {
 			ext = media.ExtFromMIME(mime)
 		}
-		uniqueName := fmt.Sprintf("%s_%d%s", base, time.Now().UnixNano(), ext)
+		ext = safeExtPattern.ReplaceAllString(ext, "")
+
+		uniqueName := fmt.Sprintf("upload_%d%s", time.Now().UnixNano(), ext)
 		localPath := filepath.Join(safeTempDir, uniqueName)
 
-		if err := os.WriteFile(localPath, data, 0o644); err != nil {
+		if err := os.WriteFile(localPath, data, 0o600); err != nil {
 			continue
 		}
 
