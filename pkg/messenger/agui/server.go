@@ -630,12 +630,16 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Generate IDs if not provided
+	// Generate IDs if not provided, and sanitize provided IDs to prevent path traversal
 	if input.ThreadID == "" {
 		input.ThreadID = uuid.NewString()
+	} else {
+		input.ThreadID = filepath.Base(filepath.Clean(input.ThreadID))
 	}
 	if input.RunID == "" {
 		input.RunID = uuid.NewString()
+	} else {
+		input.RunID = filepath.Base(filepath.Clean(input.RunID))
 	}
 
 	// Extract the last user message using SDK's ContentString() helper.

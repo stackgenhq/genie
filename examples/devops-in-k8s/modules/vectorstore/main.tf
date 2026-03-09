@@ -560,7 +560,7 @@ resource "kubernetes_cron_job_v1" "qdrant_snapshot" {
 
             container {
               name  = "snapshot"
-              image = "curlimages/curl:latest"
+              image = "curlimages/curl:8.12.1"
 
               command = ["/bin/sh", "-c"]
               args = [<<-EOT
@@ -569,15 +569,31 @@ resource "kubernetes_cron_job_v1" "qdrant_snapshot" {
                 echo "[snapshot] Triggering full storage snapshot..."
                 RESULT=$(curl -sf -X POST "$QDRANT_URL/snapshots" \
                   -H "Content-Type: application/json" \
-                  ${var.qdrant.api_key != "" ? "-H \"api-key: $(QDRANT_API_KEY)\"" : ""})
+                  ${var.qdrant.api_key != "" ? "-H \"api-key: $QDRANT_API_KEY\"" : ""})
                 echo "[snapshot] Snapshot created: $RESULT"
                 echo "[snapshot] Listing snapshots..."
                 curl -sf "$QDRANT_URL/snapshots" \
-                  ${var.qdrant.api_key != "" ? "-H \"api-key: $(QDRANT_API_KEY)\"" : ""} | head -c 1000
+                  ${var.qdrant.api_key != "" ? "-H \"api-key: $QDRANT_API_KEY\"" : ""} | head -c 1000
                 echo ""
                 echo "[snapshot] Done."
               EOT
               ]
+
+              # Inject QDRANT_API_KEY from the Qdrant Helm chart's Secret.
+              # The Helm chart creates a Secret named "qdrant-apikey" when
+              # config.service.api_key is set.
+              dynamic "env" {
+                for_each = var.qdrant.api_key != "" ? [1] : []
+                content {
+                  name = "QDRANT_API_KEY"
+                  value_from {
+                    secret_key_ref {
+                      name = "qdrant-apikey"
+                      key  = "api-key"
+                    }
+                  }
+                }
+              }
 
               resources {
                 requests = {

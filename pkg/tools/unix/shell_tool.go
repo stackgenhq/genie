@@ -44,14 +44,37 @@ func NewShellTool(executor codeexecutor.CodeExecutor, secrets security.SecretPro
 	t := &ShellTool{
 		executor:       executor,
 		secrets:        secrets,
-		allowedEnvKeys: make(map[string]struct{}, len(config.AllowedEnv)+1),
+		allowedEnvKeys: make(map[string]struct{}, len(config.AllowedEnv)+len(baseEnvKeys)),
 	}
-	// PATH is always required for command resolution.
-	t.allowedEnvKeys["PATH"] = struct{}{}
+	// Always inject essential Unix environment variables so that tools
+	// like aws, git, kubectl, and npm work correctly even though env -i
+	// clears the inherited environment. Without these, subprocesses fail
+	// with errors like "RuntimeError: HOME not set" or write to "/" instead
+	// of the user's home directory.
+	for _, k := range baseEnvKeys {
+		t.allowedEnvKeys[k] = struct{}{}
+	}
 	for _, k := range config.AllowedEnv {
 		t.allowedEnvKeys[strings.ToUpper(k)] = struct{}{}
 	}
 	return t
+}
+
+// baseEnvKeys are always passed through env -i to ensure a functioning
+// Unix environment. These are read-only identifiers and paths — no secrets.
+var baseEnvKeys = []string{
+	"PATH",   // command resolution
+	"HOME",   // ~/ expansion, config dirs, credential caches
+	"USER",   // whoami, git commit author
+	"TMPDIR", // Go os.TempDir(), Python tempfile, etc.
+	"LANG",   // locale (prevents mojibake in tool output)
+	"TERM",   // terminal capabilities (tput, colored output)
+	"SHELL",  // child process default shell
+	// XDG base directories — used by gh CLI, npm, pip, etc.
+	"XDG_CONFIG_HOME",
+	"XDG_CACHE_HOME",
+	"XDG_DATA_HOME",
+	"XDG_RUNTIME_DIR",
 }
 
 func (t *ShellTool) Declaration() *tool.Declaration {
@@ -169,4 +192,11 @@ func (t *ShellTool) AllowedEnvKeys() []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// BaseEnvKeys returns a copy of the always-included env var names (for testing).
+func BaseEnvKeys() []string {
+	out := make([]string, len(baseEnvKeys))
+	copy(out, baseEnvKeys)
+	return out
 }

@@ -529,7 +529,7 @@ func addVideoAttachment(ctx context.Context, msg *model.Message, att messenger.A
 // and available on all platforms.
 func convertAudioToWAV(ctx context.Context, srcPath string) (string, error) {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		return "", fmt.Errorf("ffmpeg not found: required for audio format conversion: %w", err)
+		return "", fmt.Errorf("ffmpeg not found on PATH: required for audio format conversion: %w", err)
 	}
 
 	// Create output path alongside the source file.

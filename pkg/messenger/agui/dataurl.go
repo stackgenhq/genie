@@ -43,8 +43,15 @@ func ExtractDataURLFiles(message, tempDir string) (cleanMessage string, attachme
 		return message, nil
 	}
 
+	// Ensure temp dir is safe and within os.TempDir() to prevent path traversal.
+	// If an unsafe path is provided, fallback to a safe default.
+	safeTempDir := filepath.Clean(tempDir)
+	if !strings.HasPrefix(safeTempDir, filepath.Clean(os.TempDir())) {
+		safeTempDir = filepath.Join(os.TempDir(), "genie-agui-media", "tmp-default")
+	}
+
 	// Ensure temp dir exists.
-	if err := os.MkdirAll(tempDir, 0o755); err != nil {
+	if err := os.MkdirAll(safeTempDir, 0o755); err != nil {
 		return message, nil
 	}
 
@@ -74,13 +81,18 @@ func ExtractDataURLFiles(message, tempDir string) (cleanMessage string, attachme
 		}
 
 		// Save to disk with a unique name.
-		ext := filepath.Ext(fileName)
-		base := strings.TrimSuffix(fileName, ext)
+		// Sanitize fileName to prevent path traversal.
+		cleanFileName := filepath.Base(filepath.Clean(fileName))
+		if cleanFileName == "." || cleanFileName == "/" || cleanFileName == "\\" {
+			cleanFileName = "file"
+		}
+		ext := filepath.Ext(cleanFileName)
+		base := strings.TrimSuffix(cleanFileName, ext)
 		if ext == "" {
 			ext = media.ExtFromMIME(mime)
 		}
 		uniqueName := fmt.Sprintf("%s_%d%s", base, time.Now().UnixNano(), ext)
-		localPath := filepath.Join(tempDir, uniqueName)
+		localPath := filepath.Join(safeTempDir, uniqueName)
 
 		if err := os.WriteFile(localPath, data, 0o644); err != nil {
 			continue

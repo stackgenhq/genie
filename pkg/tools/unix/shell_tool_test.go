@@ -40,28 +40,29 @@ var _ = Describe("ShellTool", func() {
 	// --- Construction & Config ---
 
 	Context("construction", func() {
-		It("defaults to only PATH in allowed env keys", func() {
+		It("defaults to base Unix env keys", func() {
 			t := unix.NewShellTool(local.New(), secrets, unix.ShellToolConfig{})
 			st := t.(*unix.ShellTool)
-			Expect(st.AllowedEnvKeys()).To(Equal([]string{"PATH"}))
+			keys := st.AllowedEnvKeys()
+			Expect(keys).To(ContainElements("PATH", "HOME", "USER", "TMPDIR", "LANG", "TERM", "SHELL"))
 		})
 
 		It("adds configured env vars to the allowed set", func() {
 			t := unix.NewShellTool(local.New(), secrets, unix.ShellToolConfig{
-				AllowedEnv: []string{"HOME", "USER"},
+				AllowedEnv: []string{"MY_CUSTOM_VAR", "ANOTHER_VAR"},
 			})
 			st := t.(*unix.ShellTool)
 			keys := st.AllowedEnvKeys()
-			Expect(keys).To(ContainElements("HOME", "USER", "PATH"))
-			Expect(keys).To(HaveLen(3))
+			// Base keys + 2 custom keys
+			Expect(keys).To(ContainElements("PATH", "HOME", "MY_CUSTOM_VAR", "ANOTHER_VAR"))
 		})
 
 		It("normalises env var keys to uppercase", func() {
 			t := unix.NewShellTool(local.New(), secrets, unix.ShellToolConfig{
-				AllowedEnv: []string{"home", "gOPATH"},
+				AllowedEnv: []string{"my_var", "gOPATH"},
 			})
 			st := t.(*unix.ShellTool)
-			Expect(st.AllowedEnvKeys()).To(ContainElements("HOME", "GOPATH", "PATH"))
+			Expect(st.AllowedEnvKeys()).To(ContainElements("MY_VAR", "GOPATH", "PATH", "HOME"))
 		})
 	})
 
@@ -150,8 +151,8 @@ var _ = Describe("ShellTool", func() {
 			callable := t.(tool.CallableTool)
 			_, err := callable.Call(ctx, []byte(`{"command": "echo test"}`))
 			Expect(err).NotTo(HaveOccurred())
-			// Should have called GetSecret for HOME and PATH
-			Expect(fakeSP.GetSecretCallCount()).To(BeNumerically(">=", 2))
+			// Should have called GetSecret for all base keys + HOME
+			Expect(fakeSP.GetSecretCallCount()).To(BeNumerically(">=", len(unix.BaseEnvKeys())))
 		})
 	})
 })

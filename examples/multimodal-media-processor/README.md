@@ -42,9 +42,9 @@ With multimodal capabilities, the agent can:
                            │
                     ┌──────▼──────┐
                     │   Expert    │  buildUserMessage():
-                    │             │  • image/* → AddImageFilePath()
-                    │             │  • audio/* → AddAudioFilePath()  ← GAP: not wired yet
-                    │             │  • video/* → AddFilePath()       ← via File content type
+                    │             │  • image/* → AddImageData()   ✅ full MIME
+                    │             │  • audio/* → AddAudioFilePath()  ✅ with OGG→WAV
+                    │             │  • video/* → AddFileData()    ✅ explicit MIME
                     │             │  • other   → AddFilePath()
                     └──────┬──────┘
                            │
@@ -69,19 +69,26 @@ With multimodal capabilities, the agent can:
 
 ### Images (✅ Fully Working)
 1. **WhatsApp**: `GetImageMessage()` → `downloadAndSave()` → `Attachment{LocalPath, ContentType: "image/jpeg"}`
-2. **Expert**: `isImageMIME("image/jpeg")` → `true` → `msg.AddImageFilePath(path, "auto")`
-3. **Gemini**: Receives image as `ContentTypeImage` → `genai.NewPartFromBytes(data, format)`
-4. **Result**: Model "sees" the image and can describe, analyze, extract text
+2. **AG-UI**: Browser encodes file as base64 data URL → server decodes to temp file → `Attachment{LocalPath, ContentType: "image/png"}`
+3. **Expert**: `isImageMIME("image/jpeg")` → `true` → `msg.AddImageData(data, "auto", mime)` (full MIME type)
+4. **Gemini**: Receives image as `ContentTypeImage` → `genai.NewPartFromBytes(data, format)`
+5. **Result**: Model "sees" the image and can describe, analyze, extract text
 
-### Audio (⚠️ Partially Working — See Gaps)
+### Audio (✅ Fully Working)
 1. **WhatsApp**: `GetAudioMessage()` → `downloadAndSave()` → `Attachment{LocalPath, ContentType: "audio/ogg"}`
-2. **Expert**: `isImageMIME("audio/ogg")` → `false` → `msg.AddFilePath(path)` → ⚠️ **fails** (`.ogg` not in MIME map)
-3. **Gap**: Audio should be routed to `AddAudioFilePath()`, and OGG needs conversion to WAV/MP3
+2. **Expert**: `isAudioMIME("audio/ogg")` → `true` → `addAudioAttachment()`:
+   - WAV/MP3: `msg.AddAudioFilePath(path)` directly
+   - OGG/other: auto-converts to WAV via `ffmpeg` → `msg.AddAudioFilePath(wavPath)`
+   - Fallback (no ffmpeg): `msg.AddFileData(name, data, mime)` — model may still handle it
+3. **Gemini**: Receives audio as `ContentTypeAudio` → model understands spoken content
+4. **Result**: Model transcribes/understands voice notes and responds accordingly
 
-### Video (⚠️ Partially Working via File API)
+### Video (✅ Working via File API)
 1. **WhatsApp**: `GetVideoMessage()` → `downloadAndSave()` → `Attachment{LocalPath, ContentType: "video/mp4"}`
-2. **Expert**: Falls through to `msg.AddFilePath(path)` → ⚠️ **fails** (`.mp4` not in MIME map)
-3. **Gap**: Needs `AddFileData()` with explicit MIME, or upstream `ContentTypeVideo` support
+2. **Expert**: `isVideoMIME("video/mp4")` → `true` → `addVideoAttachment()`:
+   - Reads file bytes → `msg.AddFileData(name, data, "video/mp4")` with explicit MIME
+3. **Gemini**: Receives as `ContentTypeFile` with correct MIME → natively processes video
+4. **Result**: Model describes motion/action in the video and provides relevant advice
 
 ### Documents (✅ Fully Working)
 1. **WhatsApp**: `GetDocumentMessage()` → `downloadAndSave()` → `Attachment{LocalPath, ContentType: "application/pdf"}`
@@ -102,11 +109,13 @@ With multimodal capabilities, the agent can:
 
 3. **For image testing**: Have image files ready (screenshots, product photos, receipts).
 
-4. **For audio testing**: Requires the `buildUserMessage` fix (see Known Gaps below) OR use WhatsApp which downloads audio to local path.
+4. **For audio testing**: Requires `ffmpeg` on PATH for OGG→WAV conversion (WhatsApp voice notes). WAV and MP3 files work without ffmpeg.
 
-5. **For video testing**: Requires Gemini model and the video routing fix.
+5. **For video testing**: Requires Gemini model. Video is embedded via `AddFileData()` with explicit MIME type.
 
 6. **Optional — WhatsApp**: Uncomment `[messenger.whatsapp]` in `.genie.toml` and scan the QR code on first run. Then send images, voice notes, and videos from your phone.
+
+7. **Optional — AG-UI**: Use the browser chat interface (`docs/chat.html`) which supports drag-and-drop, paste, and file picker for image/audio/video upload.
 
 ## Act
 
@@ -141,13 +150,11 @@ With multimodal capabilities, the agent can:
 
 ## Known Gaps (as of current implementation)
 
-> [!WARNING]
-> The following gaps exist in the current Genie + trpc-agent-go stack. See the full [gap analysis](/Users/sabithks/.gemini/antigravity/brain/d1944d7b-b2c9-4ef6-9850-6e837ade2f97/multimodal_gap_analysis.md) for details.
+> [!NOTE]
+> Most multimodal routing gaps have been resolved. The remaining limitations are upstream library constraints.
 
 | Gap | Impact | Workaround |
 |-----|--------|------------|
-| Audio not routed to `AddAudioFilePath` | Voice messages fail as file input | Fix `buildUserMessage()` to check `isAudioMIME()` |
-| OGG format not supported | WhatsApp voice notes rejected | Convert OGG→WAV via ffmpeg before sending to model |
 | No `ContentTypeVideo` in trpc-agent-go | Video sent as generic file | Use `AddFileData()` with explicit MIME — works on Gemini |
-| AG-UI has no file upload | Can't test multimodal from browser | Use WhatsApp, or add upload endpoint to AG-UI |
 | No STT tool | Can't transcribe audio to text for non-audio models | Add Whisper-based `speech_to_text` tool |
+| OpenAI video support | Video files may not be supported by OpenAI models | Use Gemini for video processing tasks |

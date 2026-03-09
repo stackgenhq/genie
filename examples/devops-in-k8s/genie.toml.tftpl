@@ -235,6 +235,22 @@ args = ["-y", "@anthropic/terraform-mcp-server"]
 # args = ["-y", "@anthropic/postgres-mcp-server"]
 # env = { DATABASE_URL = "$${DATABASE_URL}" }
 
+# ── Shell Tool (run_shell) ──────────────────────────────────────────
+# The run_shell tool uses `env -i` for security, which clears the host
+# environment. Essential Unix vars (HOME, PATH, TMPDIR, USER, LANG, TERM,
+# SHELL, XDG_*) are always injected automatically. Additional vars needed
+# by this deployment (AWS credentials, kubeconfig) must be listed here.
+[shell_tool]
+allowed_env = [
+  "KUBECONFIG",
+  "AWS_REGION",
+  "AWS_DEFAULT_REGION",
+  "AWS_ROLE_ARN",
+  "AWS_WEB_IDENTITY_TOKEN_FILE",
+  "AWS_STS_REGIONAL_ENDPOINTS",
+  "EKS_CLUSTER_NAME",
+]
+
 # ── Application Settings ────────────────────────────────────────────
 
 [ops]

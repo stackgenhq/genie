@@ -166,12 +166,15 @@
     // ── File Attachment State ──
     // pendingFiles holds File objects selected by the user before sending.
     let pendingFiles = [];
+    // Tracks blob: URLs created for image previews so we can revoke them.
+    let activeBlobURLs = [];
     const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB per file
     const ACCEPTED_TYPES = {
         image: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp'],
         audio: ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/mp4', 'audio/aac', 'audio/flac'],
         video: ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-msvideo'],
     };
+    const ALL_ACCEPTED_MIMES = [].concat(ACCEPTED_TYPES.image, ACCEPTED_TYPES.audio, ACCEPTED_TYPES.video);
 
     // ── DOM Refs ──
     const messagesEl = document.getElementById('chat-messages');
@@ -206,6 +209,18 @@
                 addErrorMessage(file.name + ' exceeds 25 MB limit. Please use a smaller file.');
                 continue;
             }
+            // MIME type allowlist: reject unsupported file types.
+            // The <input accept=...> only covers file-picker; drag-and-drop
+            // and paste bypass it, so we enforce here for all paths.
+            if (file.type && ALL_ACCEPTED_MIMES.indexOf(file.type) === -1) {
+                addErrorMessage(file.name + ' has unsupported type (' + (file.type || 'unknown') + '). Supported: images, audio, and video.');
+                continue;
+            }
+            // Reject files with no MIME type (unknown) as a safety measure.
+            if (!file.type) {
+                addErrorMessage(file.name + ' has no recognized file type. Please use a supported image, audio, or video file.');
+                continue;
+            }
             // Skip duplicate names
             if (pendingFiles.some(f => f.name === file.name && f.size === file.size)) continue;
             pendingFiles.push(file);
@@ -219,12 +234,22 @@
     }
 
     function clearPendingFiles() {
+        // Revoke all tracked blob URLs to prevent memory leaks.
+        for (var i = 0; i < activeBlobURLs.length; i++) {
+            URL.revokeObjectURL(activeBlobURLs[i]);
+        }
+        activeBlobURLs = [];
         pendingFiles = [];
         renderAttachmentPreview();
     }
 
     function renderAttachmentPreview() {
         if (!attachmentPreviewEl) return;
+        // Revoke previous blob URLs before re-rendering to prevent leaks.
+        for (var i = 0; i < activeBlobURLs.length; i++) {
+            URL.revokeObjectURL(activeBlobURLs[i]);
+        }
+        activeBlobURLs = [];
         attachmentPreviewEl.innerHTML = '';
         if (pendingFiles.length === 0) {
             attachmentPreviewEl.style.display = 'none';
@@ -242,7 +267,9 @@
             if (file.type.startsWith('image/')) {
                 const img = document.createElement('img');
                 img.className = 'chip-preview';
-                img.src = URL.createObjectURL(file);
+                const blobUrl = URL.createObjectURL(file);
+                activeBlobURLs.push(blobUrl);
+                img.src = blobUrl;
                 img.alt = file.name;
                 chip.appendChild(img);
             } else {
