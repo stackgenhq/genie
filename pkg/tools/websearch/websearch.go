@@ -172,7 +172,7 @@ func (s *searchTool) fallbackSearchDDG(ctx context.Context, req SearchRequest, o
 	return fmt.Sprintf("[Source: DuckDuckGo]\n%v", res), nil
 }
 
-// searchBackend delegates to the underlying tool.CallableTool (Bing or DDG).
+// searchBackend delegates to the underlying tool.CallableTool (Bing, DDG, or SerpAPI).
 func (s *searchTool) searchBackend(ctx context.Context, req SearchRequest, name string) (string, error) {
 	if s.backend == nil {
 		return "", fmt.Errorf("%s search not available: backend is nil", name)
@@ -190,7 +190,13 @@ func (s *searchTool) searchBackend(ctx context.Context, req SearchRequest, name 
 	if err != nil {
 		return "", fmt.Errorf("%s search failed: %w", strings.ToLower(name), err)
 	}
-	return fmt.Sprintf("[Source: %s]\n%v", name, res), nil
+	resStr := fmt.Sprintf("%v", res)
+	// Some backends (e.g. SerpAPI) already embed their own [Source: ...] header
+	// in the formatted output. Avoid duplicating it.
+	if strings.HasPrefix(resStr, "[Source:") || strings.Contains(resStr, "\n[Source:") {
+		return resStr, nil
+	}
+	return fmt.Sprintf("[Source: %s]\n%s", name, resStr), nil
 }
 
 // ────────────────────── Google ──────────────────────

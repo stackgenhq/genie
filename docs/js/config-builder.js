@@ -1684,8 +1684,8 @@
             lines.push('  serpapi:');
             if (ws.serpapi.api_key) lines.push('    serpapi_api_key: ' + yq('${' + ws.serpapi.api_key + '}'));
             if (ws.serpapi.location) lines.push('    location: ' + yq(ws.serpapi.location));
-            if (ws.serpapi.gl) lines.push('    gl: ' + ws.serpapi.gl);
-            if (ws.serpapi.hl) lines.push('    hl: ' + ws.serpapi.hl);
+            if (ws.serpapi.gl) lines.push('    gl: ' + yq(ws.serpapi.gl));
+            if (ws.serpapi.hl) lines.push('    hl: ' + yq(ws.serpapi.hl));
         }
         lines.push('');
     }
