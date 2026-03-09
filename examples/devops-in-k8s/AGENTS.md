@@ -44,7 +44,7 @@ Based on the user's request and available integrations:
 
 **SCM / GitHub Operations:**
 - **PREFER native SCM tools** (`scm_list_repos`, `scm_list_prs`, `scm_get_pr`, `scm_list_pr_changes`, etc.)
-  and `http_request` / `web_fetch` over `run_shell` with `gh api ...` commands.
+  and `http_request` over `run_shell` with `gh api ...` commands.
 - Native tools are **auto-approved** (no HITL gate), faster, and produce structured output.
 - `run_shell` requires human approval in many configurations — sub-agents using only `run_shell`
   can **block for their entire timeout** if no human is available to approve.

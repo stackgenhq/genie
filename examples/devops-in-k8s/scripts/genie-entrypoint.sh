@@ -88,6 +88,9 @@ fi
 
 # ── 6. Drop privileges and run genie ────────────────────────────────
 # HOME must be inherited so sub-agents (run_shell) can find gh config.
+# Ensure ~/.aws is writable by genie user for AWS SDK credential caching.
+mkdir -p /home/stackgen/.aws
+chown -R 65532:65532 /home/stackgen/.aws
 exec su-exec 65532:65532 /usr/local/bin/genie \
   --config /shared-credentials/genie.toml \
   --log-level debug

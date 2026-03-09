@@ -283,7 +283,7 @@ allowed_domains = ["stackgen.com"]
 # Without this, sub-agents block for their entire timeout (180s) waiting for
 # human approval that never comes in headless sessions. The local devops-copilot
 # example already has run_shell allowed; k8s deployment must match.
-always_allowed = ["run_shell", "graph_*", "scm_*", "http_request"]
+always_allowed = ["graph_*", "scm_*", "http_request"]
 
 # ── PII Redaction ───────────────────────────────────────────────────
 # Tuned for DevOps agents: infrastructure output is full of mixed-case

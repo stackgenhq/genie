@@ -671,6 +671,12 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	if c.router != nil {
 		if cachedResult, hit := c.router.CheckCache(ctx, req.Question); hit {
 			logr.Info("semantic cache hit", "question", toolwrap.TruncateForAudit(req.Question, 50))
+			// Emit via AG-UI event bus so streaming clients (web UI) see the
+			// response.  The outputChan consumer in buildChatHandler skips
+			// emitting for AG-UI (to avoid duplicates with the tree executor),
+			// but the cache-hit path never enters the tree, so we must emit
+			// explicitly — matching the pattern used by emitShortCircuit.
+			agui.EmitAgentMessage(ctx, orchestratorcontext.AgentNameFromContext(ctx), cachedResult)
 			outputChan <- cachedResult
 			return nil
 		}
