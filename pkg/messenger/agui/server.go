@@ -673,12 +673,14 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	// in the message body. We decode them to temp files and create
 	// messenger.Attachment structs so the multimodal pipeline can process
 	// them the same way as WhatsApp media downloads.
-	tempDir := filepath.Join(os.TempDir(), "genie-agui-media", input.ThreadID)
-	// Ensure the thread temp directory is cleaned up after processing to prevent unbounded accumulation
-	defer os.RemoveAll(tempDir)
-
 	var chatAttachments []messenger.Attachment
-	userMessage, chatAttachments = ExtractDataURLFiles(userMessage, tempDir)
+	var tempDir string
+	userMessage, tempDir, chatAttachments = ExtractDataURLFiles(userMessage)
+
+	// Ensure the generated temp directory is cleaned up after processing (if one was created)
+	if tempDir != "" {
+		defer os.RemoveAll(tempDir)
+	}
 
 	// Augment the message with attachment descriptions (file names, sizes, paths)
 	// so the LLM knows about the files even in text-only fallback mode.

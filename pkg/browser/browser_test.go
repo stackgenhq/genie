@@ -153,9 +153,9 @@ var _ = Describe("Browser tools", Ordered, func() {
 		Expect(fmt.Sprintf("%v", res)).To(ContainSubstring("Test Page"))
 	})
 
-	It("should return all 8 tools from AllTools", func() {
+	It("should return all 11 tools from AllTools", func() {
 		tools := browser.AllTools(b)
-		Expect(tools).To(HaveLen(8))
+		Expect(tools).To(HaveLen(11))
 	})
 
 	// ── Validation edge cases ──────────────────────────────────

@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/messenger/media"
@@ -35,30 +34,25 @@ var (
 )
 
 // ExtractDataURLFiles scans the message text for embedded data-URL file blocks,
-// decodes them, saves them to tempDir, and returns:
+// decodes them, saves them to a new secure temporary directory, and returns:
 //   - cleanMessage: the message text with file blocks removed
+//   - tempDir:      the generated secure temporary directory containing files
+//     (or empty string if none were extracted)
 //   - attachments:  slice of Attachment structs with LocalPath set
 //
-// If there are no data URLs, the original message and nil attachments are returned.
-func ExtractDataURLFiles(message, tempDir string) (cleanMessage string, attachments []messenger.Attachment) {
+// If there are no data URLs, the original message, an empty string, and nil are returned.
+func ExtractDataURLFiles(message string) (cleanMessage string, tempDir string, attachments []messenger.Attachment) {
 	matches := dataURLFilePattern.FindAllStringSubmatchIndex(message, -1)
 	if len(matches) == 0 {
-		return message, nil
+		return message, "", nil
 	}
 
-	// Ensure temp dir is safe and within os.TempDir() to prevent path traversal.
-	// If an unsafe path is provided, reject it immediately.
-	safeTempDir := filepath.Clean(tempDir)
-	baseTempDir := filepath.Clean(os.TempDir())
-
-	isSafe := safeTempDir == baseTempDir || strings.HasPrefix(safeTempDir, baseTempDir+string(filepath.Separator))
-	if !isSafe {
-		return message, nil
-	}
-
-	// Ensure temp dir exists.
-	if err := os.MkdirAll(safeTempDir, 0o700); err != nil {
-		return message, nil
+	// Create a safe, guaranteed unique temp directory for this request's media.
+	// We do this inside the function instead of trusting an argument path to fix
+	// CodeQL path traversal ("Uncontrolled data used in path expression") alerts.
+	safeTempDir, err := os.MkdirTemp("", "agui-media-*")
+	if err != nil {
+		return message, "", nil
 	}
 
 	// Build the cleaned message by removing matched blocks.
@@ -91,21 +85,29 @@ func ExtractDataURLFiles(message, tempDir string) (cleanMessage string, attachme
 			mime = declaredMIME
 		}
 
-		// Save to disk with a secure, generated name.
-		// We ignore the user-provided filename for the on-disk file to prevent any
-		// path traversal risks, and only store it as metadata.
+		// Clean the extension for use in the temp file pattern
 		ext := filepath.Ext(fileName)
 		if ext == "" {
 			ext = media.ExtFromMIME(mime)
 		}
 		ext = safeExtPattern.ReplaceAllString(ext, "")
 
-		uniqueName := fmt.Sprintf("upload_%d%s", time.Now().UnixNano(), ext)
-		localPath := filepath.Join(safeTempDir, uniqueName)
-
-		if err := os.WriteFile(localPath, data, 0o600); err != nil {
+		// Save to disk with a secure, OS-generated name by using os.CreateTemp
+		// which prevents any path traversal risk from the extension string.
+		f, err := os.CreateTemp(safeTempDir, "upload_*"+ext)
+		if err != nil {
 			continue
 		}
+		localPath := f.Name()
+		if err := f.Chmod(0o600); err != nil {
+			f.Close()
+			continue
+		}
+		if _, err := f.Write(data); err != nil {
+			f.Close()
+			continue
+		}
+		f.Close()
 
 		attachments = append(attachments, messenger.Attachment{
 			Name:        fileName,
@@ -121,7 +123,7 @@ func ExtractDataURLFiles(message, tempDir string) (cleanMessage string, attachme
 	// Trim leading/trailing whitespace from the cleaned message.
 	cleanedMsg := strings.TrimSpace(clean.String())
 
-	return cleanedMsg, attachments
+	return cleanedMsg, safeTempDir, attachments
 }
 
 // decodeDataURL parses a "data:mime;base64,..." URL and returns the decoded

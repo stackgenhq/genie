@@ -10,23 +10,12 @@ import (
 )
 
 var _ = Describe("ExtractDataURLFiles", func() {
-	var tempDir string
-
-	BeforeEach(func() {
-		var err error
-		tempDir, err = os.MkdirTemp("", "agui-dataurl-test-*")
-		Expect(err).NotTo(HaveOccurred())
-	})
-
-	AfterEach(func() {
-		os.RemoveAll(tempDir)
-	})
-
 	It("returns the original message when no data URLs are present", func() {
 		msg := "Hello, how are you?"
-		clean, atts := ExtractDataURLFiles(msg, tempDir)
+		clean, tempDir, atts := ExtractDataURLFiles(msg)
 		Expect(clean).To(Equal(msg))
 		Expect(atts).To(BeNil())
+		Expect(tempDir).To(BeEmpty())
 	})
 
 	It("extracts a single image data URL", func() {
@@ -34,7 +23,9 @@ var _ = Describe("ExtractDataURLFiles", func() {
 		b64 := base64.StdEncoding.EncodeToString(imgData)
 		msg := "[file:photo.png:image/png]\ndata:image/png;base64," + b64 + "\n\nWhat is in this image?"
 
-		clean, atts := ExtractDataURLFiles(msg, tempDir)
+		clean, tempDir, atts := ExtractDataURLFiles(msg)
+		defer os.RemoveAll(tempDir)
+
 		Expect(clean).To(Equal("What is in this image?"))
 		Expect(atts).To(HaveLen(1))
 		Expect(atts[0].Name).To(Equal("photo.png"))
@@ -53,7 +44,9 @@ var _ = Describe("ExtractDataURLFiles", func() {
 		audio := base64.StdEncoding.EncodeToString([]byte("fakeaudio"))
 		msg := "[file:pic.jpg:image/jpeg]\ndata:image/jpeg;base64," + img + "\n\n[file:voice.wav:audio/wav]\ndata:audio/wav;base64," + audio + "\n\nDescribe both"
 
-		clean, atts := ExtractDataURLFiles(msg, tempDir)
+		clean, tempDir, atts := ExtractDataURLFiles(msg)
+		defer os.RemoveAll(tempDir)
+
 		Expect(clean).To(Equal("Describe both"))
 		Expect(atts).To(HaveLen(2))
 		Expect(atts[0].Name).To(Equal("pic.jpg"))
@@ -64,7 +57,9 @@ var _ = Describe("ExtractDataURLFiles", func() {
 		b64 := base64.StdEncoding.EncodeToString([]byte("content"))
 		msg := "[file:doc.pdf:application/pdf]\ndata:application/pdf;base64," + b64
 
-		clean, atts := ExtractDataURLFiles(msg, tempDir)
+		clean, tempDir, atts := ExtractDataURLFiles(msg)
+		defer os.RemoveAll(tempDir)
+
 		Expect(clean).To(BeEmpty())
 		Expect(atts).To(HaveLen(1))
 		Expect(atts[0].ContentType).To(Equal("application/pdf"))
@@ -74,7 +69,9 @@ var _ = Describe("ExtractDataURLFiles", func() {
 		b64 := base64.StdEncoding.EncodeToString([]byte("video"))
 		msg := "[file:clip.mp4:video/mp4]\ndata:video/mp4;base64," + b64
 
-		_, atts := ExtractDataURLFiles(msg, tempDir)
+		_, tempDir, atts := ExtractDataURLFiles(msg)
+		defer os.RemoveAll(tempDir)
+
 		Expect(atts).To(HaveLen(1))
 		Expect(filepath.Ext(atts[0].LocalPath)).To(Equal(".mp4"))
 	})
@@ -83,16 +80,11 @@ var _ = Describe("ExtractDataURLFiles", func() {
 		b64 := base64.StdEncoding.EncodeToString([]byte("img"))
 		msg := "Here is the image:\n[file:pic.png:image/png]\ndata:image/png;base64," + b64 + "\nPlease describe it."
 
-		clean, atts := ExtractDataURLFiles(msg, tempDir)
+		clean, tempDir, atts := ExtractDataURLFiles(msg)
+		defer os.RemoveAll(tempDir)
+
 		Expect(clean).To(Equal("Here is the image:\n\nPlease describe it."))
 		Expect(atts).To(HaveLen(1))
-	})
-
-	It("returns original message when tempDir creation fails", func() {
-		msg := "[file:x.png:image/png]\ndata:image/png;base64,AAAA"
-		clean, atts := ExtractDataURLFiles(msg, "/nonexistent/root/x/y/z")
-		Expect(clean).To(Equal(msg))
-		Expect(atts).To(BeNil())
 	})
 })
 
