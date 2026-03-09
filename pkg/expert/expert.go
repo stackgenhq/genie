@@ -84,8 +84,10 @@ type Request struct {
 	WorkingMemory *rtmemory.WorkingMemory
 
 	// Attachments holds file/media attachments from the incoming message.
-	// Image attachments with LocalPath are added as multimodal content parts
-	// so the LLM can "see" them. Other attachments are described textually.
+	// Image attachments with LocalPath are added as multimodal visual content.
+	// Audio attachments are added as audio content parts (with OGG→WAV conversion).
+	// Video attachments are embedded via the File API with explicit MIME type.
+	// Other attachments (PDF, DOCX) are described textually or embedded as files.
 	Attachments []messenger.Attachment
 }
 

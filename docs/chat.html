@@ -14,7 +14,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Genie">
     <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self' https://cdn.tailwindcss.com 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' http: https:; frame-ancestors 'none'; base-uri 'self';">
+        content="default-src 'self'; script-src 'self' https://cdn.tailwindcss.com 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' data: blob:; connect-src 'self' http: https:; frame-ancestors 'none'; base-uri 'self';">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
@@ -199,7 +199,22 @@
 
                 <!-- Input Area -->
                 <div class="chat-input-area">
+                    <!-- Attachment preview strip (shown when files are selected) -->
+                    <div id="attachment-preview" class="attachment-preview" style="display: none;"></div>
                     <div class="chat-input-wrapper">
+                        <!-- Hidden file input for attachments -->
+                        <input type="file" id="file-input" multiple
+                            accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.txt,.csv,.json,.xml,.md"
+                            style="display: none;" onchange="genie.handleFileSelect(event)">
+                        <button id="attach-btn" class="chat-attach-btn"
+                            onclick="document.getElementById('file-input').click()" disabled
+                            title="Attach images, audio, video, or documents" aria-label="Attach files">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                            </svg>
+                        </button>
                         <textarea id="chat-input" rows="1" placeholder="Ask Genie anything..."
                             onkeydown="genie.handleKeyDown(event)" oninput="genie.autoResize(this)" disabled></textarea>
                         <button id="mic-btn" class="chat-mic-btn" onclick="genie.toggleMic()" disabled
@@ -222,6 +237,17 @@
                                 <rect x="2" y="2" width="10" height="10" rx="1" />
                             </svg>
                         </button>
+                    </div>
+                    <!-- Drag & drop overlay -->
+                    <div id="drop-overlay" class="drop-overlay" style="display: none;">
+                        <div class="drop-overlay-content">
+                            <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                            </svg>
+                            <p>Drop files here to attach</p>
+                            <p class="text-xs text-gray-400">Images · Audio · Video · Documents</p>
+                        </div>
                     </div>
                     <p class="chat-input-hints chat-input-hints-long text-xs text-gray-400 text-center mt-2">
                         <kbd

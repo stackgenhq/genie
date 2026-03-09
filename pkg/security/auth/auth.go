@@ -1,8 +1,8 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
-	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -42,14 +42,15 @@ func Middleware(cfg Config, oidcHandler ...*OIDCHandler) func(http.Handler) http
 	}
 
 	auth := resolveAuthenticator(cfg, oh)
+	log := logger.GetLogger(context.Background())
 	if auth == nil {
 		// No auth configured → inject a demo principal and pass through.
 		var warnOnce sync.Once
-		slog.Warn("auth: no authentication configured — all requests get DemoUser principal")
+		log.Warn("auth: no authentication configured — all requests get DemoUser principal")
 		return func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				warnOnce.Do(func() {
-					slog.Info("auth: serving first request without authentication",
+					log.Info("auth: serving first request without authentication",
 						"ip", getIPAddress(r), "path", r.URL.Path)
 				})
 				ctx := authcontext.WithPrincipal(r.Context(), DemoUser())
@@ -112,7 +113,7 @@ func writeJSON(w http.ResponseWriter, status int, code, message, authMethod stri
 // writeJSONWithIP writes a JSON error response and logs the auth failure
 // with the client's IP address for audit/rate-limiting visibility.
 func writeJSONWithIP(w http.ResponseWriter, r *http.Request, status int, code, message, authMethod string) {
-	slog.Warn("auth: authentication failed",
+	logger.GetLogger(r.Context()).Warn("auth: authentication failed",
 		"ip", getIPAddress(r),
 		"method", r.Method,
 		"path", r.URL.Path,

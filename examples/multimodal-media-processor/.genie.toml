@@ -44,7 +44,7 @@ always_allowed = ["ocr_extract_text", "youtube_transcript", "web_fetch"]
 # ── AG-UI Server ─────────────────────────────────────────────────
 [messenger.agui]
 port = 9876
-cors_origins = ["https://stackgenhq.github.io"]
+cors_origins = ["https://stackgenhq.github.io", "http://localhost:8888"]
 
 # ── WhatsApp (optional) ─────────────────────────────────────────
 # Uncomment to enable WhatsApp support for receiving images/audio/video.

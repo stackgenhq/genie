@@ -417,6 +417,245 @@
     50% { opacity: 0.7; }
 }
 
+/* ── Attachment Button ── */
+.chat-attach-btn {
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.875rem;
+    border: none;
+    background: #f3f4f6;
+    color: #6b7280;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.chat-attach-btn:hover:not(:disabled) {
+    background: #ede9fe;
+    color: #8247E7;
+    transform: rotate(-15deg);
+}
+
+.chat-attach-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.chat-attach-btn.has-files {
+    background: #ede9fe;
+    color: #8247E7;
+}
+
+/* ── Attachment Preview Strip ── */
+.attachment-preview {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    border-bottom: 1px solid #f3f4f6;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+}
+
+.attachment-chip {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.25rem 0.5rem;
+    background: #f8f7ff;
+    border: 1px solid #e8e0f7;
+    border-radius: 0.625rem;
+    font-size: 0.75rem;
+    color: #4b3b73;
+    white-space: nowrap;
+    flex-shrink: 0;
+    max-width: 12rem;
+    animation: chipIn 0.2s ease-out;
+    transition: all 0.15s ease;
+}
+
+.attachment-chip:hover {
+    border-color: #c4b5fd;
+    background: #ede9fe;
+}
+
+@keyframes chipIn {
+    from { opacity: 0; transform: scale(0.9) translateY(4px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.attachment-chip .chip-preview {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.375rem;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+.attachment-chip .chip-icon {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.375rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+.attachment-chip .chip-icon.audio {
+    background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+    color: #059669;
+}
+
+.attachment-chip .chip-icon.video {
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+    color: #d97706;
+}
+
+.attachment-chip .chip-icon.document {
+    background: linear-gradient(135deg, #eff6ff, #bfdbfe);
+    color: #2563eb;
+}
+
+.attachment-chip .chip-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.attachment-chip .chip-name {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: #374151;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.attachment-chip .chip-size {
+    font-size: 0.625rem;
+    color: #9ca3af;
+}
+
+.attachment-chip .chip-remove {
+    width: 1.25rem;
+    height: 1.25rem;
+    border: none;
+    background: rgba(239, 68, 68, 0.08);
+    color: #ef4444;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.875rem;
+    line-height: 1;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+    opacity: 0.6;
+}
+
+.attachment-chip .chip-remove:hover {
+    background: rgba(239, 68, 68, 0.18);
+    opacity: 1;
+    transform: scale(1.1);
+}
+
+/* ── Drag & Drop Overlay ── */
+.drop-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(130, 71, 231, 0.08);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: overlayIn 0.2s ease-out;
+}
+
+@keyframes overlayIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.drop-overlay-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 2.5rem 3rem;
+    background: white;
+    border: 2px dashed #8247E7;
+    border-radius: 1.5rem;
+    box-shadow: 0 25px 50px rgba(130, 71, 231, 0.15);
+    animation: bounceIn 0.3s ease-out;
+}
+
+@keyframes bounceIn {
+    0%   { opacity: 0; transform: scale(0.9); }
+    60%  { transform: scale(1.02); }
+    100% { opacity: 1; transform: scale(1); }
+}
+
+.drop-overlay-content svg {
+    color: #8247E7;
+}
+
+.drop-overlay-content p {
+    font-weight: 600;
+    color: #374151;
+    font-size: 1rem;
+    margin: 0;
+}
+
+/* ── User Bubble Attachments ── */
+.user-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    margin-bottom: 0.5rem;
+}
+
+.user-attachments img {
+    max-width: 200px;
+    max-height: 150px;
+    border-radius: 0.625rem;
+    object-fit: cover;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.user-attachments audio {
+    max-width: 100%;
+    height: 2rem;
+    border-radius: 1rem;
+}
+
+.user-attachments video {
+    max-width: 200px;
+    max-height: 150px;
+    border-radius: 0.625rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.user-attachment-file {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.625rem;
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 0.5rem;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.9);
+}
+
 /* Sample Prompts */
 .sample-prompts-grid {
     display: grid;

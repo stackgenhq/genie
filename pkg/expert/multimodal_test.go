@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -352,9 +351,3 @@ var _ = Describe("Multimodal Attachment Routing", func() {
 		})
 	})
 })
-
-func TestMultimodal(t *testing.T) {
-	t.Parallel()
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Expert Multimodal Suite")
-}

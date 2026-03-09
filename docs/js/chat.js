@@ -163,6 +163,16 @@
     let hitlApprovalCount = 0;
     let hitlNudgeShown = false;
 
+    // ── File Attachment State ──
+    // pendingFiles holds File objects selected by the user before sending.
+    let pendingFiles = [];
+    const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB per file
+    const ACCEPTED_TYPES = {
+        image: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp'],
+        audio: ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/mp4', 'audio/aac', 'audio/flac'],
+        video: ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-msvideo'],
+    };
+
     // ── DOM Refs ──
     const messagesEl = document.getElementById('chat-messages');
     const approvalsColumnEl = document.getElementById('approvals-column');
@@ -174,6 +184,178 @@
     const connectionLabel = document.getElementById('connection-label');
     const emptyState = document.getElementById('empty-state');
     const notificationPromptEl = document.getElementById('notification-prompt');
+    const attachBtn = document.getElementById('attach-btn');
+    const fileInputEl = document.getElementById('file-input');
+    const attachmentPreviewEl = document.getElementById('attachment-preview');
+    const dropOverlayEl = document.getElementById('drop-overlay');
+
+    // ── File Attachment Helper Functions ──
+
+    function handleFileSelect(event) {
+        const files = event.target.files;
+        if (!files || files.length === 0) return;
+        addFiles(Array.from(files));
+        // Reset input so the same file can be re-selected
+        if (fileInputEl) fileInputEl.value = '';
+    }
+
+    function addFiles(files) {
+        for (const file of files) {
+            // Size check
+            if (file.size > MAX_FILE_SIZE) {
+                addErrorMessage(file.name + ' exceeds 25 MB limit. Please use a smaller file.');
+                continue;
+            }
+            // Skip duplicate names
+            if (pendingFiles.some(f => f.name === file.name && f.size === file.size)) continue;
+            pendingFiles.push(file);
+        }
+        renderAttachmentPreview();
+    }
+
+    function removeAttachment(index) {
+        pendingFiles.splice(index, 1);
+        renderAttachmentPreview();
+    }
+
+    function clearPendingFiles() {
+        pendingFiles = [];
+        renderAttachmentPreview();
+    }
+
+    function renderAttachmentPreview() {
+        if (!attachmentPreviewEl) return;
+        attachmentPreviewEl.innerHTML = '';
+        if (pendingFiles.length === 0) {
+            attachmentPreviewEl.style.display = 'none';
+            if (attachBtn) attachBtn.classList.remove('has-files');
+            return;
+        }
+        attachmentPreviewEl.style.display = 'flex';
+        if (attachBtn) attachBtn.classList.add('has-files');
+
+        pendingFiles.forEach((file, idx) => {
+            const chip = document.createElement('div');
+            chip.className = 'attachment-chip';
+
+            // Preview element (thumbnail for images, icon for others)
+            if (file.type.startsWith('image/')) {
+                const img = document.createElement('img');
+                img.className = 'chip-preview';
+                img.src = URL.createObjectURL(file);
+                img.alt = file.name;
+                chip.appendChild(img);
+            } else {
+                const iconDiv = document.createElement('div');
+                iconDiv.className = 'chip-icon';
+                if (file.type.startsWith('audio/')) {
+                    iconDiv.classList.add('audio');
+                    iconDiv.textContent = '🎵';
+                } else if (file.type.startsWith('video/')) {
+                    iconDiv.classList.add('video');
+                    iconDiv.textContent = '🎬';
+                } else {
+                    iconDiv.classList.add('document');
+                    iconDiv.textContent = '📄';
+                }
+                chip.appendChild(iconDiv);
+            }
+
+            // File info
+            const info = document.createElement('div');
+            info.className = 'chip-info';
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'chip-name';
+            nameSpan.textContent = file.name;
+            nameSpan.title = file.name;
+            info.appendChild(nameSpan);
+            const sizeSpan = document.createElement('span');
+            sizeSpan.className = 'chip-size';
+            sizeSpan.textContent = formatFileSize(file.size);
+            info.appendChild(sizeSpan);
+            chip.appendChild(info);
+
+            // Remove button
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'chip-remove';
+            removeBtn.textContent = '×';
+            removeBtn.title = 'Remove ' + file.name;
+            removeBtn.setAttribute('aria-label', 'Remove ' + file.name);
+            removeBtn.onclick = () => genie.removeAttachment(idx);
+            chip.appendChild(removeBtn);
+
+            attachmentPreviewEl.appendChild(chip);
+        });
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function fileToDataUrl(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error('Failed to read ' + file.name));
+            reader.readAsDataURL(file);
+        });
+    }
+
+    // ── Drag & Drop ──
+    let dragCounter = 0;
+
+    document.addEventListener('dragenter', (e) => {
+        e.preventDefault();
+        if (!isConnected) return;
+        dragCounter++;
+        if (dragCounter === 1 && dropOverlayEl) {
+            dropOverlayEl.style.display = 'flex';
+        }
+    });
+
+    document.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        dragCounter--;
+        if (dragCounter <= 0) {
+            dragCounter = 0;
+            if (dropOverlayEl) dropOverlayEl.style.display = 'none';
+        }
+    });
+
+    document.addEventListener('dragover', (e) => {
+        e.preventDefault();
+    });
+
+    document.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dragCounter = 0;
+        if (dropOverlayEl) dropOverlayEl.style.display = 'none';
+        if (!isConnected) return;
+        const files = e.dataTransfer && e.dataTransfer.files;
+        if (files && files.length > 0) {
+            addFiles(Array.from(files));
+            inputEl.focus();
+        }
+    });
+
+    // Also allow pasting images from clipboard
+    document.addEventListener('paste', (e) => {
+        if (!isConnected) return;
+        const items = e.clipboardData && e.clipboardData.items;
+        if (!items) return;
+        const files = [];
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].kind === 'file') {
+                const file = items[i].getAsFile();
+                if (file) files.push(file);
+            }
+        }
+        if (files.length > 0) {
+            addFiles(files);
+        }
+    });
 
     // ── Browser notifications (approval + updates) ──
     const NOTIFICATION_PROMPT_DISMISSED_KEY = 'genie-notification-prompt-dismissed';
@@ -451,6 +633,7 @@
             micBtn.disabled = !isMicSupported();
             micBtn.title = isMicSupported() ? 'Use microphone to speak' : 'Voice input not supported in this browser';
         }
+        if (attachBtn) attachBtn.disabled = false;
         inputEl.focus();
         addSystemMessage(userName
             ? 'Hello, ' + escapeHtml(userName) + '!  ' + escapeHtml(agentDisplayName) + ' is ready at ' + serverUrl
@@ -895,21 +1078,33 @@
     // ── Send Message ──
     async function sendMessage() {
         const message = inputEl.value.replace(/\s*\[listening…\]\s*$/, '').trim();
-        if (!message || !isConnected) return;
+        if ((!message && pendingFiles.length === 0) || !isConnected) return;
 
         if (isListening) stopListening();
 
-        // Add user bubble
-        addUserBubble(message);
+        // Capture files before clearing
+        const filesToSend = [...pendingFiles];
+        clearPendingFiles();
+
+        // Build display text for the user bubble (includes attachment names)
+        const displayParts = [];
+        if (filesToSend.length > 0) {
+            displayParts.push(filesToSend.map(f => '[Attached: ' + f.name + ']').join(' '));
+        }
+        if (message) displayParts.push(message);
+        const displayText = displayParts.join('\n');
+
+        // Add user bubble with media previews
+        addUserBubble(displayText, filesToSend);
         inputEl.value = '';
         autoResize(inputEl);
 
         // Persist user message
         if (currentConversation) {
             if (currentConversation.messages.length === 0) {
-                currentConversation.title = message.length > 60 ? message.substring(0, 60) + '…' : message;
+                currentConversation.title = (message || 'Media attachment').length > 60 ? (message || 'Media attachment').substring(0, 60) + '…' : (message || 'Media attachment');
             }
-            currentConversation.messages.push({ role: 'user', content: message, timestamp: Date.now() });
+            currentConversation.messages.push({ role: 'user', content: displayText, timestamp: Date.now() });
             currentConversation.updatedAt = Date.now();
             genieDB.saveConversation(currentConversation).then(() => refreshSidebar()).catch(console.warn);
         }
@@ -922,7 +1117,7 @@
                     headers: Object.assign({ 'Content-Type': 'application/json' }, aguiAuthHeaders()),
                     body: JSON.stringify({
                         threadId: threadId,
-                        message: message
+                        message: displayText
                     })
                 });
                 if (!response.ok) {
@@ -933,6 +1128,22 @@
                 addErrorMessage('Failed to send feedback mid-run.');
             }
             return;
+        }
+
+        // Encode files as base64 for the message payload
+        let messageWithFiles = message || '';
+        if (filesToSend.length > 0) {
+            try {
+                const encodedParts = await Promise.all(filesToSend.map(async (file) => {
+                    const dataUrl = await fileToDataUrl(file);
+                    return '[file:' + file.name + ':' + file.type + ']\n' + dataUrl;
+                }));
+                messageWithFiles = encodedParts.join('\n\n') + (message ? '\n\n' + message : '');
+            } catch (err) {
+                console.error('File encoding error:', err);
+                addErrorMessage('Failed to encode attached files.');
+                return;
+            }
         }
 
         // Prepare request for normal run
@@ -957,7 +1168,7 @@
                     // scope context/memory per platform+user+chat.
                     userId: userId,
                     platform: PLATFORM_ID,
-                    messages: [{ role: 'user', content: message }]
+                    messages: [{ role: 'user', content: messageWithFiles }]
                 })
             });
 
@@ -1142,10 +1353,56 @@
     }
 
     // ── UI Helpers ──
-    function addUserBubble(text) {
+    function addUserBubble(text, files) {
         const div = document.createElement('div');
         div.className = 'flex justify-end mb-4';
-        div.innerHTML = `<div class="chat-bubble user">${escapeHtml(text)}</div>`;
+        const bubble = document.createElement('div');
+        bubble.className = 'chat-bubble user';
+
+        // Show media previews in the bubble
+        if (files && files.length > 0) {
+            const attachDiv = document.createElement('div');
+            attachDiv.className = 'user-attachments';
+            files.forEach(file => {
+                const url = URL.createObjectURL(file);
+                if (file.type.startsWith('image/')) {
+                    const img = document.createElement('img');
+                    img.src = url;
+                    img.alt = file.name;
+                    img.loading = 'lazy';
+                    attachDiv.appendChild(img);
+                } else if (file.type.startsWith('audio/')) {
+                    const audio = document.createElement('audio');
+                    audio.src = url;
+                    audio.controls = true;
+                    audio.preload = 'metadata';
+                    attachDiv.appendChild(audio);
+                } else if (file.type.startsWith('video/')) {
+                    const video = document.createElement('video');
+                    video.src = url;
+                    video.controls = true;
+                    video.preload = 'metadata';
+                    video.muted = true;
+                    attachDiv.appendChild(video);
+                } else {
+                    const fileTag = document.createElement('span');
+                    fileTag.className = 'user-attachment-file';
+                    fileTag.textContent = '📎 ' + file.name;
+                    attachDiv.appendChild(fileTag);
+                }
+            });
+            bubble.appendChild(attachDiv);
+        }
+
+        // Only show text if there's a message beyond the [Attached: ...] tags
+        const textWithoutAttachTags = text.replace(/\[Attached: [^\]]+\]\s*/g, '').trim();
+        if (textWithoutAttachTags) {
+            const textSpan = document.createElement('span');
+            textSpan.textContent = textWithoutAttachTags;
+            bubble.appendChild(textSpan);
+        }
+
+        div.appendChild(bubble);
         messagesEl.appendChild(div);
         scrollToBottom();
     }
@@ -2393,13 +2650,8 @@
 
         if (btnSummarize) btnSummarize.disabled = !canSummarize;
         if (btnExport) btnExport.disabled = !hasMessages;
-        // New chat is enabled if we have a conversation object (even emptiness is a state) 
-        // but effectively we might only want it if there's messages to clear or if we want to confirm a fresh start.
-        // Let's enable it if isConnected so user can reset an empty chat if they really want, 
-        // but mostly it makes sense when there's history. 
-        // User request: "disable the buttons if there are no conversation yet".
-        // Since "New Chat" on an empty chat is a no-op visually, disabling it is fine.
         if (btnNewChat) btnNewChat.disabled = !hasMessages && !currentConversation;
+        if (attachBtn) attachBtn.disabled = !isConnected;
     }
 
     // Initialize vibrate toggle label from localStorage on load
@@ -2479,5 +2731,7 @@
         submitClarificationWithAnswer: submitClarificationWithAnswer,
         loadConversation: loadConversation,
         deleteConversation: deleteConversation,
+        handleFileSelect: handleFileSelect,
+        removeAttachment: removeAttachment,
     };
 })();

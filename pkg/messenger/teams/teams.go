@@ -28,7 +28,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -83,7 +82,7 @@ func New(cfg Config, opts ...messenger.Option) (*Messenger, error) {
 	adapterCfg := messenger.ApplyOptions(opts...)
 
 	if cfg.ListenAddr != "" {
-		slog.Warn("Teams ListenAddr is deprecated and ignored — the shared HTTP server is managed by the application",
+		logger.GetLogger(context.Background()).Warn("Teams ListenAddr is deprecated and ignored — the shared HTTP server is managed by the application",
 			"listen_addr", cfg.ListenAddr)
 	}
 
