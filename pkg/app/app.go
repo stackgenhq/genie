@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/stackgenhq/genie/pkg/agentutils"
 	"github.com/stackgenhq/genie/pkg/agui"
 	"github.com/stackgenhq/genie/pkg/audit"
 	"github.com/stackgenhq/genie/pkg/browser"
@@ -343,8 +344,14 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 	// --- Cron store ---
 	a.cronStore = cron.NewStore(a.db)
 
+	modelProvider := a.cfg.ModelConfig.NewEnvBasedModelProvider()
+	summarizer, err := agentutils.NewSummarizer(ctx, modelProvider, a.auditor)
+	if err != nil {
+		log.Warn("failed to initialize summarizer", "error", err)
+	}
+
 	// --- Tool Registry (centralized tool creation + denied-tool filtering) ---
-	a.toolRegistry = a.initToolRegistry(ctx, vectorStore)
+	a.toolRegistry = a.initToolRegistry(ctx, vectorStore, summarizer)
 
 	// --- Session store (persistent conversation history) ---
 	sessionStore := geniedb.NewSessionStore(ctx, a.db)
@@ -352,7 +359,6 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 
 	// In-memory approve list so users can "approve for X mins" from the chat UI.
 	a.approveList = toolwrap.NewApproveList()
-	modelProvider := a.cfg.ModelConfig.NewEnvBasedModelProvider()
 	// Always instantiate the gatekeeper Router. It handles its own enablement toggle.
 	semRouter, err := semanticrouter.New(ctx, a.cfg.SemanticRouter, modelProvider)
 	if err != nil {
@@ -762,7 +768,7 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 // stored on Application so they can be released by Close().
 // Each tool group is constructed as a ToolProviders conformer and passed
 // to tools.NewRegistry, which simply collects and optionally filters them.
-func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.IStore) *tools.Registry {
+func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.IStore, summarizer agentutils.Summarizer) *tools.Registry {
 	log := logger.GetLogger(ctx).With("fn", "app.initToolRegistry")
 
 	// --- Secret provider (same as Bootstrap; audits lookups when [security.secrets] set) ---
@@ -816,10 +822,20 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 	}
 
 	// --- Browser tools ---
-	bw, err := browser.New(ctx,
+	browserOpts := []browser.Option{
 		browser.WithHeadless(true),
 		browser.WithBlockedDomains(a.cfg.Browser.BlockedDomains),
-	)
+	}
+	if summarizer != nil {
+		browserOpts = append(browserOpts, browser.WithSummarizer(func(ctx context.Context, content string, format string) (string, error) {
+			return summarizer.Summarize(ctx, agentutils.SummarizeRequest{
+				Content:              content,
+				RequiredOutputFormat: agentutils.OutputFormat(format),
+			})
+		}))
+	}
+
+	bw, err := browser.New(ctx, browserOpts...)
 	if err != nil {
 		log.Warn("failed to start browser, skipping browser tools", "error", err)
 	}
