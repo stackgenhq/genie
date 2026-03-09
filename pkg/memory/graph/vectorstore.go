@@ -88,6 +88,34 @@ func (s *VectorBackedStore) AddEntity(ctx context.Context, e Entity) error {
 	})
 }
 
+// AddEntities stores multiple entities in a single batch, reducing the number
+// of embedding API calls by passing them all to a single Upsert which in turn
+// generates embeddings concurrently via errgroup. Use this instead of calling
+// AddEntity in a loop when storing entities discovered in bulk (e.g. infra
+// discovery, batch graph ingestion).
+func (s *VectorBackedStore) AddEntities(ctx context.Context, entities []Entity) error {
+	items := make([]vector.BatchItem, 0, len(entities))
+	for _, e := range entities {
+		if e.ID == "" || e.Type == "" {
+			return ErrInvalidInput
+		}
+		textBytes, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("failed to marshal entity %s: %w", e.ID, err)
+		}
+		items = append(items, vector.BatchItem{
+			ID:   entityDocID(e.ID),
+			Text: string(textBytes),
+			Metadata: map[string]string{
+				graphDocType:   graphTypeEntity,
+				metaEntityID:   e.ID,
+				metaEntityType: e.Type,
+			},
+		})
+	}
+	return s.vs.Upsert(ctx, items...)
+}
+
 // AddRelation stores a directed relation. Upserts, so the same triple is idempotent.
 func (s *VectorBackedStore) AddRelation(ctx context.Context, r Relation) error {
 	if r.SubjectID == "" || r.Predicate == "" || r.ObjectID == "" {

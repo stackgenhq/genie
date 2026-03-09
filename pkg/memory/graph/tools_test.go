@@ -443,7 +443,7 @@ var _ = Describe("graph_query tool error handling (FakeIStore)", func() {
 			Expect(queryToolDesc).To(ContainSubstring("EFFICIENCY"))
 		})
 
-		It("graph_store tool description is unchanged", func() {
+		It("graph_store tool description includes entity, relation, and batch", func() {
 			provider := graph.NewToolProvider(fakeStore)
 			tools := provider.GetTools()
 
@@ -456,6 +456,8 @@ var _ = Describe("graph_query tool error handling (FakeIStore)", func() {
 
 			Expect(storeToolDesc).To(ContainSubstring("entity"))
 			Expect(storeToolDesc).To(ContainSubstring("relation"))
+			Expect(storeToolDesc).To(ContainSubstring("batch"))
+			Expect(storeToolDesc).To(ContainSubstring("EFFICIENCY"))
 		})
 	})
 })

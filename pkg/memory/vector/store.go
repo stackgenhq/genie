@@ -16,6 +16,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 	"go.opentelemetry.io/otel/attribute"
+	"golang.org/x/sync/errgroup"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/document"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/embedder"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore"
@@ -207,10 +208,19 @@ func (cfg Config) NewStore(ctx context.Context) (*Store, error) {
 	return s, nil
 }
 
-// Add stores one or more documents in the vector store. Each item is
-// embedded and stored, and a single disk snapshot is taken at the end.
-// Using variadic args makes this efficient for both single inserts and
-// bulk ingestion (e.g. runbook loading).
+// embeddedDoc holds an embedded document ready for vector store insertion.
+// Pre-allocating these in a fixed-size slice lets us parallelise embedding
+// generation while keeping the downstream vector store insert sequential
+// (the underlying store may not be concurrency-safe).
+type embeddedDoc struct {
+	doc       *document.Document
+	embedding []float64
+}
+
+// Add stores one or more documents in the vector store. When multiple items
+// are provided, their embeddings are generated concurrently via errgroup,
+// reducing wall-clock latency from N×round-trip to max(round-trip).
+// A single disk snapshot is taken at the end.
 func (s *Store) Add(ctx context.Context, items ...BatchItem) error {
 	// Create a parent span so individual per-item embedding spans (created by
 	// the upstream embedder) are nested under this operation rather than
@@ -222,29 +232,82 @@ func (s *Store) Add(ctx context.Context, items ...BatchItem) error {
 	)
 	defer span.End()
 
-	for _, item := range items {
-		embedding, err := s.embedder.GetEmbedding(ctx, item.Text)
-		if err != nil {
-			return fmt.Errorf("failed to generate embedding for %s: %w", item.ID, err)
-		}
+	// Fast path: single item avoids errgroup overhead.
+	if len(items) == 1 {
+		return s.addSingle(ctx, items[0])
+	}
 
-		meta := make(map[string]any, len(item.Metadata))
-		for k, v := range item.Metadata {
-			meta[k] = v
-		}
+	// Parallel path: generate embeddings concurrently.
+	results := make([]embeddedDoc, len(items))
+	g, gctx := errgroup.WithContext(ctx)
 
-		doc := &document.Document{
-			ID:       item.ID,
-			Content:  item.Text,
-			Metadata: meta,
-		}
+	for i, item := range items {
+		i, item := i, item // capture loop variables
+		g.Go(func() error {
+			embedding, err := s.embedder.GetEmbedding(gctx, item.Text)
+			if err != nil {
+				return fmt.Errorf("failed to generate embedding for %s: %w", item.ID, err)
+			}
 
-		if err := s.vs.Add(ctx, doc, embedding); err != nil {
-			return fmt.Errorf("failed to store document %s: %w", item.ID, err)
+			meta := make(map[string]any, len(item.Metadata))
+			for k, v := range item.Metadata {
+				meta[k] = v
+			}
+
+			results[i] = embeddedDoc{
+				doc: &document.Document{
+					ID:       item.ID,
+					Content:  item.Text,
+					Metadata: meta,
+				},
+				embedding: embedding,
+			}
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return err
+	}
+
+	// Sequential insert — the underlying vector store may not be concurrency-safe.
+	for _, r := range results {
+		if err := s.vs.Add(ctx, r.doc, r.embedding); err != nil {
+			return fmt.Errorf("failed to store document %s: %w", r.doc.ID, err)
 		}
 	}
 
 	// Single snapshot after all documents are added (only for in-memory store).
+	if !s.useExternalStore {
+		if err := s.saveSnapshot(ctx); err != nil {
+			return fmt.Errorf("failed to save snapshot: %w", err)
+		}
+	}
+	return nil
+}
+
+// addSingle stores a single document without errgroup overhead.
+func (s *Store) addSingle(ctx context.Context, item BatchItem) error {
+	embedding, err := s.embedder.GetEmbedding(ctx, item.Text)
+	if err != nil {
+		return fmt.Errorf("failed to generate embedding for %s: %w", item.ID, err)
+	}
+
+	meta := make(map[string]any, len(item.Metadata))
+	for k, v := range item.Metadata {
+		meta[k] = v
+	}
+
+	doc := &document.Document{
+		ID:       item.ID,
+		Content:  item.Text,
+		Metadata: meta,
+	}
+
+	if err := s.vs.Add(ctx, doc, embedding); err != nil {
+		return fmt.Errorf("failed to store document %s: %w", item.ID, err)
+	}
+
 	if !s.useExternalStore {
 		if err := s.saveSnapshot(ctx); err != nil {
 			return fmt.Errorf("failed to save snapshot: %w", err)

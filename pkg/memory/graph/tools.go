@@ -23,10 +23,17 @@ const (
 
 // ---- graph_store tool (entities + relations) ----
 
+// batchEntityStore is an optional interface for stores that support
+// batched entity insertion with parallel embedding generation.
+// VectorBackedStore implements this; InMemoryStore does not.
+type batchEntityStore interface {
+	AddEntities(ctx context.Context, entities []Entity) error
+}
+
 // GraphStoreRequest is the input for the unified graph_store tool.
-// Set Action to "entity" or "relation" to choose what to store.
+// Set Action to "entity", "relation", or "batch" to choose what to store.
 type GraphStoreRequest struct {
-	Action string `json:"action" jsonschema:"description=What to store: 'entity' or 'relation',required,enum=entity,enum=relation"`
+	Action string `json:"action" jsonschema:"description=What to store: 'entity' or 'relation' or 'batch' (for storing multiple items at once),required,enum=entity,enum=relation,enum=batch"`
 
 	// Fields for action=entity
 	ID    string            `json:"id,omitempty" jsonschema:"description=Unique identifier for the entity (required when action=entity)"`
@@ -37,12 +44,42 @@ type GraphStoreRequest struct {
 	SubjectID string `json:"subject_id,omitempty" jsonschema:"description=ID of the subject entity (required when action=relation)"`
 	Predicate string `json:"predicate,omitempty" jsonschema:"description=Relation type e.g. WORKED_ON OWNS MENTIONS (required when action=relation)"`
 	ObjectID  string `json:"object_id,omitempty" jsonschema:"description=ID of the object entity (required when action=relation)"`
+
+	// Fields for action=batch
+	Items []BatchStoreItem `json:"items,omitempty" jsonschema:"description=Array of entities and/or relations to store in one call (required for action=batch and max 20). EFFICIENCY: use batch instead of multiple separate graph_store calls."`
+}
+
+// BatchStoreItem represents a single entity or relation within a batch store request.
+type BatchStoreItem struct {
+	Action string `json:"action" jsonschema:"description=What to store: 'entity' or 'relation'. Note: 'batch' cannot be nested.,required,enum=entity,enum=relation"`
+
+	// Fields for action=entity
+	ID    string            `json:"id,omitempty" jsonschema:"description=Entity ID (required when action=entity)"`
+	Type  string            `json:"type,omitempty" jsonschema:"description=Entity type (required when action=entity)"`
+	Attrs map[string]string `json:"attrs,omitempty" jsonschema:"description=Optional key-value attributes"`
+
+	// Fields for action=relation
+	SubjectID string `json:"subject_id,omitempty" jsonschema:"description=Subject entity ID (required when action=relation)"`
+	Predicate string `json:"predicate,omitempty" jsonschema:"description=Relation type (required when action=relation)"`
+	ObjectID  string `json:"object_id,omitempty" jsonschema:"description=Object entity ID (required when action=relation)"`
+}
+
+// BatchStoreResult contains the result (or error) for one item within a batch.
+type BatchStoreResult struct {
+	Index   int    `json:"index"`
+	Action  string `json:"action"`
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 // GraphStoreResponse is the output for the graph_store tool.
 type GraphStoreResponse struct {
-	Message string `json:"message"`
+	Message      string             `json:"message"`
+	BatchResults []BatchStoreResult `json:"batch_results,omitempty"`
 }
+
+// maxBatchStoreSize is the maximum number of items in a batch store request.
+const maxBatchStoreSize = 20
 
 // newGraphStoreTool creates the unified graph_store tool. Unexported because
 // it is only used by ToolProvider within this package.
@@ -52,10 +89,14 @@ func newGraphStoreTool(store IStore) tool.Tool {
 		t.execute,
 		function.WithName(GraphStoreToolName),
 		function.WithDescription(
-			"Store an entity or relation in the knowledge graph. "+
-				"Use action='entity' with id, type, and optional attrs to store a node (person, repo, issue, document, etc.). "+
-				"Use action='relation' with subject_id, predicate, object_id to store a directed edge (e.g. person-1 WORKED_ON issue-2). "+
-				"Entities are overwritten if the same id is used. Relations are idempotent.",
+			"Store entities and relations in the knowledge graph. "+
+				"Use action='entity' with id, type, and optional attrs to store a node. "+
+				"Use action='relation' with subject_id, predicate, object_id to store a directed edge. "+
+				"**Use action='batch'** with items array to store MULTIPLE entities/relations in ONE call — "+
+				"this is much more efficient than making separate calls. "+
+				"Example: {\"action\":\"batch\",\"items\":[{\"action\":\"entity\",\"id\":\"alice\",\"type\":\"person\"},{\"action\":\"relation\",\"subject_id\":\"alice\",\"predicate\":\"WORKS_ON\",\"object_id\":\"project-1\"}]}. "+
+				"Entities are overwritten if the same id is used. Relations are idempotent. "+
+				"EFFICIENCY: batch > multiple separate calls.",
 		),
 	)
 }
@@ -64,7 +105,13 @@ type graphStoreTool struct {
 	store IStore
 }
 
-// execute routes the graph_store request to AddEntity or AddRelation based on action.
+// indexedEntity pairs an entity with its original position in a batch.
+type indexedEntity struct {
+	index  int
+	entity Entity
+}
+
+// execute routes the graph_store request to AddEntity, AddRelation, or batch based on action.
 func (t *graphStoreTool) execute(ctx context.Context, req GraphStoreRequest) (GraphStoreResponse, error) {
 	switch req.Action {
 	case "entity":
@@ -93,9 +140,141 @@ func (t *graphStoreTool) execute(ctx context.Context, req GraphStoreRequest) (Gr
 		}
 		return GraphStoreResponse{Message: "Relation stored"}, nil
 
+	case "batch":
+		return t.executeBatch(ctx, req.Items)
+
 	default:
-		return GraphStoreResponse{}, fmt.Errorf("%w: action must be 'entity' or 'relation', got %q", ErrInvalidInput, req.Action)
+		return GraphStoreResponse{}, fmt.Errorf("%w: action must be 'entity', 'relation', or 'batch', got %q", ErrInvalidInput, req.Action)
 	}
+}
+
+// executeBatch stores multiple entities and relations in a single call.
+// Entities are stored first (they may be referenced by relations). When the
+// underlying store supports batched entity insertion (VectorBackedStore),
+// entities are embedded concurrently for lower latency. Relations are then
+// stored concurrently via errgroup. Individual item errors are captured
+// per-result rather than aborting the entire batch.
+func (t *graphStoreTool) executeBatch(ctx context.Context, items []BatchStoreItem) (GraphStoreResponse, error) {
+	if len(items) == 0 {
+		return GraphStoreResponse{}, fmt.Errorf(
+			"%w: items array is required and must not be empty for action=batch",
+			ErrInvalidInput,
+		)
+	}
+	if len(items) > maxBatchStoreSize {
+		return GraphStoreResponse{}, fmt.Errorf(
+			"%w: batch size %d exceeds maximum of %d",
+			ErrInvalidInput, len(items), maxBatchStoreSize,
+		)
+	}
+
+	results := make([]BatchStoreResult, len(items))
+
+	// Partition items into entities and relations (with original indices).
+	var entities []indexedEntity
+	var relationIndices []int
+
+	for i, item := range items {
+		switch item.Action {
+		case "entity":
+			if item.ID == "" || item.Type == "" {
+				results[i] = BatchStoreResult{Index: i, Action: "entity", Error: "id and type are required"}
+				continue
+			}
+			entities = append(entities, indexedEntity{
+				index:  i,
+				entity: Entity{ID: item.ID, Type: item.Type, Attrs: item.Attrs},
+			})
+		case "relation":
+			relationIndices = append(relationIndices, i)
+		default:
+			results[i] = BatchStoreResult{Index: i, Action: item.Action, Error: fmt.Sprintf("unsupported batch sub-action %q", item.Action)}
+		}
+	}
+
+	// Store entities — try the optimised batch path first.
+	if len(entities) > 0 {
+		t.storeEntitiesBatch(ctx, entities, results)
+	}
+
+	// Store relations concurrently via errgroup (entities are already persisted).
+	if len(relationIndices) > 0 {
+		var wg sync.WaitGroup
+		for _, idx := range relationIndices {
+			item := items[idx]
+			if item.SubjectID == "" || item.Predicate == "" || item.ObjectID == "" {
+				results[idx] = BatchStoreResult{Index: idx, Action: "relation", Error: "subject_id, predicate, and object_id are required"}
+				continue
+			}
+			wg.Add(1)
+			go func(i int, r Relation) {
+				defer wg.Done()
+				br := BatchStoreResult{Index: i, Action: "relation"}
+				if err := t.store.AddRelation(ctx, r); err != nil {
+					br.Error = err.Error()
+				} else {
+					br.Message = "Relation stored"
+				}
+				results[i] = br
+			}(idx, Relation{SubjectID: item.SubjectID, Predicate: item.Predicate, ObjectID: item.ObjectID})
+		}
+		wg.Wait()
+	}
+
+	// Count successes for the summary message.
+	ok := 0
+	for _, r := range results {
+		if r.Error == "" && r.Action != "" {
+			ok++
+		}
+	}
+
+	return GraphStoreResponse{
+		Message:      fmt.Sprintf("%d/%d items stored successfully", ok, len(items)),
+		BatchResults: results,
+	}, nil
+}
+
+// storeEntitiesBatch stores a slice of entities. If the underlying store
+// implements batchEntityStore (e.g. VectorBackedStore), all entities are
+// stored in a single call with parallel embedding generation. Otherwise
+// entities are stored individually via errgroup.
+func (t *graphStoreTool) storeEntitiesBatch(ctx context.Context, entities []indexedEntity, results []BatchStoreResult) {
+	// Fast path: VectorBackedStore.AddEntities (single Upsert, parallel embeddings).
+	if bs, ok := t.store.(batchEntityStore); ok && len(entities) > 1 {
+		plain := make([]Entity, len(entities))
+		for i, ie := range entities {
+			plain[i] = ie.entity
+		}
+		err := bs.AddEntities(ctx, plain)
+		for _, ie := range entities {
+			br := BatchStoreResult{Index: ie.index, Action: "entity"}
+			if err != nil {
+				br.Error = err.Error()
+			} else {
+				br.Message = "Entity stored"
+			}
+			results[ie.index] = br
+		}
+		return
+	}
+
+	// Fallback: store entities concurrently via errgroup.
+	g, gCtx := errgroup.WithContext(ctx)
+	for _, ie := range entities {
+		ie := ie // capture
+		g.Go(func() error {
+			br := BatchStoreResult{Index: ie.index, Action: "entity"}
+			if err := t.store.AddEntity(gCtx, ie.entity); err != nil {
+				br.Error = err.Error()
+			} else {
+				br.Message = "Entity stored"
+			}
+			results[ie.index] = br
+			return nil // capture error in result, don't abort
+		})
+	}
+	_ = g.Wait()
 }
 
 // ---- graph_query tool (neighbors + get_entity + shortest_path + explore + batch) ----
