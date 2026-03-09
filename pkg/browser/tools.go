@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
+	"github.com/stackgenhq/genie/pkg/htmlutils"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )
@@ -123,7 +124,9 @@ type ScreenshotAnnotatedResponse struct {
 }
 
 // ReadMarkdownRequest is the input for the browser_read_markdown tool.
-type ReadMarkdownRequest struct{}
+type ReadMarkdownRequest struct {
+	Summarize bool `json:"summarize,omitempty" jsonschema:"description=If true and a summarizer is configured, uses an LLM to read and summarize the HTML content of the page instead of producing raw markdown."`
+}
 
 // ReadMarkdownResponse is the output for the browser_read_markdown tool.
 type ReadMarkdownResponse struct {
@@ -258,12 +261,13 @@ func NewScreenshotAnnotatedTool(b *Browser) tool.CallableTool {
 
 // NewReadMarkdownTool creates the browser_read_markdown tool. It extracts the page
 // content as a clean, structured Markdown string, ignoring hidden elements, scripts, and styles.
+// If the Summarize option is toggled, it will use an LLM Summarizer (if configured on the Browser).
 func NewReadMarkdownTool(b *Browser) tool.CallableTool {
 	ts := &toolSet{b: b}
 	return function.NewFunctionTool(
 		ts.readMarkdown,
 		function.WithName("browser_read_markdown"),
-		function.WithDescription("Read the entire page content as a clean Markdown string. Useful for reading documentation, articles, or overall page structure without noisy HTML."),
+		function.WithDescription("Read the entire page content as a clean Markdown string. Useful for reading documentation, articles, or overall page structure without noisy HTML. Set 'summarize' to true to have an LLM condense the page instead."),
 	)
 }
 
@@ -538,6 +542,25 @@ func (ts *toolSet) screenshotAnnotated(ctx context.Context, req ScreenshotAnnota
 }
 
 func (ts *toolSet) readMarkdown(ctx context.Context, req ReadMarkdownRequest) (ReadMarkdownResponse, error) {
+	if req.Summarize {
+		if ts.b.summarize == nil {
+			return ReadMarkdownResponse{}, fmt.Errorf("summarization is requested but no SummarizeFunc is configured for this Browser")
+		}
+
+		var html string
+		if err := ts.b.run(ctx, chromedp.OuterHTML("html", &html)); err != nil {
+			return ReadMarkdownResponse{}, fmt.Errorf("failed to extract HTML for summarization: %w", err)
+		}
+
+		cleanText := htmlutils.ExtractText(html)
+		summary, err := ts.b.summarize(ctx, cleanText, "MARKDOWN")
+		if err != nil {
+			return ReadMarkdownResponse{}, fmt.Errorf("failed to summarize page: %w", err)
+		}
+
+		return ReadMarkdownResponse{Markdown: summary}, nil
+	}
+
 	script := `
 		(() => {
 			function minifyHTML(node) {
