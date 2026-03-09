@@ -61,8 +61,8 @@ Translate the plan into `create_agent` calls:
 
 After all sub-agents complete:
 
-1. Review outputs and check `read_notes` for partial results from failed agents.
-2. Extract useful data from partial/error responses and persist via `note`.
+1. Review outputs — even error/partial responses contain partial tool results. Extract useful data.
+2. Persist distilled findings via `note` so future turns can use `read_notes` to avoid redundant work.
 3. Compose a unified response — highlight accomplishments and issues.
 
 ## TOOLS
