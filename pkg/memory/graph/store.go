@@ -7,7 +7,7 @@ import (
 //go:generate go tool counterfeiter -generate
 
 // IStore is the interface for the knowledge graph store. All callers use this
-// interface so the implementation can be swapped (in-memory, Milvus, Trigo,
+// interface so the implementation can be swapped (in-memory, Trigo,
 // SQLite, etc.) without changing tool or app code.
 //
 //counterfeiter:generate . IStore

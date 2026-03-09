@@ -29,11 +29,11 @@ const (
 
 // vectorStoreSearchLimit is the maximum number of results fetched per query.
 // Graph queries scan all matching records so this needs to be large enough
-// to cover the full set; external stores (Qdrant/Milvus) handle pagination.
+// to cover the full set; external stores (Qdrant) handle pagination.
 const vectorStoreSearchLimit = 1000
 
 // VectorBackedStore implements IStore on top of the existing vector.IStore
-// (Qdrant, Milvus, or in-memory). Entities and relations are stored as
+// (Qdrant or in-memory). Entities and relations are stored as
 // vector documents with metadata discriminators, enabling the knowledge graph
 // to reuse the same scalable storage backend as memory_search/memory_store.
 //

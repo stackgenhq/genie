@@ -1,6 +1,6 @@
 // Package graph provides a knowledge graph store (entities and relations) for
 // agent memory. The store is interface-driven so backends can be swapped
-// (in-memory now; Milvus, Trigo, or SQLite later). When persistence is
+// (in-memory now; Trigo or SQLite later). When persistence is
 // configured, the in-memory implementation snapshots to ~/.genie/<agent>/memory.bin.zst (gob+zstd).
 package graph
 

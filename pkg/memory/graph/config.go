@@ -10,14 +10,14 @@ import (
 // Config holds configuration for the knowledge graph store. When Disabled is
 // false and DataDir is set, the in-memory store persists to DataDir/memory.bin.zst
 // (gob+zstd). Empty DataDir means no persistence (in-memory only). The implementation
-// is interface-driven so DataDir can be ignored by a future backend (e.g. Milvus).
+// is interface-driven so DataDir can be ignored by a future backend.
 type Config struct {
 	// Disabled turns off the knowledge graph and graph_* tools. When true, no
 	// graph store is created and no graph tools are registered.
 	Disabled bool `yaml:"disabled,omitempty" toml:"disabled,omitempty"`
 	// Backend selects the knowledge graph storage backend. Options:
 	//   "inmemory" (default) — in-process dominikbraun/graph with gob+zstd snapshot persistence.
-	//   "vectorstore"        — reuses the configured vector store (Qdrant/Milvus); entities and
+	//   "vectorstore"        — reuses the configured vector store (Qdrant); entities and
 	//                          relations are stored as vector documents with metadata discriminators.
 	// When Backend is "vectorstore", DataDir is ignored (persistence is handled by the vector store).
 	Backend string `yaml:"backend,omitempty" toml:"backend,omitempty"`
