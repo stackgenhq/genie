@@ -25,6 +25,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implemented static API key authentication via `Authorization: Bearer <key>` and `X-API-Key: <key>` for M2M communication to bypass interactive SSO.
 - Auth middleware context now sets `authcontext.Principal` metadata indicating the current request's user ID and role, wired across the task orchestration bus via `MessageOrigin`.
 - Auth middleware now explicitly permits incoming CORS `OPTIONS` preflight requests, allowing browsers to perform valid API checks.
+- GitHub CLI (`gh_cli`) agent tool (`pkg/tools/ghcli`) — wraps the `gh` binary for GitHub operations (PRs, issues, Actions, deployments, Dependabot alerts). Configurable via `[ghcli]` config section and Config Builder UI.
+- Shell tool refactored into `pkg/tools/unix` with configuration-based security: `ShellToolConfig` provides `allowed_env` (environment variable allow-list) and `timeout` fields. Only explicitly listed env vars (plus `PATH`) are resolved via `SecretProvider` and injected into shell processes (principle of least privilege). Config Builder UI updated with shell tool security section.
+- Credential isolation architecture for K8s deployments — init container + sidecar pattern with `credential-bootstrap.sh`, `credential-refresh.sh`, and `genie-entrypoint.sh` scripts in `examples/devops-in-k8s/scripts/`.
+- Checkpoint retry wrapper (`pkg/db/checkpoint_retry.go`) — automatic retry with exponential backoff for transient database errors (connection refused, deadline exceeded) on all `CheckpointSaver` operations. Wraps the GORM saver transparently.
+- Knowledge graph: unified `graph_store` tool (replaces `graph_store_entity` and `graph_store_relation`) with `action=entity|relation|batch`; batch action stores multiple entities/relations concurrently, with parallel embedding via `AddEntities` for vector-backed stores.
+- Knowledge graph: unified `graph_query` tool (replaces separate `graph_query`, `graph_get_entity`, `graph_shortest_path`) with `action=neighbors|get_entity|shortest_path|explore|batch`; `explore` action returns a full ego-graph (root + connected entities + relations) in a single call; `batch` action runs multiple sub-queries in parallel.
+- Knowledge graph: vector-backed store (`pkg/memory/graph/vectorstore.go`) — reuses the configured vector store (Qdrant/Milvus) for graph storage instead of in-memory gob+zstd snapshots. Selectable via `graph.backend = "vectorstore"` config. Config Builder UI updated with backend selector.
+- Episodic memory in orchestrator — stores Q&A turns as episodes (pending → promoted/demoted by user 👍/👎 reactions) and recalls relevant past episodes during context assembly, enabling the agent to learn from its own interaction history.
+- HITL audit trail — `WithHITLAuditor` option injects a durable `audit.Auditor` into the HITL middleware; every approval, rejection, and auto-approval decision (with reason classification: `always_allowed`, `approve_list`, `cache_hit`) is written to the audit log.
+- HITL principal-scoped approvals — `CreatedBy` field on `ApprovalRequest`/`CreateRequest` tracks the requesting user; `CanResolve` authorization check ensures only the creator or admins can approve/reject; AG-UI `handleApprove` enforces principal-scoped resolution.
+- Semantic cache responses now emitted via AG-UI event bus (`agui.EmitAgentMessage`) so streaming web UI clients see cache-hit responses that previously bypassed the tree executor.
+- Sub-agent shared memory instructions — `buildSubAgentInstruction` now includes `INCREMENTAL REPORTING` (per-item results as they complete) and `SHARED MEMORY` (findings written to working memory for sibling agents).
+- Auth middleware logs first unauthenticated request IP/path and injects `principal` + `request_id` into logger context and OTel trace attributes (`langfuse.user.id`) for authenticated requests.
 
 ### Changed
 
@@ -35,6 +48,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refactored `semanticrouter` gatekeeper integration in the orchestrator to consume the `IRouter` interface, lowering code coupling.
 - Simplified `semanticrouter.New` constructor by handling built-in and configured route merging internally.
 - Cleaned up the `semanticrouter` public API by removing the unused `CheckJailbreak` method and making `Route` private.
+- Credential bootstrap script now installs `gettext` (provides `envsubst`) in the init container and fixes file permissions with `chmod 0640` / `chown 65532:65532` for non-root genie process.
+- K8s deployment adds `GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn` env var to suppress benign protobuf namespace conflict between Milvus and Qdrant gRPC clients (`common.proto`).
+- K8s deployment resource adds `timeouts { create = "1m"; update = "1m" }` to prevent `tofu apply` from hanging when the rollout is stuck.
+- Shell tool provider (`tools.NewShellToolProvider`) now accepts `SecretProvider` and `ShellToolConfig` for environment variable filtering.
+- Retrieval tool classification in loop-detection middleware updated to reference consolidated `graph_query` and `memory_search` tool name constants.
+- Default HITL read-only tool list updated: replaced `graph_store_entity`, `graph_store_relation`, `graph_get_entity`, `graph_shortest_path` with unified `graph_store` and `graph_query`; `memory_search` uses `vector.MemorySearchToolName` constant.
+- HITL approval resolution now attributed to the authenticated principal (`resolvedBy: principal.ID`) instead of the hardcoded `"chat-ui"` string.
+- Sub-agent instruction text streamlined — reduced redundancy, consolidated behavioral guardrails, removed the explicit `JUSTIFICATION` footer (justification is still extracted by middleware).
+- `examples/devops-in-k8s/README.md` completely rewritten to match actual infrastructure: added architecture diagram, fixed `dev.auto.tfvars` filename, updated commands to use `tofu`, added 18 Terraform resources table and troubleshooting section.
 
 - **Breaking**: the top-level `persona_file` config option has been moved to `[persona]` block. To migrate existing `.genie.toml` files, replace:
 
@@ -50,6 +72,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   disable_resume = true
   ```
 - Combined legacy `persona_file` and new `disable_resume` options into a nested `[persona]` table for cleaner organization.
+
+### Fixed
+
+- PostgreSQL compatibility: removed hardcoded `gorm:"type:blob"` tags from `SessionState`, `AppState`, and `UserState` models in `pkg/db/session_store.go` — `blob` is a SQLite/MySQL type that causes `ERROR: type "blob" does not exist (SQLSTATE 42704)` on PostgreSQL. GORM now auto-maps `[]byte` to `bytea` (PostgreSQL) or `blob` (SQLite).
+- Checkpoint saver wrapped with retry logic to handle transient PostgreSQL connection failures (e.g. after pod evictions) instead of crashing.
+- Semantic cache hits now properly emit responses to AG-UI streaming clients, which were previously invisible because the cache-hit path never entered the tree executor.
+
+### Removed
+
+- Removed `installation/k8s/` directory (README, deployment.yaml, genie.toml, main.tf, terraform.tfvars.example) — consolidated into `examples/devops-in-k8s/`.
+- Removed `pkg/tools/shell_tool.go` and `pkg/tools/shelltool/` package — replaced by `pkg/tools/unix/` with config-based security.
+- Removed separate graph tools (`graph_store_entity`, `graph_store_relation`, `graph_get_entity`, `graph_shortest_path`) — consolidated into unified `graph_store` and `graph_query` tools with action-based dispatch.
 
 ## [0.1.6] - 2026-03-03
 
