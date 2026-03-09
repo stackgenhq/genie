@@ -10,7 +10,7 @@ require (
 	github.com/aragossa/pii-shield v1.2.0
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/cenkalti/backoff/v4 v4.3.0
-	github.com/charmbracelet/huh v0.8.0
+	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/chromedp/chromedp v0.14.2
 	github.com/coreos/go-oidc/v3 v3.17.0
