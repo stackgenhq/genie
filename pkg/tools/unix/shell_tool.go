@@ -193,10 +193,3 @@ func (t *ShellTool) AllowedEnvKeys() []string {
 	sort.Strings(keys)
 	return keys
 }
-
-// BaseEnvKeys returns a copy of the always-included env var names (for testing).
-func BaseEnvKeys() []string {
-	out := make([]string, len(baseEnvKeys))
-	copy(out, baseEnvKeys)
-	return out
-}
