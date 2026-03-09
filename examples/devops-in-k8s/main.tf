@@ -129,8 +129,8 @@ resource "aws_iam_role_policy_attachment" "readonly" {
 # Attach an inline policy explicitly granting access to the secret value.
 # The ReadOnlyAccess managed policy does NOT include secretsmanager:GetSecretValue.
 resource "aws_iam_role_policy" "genie_secret_access" {
-  name   = "genie-secret-access"
-  role   = aws_iam_role.genie_readonly.id
+  name = "genie-secret-access"
+  role = aws_iam_role.genie_readonly.id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -177,6 +177,20 @@ resource "kubernetes_namespace" "genie" {
 # ═════════════════════════════════════════════════════════════════════════════
 
 # ── ConfigMap: genie.toml (devops-copilot configuration) ────────────────────
+# The genie.toml template is rendered by Terraform with infrastructure values
+# (Qdrant endpoints, AWS region, Secrets Manager name). Runtime secrets like
+# POSTGRES_DSN are left as ${POSTGRES_DSN} for envsubst in the init container.
+
+locals {
+  genie_toml_rendered = templatefile("${path.module}/genie.toml.tftpl", {
+    secrets_manager_name = var.aws.secrets_manager_name
+    aws_region           = var.aws.region
+    qdrant_host          = module.vectorstore.qdrant_host
+    qdrant_port          = module.vectorstore.qdrant_port
+    qdrant_api_key       = var.vectorstore.api_key
+    agui_port            = var.genie.port
+  })
+}
 
 resource "kubernetes_config_map" "genie" {
   metadata {
@@ -185,7 +199,7 @@ resource "kubernetes_config_map" "genie" {
   }
 
   data = {
-    "genie.toml" = file("${path.module}/genie.toml")
+    "genie.toml" = local.genie_toml_rendered
     "AGENTS.md"  = file("${path.module}/AGENTS.md")
   }
 }
@@ -350,7 +364,7 @@ resource "kubernetes_deployment" "genie" {
           # Force rolling restart when ConfigMap or Secret data changes.
           # Terraform recomputes the SHA on every plan; if the hash differs
           # the pod template spec changes and Kubernetes triggers a rollout.
-          "checksum/config"  = sha256(kubernetes_config_map.genie.data["genie.toml"])
+          "checksum/config" = sha256(local.genie_toml_rendered)
         }
       }
 
@@ -741,16 +755,20 @@ module "database" {
 module "vectorstore" {
   source = "./modules/vectorstore"
 
-  namespace         = var.kubernetes.namespace
-  s3_bucket         = var.vectorstore.s3_bucket
-  s3_region         = var.aws.region
-  oidc_provider_arn = local.oidc_provider_arn
-  oidc_issuer       = local.oidc_issuer
-  tags              = var.tags
+  namespace               = var.kubernetes.namespace
+  s3_bucket               = var.vectorstore.s3_bucket
+  s3_region               = var.aws.region
+  oidc_provider_arn       = local.oidc_provider_arn
+  oidc_issuer             = local.oidc_issuer
+  create_storage_class    = var.vectorstore.create_storage_class
+  snapshot_schedule       = var.vectorstore.snapshot_schedule
+  snapshot_retention_days = var.vectorstore.snapshot_retention_days
+  tags                    = var.tags
 
   qdrant = {
     replicas           = var.vectorstore.replicas
     storage_size       = var.vectorstore.storage_size
+    storage_class      = var.vectorstore.storage_class
     image_tag          = var.vectorstore.image_tag
     api_key            = var.vectorstore.api_key
     resources_limits   = var.vectorstore.resources_limits

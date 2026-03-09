@@ -3,9 +3,12 @@
 # ──────────────────────────────────────────────────────────────────────
 # Runs as an init container BEFORE the main genie container starts.
 # Has access to all secrets and the IRSA token. Generates kubeconfig
-# and resolves genie.toml with real credential values, writing both
-# to /shared-credentials so the genie container (which has NO secrets
-# in its environment) can read them.
+# and resolves the remaining runtime placeholders in genie.toml.
+#
+# Infrastructure values (Qdrant host, AWS region, Secrets Manager name)
+# are already resolved by Terraform's templatefile() when the ConfigMap
+# was created. Only POSTGRES_DSN remains as a runtime placeholder
+# because the password lives in a Kubernetes Secret, not in Terraform.
 # ──────────────────────────────────────────────────────────────────────
 set -e
 
@@ -22,11 +25,11 @@ aws eks update-kubeconfig \
 
 chmod 0640 /shared-credentials/kubeconfig
 
-# 2. Resolve genie.toml: substitute ${VAR} placeholders with actual
-#    environment variable values so the genie binary can read credentials
-#    from the file instead of env vars.
+# 2. Resolve genie.toml: only POSTGRES_DSN needs runtime substitution.
+#    All other infrastructure values (Qdrant endpoints, Secrets Manager
+#    name, AWS region) were pre-filled by Terraform's templatefile().
 cp /app-config/genie.toml /tmp/genie.toml.tpl
-envsubst '$POSTGRES_DSN $SECRETS_MANAGER_ARN $SECRETS_MANAGER_NAME $AWS_REGION' < /tmp/genie.toml.tpl > /shared-credentials/genie.toml
+envsubst '$POSTGRES_DSN' < /tmp/genie.toml.tpl > /shared-credentials/genie.toml
 chmod 0640 /shared-credentials/genie.toml
 
 # 3. Copy AGENTS.md (not sensitive, but keeps mounts clean)

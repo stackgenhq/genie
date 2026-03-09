@@ -10,6 +10,16 @@ output "service_account_name" {
   value       = "qdrant"
 }
 
+output "qdrant_host" {
+  description = "Qdrant service hostname (without port) for client connections"
+  value       = "qdrant.${var.namespace}.svc.cluster.local"
+}
+
+output "qdrant_port" {
+  description = "Qdrant gRPC port for client connections"
+  value       = 6334
+}
+
 output "grpc_endpoint" {
   description = "Internal cluster gRPC endpoint for Qdrant (port 6334)"
   value       = "qdrant.${var.namespace}.svc.cluster.local:6334"

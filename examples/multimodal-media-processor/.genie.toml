@@ -1,0 +1,52 @@
+# Multimodal Media Processor — Customer Support Intelligence
+#
+# This example configures Genie as a multimodal customer support agent capable
+# of processing images, audio, video, and documents sent by customers via
+# WhatsApp or the AG-UI chat interface.
+#
+# Requires: GEMINI_API_KEY (for vision + audio models)
+# Optional: OPENAI_API_KEY (for GPT-4V image analysis fallback)
+#
+# Run:
+#   GENIE_CONFIG=examples/multimodal-media-processor/.genie.toml genie grant
+
+disable_pensieve = true
+
+[db_config]
+db_file = "${PWD}/.genie/multimodal_example.db"
+
+# ── Model Configuration ────────────────────────────────────────────
+# Gemini 2.0 Flash supports multimodal input: text, images, audio, and video
+# in a single request. This is the best model for multimodal processing.
+
+[model_config]
+
+# Primary: Gemini for multimodal (vision + audio + video + tool calling)
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-2.0-flash"
+token = "${GEMINI_API_KEY}"
+good_for_task = "tool_calling"
+
+# Planning: Gemini for orchestrating multi-step analysis
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-2.0-flash"
+token = "${GEMINI_API_KEY}"
+good_for_task = "planning"
+
+# ── Human-in-the-Loop ────────────────────────────────────────────
+# Auto-approve safe tools. OCR and youtube_transcript are read-only.
+# Shell access is needed for ffmpeg conversions.
+[hitl]
+always_allowed = ["ocr_extract_text", "youtube_transcript", "web_fetch"]
+
+# ── AG-UI Server ─────────────────────────────────────────────────
+[messenger.agui]
+port = 9876
+cors_origins = ["https://stackgenhq.github.io"]
+
+# ── WhatsApp (optional) ─────────────────────────────────────────
+# Uncomment to enable WhatsApp support for receiving images/audio/video.
+# On first run, scan the QR code with your phone to pair.
+# [messenger.whatsapp]
