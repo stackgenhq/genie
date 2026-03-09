@@ -537,6 +537,18 @@ resource "kubernetes_deployment" "genie" {
             value = "/home/stackgen"
           }
 
+          # TMPDIR must point to a writable directory. Without this, Go's
+          # os.MkdirTemp("", ...) defaults to "/" for users without a
+          # passwd entry. The run_shell tool's code executor uses MkdirTemp
+          # for intermediate script files — writing to "/" fails and trips
+          # the circuit breaker, blocking all shell commands (including AWS CLI).
+          # This MUST be set at the container level because su-exec replaces
+          # the process and does not inherit shell-level exports.
+          env {
+            name  = "TMPDIR"
+            value = "/tmp"
+          }
+
           env {
             name  = "KUBECONFIG"
             value = "/home/stackgen/.kube/config"

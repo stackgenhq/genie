@@ -472,7 +472,12 @@ func addAudioAttachment(ctx context.Context, msg *model.Message, att messenger.A
 				"error", err,
 			)
 			// Fallback: embed as generic file (model may still handle it).
-			msg.AddFileData(filepath.Base(audioPath), readFileBytes(audioPath), att.ContentType)
+			data := readFileBytes(audioPath)
+			if data == nil {
+				logr.Warn("failed to read audio file for fallback embedding", "path", audioPath)
+				return
+			}
+			msg.AddFileData(filepath.Base(audioPath), data, att.ContentType)
 			return
 		}
 		audioPath = converted
@@ -524,7 +529,7 @@ func addVideoAttachment(ctx context.Context, msg *model.Message, att messenger.A
 // and available on all platforms.
 func convertAudioToWAV(ctx context.Context, srcPath string) (string, error) {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		return "", fmt.Errorf("ffmpeg not found: install with 'brew install ffmpeg' (macOS) or 'apt install ffmpeg' (Linux): %w", err)
+		return "", fmt.Errorf("ffmpeg not found: required for audio format conversion: %w", err)
 	}
 
 	// Create output path alongside the source file.
