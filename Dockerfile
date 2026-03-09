@@ -14,7 +14,10 @@ ARG GIT_VERSION="unknown"
 # CGO is required for SQLite (GORM driver).
 # Static linking ensures the binary runs on the scratch-like alpine runtime.
 RUN CGO_ENABLED=1 go build -mod=mod -trimpath \
-    -ldflags="-s -w -extldflags '-static' -X 'github.com/stackgenhq/genie/pkg/config.Version=${GIT_VERSION}' -X 'github.com/stackgenhq/genie/pkg/config.BuildDate=$(date +%D)'" \
+    -ldflags="-s -w -extldflags '-static' \
+      -X 'github.com/stackgenhq/genie/pkg/config.Version=${GIT_VERSION}' \
+      -X 'github.com/stackgenhq/genie/pkg/config.BuildDate=$(date +%D)' \
+      -X 'google.golang.org/protobuf/reflect/protoregistry.conflictPolicy=warn'" \
     -o /usr/local/bin/genie .
 
 # ── Stage 2: Runtime ────────────────────────────────────────

@@ -25,23 +25,15 @@ type ShellToolConfig struct {
 	// Timeout overrides the default 10-minute shell execution timeout.
 	// Use Go duration syntax (e.g. "5m", "30s").
 	Timeout time.Duration `yaml:"timeout,omitempty" toml:"timeout,omitempty"`
-
-	// AllowedBinaries is an optional allowlist of command names (basenames)
-	// that the shell tool may execute. When non-empty, the first word of
-	// every command is checked against this list; commands starting with an
-	// unlisted binary are rejected before execution.
-	// When empty, any command is allowed.
-	AllowedBinaries []string `yaml:"allowed_binaries,omitempty" toml:"allowed_binaries,omitempty"`
 }
 
 // ShellTool is a simplified tool for running shell commands.
 // It wraps a codeexecutor.CodeExecutor but exposes a simpler "command" interface
 // that is friendlier to models than the full codeexec.Tool.
 type ShellTool struct {
-	executor        codeexecutor.CodeExecutor
-	secrets         security.SecretProvider
-	allowedEnvKeys  map[string]struct{}
-	allowedBinaries map[string]struct{}
+	executor       codeexecutor.CodeExecutor
+	secrets        security.SecretProvider
+	allowedEnvKeys map[string]struct{}
 }
 
 // NewShellTool creates a new ShellTool with the given executor, secret provider,
@@ -58,12 +50,6 @@ func NewShellTool(executor codeexecutor.CodeExecutor, secrets security.SecretPro
 	t.allowedEnvKeys["PATH"] = struct{}{}
 	for _, k := range config.AllowedEnv {
 		t.allowedEnvKeys[strings.ToUpper(k)] = struct{}{}
-	}
-	if len(config.AllowedBinaries) > 0 {
-		t.allowedBinaries = make(map[string]struct{}, len(config.AllowedBinaries))
-		for _, b := range config.AllowedBinaries {
-			t.allowedBinaries[b] = struct{}{}
-		}
 	}
 	return t
 }
@@ -97,14 +83,6 @@ func (t *ShellTool) Call(ctx context.Context, input []byte) (any, error) {
 		return nil, fmt.Errorf("command is required")
 	}
 
-	// Binary allowlist check: extract the first word and verify it.
-	if len(t.allowedBinaries) > 0 {
-		bin := ExtractBinaryName(args.Command)
-		if _, ok := t.allowedBinaries[bin]; !ok {
-			return nil, fmt.Errorf("command %q is not in the allowed binaries list", bin)
-		}
-	}
-
 	// Build the command with env filtering preamble.
 	preamble, err := t.envPreamble(ctx)
 	if err != nil {
@@ -132,8 +110,6 @@ func (t *ShellTool) Call(ctx context.Context, input []byte) (any, error) {
 
 // envPreamble builds a shell preamble that unsets the host environment and
 // re-exports only the allowed variables, resolved via SecretProvider at runtime.
-// We use `env -i` with inline exports so the code executor's shell script
-// sees a clean environment.
 func (t *ShellTool) envPreamble(ctx context.Context) (string, error) {
 	// Collect sorted list of keys for deterministic output.
 	keys := make([]string, 0, len(t.allowedEnvKeys))
@@ -159,9 +135,6 @@ func (t *ShellTool) envPreamble(ctx context.Context) (string, error) {
 		exports = append(exports, fmt.Sprintf("export %s='%s'", key, val))
 	}
 
-	// Build preamble: unset everything, then export only allowed vars.
-	// Using `unset` on each host var is fragile, so instead we clear with
-	// a function that unsets all non-readonly vars, then re-export.
 	var preamble string
 	if len(exports) > 0 {
 		preamble = strings.Join(exports, "; ") + "; "
@@ -180,31 +153,4 @@ func (t *ShellTool) AllowedEnvKeys() []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-// AllowedBinaries returns the set of allowed binary names (for testing).
-func (t *ShellTool) AllowedBinaries() []string {
-	if len(t.allowedBinaries) == 0 {
-		return nil
-	}
-	bins := make([]string, 0, len(t.allowedBinaries))
-	for b := range t.allowedBinaries {
-		bins = append(bins, b)
-	}
-	sort.Strings(bins)
-	return bins
-}
-
-// ExtractBinaryName returns the basename of the first word in a command string.
-func ExtractBinaryName(cmd string) string {
-	cmd = strings.TrimSpace(cmd)
-	// Take the first word (space-separated).
-	if idx := strings.IndexAny(cmd, " \t"); idx > 0 {
-		cmd = cmd[:idx]
-	}
-	// Strip any leading path (e.g. /usr/bin/git → git).
-	if idx := strings.LastIndex(cmd, "/"); idx >= 0 {
-		cmd = cmd[idx+1:]
-	}
-	return cmd
 }

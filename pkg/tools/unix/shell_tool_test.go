@@ -63,20 +63,6 @@ var _ = Describe("ShellTool", func() {
 			st := t.(*unix.ShellTool)
 			Expect(st.AllowedEnvKeys()).To(ContainElements("HOME", "GOPATH", "PATH"))
 		})
-
-		It("returns nil allowed binaries when none are set", func() {
-			t := unix.NewShellTool(local.New(), secrets, unix.ShellToolConfig{})
-			st := t.(*unix.ShellTool)
-			Expect(st.AllowedBinaries()).To(BeNil())
-		})
-
-		It("records allowed binaries when configured", func() {
-			t := unix.NewShellTool(local.New(), secrets, unix.ShellToolConfig{
-				AllowedBinaries: []string{"ls", "git"},
-			})
-			st := t.(*unix.ShellTool)
-			Expect(st.AllowedBinaries()).To(Equal([]string{"git", "ls"}))
-		})
 	})
 
 	// --- Declaration ---
@@ -84,7 +70,7 @@ var _ = Describe("ShellTool", func() {
 	Context("declaration", func() {
 		It("returns a tool named run_shell", func() {
 			t := unix.NewShellTool(local.New(), secrets, unix.ShellToolConfig{})
-			decl := t.(tool.Tool).Declaration()
+			decl := t.Declaration()
 			Expect(decl.Name).To(Equal("run_shell"))
 			Expect(decl.InputSchema.Required).To(ContainElement("command"))
 		})
@@ -103,6 +89,15 @@ var _ = Describe("ShellTool", func() {
 			Expect(strings.TrimSpace(execResult.Output)).To(Equal("hello"))
 		})
 
+		It("executes piped commands", func() {
+			t := unix.NewShellTool(local.New(), secrets, unix.ShellToolConfig{})
+			callable := t.(tool.CallableTool)
+			result, err := callable.Call(ctx, []byte(`{"command": "echo hello world | wc -w"}`))
+			Expect(err).NotTo(HaveOccurred())
+			execResult := result.(codeexecutor.CodeExecutionResult)
+			Expect(strings.TrimSpace(execResult.Output)).To(Equal("2"))
+		})
+
 		It("rejects empty command", func() {
 			t := unix.NewShellTool(local.New(), secrets, unix.ShellToolConfig{})
 			callable := t.(tool.CallableTool)
@@ -117,40 +112,6 @@ var _ = Describe("ShellTool", func() {
 			_, err := callable.Call(ctx, []byte(`not json`))
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to parse arguments"))
-		})
-	})
-
-	// --- Call: binary allowlist ---
-
-	Context("binary allowlist", func() {
-		It("allows a whitelisted command", func() {
-			t := unix.NewShellTool(local.New(), secrets, unix.ShellToolConfig{
-				AllowedBinaries: []string{"echo", "ls"},
-			})
-			callable := t.(tool.CallableTool)
-			result, err := callable.Call(ctx, []byte(`{"command": "echo allowed"}`))
-			Expect(err).NotTo(HaveOccurred())
-			execResult := result.(codeexecutor.CodeExecutionResult)
-			Expect(strings.TrimSpace(execResult.Output)).To(Equal("allowed"))
-		})
-
-		It("blocks a non-whitelisted command", func() {
-			t := unix.NewShellTool(local.New(), secrets, unix.ShellToolConfig{
-				AllowedBinaries: []string{"ls"},
-			})
-			callable := t.(tool.CallableTool)
-			_, err := callable.Call(ctx, []byte(`{"command": "rm -rf /"}`))
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("not in the allowed binaries list"))
-		})
-
-		It("allows any command when no allowlist is set", func() {
-			t := unix.NewShellTool(local.New(), secrets, unix.ShellToolConfig{})
-			callable := t.(tool.CallableTool)
-			result, err := callable.Call(ctx, []byte(`{"command": "echo no-filter"}`))
-			Expect(err).NotTo(HaveOccurred())
-			execResult := result.(codeexecutor.CodeExecutionResult)
-			Expect(strings.TrimSpace(execResult.Output)).To(Equal("no-filter"))
 		})
 	})
 
@@ -191,30 +152,6 @@ var _ = Describe("ShellTool", func() {
 			Expect(err).NotTo(HaveOccurred())
 			// Should have called GetSecret for HOME and PATH
 			Expect(fakeSP.GetSecretCallCount()).To(BeNumerically(">=", 2))
-		})
-	})
-
-	// --- ExtractBinaryName ---
-
-	Context("ExtractBinaryName", func() {
-		It("extracts simple command", func() {
-			Expect(unix.ExtractBinaryName("ls -la")).To(Equal("ls"))
-		})
-
-		It("extracts command with full path", func() {
-			Expect(unix.ExtractBinaryName("/usr/bin/git status")).To(Equal("git"))
-		})
-
-		It("handles command with no arguments", func() {
-			Expect(unix.ExtractBinaryName("pwd")).To(Equal("pwd"))
-		})
-
-		It("handles leading whitespace", func() {
-			Expect(unix.ExtractBinaryName("  docker ps")).To(Equal("docker"))
-		})
-
-		It("handles tab-separated args", func() {
-			Expect(unix.ExtractBinaryName("make\tbuild")).To(Equal("make"))
 		})
 	})
 })
