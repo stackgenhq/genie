@@ -21,6 +21,7 @@ const (
 	ProviderDuckDuckGo = "duckduckgo"
 	ProviderGoogle     = "google"
 	ProviderBing       = "bing"
+	ProviderSerpAPI    = "serpapi"
 )
 
 // SearchRequest is the input for the web_search tool.
@@ -29,16 +30,19 @@ type SearchRequest struct {
 }
 
 // Config holds configuration for the web search tool.
-// Provider selects the search backend: "google", "bing", or "duckduckgo" (default).
+// Provider selects the search backend: "google", "bing", "serpapi", or "duckduckgo" (default).
 // Only one provider is active at a time.
 // When Provider is "google", either set GoogleAPIKey+GoogleCX (API key auth; 100 free queries/day, then billing) or set
 // UseGoogleOAuth true and GoogleCX (uses shared Google sign-in token; requires scope https://www.googleapis.com/auth/cse per Custom Search JSON API). Re-run the Google OAuth browser flow if the token was created before the cse scope was added.
+// When Provider is "serpapi", set serpapi_api_key. SerpAPI uses a single API key for all Google engines
+// (Search, News, Scholar). See https://serpapi.com for details.
 type Config struct {
-	Provider       string `yaml:"provider,omitempty" toml:"provider,omitempty"`
-	GoogleAPIKey   string `yaml:"google_api_key,omitempty" toml:"google_api_key,omitempty"`
-	GoogleCX       string `yaml:"google_cx,omitempty" toml:"google_cx,omitempty"`
-	UseGoogleOAuth bool   `yaml:"use_google_oauth,omitempty" toml:"use_google_oauth,omitempty"` // use shared Google OAuth token for search when SecretProvider is set
-	BingAPIKey     string `yaml:"bing_api_key,omitempty" toml:"bing_api_key,omitempty"`
+	Provider       string        `yaml:"provider,omitempty" toml:"provider,omitempty"`
+	GoogleAPIKey   string        `yaml:"google_api_key,omitempty" toml:"google_api_key,omitempty"`
+	GoogleCX       string        `yaml:"google_cx,omitempty" toml:"google_cx,omitempty"`
+	UseGoogleOAuth bool          `yaml:"use_google_oauth,omitempty" toml:"use_google_oauth,omitempty"` // use shared Google OAuth token for search when SecretProvider is set
+	BingAPIKey     string        `yaml:"bing_api_key,omitempty" toml:"bing_api_key,omitempty"`
+	SerpAPI        SerpAPIConfig `yaml:"serpapi,omitempty" toml:"serpapi,omitempty"`
 }
 
 // searchTool implements the web_search tool with a configurable backend.
@@ -77,10 +81,19 @@ func NewTool(cfg Config, secretProvider security.SecretProvider, opts ...DDGOpti
 		if cfg.BingAPIKey != "" {
 			s.backend = NewBingTool(cfg.BingAPIKey)
 		}
+	case ProviderSerpAPI:
+		if cfg.SerpAPI.APIKey != "" {
+			s.backend = NewSerpAPITool(cfg.SerpAPI)
+		}
 	}
 	// Google with OAuth only (no API key): backend stays nil; searchGoogle will use OAuth at request time.
+	// SerpAPI without API key: fall back to DDG.
 	// Fall back to DuckDuckGo only when Google is selected but credentials are missing for the chosen mode.
-	if s.backend == nil && (s.provider != ProviderGoogle || (s.cfg.UseGoogleOAuth && s.secretProvider == nil) || s.cfg.GoogleCX == "" || (!s.cfg.UseGoogleOAuth && s.cfg.GoogleAPIKey == "")) {
+	needsFallback := s.backend == nil
+	if s.provider == ProviderGoogle {
+		needsFallback = s.backend == nil && ((s.cfg.UseGoogleOAuth && s.secretProvider == nil) || s.cfg.GoogleCX == "" || (!s.cfg.UseGoogleOAuth && s.cfg.GoogleAPIKey == ""))
+	}
+	if needsFallback {
 		s.provider = ProviderDuckDuckGo
 		s.backend = NewDDGTool(opts...)
 	}
@@ -106,6 +119,8 @@ func (s *searchTool) Search(ctx context.Context, req SearchRequest) (string, err
 		result, err = s.searchGoogle(ctx, req)
 	case ProviderBing:
 		result, err = s.searchBackend(ctx, req, "Bing")
+	case ProviderSerpAPI:
+		result, err = s.searchBackend(ctx, req, "SerpAPI")
 	default:
 		// DuckDuckGo is the primary (and only) provider — no fallback.
 		result, err = s.searchBackend(ctx, req, "DuckDuckGo")
@@ -157,7 +172,7 @@ func (s *searchTool) fallbackSearchDDG(ctx context.Context, req SearchRequest, o
 	return fmt.Sprintf("[Source: DuckDuckGo]\n%v", res), nil
 }
 
-// searchBackend delegates to the underlying tool.CallableTool (Bing or DDG).
+// searchBackend delegates to the underlying tool.CallableTool (Bing, DDG, or SerpAPI).
 func (s *searchTool) searchBackend(ctx context.Context, req SearchRequest, name string) (string, error) {
 	if s.backend == nil {
 		return "", fmt.Errorf("%s search not available: backend is nil", name)
@@ -175,7 +190,13 @@ func (s *searchTool) searchBackend(ctx context.Context, req SearchRequest, name 
 	if err != nil {
 		return "", fmt.Errorf("%s search failed: %w", strings.ToLower(name), err)
 	}
-	return fmt.Sprintf("[Source: %s]\n%v", name, res), nil
+	resStr := fmt.Sprintf("%v", res)
+	// Some backends (e.g. SerpAPI) already embed their own [Source: ...] header
+	// in the formatted output. Avoid duplicating it.
+	if strings.HasPrefix(resStr, "[Source:") || strings.Contains(resStr, "\n[Source:") {
+		return resStr, nil
+	}
+	return fmt.Sprintf("[Source: %s]\n%s", name, resStr), nil
 }
 
 // ────────────────────── Google ──────────────────────
@@ -308,6 +329,8 @@ func normaliseProvider(p string) string {
 		return ProviderGoogle
 	case ProviderBing:
 		return ProviderBing
+	case ProviderSerpAPI, "serp":
+		return ProviderSerpAPI
 	case ProviderDuckDuckGo, "ddg", "":
 		return ProviderDuckDuckGo
 	default:

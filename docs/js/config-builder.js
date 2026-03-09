@@ -26,7 +26,7 @@
 
         skill_load: { max_loaded_skills: 3, skills_roots: ['./skills'] },
         mcp_servers: [],
-        web_search: { provider: 'duckduckgo', google_api_key: 'GOOGLE_API_KEY', google_cx: 'GOOGLE_CSE_ID', bing_api_key: 'BING_API_KEY' },
+        web_search: { provider: 'duckduckgo', google_api_key: 'GOOGLE_API_KEY', google_cx: 'GOOGLE_CSE_ID', bing_api_key: 'BING_API_KEY', serpapi: { api_key: 'SERPAPI_API_KEY', location: '', gl: '', hl: '' } },
         vector_memory: { persistence_dir: '', embedding_provider: 'dummy', api_key: 'OPENAI_API_KEY', ollama_url: '', ollama_model: '', huggingface_url: '', gemini_api_key: 'GOOGLE_API_KEY', gemini_model: '', vector_store_provider: 'inmemory', allowed_metadata_keys: [], qdrant: { host: '', port: 6334, api_key: 'QDRANT_API_KEY', use_tls: false, collection_name: '', dimension: 0 }, milvus: { address: '', username: '', password: '', db_name: '', api_key: 'MILVUS_API_KEY', collection_name: '', dimension: 0 } },
         graph: { disabled: false, backend: 'inmemory', data_dir: '' },
         data_sources: { enabled: false, sync_interval: '15m', search_keywords: [], gmail: { enabled: false, label_ids: [] }, gdrive: { enabled: false, folder_ids: [] }, github: { enabled: false, repos: [] }, gitlab: { enabled: false, repos: [] } },
@@ -85,7 +85,7 @@
     var VECTOR_STORE_PROVIDERS = ['inmemory', 'qdrant', 'milvus'];
     var PLATFORMS = ['', 'slack', 'discord', 'telegram', 'teams', 'googlechat', 'whatsapp'];
 
-    var SEARCH_PROVIDERS = ['duckduckgo', 'google', 'bing'];
+    var SEARCH_PROVIDERS = ['duckduckgo', 'google', 'bing', 'serpapi'];
     var SCM_PROVIDERS = ['', 'github', 'gitlab', 'bitbucket'];
     var PM_PROVIDERS = ['', 'jira', 'linear', 'asana'];
 
@@ -414,14 +414,25 @@
         if (!c) return;
         c.innerHTML = '';
         var ws = state.web_search;
+        ws.serpapi = ws.serpapi || { api_key: 'SERPAPI_API_KEY', location: '', gl: '', hl: '' };
         var fields = [
-            fieldSelect('Provider', ws.provider, SEARCH_PROVIDERS, function (v) { ws.provider = v; renderAll(); })
+            fieldSelect('Provider', ws.provider, SEARCH_PROVIDERS, function (v) { ws.provider = v; renderAll(); },
+                'Search backend — duckduckgo needs no key, serpapi gives you Google Search + News + Scholar with one API key')
         ];
         if (ws.provider === 'google') {
             fields.push(fieldEnvVar('Google API Key', ws.google_api_key, function (v) { ws.google_api_key = v; renderOutput(); }, 'GOOGLE_API_KEY'));
             fields.push(fieldEnvVar('Google CX', ws.google_cx, function (v) { ws.google_cx = v; renderOutput(); }, 'GOOGLE_CSE_ID'));
         } else if (ws.provider === 'bing') {
             fields.push(fieldEnvVar('Bing API Key', ws.bing_api_key, function (v) { ws.bing_api_key = v; renderOutput(); }, 'BING_API_KEY'));
+        } else if (ws.provider === 'serpapi') {
+            fields.push(fieldEnvVar('SerpAPI Key', ws.serpapi.api_key, function (v) { ws.serpapi.api_key = v; renderOutput(); }, 'SERPAPI_API_KEY',
+                'Your SerpAPI key — one key works for Google Search, News, and Scholar'));
+            fields.push(fieldText('Location', ws.serpapi.location, function (v) { ws.serpapi.location = v; renderOutput(); }, 'Austin, Texas, United States',
+                'Optional: geo-target search results to a specific location'));
+            fields.push(fieldText('Country (gl)', ws.serpapi.gl, function (v) { ws.serpapi.gl = v; renderOutput(); }, 'us',
+                'Optional: two-letter country code for localized results (e.g. us, gb, de)'));
+            fields.push(fieldText('Language (hl)', ws.serpapi.hl, function (v) { ws.serpapi.hl = v; renderOutput(); }, 'en',
+                'Optional: two-letter language code for result language (e.g. en, fr, ja)'));
         }
         c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
     }
@@ -1032,6 +1043,13 @@
             if (ws.google_cx) lines.push('google_cx = ' + q('${' + ws.google_cx + '}'));
         } else if (ws.provider === 'bing') {
             if (ws.bing_api_key) lines.push('bing_api_key = ' + q('${' + ws.bing_api_key + '}'));
+        } else if (ws.provider === 'serpapi' && ws.serpapi) {
+            lines.push('');
+            lines.push('[web_search.serpapi]');
+            if (ws.serpapi.api_key) lines.push('serpapi_api_key = ' + q('${' + ws.serpapi.api_key + '}'));
+            if (ws.serpapi.location) lines.push('location = ' + q(ws.serpapi.location));
+            if (ws.serpapi.gl) lines.push('gl = ' + q(ws.serpapi.gl));
+            if (ws.serpapi.hl) lines.push('hl = ' + q(ws.serpapi.hl));
         }
         lines.push('');
     }
@@ -1662,6 +1680,12 @@
             if (ws.google_cx) lines.push('  google_cx: ' + yq('${' + ws.google_cx + '}'));
         } else if (ws.provider === 'bing') {
             if (ws.bing_api_key) lines.push('  bing_api_key: ' + yq('${' + ws.bing_api_key + '}'));
+        } else if (ws.provider === 'serpapi' && ws.serpapi) {
+            lines.push('  serpapi:');
+            if (ws.serpapi.api_key) lines.push('    serpapi_api_key: ' + yq('${' + ws.serpapi.api_key + '}'));
+            if (ws.serpapi.location) lines.push('    location: ' + yq(ws.serpapi.location));
+            if (ws.serpapi.gl) lines.push('    gl: ' + yq(ws.serpapi.gl));
+            if (ws.serpapi.hl) lines.push('    hl: ' + yq(ws.serpapi.hl));
         }
         lines.push('');
     }

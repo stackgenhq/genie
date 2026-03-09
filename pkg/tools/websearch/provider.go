@@ -41,10 +41,23 @@ func NewToolProvider(cfg Config, opts ...ProviderOption) *ToolProvider {
 }
 
 // GetTools returns the websearch tool configured from the provider's config,
-// as well as the separate wikipedia_search tool.
+// as well as the separate wikipedia_search tool. When SerpAPI is the selected
+// provider, the google_news_search and google_scholar_search tools are also
+// included for specialised search workflows.
 func (p *ToolProvider) GetTools() []tool.Tool {
-	return []tool.Tool{
+	tools := []tool.Tool{
 		NewTool(p.cfg, p.sp, p.opts...),
 		NewWikipediaTool(),
 	}
+
+	// When SerpAPI is the active provider, add specialised tools for
+	// Google News and Google Scholar — they use the same API key.
+	if normaliseProvider(p.cfg.Provider) == ProviderSerpAPI && p.cfg.SerpAPI.APIKey != "" {
+		tools = append(tools,
+			NewSerpAPINewsTool(p.cfg.SerpAPI),
+			NewSerpAPIScholarTool(p.cfg.SerpAPI),
+		)
+	}
+
+	return tools
 }

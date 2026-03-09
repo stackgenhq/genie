@@ -88,9 +88,18 @@ skills_roots = ["./skills"]
 
 # ── Web Search ─────────────────────────────────────────────
 # [web_search]
-# provider = "duckduckgo"    # or "google", "bing"
+# provider = "duckduckgo"    # or "google", "bing", "serpapi"
 # google_api_key = "${GOOGLE_API_KEY}"
 # google_cx = "${GOOGLE_CX}"
+
+# SerpAPI (https://serpapi.com) — single API key for Google Search, News, Scholar.
+# When provider = "serpapi", google_news_search and google_scholar_search tools
+# are also registered automatically.
+# [web_search.serpapi]
+# serpapi_api_key = "${SERPAPI_API_KEY}"
+# location = "Austin, Texas, United States"   # optional: geo-target results
+# gl = "us"                                    # optional: country code
+# hl = "en"                                    # optional: language code
 
 # ── Data Sources (Gmail, Drive, etc.) ─────────────────────
 # When enabled, Genie syncs items from connected sources into vector memory

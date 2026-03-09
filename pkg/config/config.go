@@ -147,6 +147,9 @@ func LoadGenieConfig(ctx context.Context, sp security.SecretProvider, path strin
 			GoogleAPIKey: get("GOOGLE_API_KEY"),
 			GoogleCX:     get("GOOGLE_CSE_ID"),
 			BingAPIKey:   get("BING_API_KEY"),
+			SerpAPI: websearch.SerpAPIConfig{
+				APIKey: get("SERPAPI_API_KEY"),
+			},
 		},
 		SkillLoadConfig:       tools.DefaultSkillLoadConfig(),
 		VectorMemory:          vector.DefaultConfig(ctx, sp),
