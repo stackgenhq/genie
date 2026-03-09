@@ -94,7 +94,8 @@ func resolveAuthenticator(cfg Config, oh *OIDCHandler) Authenticator {
 	return nil
 }
 
-// writeJSON writes a JSON error response and logs the auth failure.
+// writeJSON writes a JSON error response. It does NOT log — use
+// writeJSONWithIP when audit/rate-limiting visibility is needed.
 func writeJSON(w http.ResponseWriter, status int, code, message, authMethod string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

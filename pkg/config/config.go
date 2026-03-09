@@ -91,8 +91,11 @@ type GenieConfig struct {
 	Toolwrap toolwrap.MiddlewareConfig `yaml:"toolwrap,omitempty" toml:"toolwrap,omitempty"`
 
 	// ShellTool configures the run_shell tool's security behaviour.
-	// Use shell_tool.allowed_env to restrict which environment variables
-	// are visible to shell commands (principle of least privilege).
+	// Use shell_tool.allowed_env to control which environment variables
+	// are visible to shell commands (principle of least privilege). When
+	// shell_tool.allowed_env is unset or empty, only PATH is exposed to
+	// shell commands; any additional environment variables must be listed
+	// explicitly.
 	ShellTool unixtools.ShellToolConfig `yaml:"shell_tool,omitempty" toml:"shell_tool,omitempty"`
 
 	// DisablePensieve disables the Pensieve context management tools

@@ -108,8 +108,14 @@ func (t *ShellTool) Call(ctx context.Context, input []byte) (any, error) {
 	return t.executor.ExecuteCode(ctx, execInput)
 }
 
-// envPreamble builds a shell preamble that unsets the host environment and
-// re-exports only the allowed variables, resolved via SecretProvider at runtime.
+// envPreamble builds a shell preamble that clears the host environment using
+// `env -i` and re-exports only the allowed variables, resolved via SecretProvider
+// at runtime. The resulting string is prepended to the user's command, producing:
+//
+//	env -i PATH='/usr/bin:...' MY_VAR='value' sh -c '<user_command>'
+//
+// When there are no resolved variables, the preamble wraps the command with
+// `env -i` alone to ensure the subprocess has a clean environment.
 func (t *ShellTool) envPreamble(ctx context.Context) (string, error) {
 	// Collect sorted list of keys for deterministic output.
 	keys := make([]string, 0, len(t.allowedEnvKeys))
@@ -118,7 +124,7 @@ func (t *ShellTool) envPreamble(ctx context.Context) (string, error) {
 	}
 	sort.Strings(keys)
 
-	var exports []string
+	var envAssignments []string
 	for _, key := range keys {
 		val, err := t.secrets.GetSecret(ctx, security.GetSecretRequest{
 			Name:   key,
@@ -132,12 +138,15 @@ func (t *ShellTool) envPreamble(ctx context.Context) (string, error) {
 		}
 		// Shell-escape the value by single-quoting it.
 		val = strings.ReplaceAll(val, "'", "'\\''")
-		exports = append(exports, fmt.Sprintf("export %s='%s'", key, val))
+		envAssignments = append(envAssignments, fmt.Sprintf("%s='%s'", key, val))
 	}
 
-	var preamble string
-	if len(exports) > 0 {
-		preamble = strings.Join(exports, "; ") + "; "
+	// Always use env -i to clear inherited env. The resolved vars are passed
+	// as KEY=VAL arguments to env. The user command is then executed via sh -c
+	// inside the clean environment.
+	preamble := "env -i "
+	if len(envAssignments) > 0 {
+		preamble += strings.Join(envAssignments, " ") + " "
 	}
 	return preamble, nil
 }

@@ -66,6 +66,10 @@ Example: command="run list --repo owner/repo --status failure --limit 10"`,
 // The token is passed via both GH_TOKEN and GITHUB_TOKEN environment variables for the
 // subprocess only — it is never persisted to disk or leaked to other
 // processes.
+//
+// Security: the command string is split into argv tokens using strings.Fields
+// and passed directly to exec.CommandContext (no shell). Shell metacharacters
+// (pipes, semi-colons, backticks, etc.) are rejected to prevent injection.
 func (t *ghCLITool) Call(ctx context.Context, input []byte) (any, error) {
 	var args struct {
 		Command string `json:"command"`
@@ -78,9 +82,15 @@ func (t *ghCLITool) Call(ctx context.Context, input []byte) (any, error) {
 		return nil, fmt.Errorf("command is required")
 	}
 
-	// Split the command string into args for exec.
-	// We use sh -c to handle pipes, redirects, etc.
-	cmd := exec.CommandContext(ctx, "sh", "-c", "gh "+args.Command)
+	// Reject shell metacharacters to prevent injection.
+	// The gh CLI should never need pipes, redirects, or sub-shells.
+	if strings.ContainsAny(args.Command, ";|&`$(){}!><\n") {
+		return nil, fmt.Errorf("command contains disallowed shell metacharacters — use simple gh arguments only (no pipes, redirects, or sub-shells)")
+	}
+
+	// Split into argv and execute gh directly — no shell involved.
+	argv := strings.Fields(args.Command)
+	cmd := exec.CommandContext(ctx, "gh", argv...)
 
 	// Inject the token as both GH_TOKEN and GITHUB_TOKEN for this subprocess only.
 	// GH_TOKEN is the preferred env var for the gh CLI, while GITHUB_TOKEN is

@@ -60,9 +60,9 @@ token = "${GEMINI_API_KEY}"
 good_for_task = "summarizer"
 
 [[model_config.providers]]
-provider = "anthropic"
-model_name = "claude-sonnet-4-5-20250929"
-token = "${ANTHROPIC_API_KEY}"
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
 good_for_task = "terminal_calling"
 
 [[model_config.providers]]
@@ -288,11 +288,10 @@ allowed_domains = ["stackgen.com"]
 # enabled = true
 
 [hitl]
-# Auto-approve run_shell and graph tools for autonomous/background agents.
+# Auto-approve graph, and SCM tools for autonomous/background agents.
 # Without this, sub-agents block for their entire timeout (180s) waiting for
-# human approval that never comes in headless sessions. The local devops-copilot
-# example already has run_shell allowed; k8s deployment must match.
-always_allowed = ["graph_*", "scm_*", "http_request"]
+# human approval that never comes in headless sessions.
+always_allowed = ["graph_*", "scm_*"]
 
 # ── PII Redaction ───────────────────────────────────────────────────
 # Tuned for DevOps agents: infrastructure output is full of mixed-case

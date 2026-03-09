@@ -1864,7 +1864,7 @@ func truncateForLog(s string, maxLen int) string {
 // The tags are joined with commas because OTel baggage values are strings.
 // The langfuse exporter interprets the comma-separated value as an array.
 func withLangfuseTraceBaggage(ctx context.Context, tags ...string) context.Context {
-	value := url.QueryEscape(strings.Join(tags, ","))
+	value := url.PathEscape(strings.Join(tags, ","))
 	member, err := baggage.NewMember("langfuse.trace.tags", value)
 	if err != nil {
 		logger.GetLogger(ctx).Warn("failed to create langfuse trace baggage member", "error", err, "tags", tags)
@@ -1908,7 +1908,7 @@ func withPrincipalBaggage(ctx context.Context) context.Context {
 		if kv.val == "" {
 			continue
 		}
-		m, err := baggage.NewMember(kv.key, url.QueryEscape(kv.val))
+		m, err := baggage.NewMember(kv.key, url.PathEscape(kv.val))
 		if err != nil {
 			logger.GetLogger(ctx).Warn("failed to create principal baggage member",
 				"key", kv.key, "error", err)

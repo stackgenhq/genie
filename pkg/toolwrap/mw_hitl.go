@@ -165,7 +165,7 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 		// Skip if tool is in allowlist.
 		if m.store.IsAllowed(tc.ToolName) {
 			m.emitAutoApproved(ctx, tc.ToolName, string(tc.Args), tc.Justification)
-			m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "auto_approved", "always_allowed")
+			m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "auto_approved", "always_allowed", "")
 			return next(ctx, tc)
 		}
 
@@ -173,7 +173,7 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 		if m.approveList != nil && m.approveList.IsApproved(tc.ToolName, string(tc.Args)) {
 			logr.Debug("HITL approve list hit — auto-approved (temporary allow)")
 			m.emitAutoApproved(ctx, tc.ToolName, string(tc.Args), tc.Justification)
-			m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "auto_approved", "approve_list")
+			m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "auto_approved", "approve_list", "")
 			return next(ctx, tc)
 		}
 
@@ -185,7 +185,7 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 		if m.cache.has(approvalKey) {
 			logr.Debug("HITL cache hit — auto-approved (same session + tool + args)")
 			m.emitAutoApproved(ctx, tc.ToolName, string(tc.Args), tc.Justification)
-			m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "auto_approved", "cache_hit")
+			m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "auto_approved", "cache_hit", "")
 			return next(ctx, tc)
 		}
 
@@ -227,12 +227,12 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 		case resolved.Status == hitl.StatusRejected && resolved.Feedback != "":
 			m.storeFeedback(tc.ToolName, resolved.Feedback)
 			logr.Info("tool call rejected with feedback", "feedback", resolved.Feedback)
-			m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "rejected", resolved.Feedback)
+			m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "rejected", "", resolved.Feedback)
 			return nil, fmt.Errorf("tool call %s rejected by user: %s", tc.ToolName, resolved.Feedback)
 
 		case resolved.Status == hitl.StatusRejected:
 			logr.Info("tool call rejected by user")
-			m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "rejected", "")
+			m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "rejected", "", "")
 			return nil, fmt.Errorf("tool call %s rejected by user", tc.ToolName)
 
 		case resolved.Feedback != "":
@@ -245,7 +245,7 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 
 		logr.Info("tool call approved by user")
 		m.cache.add(approvalKey)
-		m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "approved", "")
+		m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "approved", "", "")
 		return next(ctx, tc)
 	}
 }
@@ -306,8 +306,13 @@ const AuditEventHITLDecision audit.EventType = "hitl_decision"
 
 // auditHITLDecision logs an HITL approval or rejection decision to the
 // durable audit trail. The decision field is "approved", "rejected",
-// or "auto_approved" (with reason for the auto path).
-func (m *hitlApprovalMiddleware) auditHITLDecision(ctx context.Context, toolName, args, justification, decision, reason string) {
+// or "auto_approved".
+//
+// reason is reserved for auto-approval classifications (e.g. "always_allowed",
+// "approve_list", "cache_hit"). feedback carries user-provided text from
+// rejection-with-feedback flows. This separation avoids ambiguity in audit
+// records between automated reasons and human input.
+func (m *hitlApprovalMiddleware) auditHITLDecision(ctx context.Context, toolName, args, justification, decision, reason, feedback string) {
 	if m.auditor == nil {
 		return
 	}
@@ -319,6 +324,9 @@ func (m *hitlApprovalMiddleware) auditHITLDecision(ctx context.Context, toolName
 	}
 	if reason != "" {
 		metadata["reason"] = reason
+	}
+	if feedback != "" {
+		metadata["feedback"] = feedback
 	}
 	if len(args) > 0 {
 		metadata["args"] = TruncateForAudit(args, 512)
