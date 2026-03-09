@@ -69,8 +69,6 @@ provider "helm" {
 
 # ── Data Sources ────────────────────────────────────────────────────────────
 
-data "aws_caller_identity" "current" {}
-
 data "aws_iam_openid_connect_provider" "eks" {
   url = data.aws_eks_cluster.this.identity[0].oidc[0].issuer
 }
@@ -78,7 +76,6 @@ data "aws_iam_openid_connect_provider" "eks" {
 locals {
   oidc_provider_arn = data.aws_iam_openid_connect_provider.eks.arn
   oidc_issuer       = replace(data.aws_eks_cluster.this.identity[0].oidc[0].issuer, "https://", "")
-  account_id        = data.aws_caller_identity.current.account_id
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
