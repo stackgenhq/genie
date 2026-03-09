@@ -2,8 +2,11 @@ package auth
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
+	"strings"
 
+	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/security/authcontext"
 )
 
@@ -56,6 +59,8 @@ func Middleware(cfg Config, oidcHandler ...*OIDCHandler) func(http.Handler) http
 
 			if p := auth.Authenticate(w, r); p != nil {
 				ctx := authcontext.WithPrincipal(r.Context(), *p)
+				ctx = logger.WithArgs(ctx, "principal", p)
+				logger.GetLogger(ctx).Info("user authenticated", "user", p, "ip", getIPAdress(r))
 				next.ServeHTTP(w, r.WithContext(ctx))
 			}
 		})
@@ -92,4 +97,31 @@ func writeJSON(w http.ResponseWriter, status int, code, message, authMethod stri
 		payload["auth_method"] = authMethod
 	}
 	json.NewEncoder(w).Encode(payload) //nolint:errcheck
+}
+
+// getIPAdress extracts the client IP address from an HTTP request.
+// It checks proxy headers first (X-Forwarded-For, X-Real-Ip) before falling
+// back to the connection's RemoteAddr.
+func getIPAdress(r *http.Request) string {
+	// X-Forwarded-For may contain a comma-separated list; the first entry
+	// is the original client IP.
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		ip := strings.TrimSpace(strings.SplitN(xff, ",", 2)[0])
+		if ip != "" {
+			return ip
+		}
+	}
+
+	// X-Real-Ip is set by some reverse proxies (e.g. Nginx).
+	if xri := r.Header.Get("X-Real-Ip"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+
+	// Fall back to the TCP connection address, stripping the port.
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		// RemoteAddr may already be a bare IP (no port).
+		return r.RemoteAddr
+	}
+	return ip
 }
