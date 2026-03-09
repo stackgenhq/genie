@@ -132,7 +132,7 @@ type Application struct {
 
 	// graphStore is the knowledge graph store for graph_* tools. Set during
 	// Bootstrap when [graph] is enabled; nil otherwise. Interface-driven so
-	// implementation can be swapped (in-memory now; Milvus, etc. later).
+	// implementation can be swapped (in-memory now; etc.).
 	graphStore graph.IStore
 
 	// reportGenerator runs the built-in activity report (genie:report cron action).
@@ -293,7 +293,7 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 	// --- Graph memory (interface-driven; in-memory or vector-backed) ---
 	if !a.cfg.Graph.Disabled {
 		if a.cfg.Graph.IsVectorStoreBackend() && vectorStore != nil {
-			// Reuse the configured vector store (Qdrant/Milvus) for graph storage.
+			// Reuse the configured vector store (Qdrant) for graph storage.
 			graphStore, gErr := graph.NewVectorBackedStore(vectorStore)
 			if gErr != nil {
 				log.Warn("failed to initialize vector-backed graph store, skipping graph tools", "error", gErr)

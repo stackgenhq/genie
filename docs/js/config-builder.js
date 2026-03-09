@@ -27,7 +27,7 @@
         skill_load: { max_loaded_skills: 3, skills_roots: ['./skills'] },
         mcp_servers: [],
         web_search: { provider: 'duckduckgo', google_api_key: 'GOOGLE_API_KEY', google_cx: 'GOOGLE_CSE_ID', bing_api_key: 'BING_API_KEY', serpapi: { api_key: 'SERPAPI_API_KEY', location: '', gl: '', hl: '' } },
-        vector_memory: { persistence_dir: '', embedding_provider: 'dummy', api_key: 'OPENAI_API_KEY', ollama_url: '', ollama_model: '', huggingface_url: '', gemini_api_key: 'GOOGLE_API_KEY', gemini_model: '', vector_store_provider: 'inmemory', allowed_metadata_keys: [], qdrant: { host: '', port: 6334, api_key: 'QDRANT_API_KEY', use_tls: false, collection_name: '', dimension: 0 }, milvus: { address: '', username: '', password: '', db_name: '', api_key: 'MILVUS_API_KEY', collection_name: '', dimension: 0 } },
+        vector_memory: { persistence_dir: '', embedding_provider: 'dummy', api_key: 'OPENAI_API_KEY', ollama_url: '', ollama_model: '', huggingface_url: '', gemini_api_key: 'GOOGLE_API_KEY', gemini_model: '', vector_store_provider: 'inmemory', allowed_metadata_keys: [], qdrant: { host: '', port: 6334, api_key: 'QDRANT_API_KEY', use_tls: false, collection_name: '', dimension: 0 } },
         graph: { disabled: false, backend: 'inmemory', data_dir: '' },
         data_sources: { enabled: false, sync_interval: '15m', search_keywords: [], gmail: { enabled: false, label_ids: [] }, gdrive: { enabled: false, folder_ids: [] }, github: { enabled: false, repos: [] }, gitlab: { enabled: false, repos: [] } },
         messenger: {
@@ -82,7 +82,7 @@
         'novel_reasoning', 'general_task', 'mathematical', 'long_horizon_autonomy', 'efficiency', 'computer_operations'];
     var MCP_TRANSPORTS = ['stdio', 'streamable_http', 'sse'];
     var EMBED_PROVIDERS = ['dummy', 'openai', 'ollama', 'huggingface', 'gemini'];
-    var VECTOR_STORE_PROVIDERS = ['inmemory', 'qdrant', 'milvus'];
+    var VECTOR_STORE_PROVIDERS = ['inmemory', 'qdrant'];
     var PLATFORMS = ['', 'slack', 'discord', 'telegram', 'teams', 'googlechat', 'whatsapp'];
 
     var SEARCH_PROVIDERS = ['duckduckgo', 'google', 'bing', 'serpapi'];
@@ -444,7 +444,7 @@
         c.innerHTML = '';
         var vm = state.vector_memory;
         var fields = [
-            fieldSelect('Vector Store Provider', vm.vector_store_provider, VECTOR_STORE_PROVIDERS, function (v) { vm.vector_store_provider = v; renderAll(); }, 'Backend for storing vectors — inmemory is simple/local, Qdrant and Milvus are production-grade and scalable'),
+            fieldSelect('Vector Store Provider', vm.vector_store_provider, VECTOR_STORE_PROVIDERS, function (v) { vm.vector_store_provider = v; renderAll(); }, 'Backend for storing vectors — inmemory is simple/local, Qdrant is production-grade and scalable'),
             fieldSelect('Embedding Provider', vm.embedding_provider, EMBED_PROVIDERS, function (v) { vm.embedding_provider = v; renderAll(); }, 'How Genie creates memory embeddings — OpenAI is best quality, Gemini is great, HuggingFace TEI is self-hosted, Ollama is free/local'),
             fieldText('Allowed Metadata Keys (comma-separated)', (vm.allowed_metadata_keys || []).join(', '), function (v) { vm.allowed_metadata_keys = splitCSV(v); renderOutput(); }, 'product, category, source', 'Optional list of metadata keys allowed in memory_store and memory_search — use for product/category buckets; leave empty to allow any key')
         ];
@@ -470,15 +470,6 @@
             fields.push(fieldText('Qdrant Collection Name', vm.qdrant.collection_name, function (v) { vm.qdrant.collection_name = v; renderOutput(); }, 'trpc_agent_documents', 'Collection name in Qdrant — defaults to trpc_agent_documents if empty'));
             fields.push(fieldNumber('Qdrant Dimension', vm.qdrant.dimension, function (v) { vm.qdrant.dimension = v; renderOutput(); }, 0, 10000, 'Vector dimension — must match embedder dimension, defaults to embedder dimension if 0'));
         }
-        if (vm.vector_store_provider === 'milvus') {
-            fields.push(fieldText('Milvus Address', vm.milvus.address, function (v) { vm.milvus.address = v; renderOutput(); }, 'localhost:19530', 'Milvus server address and port — required for Milvus backend'));
-            fields.push(fieldText('Milvus Username', vm.milvus.username, function (v) { vm.milvus.username = v; renderOutput(); }, '', 'Username for Milvus authentication — leave empty if not required'));
-            fields.push(fieldEnvVar('Milvus Password', vm.milvus.password, function (v) { vm.milvus.password = v; renderOutput(); }, 'MILVUS_PASSWORD', 'Password for Milvus authentication — leave empty if not required'));
-            fields.push(fieldText('Milvus DB Name', vm.milvus.db_name, function (v) { vm.milvus.db_name = v; renderOutput(); }, '', 'Database name in Milvus — leave empty for default'));
-            fields.push(fieldEnvVar('Milvus API Key', vm.milvus.api_key, function (v) { vm.milvus.api_key = v; renderOutput(); }, 'MILVUS_API_KEY', 'API key for Milvus authentication — leave empty if not required'));
-            fields.push(fieldText('Milvus Collection Name', vm.milvus.collection_name, function (v) { vm.milvus.collection_name = v; renderOutput(); }, 'trpc_agent_documents', 'Collection name in Milvus — defaults to trpc_agent_documents if empty'));
-            fields.push(fieldNumber('Milvus Dimension', vm.milvus.dimension, function (v) { vm.milvus.dimension = v; renderOutput(); }, 0, 10000, 'Vector dimension — must match embedder dimension, defaults to embedder dimension if 0'));
-        }
         c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
     }
 
@@ -490,7 +481,7 @@
         var g = state.graph;
         var fields = [
             fieldToggle('Disabled', g.disabled, function (v) { g.disabled = v; renderAll(); }, 'Turn off the knowledge graph and all graph_* tools (graph_store, graph_query)'),
-            fieldSelect('Backend', g.backend, ['inmemory', 'vectorstore'], function (v) { g.backend = v; renderAll(); }, 'Storage backend — inmemory uses gob+zstd snapshots, vectorstore reuses the configured vector store (Qdrant/Milvus)')
+            fieldSelect('Backend', g.backend, ['inmemory', 'vectorstore'], function (v) { g.backend = v; renderAll(); }, 'Storage backend — inmemory uses gob+zstd snapshots, vectorstore reuses the configured vector store (Qdrant)')
         ];
         if (g.backend === 'inmemory') {
             fields.push(fieldText('Data Dir', g.data_dir, function (v) { g.data_dir = v; renderOutput(); }, '~/.genie/my-agent', 'Where to save the graph snapshot (memory.bin.zst). If left empty, the graph will not be persisted to disk. Ignored when backend is vectorstore.'));
@@ -1081,17 +1072,6 @@
             if (vm.qdrant.use_tls) lines.push('use_tls = true');
             if (vm.qdrant.collection_name) lines.push('collection_name = ' + q(vm.qdrant.collection_name));
             if (vm.qdrant.dimension > 0) lines.push('dimension = ' + vm.qdrant.dimension);
-        }
-        if (vm.vector_store_provider === 'milvus') {
-            lines.push('');
-            lines.push('[vector_memory.milvus]');
-            if (vm.milvus.address) lines.push('milvus_address = ' + q(vm.milvus.address));
-            if (vm.milvus.username) lines.push('milvus_username = ' + q(vm.milvus.username));
-            if (vm.milvus.password) lines.push('milvus_password = ' + q('${' + vm.milvus.password + '}'));
-            if (vm.milvus.db_name) lines.push('milvus_db_name = ' + q(vm.milvus.db_name));
-            if (vm.milvus.api_key) lines.push('milvus_api_key = ' + q('${' + vm.milvus.api_key + '}'));
-            if (vm.milvus.collection_name) lines.push('milvus_collection_name = ' + q(vm.milvus.collection_name));
-            if (vm.milvus.dimension > 0) lines.push('milvus_dimension = ' + vm.milvus.dimension);
         }
         lines.push('');
     }
@@ -1717,16 +1697,6 @@
             if (vm.qdrant.use_tls) lines.push('    use_tls: true');
             if (vm.qdrant.collection_name) lines.push('    collection_name: ' + yq(vm.qdrant.collection_name));
             if (vm.qdrant.dimension > 0) lines.push('    dimension: ' + vm.qdrant.dimension);
-        }
-        if (vm.vector_store_provider === 'milvus') {
-            lines.push('  milvus:');
-            if (vm.milvus.address) lines.push('    milvus_address: ' + yq(vm.milvus.address));
-            if (vm.milvus.username) lines.push('    milvus_username: ' + yq(vm.milvus.username));
-            if (vm.milvus.password) lines.push('    milvus_password: ' + yq('${' + vm.milvus.password + '}'));
-            if (vm.milvus.db_name) lines.push('    milvus_db_name: ' + yq(vm.milvus.db_name));
-            if (vm.milvus.api_key) lines.push('    milvus_api_key: ' + yq('${' + vm.milvus.api_key + '}'));
-            if (vm.milvus.collection_name) lines.push('    milvus_collection_name: ' + yq(vm.milvus.collection_name));
-            if (vm.milvus.dimension > 0) lines.push('    milvus_dimension: ' + vm.milvus.dimension);
         }
         lines.push('');
     }

@@ -59,7 +59,7 @@ Genie depends on **trpc-agent-go** for the knowledge/vector side. From the codeb
 - **`knowledge/vectorstore`**  
   - **VectorStore** interface: `Add(ctx, doc *document.Document, embedding []float64)`, `Search(ctx, query)`, `Delete(ctx, id)`, `Get(ctx, id)`, `GetMetadata(ctx)`, `Close()`.  
   - **SearchQuery**: vector, limit, optional **SearchFilter** (metadata key-value).  
-  - Backends: **inmemory** (optional JSON snapshot), **Milvus**.  
+  - Backends: **inmemory** (optional JSON snapshot), **Qdrant**.  
   - No built-in “data source” or “connector” abstraction; trpc-agent-go gives **storage + embedder**, not ingestion from external APIs.
 
 ### 2.2 What Genie Adds Today

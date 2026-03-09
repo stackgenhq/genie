@@ -256,12 +256,12 @@ config_sections:
       Configure where these vectors are stored (persistence) and which model generates the embeddings.<br><br>
       <strong>Scalability:</strong> For small setups, use the default <code>inmemory</code> backend with
       <code>persistence_dir</code> to snapshot to disk. For large or multi-agent deployments (millions of vectors,
-      high throughput), set <code>vector_store_provider = "milvus"</code> and configure <code>[vector_memory.milvus]</code>;
-      Milvus is a dedicated vector database that scales horizontally and handles persistence itself.
+      high throughput), set <code>vector_store_provider = "qdrant"</code> and configure <code>[vector_memory.qdrant]</code>;
+      Qdrant is a dedicated vector database that scales horizontally and handles persistence itself.
     tables:
       - columns: [Key, Type, Default, Description]
         rows:
-          - ["vector_store_provider", "string", "`inmemory`", "Backend: <code>inmemory</code> (default) or <code>milvus</code> (scalable). Milvus ignores persistence_dir"]
+          - ["vector_store_provider", "string", "`inmemory`", "Backend: <code>inmemory</code> (default) or <code>qdrant</code> (scalable). Qdrant ignores persistence_dir"]
           - ["persistence_dir", "string", "—", "Where to save memory on disk (inmemory only; empty = ephemeral)"]
           - ["embedding_provider", "string", "`dummy`", "`openai` (best), `ollama` (local/free), or `dummy` (off)"]
           - ["api_key", "string", "—", "OpenAI API key (only when provider is `openai`)"]
@@ -281,7 +281,7 @@ config_sections:
       <code>graph_query</code> (queries neighbors, gets entity, finds shortest path via action field).<br><br>
       When enabled and <code>data_dir</code> is set, the in-memory backend persists to that directory as
       <code>memory.bin.zst</code> (gob+zstd). Alternatively, set <code>backend = "vectorstore"</code> to
-      store the graph in the same Qdrant/Milvus vector store used by memory tools (no snapshot files needed).
+      store the graph in the same Qdrant vector store used by memory tools (no snapshot files needed).
     tables:
       - columns: [Key, Type, Default, Description]
         rows:

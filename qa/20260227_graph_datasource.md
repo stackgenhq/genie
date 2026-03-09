@@ -12,7 +12,7 @@ Without the graph, the agent could only do semantic search over text (vector mem
 
 - **Structured relations**: The agent can store entities (people, repos, issues, documents) and relations (WORKED_ON, OWNS, MENTIONS) and query one-hop neighbors via `graph_query`.
 - **Datasource + graph**: Data from Gmail, Drive, GitHub (via data sources sync and `memory_search`) can be used to populate the graph; the agent then uses both vector search and graph traversal to answer.
-- **Interface-driven**: The store is behind an interface so the implementation can be swapped (in-memory now; Milvus or other backends later) without changing tools or prompts.
+- **Interface-driven**: The store is behind an interface so the implementation can be swapped (in-memory now; other backends later) without changing tools or prompts.
 
 ---
 
