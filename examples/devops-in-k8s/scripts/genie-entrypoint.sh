@@ -18,7 +18,7 @@ set -e
 #              openssl,                      — TLS cert inspection / expiry checks
 #              nmap-ncat (nc)                — TCP port reachability testing
 #   DB:         postgresql16-client (psql)   — direct DB diagnostics
-#   SCM:        git, gh                      — clone IaC repos, inspect drift, GitHub API
+#   SCM:        git, gh                      — clone IaC repos, inspect drift (gh via gh_cli tool)
 #   Shell:      curl, bash, su-exec          — HTTP client, scripting, privilege drop
 apk add --no-cache \
   aws-cli \
@@ -51,6 +51,9 @@ fi
 
 # ── 3. Install gh (GitHub CLI) ──────────────────────────────────────
 # gh is not in Alpine repos — install from GitHub releases.
+# The binary must be on PATH for the gh_cli agent tool to activate.
+# Authentication is handled at runtime by the ghcli tool provider
+# (injects GH_TOKEN per-subprocess), so no `gh auth login` needed here.
 if ! command -v gh >/dev/null 2>&1; then
   ARCH=$(uname -m)
   case "$ARCH" in
@@ -69,25 +72,10 @@ mkdir -p /home/stackgen/.kube
 cp /shared-credentials/kubeconfig /home/stackgen/.kube/config
 chown -R 65532:65532 /home/stackgen/.kube
 
-# ── 5. Authenticate gh CLI with GITHUB_TOKEN from shared credentials ─
-# The init container writes the token to a file on the shared volume so
-# it never appears in env vars in this container.
-#
-# IMPORTANT: User 65532 has no /etc/passwd entry in Alpine, so HOME
-# defaults to "/" and gh writes config to /.config/gh/ which sub-agents
-# can't find. We explicitly set HOME so all processes share the same path.
+# ── 5. Drop privileges and run genie ────────────────────────────────
+# HOME must be set explicitly: user 65532 has no /etc/passwd entry in
+# Alpine, so HOME defaults to "/" without this export.
 export HOME=/home/stackgen
-
-if [ -f /shared-credentials/github-token ] && command -v gh >/dev/null 2>&1; then
-  mkdir -p /home/stackgen/.config/gh
-  chown -R 65532:65532 /home/stackgen/.config
-  su-exec 65532:65532 sh -c 'HOME=/home/stackgen cat /shared-credentials/github-token | gh auth login --with-token 2>/dev/null' \
-    && echo "[entrypoint] gh CLI authenticated" \
-    || echo "[entrypoint] gh auth skipped (invalid token?)"
-fi
-
-# ── 6. Drop privileges and run genie ────────────────────────────────
-# HOME must be inherited so sub-agents (run_shell) can find gh config.
 # Ensure ~/.aws is writable by genie user for AWS SDK credential caching.
 mkdir -p /home/stackgen/.aws
 chown -R 65532:65532 /home/stackgen/.aws

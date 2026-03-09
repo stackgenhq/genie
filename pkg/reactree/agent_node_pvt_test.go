@@ -94,4 +94,44 @@ var _ = Describe("buildAgentPrompt", func() {
 		p := prompt("summarize", "", "", 0, nil)
 		Expect(p).To(ContainSubstring("omitted for brevity"))
 	})
+
+	It("includes partial/error subagent results from working memory", func() {
+		wm.Store("subagent:failed-scanner:result", "[TIME LIMIT REACHED] partial data from 2 of 5 repos")
+		p := prompt("synthesize findings", "", "", 0, nil)
+		Expect(p).To(ContainSubstring("Sub-Agent Results"))
+		Expect(p).To(ContainSubstring("failed-scanner"))
+		Expect(p).To(ContainSubstring("partial data from 2 of 5 repos"))
+	})
+
+	It("includes mixed success and partial subagent results", func() {
+		wm.Store("subagent:repo-scanner-1:result", "Found 3 open PRs in repo-A")
+		wm.Store("subagent:repo-scanner-2:result", "[BUDGET EXCEEDED] Found 1 PR in repo-B before limit")
+		p := prompt("compile report", "", "", 0, nil)
+		Expect(p).To(ContainSubstring("Sub-Agent Results"))
+		Expect(p).To(ContainSubstring("repo-scanner-1"))
+		Expect(p).To(ContainSubstring("repo-scanner-2"))
+		Expect(p).To(ContainSubstring("Found 3 open PRs"))
+		Expect(p).To(ContainSubstring("BUDGET EXCEEDED"))
+	})
+
+	It("includes failed episodic memories so agents learn from past failures", func() {
+		fakeEp.RetrieveReturns([]memory.Episode{
+			{Goal: "scan repos for PRs", Trajectory: "[BUDGET EXCEEDED] partial data", Status: memory.EpisodeFailure},
+		})
+		p := prompt("scan repos for PRs", "", "", 0, nil)
+		Expect(p).To(ContainSubstring("Relevant Past Experiences"))
+		Expect(p).To(ContainSubstring("BUDGET EXCEEDED"))
+		Expect(p).To(ContainSubstring(string(memory.EpisodeFailure)))
+	})
+
+	It("shows both successful and failed episodes for context", func() {
+		fakeEp.RetrieveReturns([]memory.Episode{
+			{Goal: "check services", Trajectory: "all 5 services healthy", Status: memory.EpisodeSuccess},
+			{Goal: "check services", Trajectory: "[TIME LIMIT] only checked 2", Status: memory.EpisodeFailure},
+		})
+		p := prompt("check services", "", "", 0, nil)
+		Expect(p).To(ContainSubstring("Relevant Past Experiences"))
+		Expect(p).To(ContainSubstring("all 5 services healthy"))
+		Expect(p).To(ContainSubstring("TIME LIMIT"))
+	})
 })

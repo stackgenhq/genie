@@ -552,6 +552,72 @@ var _ = Describe("storeResults", func() {
 		_, episode := fakeEpisodic.StoreArgsForCall(0)
 		Expect(episode.Status).To(Equal(memory.EpisodeFailure))
 	})
+
+	It("stores in episodic memory with failure status when status is error", func() {
+		fakeEpisodic := &memoryfakes.FakeEpisodicMemory{}
+		cat := &createAgentTool{episodic: fakeEpisodic}
+		req := CreateAgentRequest{AgentName: "test-agent", Goal: "scan repos"}
+
+		cat.storeResults(context.Background(), req, subAgentResult{
+			output:   "sub-agent error: connection refused",
+			status:   "error",
+			timedOut: false,
+		})
+
+		Expect(fakeEpisodic.StoreCallCount()).To(Equal(1))
+		_, episode := fakeEpisodic.StoreArgsForCall(0)
+		Expect(episode.Goal).To(Equal("scan repos"))
+		Expect(episode.Status).To(Equal(memory.EpisodeFailure))
+		Expect(episode.Trajectory).To(ContainSubstring("connection refused"))
+	})
+
+	It("stores in episodic memory with failure status when status is partial", func() {
+		fakeEpisodic := &memoryfakes.FakeEpisodicMemory{}
+		cat := &createAgentTool{episodic: fakeEpisodic}
+		req := CreateAgentRequest{AgentName: "budget-agent", Goal: "list PRs"}
+
+		cat.storeResults(context.Background(), req, subAgentResult{
+			output:   "[BUDGET EXCEEDED] partial findings",
+			status:   "partial",
+			timedOut: false,
+		})
+
+		Expect(fakeEpisodic.StoreCallCount()).To(Equal(1))
+		_, episode := fakeEpisodic.StoreArgsForCall(0)
+		Expect(episode.Goal).To(Equal("list PRs"))
+		Expect(episode.Status).To(Equal(memory.EpisodeFailure))
+		Expect(episode.Trajectory).To(ContainSubstring("BUDGET EXCEEDED"))
+	})
+
+	It("stores partial/error results in working memory for parent access", func() {
+		wm := memory.NewWorkingMemory()
+		cat := &createAgentTool{workingMemory: wm}
+		req := CreateAgentRequest{AgentName: "failed-agent", Goal: "check services"}
+
+		cat.storeResults(context.Background(), req, subAgentResult{
+			output: "[TIME LIMIT REACHED] partial data from 2 of 5 services",
+			status: "partial",
+		})
+
+		stored, ok := wm.Recall("subagent:failed-agent:result")
+		Expect(ok).To(BeTrue())
+		Expect(stored).To(ContainSubstring("partial data from 2 of 5 services"))
+	})
+
+	It("stores in episodic memory with success status for verified_corrected", func() {
+		fakeEpisodic := &memoryfakes.FakeEpisodicMemory{}
+		cat := &createAgentTool{episodic: fakeEpisodic}
+		req := CreateAgentRequest{AgentName: "test-agent", Goal: "find files"}
+
+		cat.storeResults(context.Background(), req, subAgentResult{
+			output: "corrected output",
+			status: "verified_corrected",
+		})
+
+		Expect(fakeEpisodic.StoreCallCount()).To(Equal(1))
+		_, episode := fakeEpisodic.StoreArgsForCall(0)
+		Expect(episode.Status).To(Equal(memory.EpisodeSuccess))
+	})
 })
 
 var _ = Describe("summarizeOutput", func() {

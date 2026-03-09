@@ -33,15 +33,7 @@ chmod 0640 /shared-credentials/genie.toml
 cp /app-config/AGENTS.md /shared-credentials/AGENTS.md
 chmod 0644 /shared-credentials/AGENTS.md
 
-# 4. Write GITHUB_TOKEN for gh CLI authentication in the genie container.
-#    Written to a separate file (not env var) to maintain credential isolation.
-GITHUB_TOKEN=$(aws secretsmanager get-secret-value --secret-id "$SECRETS_MANAGER_ARN" --region "$AWS_REGION" --query SecretString --output text | jq -r '.GITHUB_TOKEN // empty')
-if [ -n "${GITHUB_TOKEN:-}" ]; then
-  printf '%s' "$GITHUB_TOKEN" > /shared-credentials/github-token
-  chmod 0640 /shared-credentials/github-token
-fi
-
-# 5. Ensure the genie user (65532) can read everything
+# 4. Ensure the genie user (65532) can read everything
 chown -R 65532:65532 /shared-credentials
 
 echo "[credential-bootstrap] Credentials bootstrapped successfully."
