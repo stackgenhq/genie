@@ -1063,7 +1063,8 @@
 
     function graphToToml(lines) {
         var g = state.graph;
-        if (g.disabled && !g.data_dir && g.backend === 'inmemory') return;
+        // Always emit [graph] when disabled so the config is explicit.
+        if (!g.disabled && !g.data_dir && g.backend === 'inmemory') return;
         lines.push('[graph]');
         lines.push('disabled = ' + (g.disabled ? 'true' : 'false'));
         if (g.backend && g.backend !== 'inmemory') lines.push('backend = ' + q(g.backend));
@@ -1681,7 +1682,8 @@
 
     function graphToYaml(lines) {
         var g = state.graph;
-        if (g.disabled && !g.data_dir && g.backend === 'inmemory') return;
+        // Always emit graph: when disabled so the config is explicit.
+        if (!g.disabled && !g.data_dir && g.backend === 'inmemory') return;
         lines.push('graph:');
         lines.push('  disabled: ' + (g.disabled ? 'true' : 'false'));
         if (g.backend && g.backend !== 'inmemory') lines.push('  backend: ' + yq(g.backend));

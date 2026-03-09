@@ -164,7 +164,7 @@ type ApprovalStore interface {
 
 // defaultReadOnlyTools lists tool names that are auto-approved (no HITL gate).
 // Includes read-only tools and selected orchestration/mutation tools (e.g. create_agent,
-// graph_store_entity) that are intentionally exempt. Excluded from this list:
+// graph_store, graph_query) that are intentionally exempt. Excluded from this list:
 // send_message, sql_sql_query (writes), browser_navigate, delete_context, note (mutable).
 var defaultReadOnlyTools = []string{
 	"ask_clarifying_question",

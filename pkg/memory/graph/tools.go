@@ -232,6 +232,8 @@ func (t *graphQueryTool) execute(ctx context.Context, req GraphQueryRequest) (Gr
 }
 
 // neighbors returns one-hop neighbors of an entity.
+// Found reflects entity existence, not neighbor count — an isolated entity
+// with zero neighbors still returns Found: true.
 func (t *graphQueryTool) neighbors(ctx context.Context, entityID string, limit int) (GraphQueryResponse, error) {
 	if entityID == "" {
 		return GraphQueryResponse{}, fmt.Errorf("%w: entity_id is required for action=neighbors", ErrInvalidInput)
@@ -239,11 +241,20 @@ func (t *graphQueryTool) neighbors(ctx context.Context, entityID string, limit i
 	if limit <= 0 {
 		limit = 20
 	}
+	// Verify entity exists so Found accurately reflects "entity not in graph"
+	// vs "entity exists but has no neighbors".
+	entity, err := t.store.GetEntity(ctx, entityID)
+	if err != nil {
+		return GraphQueryResponse{}, err
+	}
+	if entity == nil {
+		return GraphQueryResponse{Found: false}, nil
+	}
 	neighbors, err := t.store.Neighbors(ctx, entityID, limit)
 	if err != nil {
 		return GraphQueryResponse{}, err
 	}
-	return GraphQueryResponse{Neighbors: neighbors, Count: len(neighbors), Found: len(neighbors) > 0}, nil
+	return GraphQueryResponse{Neighbors: neighbors, Count: len(neighbors), Found: true}, nil
 }
 
 // getEntity looks up a single entity by ID.
