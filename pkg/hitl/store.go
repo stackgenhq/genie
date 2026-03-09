@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/stackgenhq/genie/pkg/memory/graph"
+	"github.com/stackgenhq/genie/pkg/memory/vector"
 )
 
 //go:generate go tool counterfeiter -generate
@@ -193,7 +194,7 @@ var defaultReadOnlyTools = []string{
 	"list_file",
 	"list_skills",
 	"math",
-	"memory_search",
+	vector.MemorySearchToolName,
 	"ocr_extract_text",
 	"parse_document",
 	"read_file",

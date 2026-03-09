@@ -11,6 +11,8 @@ import (
 	"github.com/tidwall/sjson"
 
 	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/memory/graph"
+	"github.com/stackgenhq/genie/pkg/memory/vector"
 )
 
 // maxConsecutiveRepeatCalls is the number of consecutive identical tool calls
@@ -35,8 +37,8 @@ const maxConsecutiveToolFailures = 3
 //
 // Keep this as the single source of truth for retrieval tool classification.
 var retrievalTools = map[string]bool{
-	"memory_search": true,
-	"graph_query":   true,
+	vector.MemorySearchToolName: true,
+	graph.GraphQueryToolName:    true,
 }
 
 // IsRetrievalTool reports whether the given tool name is classified as a

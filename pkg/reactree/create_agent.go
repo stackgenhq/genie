@@ -913,7 +913,7 @@ func (t *createAgentTool) executePlan(ctx context.Context, req CreateAgentReques
 // these tools. Graph-only agents are not guarded because the vector store
 // probe cannot determine graph store emptiness.
 var vectorBackedTools = map[string]bool{
-	"memory_search": true,
+	vector.MemorySearchToolName: true,
 }
 
 // isRetrievalOnly returns true when every tool in the registry is a
