@@ -192,8 +192,8 @@ var _ = Describe("createAgentTool guard helpers", func() {
 			Expect(cat.isRetrievalOnly(reg)).To(BeFalse())
 		})
 
-		It("returns true for all four retrieval tools", func() {
-			reg := makeRegistry("memory_search", "graph_query", "graph_get_entity", "graph_shortest_path")
+		It("returns true for both retrieval tools", func() {
+			reg := makeRegistry("memory_search", "graph_query")
 			Expect(cat.isRetrievalOnly(reg)).To(BeTrue())
 		})
 	})
@@ -207,7 +207,7 @@ var _ = Describe("createAgentTool guard helpers", func() {
 		})
 
 		It("returns false for graph-only tools", func() {
-			reg := makeRegistry("graph_query", "graph_get_entity")
+			reg := makeRegistry("graph_query", "graph_store")
 			Expect(cat.hasVectorBackedTools(reg)).To(BeFalse())
 		})
 

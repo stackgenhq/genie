@@ -18,7 +18,7 @@ set -e
 #              openssl,                      — TLS cert inspection / expiry checks
 #              nmap-ncat (nc)                — TCP port reachability testing
 #   DB:         postgresql16-client (psql)   — direct DB diagnostics
-#   SCM:        git                          — clone IaC repos, inspect drift
+#   SCM:        git, gh                      — clone IaC repos, inspect drift, GitHub API
 #   Shell:      curl, bash, su-exec          — HTTP client, scripting, privilege drop
 apk add --no-cache \
   aws-cli \
@@ -49,12 +49,45 @@ if ! command -v trivy >/dev/null 2>&1; then
     | tar xz -C /usr/local/bin trivy 2>/dev/null || echo "[entrypoint] trivy install skipped (network/arch)"
 fi
 
-# ── 3. Copy pre-generated kubeconfig from shared volume ──────────────
+# ── 3. Install gh (GitHub CLI) ──────────────────────────────────────
+# gh is not in Alpine repos — install from GitHub releases.
+if ! command -v gh >/dev/null 2>&1; then
+  ARCH=$(uname -m)
+  case "$ARCH" in
+    x86_64)  GH_ARCH="linux_amd64" ;;
+    aarch64) GH_ARCH="linux_arm64" ;;
+    *)       GH_ARCH="linux_amd64" ;;
+  esac
+  GH_VERSION="2.87.3"
+  curl -sSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_${GH_ARCH}.tar.gz" \
+    | tar xz --strip-components=2 -C /usr/local/bin "gh_${GH_VERSION}_${GH_ARCH}/bin/gh" 2>/dev/null \
+    || echo "[entrypoint] gh install skipped (network/arch)"
+fi
+
+# ── 4. Copy pre-generated kubeconfig from shared volume ──────────────
 mkdir -p /home/stackgen/.kube
 cp /shared-credentials/kubeconfig /home/stackgen/.kube/config
 chown -R 65532:65532 /home/stackgen/.kube
 
-# ── 4. Drop privileges and run genie ────────────────────────────────
+# ── 5. Authenticate gh CLI with GITHUB_TOKEN from shared credentials ─
+# The init container writes the token to a file on the shared volume so
+# it never appears in env vars in this container.
+#
+# IMPORTANT: User 65532 has no /etc/passwd entry in Alpine, so HOME
+# defaults to "/" and gh writes config to /.config/gh/ which sub-agents
+# can't find. We explicitly set HOME so all processes share the same path.
+export HOME=/home/stackgen
+
+if [ -f /shared-credentials/github-token ] && command -v gh >/dev/null 2>&1; then
+  mkdir -p /home/stackgen/.config/gh
+  chown -R 65532:65532 /home/stackgen/.config
+  su-exec 65532:65532 sh -c 'HOME=/home/stackgen cat /shared-credentials/github-token | gh auth login --with-token 2>/dev/null' \
+    && echo "[entrypoint] gh CLI authenticated" \
+    || echo "[entrypoint] gh auth skipped (invalid token?)"
+fi
+
+# ── 6. Drop privileges and run genie ────────────────────────────────
+# HOME must be inherited so sub-agents (run_shell) can find gh config.
 exec su-exec 65532:65532 /usr/local/bin/genie \
   --config /shared-credentials/genie.toml \
   --log-level debug

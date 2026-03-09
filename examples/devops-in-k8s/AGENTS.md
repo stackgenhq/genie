@@ -17,7 +17,7 @@ You have the following CLI tools installed and ready to use:
 | **Networking** | `dig`, `nslookup`, `nc`, `curl`, `openssl` | DNS debugging, port testing, TLS inspection |
 | **Data** | `jq`, `yq`, `gawk` | JSON/YAML parsing, text processing |
 | **Database** | `psql` | PostgreSQL queries and diagnostics |
-| **SCM** | `git` | Clone and inspect infrastructure-as-code repos |
+| **SCM** | `git`, `gh` | Clone & inspect IaC repos, GitHub API (Actions, PRs, issues) |
 | **Scripting** | `python3` | Complex data processing, ad-hoc analysis |
 | **Debug** | `ps`, `top`, `less` | Process inspection, resource monitoring |
 
@@ -246,6 +246,88 @@ aws ec2 describe-instance-status --filters Name=instance-status.status,Values=im
 # 4. EKS cluster health
 echo '=== EKS Cluster Health ==='
 aws eks describe-cluster --name "$EKS_CLUSTER_NAME" --query 'cluster.[status,version,platformVersion,health]' --output json 2>/dev/null
+```
+
+### 🐙 F. GitHub CI/CD & Actions
+
+Run this when investigating GitHub Actions failures, deployment issues, or CI/CD pipeline health:
+
+```bash
+# NOTE: gh CLI is pre-authenticated via the credential bootstrap.
+# Set the target repo — override with the user's repo if specified.
+REPO="${GH_REPO:-owner/repo}"
+
+# 1. Recent failed workflow runs (last 20)
+echo '=== Failed Workflow Runs (last 20) ==='
+gh run list --repo "$REPO" --status failure --limit 20 \
+  --json databaseId,name,headBranch,conclusion,createdAt,url \
+  --template '{{range .}}{{tablerow .databaseId .name .headBranch .conclusion (timeago .createdAt) .url}}{{end}}' 2>/dev/null \
+  || echo "  Could not list workflow runs — check GITHUB_TOKEN permissions"
+
+# 2. Details + annotations of the most recent failure
+echo ''
+echo '=== Most Recent Failure Details ==='
+FAILED_RUN_ID=$(gh run list --repo "$REPO" --status failure --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null)
+if [ -n "$FAILED_RUN_ID" ] && [ "$FAILED_RUN_ID" != "null" ]; then
+  gh run view "$FAILED_RUN_ID" --repo "$REPO" 2>/dev/null | head -40
+  echo ''
+  echo '--- Failed Step Logs (last 80 lines) ---'
+  gh run view "$FAILED_RUN_ID" --repo "$REPO" --log-failed 2>/dev/null | tail -80
+else
+  echo "  No recent failures found"
+fi
+
+# 3. In-progress / queued runs (stuck CI?)
+echo ''
+echo '=== In-Progress & Queued Runs ==='
+gh run list --repo "$REPO" --status in_progress --limit 10 \
+  --json databaseId,name,headBranch,createdAt \
+  --template '{{range .}}{{tablerow .databaseId .name .headBranch (timeago .createdAt)}}{{end}}' 2>/dev/null
+gh run list --repo "$REPO" --status queued --limit 10 \
+  --json databaseId,name,headBranch,createdAt \
+  --template '{{range .}}{{tablerow .databaseId .name .headBranch (timeago .createdAt)}}{{end}}' 2>/dev/null
+
+# 4. Workflow success rate (last 50 runs)
+echo ''
+echo '=== Workflow Success Rate (last 50 runs) ==='
+gh run list --repo "$REPO" --limit 50 --json conclusion --jq '
+  { total: length,
+    success: [.[] | select(.conclusion=="success")] | length,
+    failure: [.[] | select(.conclusion=="failure")] | length,
+    cancelled: [.[] | select(.conclusion=="cancelled")] | length
+  } | "Total: \(.total) | ✓ Success: \(.success) | ✗ Failed: \(.failure) | ⊘ Cancelled: \(.cancelled) | Rate: \((.success * 100 / .total) | floor)%"' 2>/dev/null
+
+# 5. Recent deployments
+echo ''
+echo '=== Recent Deployments ==='
+gh api "repos/$REPO/deployments?per_page=10" --jq \
+  '.[] | "\(.environment) | \(.ref) | \(.created_at) | \(.creator.login)"' 2>/dev/null | head -10 \
+  || echo "  No deployments found or API not available"
+
+# 6. Open pull requests needing attention (stale or failing checks)
+echo ''
+echo '=== Open PRs with Failing Checks ==='
+gh pr list --repo "$REPO" --state open --limit 20 \
+  --json number,title,headRefName,statusCheckRollup,updatedAt \
+  --jq '[.[] | select(.statusCheckRollup != null) | select([.statusCheckRollup[] | select(.conclusion == "FAILURE")] | length > 0)] | .[:10][] | "PR #\(.number): \(.title) (\(.headRefName))"' 2>/dev/null
+
+# 7. Branch protection audit (default branch)
+echo ''
+echo '=== Branch Protection (default branch) ==='
+DEFAULT_BRANCH=$(gh api "repos/$REPO" --jq '.default_branch' 2>/dev/null || echo "main")
+gh api "repos/$REPO/branches/$DEFAULT_BRANCH/protection" --jq '{
+  enforce_admins: .enforce_admins.enabled,
+  required_reviews: .required_pull_request_reviews.required_approving_review_count,
+  status_checks: .required_status_checks.strict,
+  linear_history: .required_linear_history.enabled
+}' 2>/dev/null || echo "  Branch protection not configured or insufficient permissions"
+
+# 8. Dependabot / security alerts summary
+echo ''
+echo '=== Open Dependabot Alerts ==='
+gh api "repos/$REPO/dependabot/alerts?state=open&per_page=10" --jq \
+  '.[] | "\(.security_advisory.severity | ascii_upcase): \(.security_advisory.summary) (\(.dependency.package.name))"' 2>/dev/null | head -10 \
+  || echo "  Dependabot alerts not available (check permissions or enablement)"
 ```
 
 ---

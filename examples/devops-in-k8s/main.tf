@@ -286,6 +286,17 @@ resource "kubernetes_manifest" "external_secret" {
   depends_on = [kubernetes_manifest.secret_store]
 }
 
+# Read the synced K8s Secret so we can hash its keys for the rollout annotation.
+# depends_on ensures this is read after ExternalSecrets syncs the secret.
+data "kubernetes_secret" "genie_secrets" {
+  metadata {
+    name      = "genie-secrets"
+    namespace = var.kubernetes.namespace
+  }
+
+  depends_on = [kubernetes_manifest.external_secret]
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 # PART 4 – Kubernetes Resources: ConfigMap, ServiceAccount, Deployment,
 #           Service, Ingress
@@ -460,6 +471,14 @@ resource "kubernetes_deployment" "genie" {
         labels = {
           app = "genie"
         }
+
+        annotations = {
+          # Force rolling restart when ConfigMap or Secret data changes.
+          # Terraform recomputes the SHA on every plan; if the hash differs
+          # the pod template spec changes and Kubernetes triggers a rollout.
+          "checksum/config"  = sha256(kubernetes_config_map.genie.data["genie.toml"])
+          "checksum/secrets" = sha256(join(",", sort(keys(data.kubernetes_secret.genie_secrets.data))))
+        }
       }
 
       spec {
@@ -619,6 +638,14 @@ resource "kubernetes_deployment" "genie" {
 
           port {
             container_port = var.genie.port
+          }
+
+          # HOME must be set explicitly — user 65532 has no /etc/passwd
+          # entry in Alpine, so HOME defaults to "/". Sub-agents and gh CLI
+          # rely on HOME to locate config files (~/.config/gh/hosts.yml).
+          env {
+            name  = "HOME"
+            value = "/home/stackgen"
           }
 
           env {
