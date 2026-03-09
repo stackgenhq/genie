@@ -3,9 +3,10 @@
 variable "aws" {
   description = "AWS Configuration"
   type = object({
-    region              = optional(string, "us-east-1")
-    eks_cluster_name    = string
-    secrets_manager_arn = string
+    region               = optional(string, "us-east-1")
+    eks_cluster_name     = string
+    secrets_manager_arn  = string
+    secrets_manager_name = string
   })
 }
 

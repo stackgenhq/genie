@@ -8,6 +8,21 @@ agent_name  = "devops-copilot"
 file = "/app/AGENTS.md"
 disable_resume = true
 
+[security]
+[security.secrets]
+"OPENAI_API_KEY" = "awssecretsmanager://${SECRETS_MANAGER_NAME}?region=${AWS_REGION}&decoder=string&path=OPENAI_API_KEY"
+"ANTHROPIC_API_KEY" = "awssecretsmanager://${SECRETS_MANAGER_NAME}?region=${AWS_REGION}&decoder=string&path=ANTHROPIC_API_KEY"
+"GEMINI_API_KEY" = "awssecretsmanager://${SECRETS_MANAGER_NAME}?region=${AWS_REGION}&decoder=string&path=GEMINI_API_KEY"
+"GITHUB_TOKEN" = "awssecretsmanager://${SECRETS_MANAGER_NAME}?region=${AWS_REGION}&decoder=string&path=GITHUB_TOKEN"
+"GRAFANA_URL" = "awssecretsmanager://${SECRETS_MANAGER_NAME}?region=${AWS_REGION}&decoder=string&path=GRAFANA_URL"
+"GRAFANA_API_KEY" = "awssecretsmanager://${SECRETS_MANAGER_NAME}?region=${AWS_REGION}&decoder=string&path=GRAFANA_API_KEY"
+"LANGFUSE_PUBLIC_KEY" = "awssecretsmanager://${SECRETS_MANAGER_NAME}?region=${AWS_REGION}&decoder=string&path=LANGFUSE_PUBLIC_KEY"
+"LANGFUSE_SECRET_KEY" = "awssecretsmanager://${SECRETS_MANAGER_NAME}?region=${AWS_REGION}&decoder=string&path=LANGFUSE_SECRET_KEY"
+"LANGFUSE_HOST" = "awssecretsmanager://${SECRETS_MANAGER_NAME}?region=${AWS_REGION}&decoder=string&path=LANGFUSE_HOST"
+"OIDC_ISSUER_URL" = "awssecretsmanager://${SECRETS_MANAGER_NAME}?region=${AWS_REGION}&decoder=string&path=OIDC_ISSUER_URL"
+"OIDC_CLIENT_ID" = "awssecretsmanager://${SECRETS_MANAGER_NAME}?region=${AWS_REGION}&decoder=string&path=OIDC_CLIENT_ID"
+"OIDC_CLIENT_SECRET" = "awssecretsmanager://${SECRETS_MANAGER_NAME}?region=${AWS_REGION}&decoder=string&path=OIDC_CLIENT_SECRET"
+
 [db_config]
 # PostgreSQL — DSN is injected from Secrets Manager via ExternalSecrets.
 # When DSN is set, the SQLite db_file is ignored.

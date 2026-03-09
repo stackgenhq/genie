@@ -9,9 +9,9 @@
 # ──────────────────────────────────────────────────────────────────────
 set -e
 
-# 0. Install envsubst (from gettext) — not bundled in amazon/aws-cli image
-echo "[credential-bootstrap] Installing envsubst..."
-yum install -y -q gettext >/dev/null 2>&1
+# 0. Install envsubst (from gettext) and jq — not bundled in amazon/aws-cli image
+echo "[credential-bootstrap] Installing envsubst and jq..."
+yum install -y -q gettext jq >/dev/null 2>&1
 
 # 1. Generate kubeconfig using IRSA credentials
 aws eks update-kubeconfig \
@@ -26,7 +26,7 @@ chmod 0640 /shared-credentials/kubeconfig
 #    environment variable values so the genie binary can read credentials
 #    from the file instead of env vars.
 cp /app-config/genie.toml /tmp/genie.toml.tpl
-envsubst < /tmp/genie.toml.tpl > /shared-credentials/genie.toml
+envsubst '$POSTGRES_DSN $SECRETS_MANAGER_ARN $SECRETS_MANAGER_NAME $AWS_REGION' < /tmp/genie.toml.tpl > /shared-credentials/genie.toml
 chmod 0640 /shared-credentials/genie.toml
 
 # 3. Copy AGENTS.md (not sensitive, but keeps mounts clean)
@@ -35,6 +35,7 @@ chmod 0644 /shared-credentials/AGENTS.md
 
 # 4. Write GITHUB_TOKEN for gh CLI authentication in the genie container.
 #    Written to a separate file (not env var) to maintain credential isolation.
+GITHUB_TOKEN=$(aws secretsmanager get-secret-value --secret-id "$SECRETS_MANAGER_ARN" --region "$AWS_REGION" --query SecretString --output text | jq -r '.GITHUB_TOKEN // empty')
 if [ -n "${GITHUB_TOKEN:-}" ]; then
   printf '%s' "$GITHUB_TOKEN" > /shared-credentials/github-token
   chmod 0640 /shared-credentials/github-token

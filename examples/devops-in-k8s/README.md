@@ -22,9 +22,9 @@ Deploy the [Genie](https://github.com/stackgenhq/genie) DevOps Copilot to an EKS
 │  │                      │    │ │ GRAFANA_URL / API_KEY     │ │            │
 │  │                      │    │ └──────────────────────────┘ │            │
 │  │                      │    └──────────────┬───────────────┘            │
-│  │ ┌──────────────────┐ │                   │                            │
-│  │ │ ServiceAccount   │◄├───────────────────┘                            │
-│  │ │ genie-sa (IRSA)  │ │   ExternalSecret sync                         │
+│  │ ┌──────────────────┐ │                                                │
+│  │ │ ServiceAccount   │ │                                                │
+│  │ │ genie-sa (IRSA)  │ │                                                │
 │  │ └────────┬─────────┘ │                                                │
 │  │          │            │                                                │
 │  │ ┌────────▼───────────────────────────────────────────────┐            │
@@ -81,7 +81,6 @@ The deployment uses an **init container + sidecar** architecture to ensure **no 
 | Requirement | Details |
 |---|---|
 | **EKS Cluster** | With [OIDC provider](https://docs.aws.amazon.com/eks/latest/userguide/enable-iam-roles-for-service-accounts.html) configured |
-| **External Secrets Operator** | [Installed](https://external-secrets.io/latest/introduction/getting-started/) on the cluster |
 | **NGINX Ingress Controller** | Running on the cluster with `ingressClassName: nginx` |
 | **AWS CLI / Profile** | Configured with admin access to the target account (SSO supported) |
 | **OpenTofu** | ≥ 1.5 (or Terraform ≥ 1.5) |
@@ -169,12 +168,6 @@ tofu apply
 ### 4. Verify
 
 ```bash
-# Check the ExternalSecret synced successfully
-kubectl get externalsecret -n genie
-
-# Check the generated K8s secret
-kubectl get secret genie-secrets -n genie
-
 # Check all pods are running
 kubectl get pods -n genie
 
@@ -215,12 +208,7 @@ aws secretsmanager put-secret-value \
   --secret-string '{ ... }'
 ```
 
-The ExternalSecret refreshes every **15 minutes** by default. To force an immediate sync:
 
-```bash
-kubectl annotate externalsecret genie-secrets -n genie \
-  force-sync=$(date +%s) --overwrite
-```
 
 ## Terraform Resources Created
 
@@ -230,8 +218,6 @@ kubectl annotate externalsecret genie-secrets -n genie \
 | `aws_iam_role_policy_attachment.readonly` | IAM Policy | Attaches AWS ReadOnlyAccess managed policy |
 | `aws_eks_access_entry.genie_readonly` | EKS Access Entry | Maps the SA IAM role to the K8s cluster |
 | `kubernetes_namespace.genie` | Namespace | Optional – creates the namespace if `create_namespace = true` |
-| `kubernetes_manifest.secret_store` | SecretStore | Connects external-secrets operator to AWS Secrets Manager |
-| `kubernetes_manifest.external_secret` | ExternalSecret | Syncs API keys from Secrets Manager into K8s Secret |
 | `kubernetes_config_map.genie` | ConfigMap | Mounts `genie.toml` and `AGENTS.md` into the pod |
 | `kubernetes_config_map.scripts` | ConfigMap | Entrypoint scripts for init container, sidecar, and main |
 | `kubernetes_service_account.genie` | ServiceAccount | Annotated with IRSA role ARN for AWS access |
@@ -282,19 +268,7 @@ examples/devops-in-k8s/
 
 ### Adding More Secrets
 
-To sync additional secrets (e.g., Datadog, PagerDuty), add entries to the `data` block in the `kubernetes_manifest.external_secret` resource in `main.tf`:
-
-```hcl
-{
-  secretKey = "DD_API_KEY"
-  remoteRef = {
-    key      = var.aws.secrets_manager_arn
-    property = "DD_API_KEY"
-  }
-},
-```
-
-Then add the corresponding key to your AWS Secrets Manager secret and uncomment the relevant MCP server section in `genie.toml`.
+To add additional secrets (e.g., Datadog, PagerDuty), add the corresponding key to your AWS Secrets Manager secret, update `genie.toml`'s `[security.secrets]` section mapping, and uncomment the relevant MCP server section.
 
 ### Using a Different Ingress Host
 

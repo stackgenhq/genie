@@ -126,6 +126,25 @@ resource "aws_iam_role_policy_attachment" "readonly" {
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
 }
 
+# Attach an inline policy explicitly granting access to the secret value.
+# The ReadOnlyAccess managed policy does NOT include secretsmanager:GetSecretValue.
+resource "aws_iam_role_policy" "genie_secret_access" {
+  name   = "genie-secret-access"
+  role   = aws_iam_role.genie_readonly.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ]
+        Effect   = "Allow"
+        Resource = "${var.aws.secrets_manager_arn}-*"
+      }
+    ]
+  })
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 # PART 1.5 – EKS Access Entry
 # Map the SA's AWS IAM role to the Kubernetes cluster so the Copilot can log in
@@ -151,151 +170,6 @@ resource "kubernetes_namespace" "genie" {
   }
 }
 
-# ═════════════════════════════════════════════════════════════════════════════
-# PART 3 – External Secrets: SecretStore + ExternalSecret
-# ═════════════════════════════════════════════════════════════════════════════
-
-# SecretStore pointing at AWS Secrets Manager (uses the IRSA role from the SA)
-resource "kubernetes_manifest" "secret_store" {
-  manifest = {
-    apiVersion = "external-secrets.io/v1beta1"
-    kind       = "SecretStore"
-    metadata = {
-      name      = "genie-secret-store"
-      namespace = var.kubernetes.namespace
-    }
-    spec = {
-      provider = {
-        aws = {
-          service = "SecretsManager"
-          region  = var.aws.region
-        }
-      }
-    }
-  }
-}
-
-# ExternalSecret: syncs API keys from AWS Secrets Manager → K8s Secret "genie-secrets"
-resource "kubernetes_manifest" "external_secret" {
-  manifest = {
-    apiVersion = "external-secrets.io/v1beta1"
-    kind       = "ExternalSecret"
-    metadata = {
-      name      = "genie-secrets"
-      namespace = var.kubernetes.namespace
-    }
-    spec = {
-      refreshInterval = "15m"
-      secretStoreRef = {
-        name = "genie-secret-store"
-        kind = "SecretStore"
-      }
-      target = {
-        name           = "genie-secrets"
-        creationPolicy = "Owner"
-      }
-      data = [
-        {
-          secretKey = "LANGFUSE_HOST"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "LANGFUSE_HOST"
-          }
-        },
-        {
-          secretKey = "LANGFUSE_PUBLIC_KEY"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "LANGFUSE_PUBLIC_KEY"
-          }
-        },
-        {
-          secretKey = "LANGFUSE_SECRET_KEY"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "LANGFUSE_SECRET_KEY"
-          }
-        },
-        {
-          secretKey = "OPENAI_API_KEY"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "OPENAI_API_KEY"
-          }
-        },
-        {
-          secretKey = "ANTHROPIC_API_KEY"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "ANTHROPIC_API_KEY"
-          }
-        },
-        {
-          secretKey = "GEMINI_API_KEY"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "GEMINI_API_KEY"
-          }
-        },
-        {
-          secretKey = "GITHUB_TOKEN"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "GITHUB_TOKEN"
-          }
-        },
-        {
-          secretKey = "GRAFANA_URL"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "GRAFANA_URL"
-          }
-        },
-        {
-          secretKey = "GRAFANA_API_KEY"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "GRAFANA_API_KEY"
-          }
-        },
-        {
-          secretKey = "OIDC_ISSUER_URL"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "OIDC_ISSUER_URL"
-          }
-        },
-        {
-          secretKey = "OIDC_CLIENT_ID"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "OIDC_CLIENT_ID"
-          }
-        },
-        {
-          secretKey = "OIDC_CLIENT_SECRET"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "OIDC_CLIENT_SECRET"
-          }
-        },
-      ]
-    }
-  }
-
-  depends_on = [kubernetes_manifest.secret_store]
-}
-
-# Read the synced K8s Secret so we can hash its keys for the rollout annotation.
-# depends_on ensures this is read after ExternalSecrets syncs the secret.
-data "kubernetes_secret" "genie_secrets" {
-  metadata {
-    name      = "genie-secrets"
-    namespace = var.kubernetes.namespace
-  }
-
-  depends_on = [kubernetes_manifest.external_secret]
-}
 
 # ═════════════════════════════════════════════════════════════════════════════
 # PART 4 – Kubernetes Resources: ConfigMap, ServiceAccount, Deployment,
@@ -477,7 +351,6 @@ resource "kubernetes_deployment" "genie" {
           # Terraform recomputes the SHA on every plan; if the hash differs
           # the pod template spec changes and Kubernetes triggers a rollout.
           "checksum/config"  = sha256(kubernetes_config_map.genie.data["genie.toml"])
-          "checksum/secrets" = sha256(join(",", sort(keys(data.kubernetes_secret.genie_secrets.data))))
         }
       }
 
@@ -520,12 +393,14 @@ resource "kubernetes_deployment" "genie" {
             value = aws_iam_role.genie_readonly.arn
           }
 
-          # All application secrets — only in this init container
-          env_from {
-            secret_ref {
-              name     = "genie-secrets"
-              optional = true
-            }
+          env {
+            name  = "SECRETS_MANAGER_ARN"
+            value = var.aws.secrets_manager_arn
+          }
+
+          env {
+            name  = "SECRETS_MANAGER_NAME"
+            value = var.aws.secrets_manager_name
           }
 
           env_from {
