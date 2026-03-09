@@ -44,10 +44,13 @@ func ExtractDataURLFiles(message, tempDir string) (cleanMessage string, attachme
 	}
 
 	// Ensure temp dir is safe and within os.TempDir() to prevent path traversal.
-	// If an unsafe path is provided, fallback to a safe default.
+	// If an unsafe path is provided, reject it immediately.
 	safeTempDir := filepath.Clean(tempDir)
-	if !strings.HasPrefix(safeTempDir, filepath.Clean(os.TempDir())) {
-		safeTempDir = filepath.Join(os.TempDir(), "genie-agui-media", "tmp-default")
+	baseTempDir := filepath.Clean(os.TempDir())
+
+	isSafe := safeTempDir == baseTempDir || strings.HasPrefix(safeTempDir, baseTempDir+string(filepath.Separator))
+	if !isSafe {
+		return message, nil
 	}
 
 	// Ensure temp dir exists.
@@ -60,6 +63,10 @@ func ExtractDataURLFiles(message, tempDir string) (cleanMessage string, attachme
 	lastEnd := 0
 
 	for _, match := range matches {
+		if len(match) < 8 {
+			continue
+		}
+
 		fullStart, fullEnd := match[0], match[1]
 		fileName := message[match[2]:match[3]]
 		declaredMIME := message[match[4]:match[5]]
@@ -71,8 +78,8 @@ func ExtractDataURLFiles(message, tempDir string) (cleanMessage string, attachme
 
 		// Decode the data URL.
 		data, mime, err := decodeDataURL(dataURL)
-		if err != nil {
-			continue // skip malformed data URLs
+		if err != nil || len(data) == 0 {
+			continue // skip malformed or empty data URLs
 		}
 
 		// Use declared MIME if the data URL didn't contain one.
