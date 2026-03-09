@@ -141,6 +141,7 @@ func (s *gormStore) Create(ctx context.Context, req CreateRequest) (ApprovalRequ
 		Args:          req.Args,
 		Status:        string(StatusPending),
 		CreatedAt:     now,
+		CreatedBy:     req.CreatedBy,
 		SenderContext: req.SenderContext,
 		Question:      req.Question,
 	}
@@ -295,6 +296,7 @@ func toApprovalRequest(row db.Approval) ApprovalRequest {
 		ExpiresAt:     row.ExpiresAt,
 		ResolvedAt:    row.ResolvedAt,
 		ResolvedBy:    row.ResolvedBy,
+		CreatedBy:     row.CreatedBy,
 		SenderContext: row.SenderContext,
 		Question:      row.Question,
 	}

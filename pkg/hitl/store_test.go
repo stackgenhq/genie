@@ -355,4 +355,85 @@ var _ = Describe("GORMStore", func() {
 			})))
 		})
 	})
+
+	Describe("CreatedBy", func() {
+		It("should persist CreatedBy when creating an approval", func() {
+			approval, err := store.Create(ctx, hitl.CreateRequest{
+				ThreadID:  "t1",
+				RunID:     "r1",
+				ToolName:  "write_file",
+				Args:      `{"path":"test.txt"}`,
+				CreatedBy: "alice@example.com",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(approval.CreatedBy).To(Equal("alice@example.com"))
+
+			// Verify it round-trips through Get
+			fetched, err := store.Get(ctx, approval.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fetched.CreatedBy).To(Equal("alice@example.com"))
+		})
+
+		It("should default to empty CreatedBy for backward compatibility", func() {
+			approval, err := store.Create(ctx, hitl.CreateRequest{
+				ThreadID: "t1", RunID: "r1", ToolName: "write_file", Args: "{}",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(approval.CreatedBy).To(BeEmpty())
+		})
+
+		It("should preserve CreatedBy through WaitForResolution", func() {
+			approval, err := store.Create(ctx, hitl.CreateRequest{
+				ThreadID:  "t1",
+				RunID:     "r1",
+				ToolName:  "deploy",
+				Args:      "{}",
+				CreatedBy: "bob@example.com",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			err = store.Resolve(ctx, hitl.ResolveRequest{
+				ApprovalID: approval.ID,
+				Decision:   hitl.StatusApproved,
+				ResolvedBy: "bob@example.com",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			result, err := store.WaitForResolution(ctx, approval.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.CreatedBy).To(Equal("bob@example.com"))
+		})
+	})
+
+	Describe("CanResolve", func() {
+		It("should allow creator to resolve their own approval", func() {
+			approval := hitl.ApprovalRequest{CreatedBy: "alice@example.com"}
+			Expect(hitl.CanResolve(approval, "alice@example.com", "user")).To(BeTrue())
+		})
+
+		It("should allow admin to resolve any approval", func() {
+			approval := hitl.ApprovalRequest{CreatedBy: "alice@example.com"}
+			Expect(hitl.CanResolve(approval, "admin@example.com", "admin")).To(BeTrue())
+		})
+
+		It("should deny non-creator non-admin from resolving", func() {
+			approval := hitl.ApprovalRequest{CreatedBy: "alice@example.com"}
+			Expect(hitl.CanResolve(approval, "eve@example.com", "user")).To(BeFalse())
+		})
+
+		It("should allow anyone to resolve legacy approvals without CreatedBy", func() {
+			approval := hitl.ApprovalRequest{CreatedBy: ""}
+			Expect(hitl.CanResolve(approval, "anyone@example.com", "user")).To(BeTrue())
+		})
+
+		It("should allow demo user to resolve legacy approvals", func() {
+			approval := hitl.ApprovalRequest{CreatedBy: ""}
+			Expect(hitl.CanResolve(approval, "demo-user", "demo")).To(BeTrue())
+		})
+
+		It("should deny agent role from resolving other user's approval", func() {
+			approval := hitl.ApprovalRequest{CreatedBy: "alice@example.com"}
+			Expect(hitl.CanResolve(approval, "agent-bot", "agent")).To(BeFalse())
+		})
+	})
 })

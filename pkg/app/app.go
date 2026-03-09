@@ -1863,6 +1863,13 @@ func truncateForLog(s string, maxLen int) string {
 //
 // The tags are joined with commas because OTel baggage values are strings.
 // The langfuse exporter interprets the comma-separated value as an array.
+//
+// We use url.PathEscape (not QueryEscape) because OTel baggage treats `+`
+// literally — QueryEscape encodes spaces as `+` which is NOT decoded back
+// to spaces by the baggage spec, producing garbled values. PathEscape
+// encodes spaces as `%20` which is correctly round-tripped.
+// Note: PathEscape does not encode `/` — this is acceptable because tags
+// and user IDs should not contain bare slashes.
 func withLangfuseTraceBaggage(ctx context.Context, tags ...string) context.Context {
 	value := url.PathEscape(strings.Join(tags, ","))
 	member, err := baggage.NewMember("langfuse.trace.tags", value)

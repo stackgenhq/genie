@@ -84,11 +84,14 @@ func (t *ShellTool) Call(ctx context.Context, input []byte) (any, error) {
 	}
 
 	// Build the command with env filtering preamble.
-	preamble, err := t.envPreamble(ctx)
+	prefix, suffix, err := t.envPreamble(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve environment: %w", err)
 	}
-	fullCommand := preamble + args.Command
+	// Escape single quotes in the user command so it can be safely wrapped
+	// inside the single-quoted sh -c '...' block.
+	escapedCmd := strings.ReplaceAll(args.Command, "'", "'\\''")
+	fullCommand := prefix + escapedCmd + suffix
 
 	// Adapt single command to CodeExecutionInput
 	lang := "sh"
@@ -110,13 +113,16 @@ func (t *ShellTool) Call(ctx context.Context, input []byte) (any, error) {
 
 // envPreamble builds a shell preamble that clears the host environment using
 // `env -i` and re-exports only the allowed variables, resolved via SecretProvider
-// at runtime. The resulting string is prepended to the user's command, producing:
+// at runtime. The user's command is wrapped in a sub-shell so that shell
+// variable references (e.g. $MY_VAR) are expanded correctly:
 //
 //	env -i PATH='/usr/bin:...' MY_VAR='value' sh -c '<user_command>'
 //
-// When there are no resolved variables, the preamble wraps the command with
-// `env -i` alone to ensure the subprocess has a clean environment.
-func (t *ShellTool) envPreamble(ctx context.Context) (string, error) {
+// When allowedEnvKeys is empty (or all resolve to empty), the preamble still
+// wraps the command with `env -i sh -c '...'` to ensure a clean environment.
+//
+// The user command's single quotes are escaped so the wrapping is injection-safe.
+func (t *ShellTool) envPreamble(ctx context.Context) (prefix string, suffix string, err error) {
 	// Collect sorted list of keys for deterministic output.
 	keys := make([]string, 0, len(t.allowedEnvKeys))
 	for k := range t.allowedEnvKeys {
@@ -131,7 +137,7 @@ func (t *ShellTool) envPreamble(ctx context.Context) (string, error) {
 			Reason: "shell_tool environment injection",
 		})
 		if err != nil {
-			return "", fmt.Errorf("resolving env var %s: %w", key, err)
+			return "", "", fmt.Errorf("resolving env var %s: %w", key, err)
 		}
 		if val == "" {
 			continue
@@ -141,14 +147,15 @@ func (t *ShellTool) envPreamble(ctx context.Context) (string, error) {
 		envAssignments = append(envAssignments, fmt.Sprintf("%s='%s'", key, val))
 	}
 
-	// Always use env -i to clear inherited env. The resolved vars are passed
-	// as KEY=VAL arguments to env. The user command is then executed via sh -c
-	// inside the clean environment.
-	preamble := "env -i "
+	// Build: env -i KEY='val' ... sh -c '<user_command>'
+	// The caller inserts the user command between prefix and suffix.
+	prefix = "env -i "
 	if len(envAssignments) > 0 {
-		preamble += strings.Join(envAssignments, " ") + " "
+		prefix += strings.Join(envAssignments, " ") + " "
 	}
-	return preamble, nil
+	prefix += "sh -c '"
+	suffix = "'"
+	return prefix, suffix, nil
 }
 
 // AllowedEnvKeys returns the set of allowed env var names (for testing).

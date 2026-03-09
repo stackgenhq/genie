@@ -870,6 +870,9 @@ type approveRequest struct {
 // the in-memory approve list so future calls are auto-approved for that duration.
 // If allowWhenArgsContain is set, only calls whose args contain any of those
 // strings are auto-approved; otherwise the tool is approved blindly.
+//
+// Resolution is restricted to the principal who created the approval or admins.
+// Legacy approvals without a CreatedBy value can be resolved by anyone.
 func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 	logr := logger.GetLogger(r.Context()).With("fn", "agui.Server.handleApprove")
 
@@ -891,20 +894,35 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Enforce principal-scoped authorization: only the creator or admins may resolve.
+	principal := authcontext.GetPrincipal(r.Context())
+	approval, err := s.approvalStore.Get(r.Context(), req.ApprovalID)
+	if err != nil {
+		logr.Error("failed to get approval for authorization check", "error", err, "approvalId", req.ApprovalID)
+		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusNotFound)
+		return
+	}
+	if !hitl.CanResolve(approval, principal.ID, principal.Role) {
+		logr.Warn("unauthorized approval resolution attempt",
+			"approvalId", req.ApprovalID,
+			"resolver", principal.ID,
+			"creator", approval.CreatedBy,
+		)
+		http.Error(w, `{"error":"forbidden: only the requesting user or an admin can resolve this approval"}`, http.StatusForbidden)
+		return
+	}
+
 	// If approving and adding to approve list, fetch approval details first then add.
 	if decision == hitl.StatusApproved && s.approveList != nil && req.AllowForMins > 0 {
 		validMins := map[int]bool{5: true, 10: true, 30: true, 60: true}
 		if validMins[req.AllowForMins] {
-			approval, err := s.approvalStore.Get(r.Context(), req.ApprovalID)
-			if err == nil {
-				duration := time.Duration(req.AllowForMins) * time.Minute
-				if len(req.AllowWhenArgsContain) > 0 {
-					s.approveList.AddWithArgsFilter(approval.ToolName, req.AllowWhenArgsContain, duration)
-					logr.Info("added to approve list (with args filter)", "tool", approval.ToolName, "duration", duration.String(), "substrings", req.AllowWhenArgsContain)
-				} else {
-					s.approveList.AddBlind(approval.ToolName, duration)
-					logr.Info("added to approve list (blind)", "tool", approval.ToolName, "duration", duration.String())
-				}
+			duration := time.Duration(req.AllowForMins) * time.Minute
+			if len(req.AllowWhenArgsContain) > 0 {
+				s.approveList.AddWithArgsFilter(approval.ToolName, req.AllowWhenArgsContain, duration)
+				logr.Info("added to approve list (with args filter)", "tool", approval.ToolName, "duration", duration.String(), "substrings", req.AllowWhenArgsContain)
+			} else {
+				s.approveList.AddBlind(approval.ToolName, duration)
+				logr.Info("added to approve list (blind)", "tool", approval.ToolName, "duration", duration.String())
 			}
 		}
 	}
@@ -912,7 +930,7 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 	if err := s.approvalStore.Resolve(r.Context(), hitl.ResolveRequest{
 		ApprovalID: req.ApprovalID,
 		Decision:   decision,
-		ResolvedBy: "chat-ui",
+		ResolvedBy: principal.ID,
 		Feedback:   req.Feedback,
 	}); err != nil {
 		logr.Error("failed to resolve approval", "error", err, "approvalId", req.ApprovalID)
@@ -920,7 +938,7 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logr.Info("approval resolved", "approvalId", req.ApprovalID, "decision", req.Decision)
+	logr.Info("approval resolved", "approvalId", req.ApprovalID, "decision", req.Decision, "resolvedBy", principal.ID)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck

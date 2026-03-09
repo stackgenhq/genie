@@ -107,5 +107,32 @@ var _ = Describe("GH CLI Tool Call", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("gh command failed"))
 		})
+
+		// --- Shell metacharacter injection prevention ---
+
+		DescribeTable("rejects commands containing shell metacharacters",
+			func(cmd string) {
+				provider := ghcli.New(ctx, ghcli.Config{Token: "dummy"})
+				if provider == nil {
+					Skip("gh binary not available on PATH")
+				}
+				tools := provider.GetTools()
+				callable, ok := tools[0].(tool.CallableTool)
+				Expect(ok).To(BeTrue())
+
+				input, _ := json.Marshal(map[string]string{"command": cmd})
+				_, err := callable.Call(ctx, input)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("disallowed shell metacharacters"))
+			},
+			Entry("pipe", "run list | cat"),
+			Entry("semicolon", "run list; echo pwned"),
+			Entry("backtick", "run list `whoami`"),
+			Entry("dollar-paren", "run list $(whoami)"),
+			Entry("backslash", "run list \\n"),
+			Entry("hash comment", "run list # ignore rest"),
+			Entry("redirect", "run list > /tmp/out"),
+			Entry("ampersand", "run list & background"),
+		)
 	})
 })

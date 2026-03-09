@@ -55,6 +55,7 @@ type ApprovalRequest struct {
 	ExpiresAt     *time.Time     `json:"expires_at,omitempty"`
 	ResolvedAt    *time.Time     `json:"resolved_at,omitempty"`
 	ResolvedBy    string         `json:"resolved_by,omitempty"`
+	CreatedBy     string         `json:"created_by,omitempty"`
 	SenderContext string         `json:"sender_context,omitempty"`
 	Question      string         `json:"question,omitempty"`
 }
@@ -93,6 +94,7 @@ type CreateRequest struct {
 	TenantID      string
 	ToolName      string
 	Args          string
+	CreatedBy     string // principal ID of the user who initiated the tool call
 	SenderContext string // originating sender (e.g. "slack:U123:C456")
 	Question      string // original user question — needed for replay-on-resume
 }
@@ -212,4 +214,30 @@ var defaultReadOnlyTools = []string{
 	"create_agent",
 	graph.GraphStoreToolName,
 	graph.GraphQueryToolName,
+}
+
+// CanResolve checks whether the resolving user is authorized to approve or
+// reject an approval. Authorization rules:
+//  1. The principal who created the approval can always resolve it.
+//  2. Users with the "admin" role can resolve any approval.
+//  3. Legacy rows without a CreatedBy value are resolvable by anyone
+//     to maintain backward compatibility after the schema migration.
+//
+// Without this function, any authenticated user could approve or reject
+// any other user's pending tool calls, breaking tenant isolation in
+// multi-user deployments.
+func CanResolve(approval ApprovalRequest, resolverID, resolverRole string) bool {
+	// Legacy rows (pre-migration) have no CreatedBy — allow anyone.
+	if approval.CreatedBy == "" {
+		return true
+	}
+	// Creator can always resolve their own approvals.
+	if approval.CreatedBy == resolverID {
+		return true
+	}
+	// Admins can resolve any approval.
+	if resolverRole == "admin" {
+		return true
+	}
+	return false
 }

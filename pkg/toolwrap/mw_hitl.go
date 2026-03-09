@@ -14,6 +14,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/messenger"
 	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
+	"github.com/stackgenhq/genie/pkg/security/authcontext"
 	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 )
 
@@ -198,6 +199,7 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 			RunID:         rid,
 			ToolName:      tc.ToolName,
 			Args:          string(tc.Args),
+			CreatedBy:     authcontext.GetPrincipal(ctx).ID,
 			SenderContext: messenger.MessageOriginFrom(ctx).String(),
 			Question:      OriginalQuestionFrom(ctx),
 		})

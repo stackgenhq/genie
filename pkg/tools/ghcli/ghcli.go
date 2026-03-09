@@ -84,7 +84,8 @@ func (t *ghCLITool) Call(ctx context.Context, input []byte) (any, error) {
 
 	// Reject shell metacharacters to prevent injection.
 	// The gh CLI should never need pipes, redirects, or sub-shells.
-	if strings.ContainsAny(args.Command, ";|&`$(){}!><\n") {
+	// # and \ are included for defense-in-depth (comments, escape sequences).
+	if strings.ContainsAny(args.Command, ";|&`$(){}!><\n#\\") {
 		return nil, fmt.Errorf("command contains disallowed shell metacharacters — use simple gh arguments only (no pipes, redirects, or sub-shells)")
 	}
 
@@ -92,10 +93,19 @@ func (t *ghCLITool) Call(ctx context.Context, input []byte) (any, error) {
 	argv := strings.Fields(args.Command)
 	cmd := exec.CommandContext(ctx, "gh", argv...)
 
-	// Inject the token as both GH_TOKEN and GITHUB_TOKEN for this subprocess only.
-	// GH_TOKEN is the preferred env var for the gh CLI, while GITHUB_TOKEN is
-	// used by many GitHub-related tools. Setting both avoids ambiguity.
-	cmd.Env = append(os.Environ(), "GH_TOKEN="+t.token, "GITHUB_TOKEN="+t.token)
+	// Build a minimal environment for the gh subprocess. Only expose
+	// PATH (command resolution), HOME (config dir), and the auth tokens.
+	// This prevents leaking sensitive host env vars (e.g. POSTGRES_DSN,
+	// AWS_SECRET_ACCESS_KEY) to the subprocess — same isolation principle
+	// as shell_tool's env -i approach.
+	cmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + os.Getenv("HOME"),
+		"GH_TOKEN=" + t.token,
+		"GITHUB_TOKEN=" + t.token,
+		"GH_HOST=github.com",
+		"NO_COLOR=1", // disable ANSI colours in output for easier parsing
+	}
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
