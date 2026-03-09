@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/security/authcontext"
 )
@@ -59,7 +60,7 @@ func Middleware(cfg Config, oidcHandler ...*OIDCHandler) func(http.Handler) http
 
 			if p := auth.Authenticate(w, r); p != nil {
 				ctx := authcontext.WithPrincipal(r.Context(), *p)
-				ctx = logger.WithArgs(ctx, "principal", p)
+				ctx = logger.WithArgs(ctx, "principal", p, "request_id", uuid.NewString())
 				logger.GetLogger(ctx).Info("user authenticated", "user", p, "ip", getIPAdress(r))
 				next.ServeHTTP(w, r.WithContext(ctx))
 			}
