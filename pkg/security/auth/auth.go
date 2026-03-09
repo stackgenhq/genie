@@ -61,7 +61,7 @@ func Middleware(cfg Config, oidcHandler ...*OIDCHandler) func(http.Handler) http
 			if p := auth.Authenticate(w, r); p != nil {
 				ctx := authcontext.WithPrincipal(r.Context(), *p)
 				ctx = logger.WithArgs(ctx, "principal", p, "request_id", uuid.NewString())
-				logger.GetLogger(ctx).Info("user authenticated", "user", p, "ip", getIPAdress(r))
+				logger.GetLogger(ctx).Info("user authenticated", "user", p, "ip", getIPAddress(r))
 				next.ServeHTTP(w, r.WithContext(ctx))
 			}
 		})
@@ -100,10 +100,10 @@ func writeJSON(w http.ResponseWriter, status int, code, message, authMethod stri
 	json.NewEncoder(w).Encode(payload) //nolint:errcheck
 }
 
-// getIPAdress extracts the client IP address from an HTTP request.
+// getIPAddress extracts the client IP address from an HTTP request.
 // It checks proxy headers first (X-Forwarded-For, X-Real-Ip) before falling
 // back to the connection's RemoteAddr.
-func getIPAdress(r *http.Request) string {
+func getIPAddress(r *http.Request) string {
 	// X-Forwarded-For may contain a comma-separated list; the first entry
 	// is the original client IP.
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
@@ -115,7 +115,9 @@ func getIPAdress(r *http.Request) string {
 
 	// X-Real-Ip is set by some reverse proxies (e.g. Nginx).
 	if xri := r.Header.Get("X-Real-Ip"); xri != "" {
-		return strings.TrimSpace(xri)
+		if ip := strings.TrimSpace(xri); ip != "" {
+			return ip
+		}
 	}
 
 	// Fall back to the TCP connection address, stripping the port.

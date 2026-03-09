@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("getIPAdress (private)", func() {
+var _ = Describe("getIPAddress (private)", func() {
 	newReq := func(remoteAddr string, headers map[string]string) *http.Request {
 		r := httptest.NewRequest(http.MethodGet, "/", nil)
 		r.RemoteAddr = remoteAddr
@@ -21,7 +21,7 @@ var _ = Describe("getIPAdress (private)", func() {
 	DescribeTable("extracts the correct client IP",
 		func(remoteAddr string, headers map[string]string, expected string) {
 			r := newReq(remoteAddr, headers)
-			Expect(getIPAdress(r)).To(Equal(expected))
+			Expect(getIPAddress(r)).To(Equal(expected))
 		},
 
 		// X-Forwarded-For takes highest priority.
@@ -42,6 +42,8 @@ var _ = Describe("getIPAdress (private)", func() {
 			"10.0.0.1:1234", map[string]string{"X-Real-Ip": "198.51.100.10"}, "198.51.100.10"),
 		Entry("X-Real-Ip with whitespace",
 			"10.0.0.1:1234", map[string]string{"X-Real-Ip": "  198.51.100.10  "}, "198.51.100.10"),
+		Entry("whitespace-only X-Real-Ip falls through to RemoteAddr",
+			"10.0.0.1:1234", map[string]string{"X-Real-Ip": "   "}, "10.0.0.1"),
 
 		// Falls back to RemoteAddr.
 		Entry("RemoteAddr with port",

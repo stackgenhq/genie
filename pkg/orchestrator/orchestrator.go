@@ -707,15 +707,11 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	episodicContext := c.recallEpisodes(ctx, req.Question)
 
 	// Build the message with past conversation context injected.
-	// When past context contains [HIDDEN:...], that indicates PII-redacted text the user
-	// already provided (e.g. email, "7 days"). Instruct the model not to re-ask for the
-	// same clarification so we avoid duplicate questions.
 	message := req.Question
 	if pastContext != "" || episodicContext != "" {
-		hiddenHint := ""
 		var contextParts []string
 		if pastContext != "" {
-			contextParts = append(contextParts, fmt.Sprintf("## Relevant Past Conversations\n%s%s", hiddenHint, pastContext))
+			contextParts = append(contextParts, fmt.Sprintf("## Relevant Past Conversations\n%s", pastContext))
 		}
 		if episodicContext != "" {
 			contextParts = append(contextParts, fmt.Sprintf("## Relevant Past Episodes\n%s", episodicContext))

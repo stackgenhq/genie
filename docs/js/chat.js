@@ -1707,7 +1707,14 @@
                 dismissWithPoof(document.getElementById('approval-' + approvalId)?.closest('.approvals-column-item'));
             }, 5000);
         } catch (err) {
-            actionsEl.innerHTML = '<span class="approval-resolved" style="color:#dc2626">⚠️ Error: ' + escapeHtml(err.message) + '</span>';
+            if (err.message && err.message.includes('not found or already resolved')) {
+                // Approval was already handled (TTL expired or resolved elsewhere) — remove tile immediately
+                const itemEl = document.getElementById('approval-' + approvalId)?.closest('.approvals-column-item');
+                if (itemEl) itemEl.remove();
+                updateApprovalsColumnVisibility();
+            } else {
+                actionsEl.innerHTML = '<span class="approval-resolved" style="color:#dc2626">⚠️ Error: ' + escapeHtml(err.message) + '</span>';
+            }
         }
     }
 
@@ -1748,7 +1755,13 @@
                 dismissWithPoof(document.getElementById('approval-' + approvalId)?.closest('.approvals-column-item'));
             }, 5000);
         } catch (err) {
-            actionsEl.innerHTML = '<span class="approval-resolved" style="color:#dc2626">⚠️ Error: ' + escapeHtml(err.message) + '</span>';
+            if (err.message && err.message.includes('not found or already resolved')) {
+                const itemEl = document.getElementById('approval-' + approvalId)?.closest('.approvals-column-item');
+                if (itemEl) itemEl.remove();
+                updateApprovalsColumnVisibility();
+            } else {
+                actionsEl.innerHTML = '<span class="approval-resolved" style="color:#dc2626">⚠️ Error: ' + escapeHtml(err.message) + '</span>';
+            }
         }
     }
 

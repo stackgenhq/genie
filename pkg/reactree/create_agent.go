@@ -998,18 +998,19 @@ func (t *createAgentTool) hasVectorBackedTools(registry *tools.Registry) bool {
 
 // isMemoryEmpty probes the vector store with a lightweight search to check
 // whether it likely contains any documents. Returns true if the store is
-// nil or if a best-effort probe returns zero results. Uses Search("", 1)
-// as a cheap heuristic: the empty query is still embedded and run through
-// vector similarity search, so it does not semantically "match any"
-// document, but in practice a non-empty store should usually return at
-// least one nearest neighbor. Without this check, retrieval-only
-// sub-agents would burn their entire LLM call budget rephrasing
-// fruitless queries when the store appears empty.
+// nil or if a best-effort probe returns zero results.
+//
+// Uses a short sentinel query ("memory") instead of an empty string because
+// SearchWithFilter rejects empty queries without filters. The sentinel is
+// still embedded and run through vector similarity search; in practice a
+// non-empty store should return at least one nearest neighbor. Without this
+// check, retrieval-only sub-agents would burn their entire LLM call budget
+// rephrasing fruitless queries when the store is empty.
 func (t *createAgentTool) isMemoryEmpty(ctx context.Context) bool {
 	if t.vectorStore == nil {
 		return true
 	}
-	results, err := t.vectorStore.Search(ctx, "", 1)
+	results, err := t.vectorStore.Search(ctx, "memory", 1)
 	if err != nil {
 		// If the probe fails, assume memory is non-empty to avoid
 		// false positives — better to run a possibly-futile sub-agent

@@ -29,7 +29,7 @@ type Config struct {
 }
 
 // ghCLITool wraps the gh CLI binary as an agent tool.
-// It authenticates via GITHUB_TOKEN environment variable injection
+// It authenticates via GH_TOKEN and GITHUB_TOKEN environment variable injection
 // per-invocation (never written to disk or shell config).
 type ghCLITool struct {
 	token string
@@ -63,7 +63,7 @@ Example: command="run list --repo owner/repo --status failure --limit 10"`,
 }
 
 // Call executes the gh CLI command with the configured token.
-// The token is passed via the GH_TOKEN environment variable for the
+// The token is passed via both GH_TOKEN and GITHUB_TOKEN environment variables for the
 // subprocess only — it is never persisted to disk or leaked to other
 // processes.
 func (t *ghCLITool) Call(ctx context.Context, input []byte) (any, error) {
@@ -82,12 +82,14 @@ func (t *ghCLITool) Call(ctx context.Context, input []byte) (any, error) {
 	// We use sh -c to handle pipes, redirects, etc.
 	cmd := exec.CommandContext(ctx, "sh", "-c", "gh "+args.Command)
 
-	// Inject the token as GH_TOKEN for this subprocess only.
-	cmd.Env = append(os.Environ(), "GITHUB_TOKEN="+t.token)
+	// Inject the token as both GH_TOKEN and GITHUB_TOKEN for this subprocess only.
+	// GH_TOKEN is the preferred env var for the gh CLI, while GITHUB_TOKEN is
+	// used by many GitHub-related tools. Setting both avoids ambiguity.
+	cmd.Env = append(os.Environ(), "GH_TOKEN="+t.token, "GITHUB_TOKEN="+t.token)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Sprintf("error: %s\noutput: %s", err.Error(), string(output)), nil
+		return nil, fmt.Errorf("gh command failed: %w\noutput: %s", err, string(output))
 	}
 
 	return string(output), nil
