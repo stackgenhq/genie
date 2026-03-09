@@ -49,7 +49,7 @@ require (
 	golang.org/x/time v0.14.0
 	google.golang.org/api v0.256.0
 	google.golang.org/genai v1.47.0
-	google.golang.org/grpc v1.79.1
+	google.golang.org/grpc v1.79.2
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/driver/sqlite v1.6.0
