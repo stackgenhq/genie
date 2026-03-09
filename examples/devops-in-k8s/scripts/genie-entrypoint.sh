@@ -94,4 +94,5 @@ mkdir -p /home/stackgen/work
 chown -R 65532:65532 /home/stackgen/work
 exec su-exec 65532:65532 /usr/local/bin/genie \
   --config /shared-credentials/genie.toml \
+  --working-dir /home/stackgen/work \
   --log-level debug
