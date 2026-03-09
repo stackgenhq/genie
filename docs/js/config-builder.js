@@ -28,7 +28,7 @@
         mcp_servers: [],
         web_search: { provider: 'duckduckgo', google_api_key: 'GOOGLE_API_KEY', google_cx: 'GOOGLE_CSE_ID', bing_api_key: 'BING_API_KEY' },
         vector_memory: { persistence_dir: '', embedding_provider: 'dummy', api_key: 'OPENAI_API_KEY', ollama_url: '', ollama_model: '', huggingface_url: '', gemini_api_key: 'GOOGLE_API_KEY', gemini_model: '', vector_store_provider: 'inmemory', allowed_metadata_keys: [], qdrant: { host: '', port: 6334, api_key: 'QDRANT_API_KEY', use_tls: false, collection_name: '', dimension: 0 }, milvus: { address: '', username: '', password: '', db_name: '', api_key: 'MILVUS_API_KEY', collection_name: '', dimension: 0 } },
-        graph: { disabled: false, data_dir: '' },
+        graph: { disabled: false, backend: 'inmemory', data_dir: '' },
         data_sources: { enabled: false, sync_interval: '15m', search_keywords: [], gmail: { enabled: false, label_ids: [] }, gdrive: { enabled: false, folder_ids: [] }, github: { enabled: false, repos: [] }, gitlab: { enabled: false, repos: [] } },
         messenger: {
             platform: '', buffer_size: 100, allowed_senders: [],
@@ -474,9 +474,12 @@
         c.innerHTML = '';
         var g = state.graph;
         var fields = [
-            fieldToggle('Disabled', g.disabled, function (v) { g.disabled = v; renderAll(); }, 'Turn off the knowledge graph and all graph_* tools (store entity, store relation, query neighbors, get entity, shortest path)'),
-            fieldText('Data Dir', g.data_dir, function (v) { g.data_dir = v; renderOutput(); }, '~/.genie/my-agent', 'Where to save the graph snapshot (memory.bin.zst). If left empty, the graph will not be persisted to disk.')
+            fieldToggle('Disabled', g.disabled, function (v) { g.disabled = v; renderAll(); }, 'Turn off the knowledge graph and all graph_* tools (graph_store, graph_query)'),
+            fieldSelect('Backend', g.backend, ['inmemory', 'vectorstore'], function (v) { g.backend = v; renderAll(); }, 'Storage backend — inmemory uses gob+zstd snapshots, vectorstore reuses the configured vector store (Qdrant/Milvus)')
         ];
+        if (g.backend === 'inmemory') {
+            fields.push(fieldText('Data Dir', g.data_dir, function (v) { g.data_dir = v; renderOutput(); }, '~/.genie/my-agent', 'Where to save the graph snapshot (memory.bin.zst). If left empty, the graph will not be persisted to disk. Ignored when backend is vectorstore.'));
+        }
         c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
     }
 
@@ -1047,10 +1050,11 @@
 
     function graphToToml(lines) {
         var g = state.graph;
-        if (g.disabled && !g.data_dir) return;
+        if (g.disabled && !g.data_dir && g.backend === 'inmemory') return;
         lines.push('[graph]');
         lines.push('disabled = ' + (g.disabled ? 'true' : 'false'));
-        if (g.data_dir) lines.push('data_dir = ' + q(g.data_dir));
+        if (g.backend && g.backend !== 'inmemory') lines.push('backend = ' + q(g.backend));
+        if (g.backend === 'inmemory' && g.data_dir) lines.push('data_dir = ' + q(g.data_dir));
         lines.push('');
     }
 
@@ -1655,10 +1659,11 @@
 
     function graphToYaml(lines) {
         var g = state.graph;
-        if (g.disabled && !g.data_dir) return;
+        if (g.disabled && !g.data_dir && g.backend === 'inmemory') return;
         lines.push('graph:');
         lines.push('  disabled: ' + (g.disabled ? 'true' : 'false'));
-        if (g.data_dir) lines.push('  data_dir: ' + yq(g.data_dir));
+        if (g.backend && g.backend !== 'inmemory') lines.push('  backend: ' + yq(g.backend));
+        if (g.backend === 'inmemory' && g.data_dir) lines.push('  data_dir: ' + yq(g.data_dir));
         lines.push('');
     }
 

@@ -398,26 +398,6 @@ resource "kubernetes_cluster_role_binding" "genie_readonly" {
   }
 }
 
-# ── Persistent Volume Claim ─────────────────────────────────────────────────
-
-resource "kubernetes_persistent_volume_claim" "genie_data" {
-  metadata {
-    name      = "genie-data"
-    namespace = var.kubernetes.namespace
-  }
-
-  wait_until_bound = false
-
-  spec {
-    access_modes = ["ReadWriteOnce"]
-
-    resources {
-      requests = {
-        storage = "10Gi"
-      }
-    }
-  }
-}
 
 # ── Deployment ──────────────────────────────────────────────────────────────
 #
@@ -457,11 +437,16 @@ resource "kubernetes_deployment" "genie" {
   spec {
     replicas = var.genie.replicas
 
-    # Recreate strategy avoids ReadWriteOnce PVC multi-attach deadlock
-    # during rollouts: the old pod must fully terminate before the new
-    # pod can mount the volume.
+    # RollingUpdate with zero downtime: new pod starts before old one
+    # terminates. This is possible because all persistent state lives in
+    # PostgreSQL (sessions) and Qdrant (vectors), not local disk.
     strategy {
-      type = "Recreate"
+      type = "RollingUpdate"
+
+      rolling_update {
+        max_surge       = 1
+        max_unavailable = 0
+      }
     }
 
     selector {
@@ -691,10 +676,7 @@ resource "kubernetes_deployment" "genie" {
             read_only  = true
           }
 
-          volume_mount {
-            name       = "genie-data"
-            mount_path = "/data"
-          }
+
 
           volume_mount {
             name       = "scripts-volume"
@@ -757,13 +739,7 @@ resource "kubernetes_deployment" "genie" {
           }
         }
 
-        volume {
-          name = "genie-data"
 
-          persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.genie_data.metadata[0].name
-          }
-        }
       }
     }
   }

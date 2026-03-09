@@ -35,10 +35,8 @@ const maxConsecutiveToolFailures = 3
 //
 // Keep this as the single source of truth for retrieval tool classification.
 var retrievalTools = map[string]bool{
-	"memory_search":       true,
-	"graph_query":         true,
-	"graph_get_entity":    true,
-	"graph_shortest_path": true,
+	"memory_search": true,
+	"graph_query":   true,
 }
 
 // IsRetrievalTool reports whether the given tool name is classified as a
@@ -236,12 +234,12 @@ func isEmptyResult(result any) bool {
 		return true
 	}
 
-	// Check "found" field — false means empty (e.g. graph_get_entity).
+	// Check "found" field — false means empty (e.g. graph_query action=get_entity).
 	if f := gjson.GetBytes(raw, "found"); f.Exists() && !f.Bool() {
 		return true
 	}
 
-	// Check "path" field — empty array means empty (e.g. graph_shortest_path).
+	// Check "path" field — empty array means empty (e.g. graph_query action=shortest_path).
 	if p := gjson.GetBytes(raw, "path"); p.Exists() && p.IsArray() && len(p.Array()) == 0 {
 		return true
 	}
