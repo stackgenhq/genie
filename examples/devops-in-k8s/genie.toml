@@ -22,6 +22,7 @@ disable_resume = true
 "OIDC_ISSUER_URL" = "awssecretsmanager://${SECRETS_MANAGER_NAME}?region=${AWS_REGION}&decoder=string&path=OIDC_ISSUER_URL"
 "OIDC_CLIENT_ID" = "awssecretsmanager://${SECRETS_MANAGER_NAME}?region=${AWS_REGION}&decoder=string&path=OIDC_CLIENT_ID"
 "OIDC_CLIENT_SECRET" = "awssecretsmanager://${SECRETS_MANAGER_NAME}?region=${AWS_REGION}&decoder=string&path=OIDC_CLIENT_SECRET"
+"AGUI_COOKIE_SECRET" = "awssecretsmanager://${SECRETS_MANAGER_NAME}?region=${AWS_REGION}&decoder=string&path=AGUI_COOKIE_SECRET"
 
 [db_config]
 # PostgreSQL — DSN is injected from Secrets Manager via ExternalSecrets.
@@ -266,6 +267,7 @@ rate_burst = 100
 issuer_url = "${OIDC_ISSUER_URL}"
 client_id = "${OIDC_CLIENT_ID}"
 client_secret = "${OIDC_CLIENT_SECRET}"
+cookie_secret = "${AGUI_COOKIE_SECRET}"
 allowed_domains = ["stackgen.com"]
 
 

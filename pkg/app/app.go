@@ -55,6 +55,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/semanticrouter"
 
 	"github.com/stackgenhq/genie/pkg/security"
+	"github.com/stackgenhq/genie/pkg/security/authcontext"
 
 	"github.com/stackgenhq/genie/pkg/tools"
 	"github.com/stackgenhq/genie/pkg/tools/codeskim"
@@ -692,10 +693,13 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 		// Span attributes alone only work if this specific span happens to
 		// be the Langfuse trace root, which is often not the case.
 		ctx = withLangfuseTraceBaggage(ctx, a.displayName(), "agui")
+		ctx = withPrincipalBaggage(ctx)
 
+		principal := authcontext.GetPrincipal(ctx)
 		ctx, aguiSpan := trace.Tracer.Start(ctx, a.displayName(), oteltrace.WithAttributes(
 			attribute.String("langfuse.trace.name", a.displayName()),
 			attribute.String("langfuse.trace.input", pii.Redact(message)),
+			attribute.String("langfuse.user.id", principal.ID),
 			attribute.StringSlice("langfuse.trace.tags", []string{
 				a.displayName(),
 				"agui",
@@ -1431,6 +1435,7 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 		// Set baggage so the baggageBatchSpanProcessor propagates tags
 		// to all child spans (including trpc-agent-go internal spans).
 		messengerCtx = withLangfuseTraceBaggage(messengerCtx, a.displayName(), string(msg.Platform), "messenger")
+		messengerCtx = withPrincipalBaggage(messengerCtx)
 
 		traceCtx, span := trace.Tracer.Start(messengerCtx, a.displayName(), oteltrace.WithAttributes(
 			attribute.String("langfuse.trace.name", a.displayName()),
@@ -1866,5 +1871,49 @@ func withLangfuseTraceBaggage(ctx context.Context, tags ...string) context.Conte
 		logger.GetLogger(ctx).Warn("failed to set langfuse trace baggage", "error", err, "tags", tags)
 		return ctx
 	}
+	return baggage.ContextWithBaggage(ctx, bag)
+}
+
+// withPrincipalBaggage injects the authenticated Principal's identity into
+// OTel Baggage so that Langfuse traces carry user-level metadata on every
+// span. This enables filtering and grouping by user ID, role, and
+// authentication method in the Langfuse dashboard.
+//
+// Sets the following Langfuse-recognised keys:
+//   - langfuse.user.id              → principal.ID
+//   - langfuse.trace.metadata.user_name → principal.Name
+//   - langfuse.trace.metadata.user_role → principal.Role
+//   - langfuse.trace.metadata.auth_method → principal.AuthenticatedVia
+//
+// Only non-empty values are propagated. If the principal is the demo
+// fallback, the keys are still set so Langfuse can distinguish
+// unauthenticated traffic.
+func withPrincipalBaggage(ctx context.Context) context.Context {
+	p := authcontext.GetPrincipal(ctx)
+	bag := baggage.FromContext(ctx)
+
+	for _, kv := range []struct{ key, val string }{
+		{"langfuse.user.id", p.ID},
+		{"langfuse.trace.metadata.user_name", p.Name},
+		{"langfuse.trace.metadata.user_role", p.Role},
+		{"langfuse.trace.metadata.auth_method", p.AuthenticatedVia},
+	} {
+		if kv.val == "" {
+			continue
+		}
+		m, err := baggage.NewMember(kv.key, url.QueryEscape(kv.val))
+		if err != nil {
+			logger.GetLogger(ctx).Warn("failed to create principal baggage member",
+				"key", kv.key, "error", err)
+			continue
+		}
+		bag, err = bag.SetMember(m)
+		if err != nil {
+			logger.GetLogger(ctx).Warn("failed to set principal baggage member",
+				"key", kv.key, "error", err)
+			continue
+		}
+	}
+
 	return baggage.ContextWithBaggage(ctx, bag)
 }
