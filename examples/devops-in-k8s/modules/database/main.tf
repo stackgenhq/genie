@@ -191,3 +191,26 @@ resource "kubernetes_service" "postgres" {
     }
   }
 }
+
+# ── Pod Disruption Budget ───────────────────────────────────────────────────
+# Prevents voluntary disruptions (node drains, Karpenter consolidation) from
+# evicting the sole PostgreSQL replica. Without this, Karpenter can evict
+# postgres during "Underutilized" node consolidation, causing connection errors
+# for all consumers (genie checkpoint saver, session store, etc.).
+
+resource "kubernetes_pod_disruption_budget_v1" "postgres" {
+  metadata {
+    name      = "postgres-pdb"
+    namespace = var.namespace
+  }
+
+  spec {
+    min_available = 1
+
+    selector {
+      match_labels = {
+        app = "postgres"
+      }
+    }
+  }
+}

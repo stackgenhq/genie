@@ -44,7 +44,11 @@ import (
 // uses INSERT OR REPLACE and question-mark placeholders. Using the wrong saver
 // causes "syntax error at or near OR" on PostgreSQL.
 func newCheckpointSaver(gormDB *gorm.DB) (graph.CheckpointSaver, error) {
-	return NewGormCheckpointSaver(gormDB)
+	saver, err := NewGormCheckpointSaver(gormDB)
+	if err != nil {
+		return nil, err
+	}
+	return NewRetryCheckpointSaver(saver), nil
 }
 
 // ---------------------------------------------------------------------------

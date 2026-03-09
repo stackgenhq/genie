@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/stackgenhq/genie/pkg/osutils"
 	"gorm.io/driver/postgres"
@@ -165,6 +166,11 @@ func openPostgres(dsn string) (*gorm.DB, error) {
 	// Sensible defaults for a single-replica app with moderate concurrency.
 	sqlDB.SetMaxOpenConns(25)
 	sqlDB.SetMaxIdleConns(5)
+	// Recycle connections so that stale connections from a DB restart are
+	// discarded quickly. database/sql will detect broken connections and
+	// open fresh ones on the next attempt.
+	sqlDB.SetConnMaxLifetime(5 * time.Minute)
+	sqlDB.SetConnMaxIdleTime(1 * time.Minute)
 
 	return gormDB, nil
 }
