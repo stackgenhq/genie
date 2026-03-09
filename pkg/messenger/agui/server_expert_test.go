@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	aguitypes "github.com/stackgenhq/genie/pkg/agui"
+	"github.com/stackgenhq/genie/pkg/messenger"
 	agui "github.com/stackgenhq/genie/pkg/messenger/agui"
 )
 
@@ -351,6 +352,61 @@ var _ = Describe("serverExpert", func() {
 			})
 
 			Expect(receivedMsg).To(Equal(""))
+		})
+
+		It("should inject attachments into context for chatFunc", func() {
+			var capturedCtx context.Context
+			expert := agui.NewChatHandler(
+				nil,
+				func(ctx context.Context, msg string, ch chan<- interface{}) error {
+					capturedCtx = ctx
+					return nil
+				},
+				nil,
+			)
+
+			attachments := []messenger.Attachment{
+				{Name: "photo.png", ContentType: "image/png", Size: 1024, LocalPath: "/tmp/photo.png"},
+				{Name: "doc.pdf", ContentType: "application/pdf", Size: 5000, LocalPath: "/tmp/doc.pdf"},
+			}
+
+			eventChan := make(chan interface{}, 100)
+			expert.Handle(context.Background(), agui.ChatRequest{
+				ThreadID:    "t-att",
+				RunID:       "r-att",
+				Message:     "describe these files",
+				Attachments: attachments,
+				EventChan:   eventChan,
+			})
+
+			retrieved := agui.AttachmentsFromContext(capturedCtx)
+			Expect(retrieved).To(HaveLen(2))
+			Expect(retrieved[0].Name).To(Equal("photo.png"))
+			Expect(retrieved[0].ContentType).To(Equal("image/png"))
+			Expect(retrieved[1].Name).To(Equal("doc.pdf"))
+		})
+
+		It("should not inject attachments into context when none provided", func() {
+			var capturedCtx context.Context
+			expert := agui.NewChatHandler(
+				nil,
+				func(ctx context.Context, msg string, ch chan<- interface{}) error {
+					capturedCtx = ctx
+					return nil
+				},
+				nil,
+			)
+
+			eventChan := make(chan interface{}, 100)
+			expert.Handle(context.Background(), agui.ChatRequest{
+				ThreadID:  "t-no-att",
+				RunID:     "r-no-att",
+				Message:   "just text",
+				EventChan: eventChan,
+			})
+
+			retrieved := agui.AttachmentsFromContext(capturedCtx)
+			Expect(retrieved).To(BeNil())
 		})
 	})
 })

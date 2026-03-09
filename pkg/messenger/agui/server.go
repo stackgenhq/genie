@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +23,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/hitl"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/messenger/media"
 	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 	"github.com/stackgenhq/genie/pkg/security/auth"
 	"github.com/stackgenhq/genie/pkg/security/authcontext"
@@ -34,10 +37,11 @@ import (
 
 // ChatRequest bundles the inputs for a single AG-UI chat invocation.
 type ChatRequest struct {
-	ThreadID  string
-	RunID     string
-	Message   string
-	EventChan chan<- interface{}
+	ThreadID    string
+	RunID       string
+	Message     string
+	Attachments []messenger.Attachment
+	EventChan   chan<- interface{}
 }
 
 // Expert is the one who knows how to handle a chat request.
@@ -650,6 +654,26 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Extract embedded data-URL files from the message (browser → server).
+	// The chat UI encodes attached images/audio/video as base64 data URLs
+	// in the message body. We decode them to temp files and create
+	// messenger.Attachment structs so the multimodal pipeline can process
+	// them the same way as WhatsApp media downloads.
+	tempDir := filepath.Join(os.TempDir(), "genie-agui-media", input.ThreadID)
+	var chatAttachments []messenger.Attachment
+	userMessage, chatAttachments = ExtractDataURLFiles(userMessage, tempDir)
+
+	// Augment the message with attachment descriptions (file names, sizes, paths)
+	// so the LLM knows about the files even in text-only fallback mode.
+	if len(chatAttachments) > 0 {
+		desc := media.DescribeAttachments(chatAttachments)
+		if userMessage == "" {
+			userMessage = desc
+		} else {
+			userMessage = userMessage + "\n\n" + desc
+		}
+	}
+
 	// Set up SSE writer
 	sseWriter, err := NewSSEWriter(w)
 	if err != nil {
@@ -710,10 +734,11 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 			close(eventChan)
 		}()
 		s.chatHandler.Handle(ctx, ChatRequest{
-			ThreadID:  input.ThreadID,
-			RunID:     input.RunID,
-			Message:   userMessage,
-			EventChan: eventChan,
+			ThreadID:    input.ThreadID,
+			RunID:       input.RunID,
+			Message:     userMessage,
+			Attachments: chatAttachments,
+			EventChan:   eventChan,
 		})
 	}()
 

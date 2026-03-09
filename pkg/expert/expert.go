@@ -16,6 +16,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/messenger"
 	messengeragui "github.com/stackgenhq/genie/pkg/messenger/agui"
+	"github.com/stackgenhq/genie/pkg/messenger/media"
 	"github.com/stackgenhq/genie/pkg/osutils"
 	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
 	"github.com/stackgenhq/genie/pkg/retrier"
@@ -420,14 +421,28 @@ func buildUserMessage(ctx context.Context, req Request) model.Message {
 // addImageAttachment embeds an image as visual content so the LLM can "see" it.
 // This enables vision-capable models (Gemini, GPT-4V) to analyze screenshots,
 // photos, and diagrams. Without this, images would be treated as opaque files.
+//
+// Note: we read the file and call AddImageData with the full MIME type
+// (e.g. "image/png") from the attachment metadata. The trpc-agent-go
+// AddImageFilePath helper stores only the bare extension ("png") which the
+// Gemini SDK rejects.
 func addImageAttachment(ctx context.Context, msg *model.Message, att messenger.Attachment) {
-	if err := msg.AddImageFilePath(att.LocalPath, "auto"); err != nil {
+	data := readFileBytes(att.LocalPath)
+	if data == nil {
 		logger.GetLogger(ctx).Warn(
-			"failed to add image attachment to user message",
+			"failed to read image file for embedding",
 			"path", att.LocalPath,
-			"error", err,
 		)
+		return
 	}
+
+	// Use the full MIME type from the attachment (e.g. "image/png").
+	// Fall back to inferring from extension if not set.
+	mime := att.ContentType
+	if mime == "" {
+		mime = media.MIMEFromFilename(att.LocalPath)
+	}
+	msg.AddImageData(data, "auto", mime)
 }
 
 // addAudioAttachment embeds audio as an audio content part so the LLM can

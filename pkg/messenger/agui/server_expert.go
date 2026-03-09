@@ -56,9 +56,16 @@ func (e serverExpert) Handle(ctx context.Context, req ChatRequest) {
 	// Inject ThreadID/RunID into context so the toolwrap.Wrapper can access them
 	// for HITL approval requests without threading through every intermediate struct.
 	ctx = aguitypes.WithThreadID(ctx, req.ThreadID)
+
+	// Inject attachments into context so the chatFunc can pass them to
+	// the orchestrator without changing the chatFunc signature.
+	if len(req.Attachments) > 0 {
+		ctx = WithAttachments(ctx, req.Attachments)
+	}
+
 	logger.GetLogger(ctx).Info("agui: invoking chatFunc",
 		"threadID", req.ThreadID, "runID", req.RunID,
-		"messageLen", len(req.Message))
+		"messageLen", len(req.Message), "attachments", len(req.Attachments))
 	err := e.chatFunc(aguitypes.WithRunID(ctx, req.RunID), req.Message, req.EventChan)
 	if err != nil {
 		req.EventChan <- aguitypes.AgentErrorMsg{

@@ -119,7 +119,7 @@ var _ = Describe("Multimodal Attachment Routing", func() {
 			Expect(msg.ContentParts).To(BeEmpty())
 		})
 
-		It("embeds image attachments as image content parts", func() {
+		It("embeds image attachments as image content parts with full MIME type", func() {
 			// Create a minimal PNG file (1x1 pixel).
 			imgPath := filepath.Join(tmpDir, "test.png")
 			// Minimal valid PNG: 8-byte header + IHDR + IDAT + IEND
@@ -151,6 +151,60 @@ var _ = Describe("Multimodal Attachment Routing", func() {
 			Expect(msg.ContentParts).To(HaveLen(1))
 			Expect(msg.ContentParts[0].Type).To(Equal(model.ContentTypeImage))
 			Expect(msg.ContentParts[0].Image).NotTo(BeNil())
+			// Critical: Format must be the full MIME type (e.g. "image/png"), not
+			// just the extension ("png"). The Gemini SDK's NewPartFromBytes uses
+			// this as the mimeType parameter.
+			Expect(msg.ContentParts[0].Image.Format).To(Equal("image/png"))
+			Expect(msg.ContentParts[0].Image.Detail).To(Equal("auto"))
+			Expect(msg.ContentParts[0].Image.Data).To(Equal(pngData))
+		})
+
+		It("embeds JPEG image with correct MIME type format", func() {
+			jpgPath := filepath.Join(tmpDir, "photo.jpg")
+			jpgData := []byte{0xFF, 0xD8, 0xFF, 0xE0} // JPEG header
+			Expect(os.WriteFile(jpgPath, jpgData, 0o644)).To(Succeed())
+
+			req := Request{
+				Message: "Describe this photo",
+				Attachments: []messenger.Attachment{
+					{
+						Name:        "photo.jpg",
+						ContentType: "image/jpeg",
+						LocalPath:   jpgPath,
+					},
+				},
+			}
+			msg := buildUserMessage(context.Background(), req)
+			Expect(msg.ContentParts).To(HaveLen(1))
+			Expect(msg.ContentParts[0].Type).To(Equal(model.ContentTypeImage))
+			// Must be full MIME "image/jpeg", not "jpg" or "jpeg".
+			Expect(msg.ContentParts[0].Image.Format).To(Equal("image/jpeg"))
+		})
+
+		It("does not embed image when ContentType is empty", func() {
+			// When ContentType is empty, isImageMIME("") returns false, so
+			// the attachment falls through to AddFilePath. If the file
+			// extension is not in trpc-agent-go's MIME map, AddFilePath
+			// errors and the attachment is silently dropped.
+			// This validates that ContentType MUST be set for proper routing.
+			pdfPath := filepath.Join(tmpDir, "notes.pdf")
+			pdfData := []byte("%PDF-1.0\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n")
+			Expect(os.WriteFile(pdfPath, pdfData, 0o644)).To(Succeed())
+
+			req := Request{
+				Message: "What is this?",
+				Attachments: []messenger.Attachment{
+					{
+						Name:      "notes.pdf",
+						LocalPath: pdfPath,
+						// ContentType intentionally empty.
+					},
+				},
+			}
+			msg := buildUserMessage(context.Background(), req)
+			// PDF extension IS in trpc-agent-go's MIME map, so AddFilePath succeeds.
+			Expect(msg.ContentParts).To(HaveLen(1))
+			Expect(msg.ContentParts[0].Type).To(Equal(model.ContentTypeFile))
 		})
 
 		It("embeds WAV audio attachments as audio content parts", func() {
