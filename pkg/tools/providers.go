@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/tools/skills/dynamicskills"
 	"github.com/stackgenhq/genie/pkg/tools/unix"
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor"
@@ -58,14 +59,17 @@ func (p *FileToolProvider) GetTools() []tool.Tool {
 // interface. It encapsulates code executor configuration.
 type ShellToolProvider struct {
 	workingDir string
+	secrets    security.SecretProvider
 	config     unix.ShellToolConfig
 }
 
 // NewShellToolProvider creates a ToolProvider for the run_shell tool.
 // The config controls security features like env var filtering and binary allowlists.
-func NewShellToolProvider(workingDir string, config unix.ShellToolConfig) *ShellToolProvider {
+// The SecretProvider is used to resolve allowed environment variables at runtime.
+func NewShellToolProvider(workingDir string, secrets security.SecretProvider, config unix.ShellToolConfig) *ShellToolProvider {
 	return &ShellToolProvider{
 		workingDir: workingDir,
+		secrets:    secrets,
 		config:     config,
 	}
 }
@@ -81,7 +85,7 @@ func (p *ShellToolProvider) GetTools() []tool.Tool {
 		local.WithTimeout(timeout),
 		local.WithCleanTempFiles(true),
 	)
-	return Tools{unix.NewShellTool(exec, p.config)}
+	return Tools{unix.NewShellTool(exec, p.secrets, p.config)}
 }
 
 // PensieveToolProvider wraps the Pensieve context management tools

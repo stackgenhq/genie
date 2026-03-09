@@ -952,7 +952,7 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 	}
 
 	// --- Shell tool ---
-	providers = append(providers, tools.NewShellToolProvider(a.workingDir, a.cfg.ShellTool))
+	providers = append(providers, tools.NewShellToolProvider(a.workingDir, a.sp, a.cfg.ShellTool))
 	log.Debug("Shell tool provider added")
 
 	// --- Summarizer tool ---

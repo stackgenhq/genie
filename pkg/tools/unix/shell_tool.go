@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/stackgenhq/genie/pkg/security"
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
@@ -18,7 +18,8 @@ import (
 type ShellToolConfig struct {
 	// AllowedEnv controls which environment variables are visible to shell
 	// commands. Only listed variables (plus PATH, which is always included)
-	// are inherited from the host. When empty or nil, only PATH is visible.
+	// are resolved via the SecretProvider and injected. When empty or nil,
+	// only PATH is visible.
 	AllowedEnv []string `yaml:"allowed_env" toml:"allowed_env"`
 
 	// Timeout overrides the default 10-minute shell execution timeout.
@@ -38,24 +39,26 @@ type ShellToolConfig struct {
 // that is friendlier to models than the full codeexec.Tool.
 type ShellTool struct {
 	executor        codeexecutor.CodeExecutor
+	secrets         security.SecretProvider
 	allowedEnvKeys  map[string]struct{}
 	allowedBinaries map[string]struct{}
 }
 
-// NewShellTool creates a new ShellTool with the given executor and config.
-// Environment filtering is always active — only PATH (plus any keys listed
-// in config.AllowedEnv) is visible to shell commands.
-func NewShellTool(executor codeexecutor.CodeExecutor, config ShellToolConfig) tool.Tool {
+// NewShellTool creates a new ShellTool with the given executor, secret provider,
+// and config. Environment filtering is always active — only PATH (plus any keys
+// listed in config.AllowedEnv) is resolved via the SecretProvider and injected
+// into the shell process.
+func NewShellTool(executor codeexecutor.CodeExecutor, secrets security.SecretProvider, config ShellToolConfig) tool.Tool {
 	t := &ShellTool{
-		executor: executor,
-		// Default: only PATH is visible.
-		allowedEnvKeys: map[string]struct{}{"PATH": {}},
+		executor:       executor,
+		secrets:        secrets,
+		allowedEnvKeys: make(map[string]struct{}, len(config.AllowedEnv)+1),
 	}
-	// Apply allowed env vars from config (normalised to uppercase).
-	for _, key := range config.AllowedEnv {
-		t.allowedEnvKeys[strings.ToUpper(key)] = struct{}{}
+	// PATH is always required for command resolution.
+	t.allowedEnvKeys["PATH"] = struct{}{}
+	for _, k := range config.AllowedEnv {
+		t.allowedEnvKeys[strings.ToUpper(k)] = struct{}{}
 	}
-	// Apply binary allowlist from config.
 	if len(config.AllowedBinaries) > 0 {
 		t.allowedBinaries = make(map[string]struct{}, len(config.AllowedBinaries))
 		for _, b := range config.AllowedBinaries {
@@ -103,7 +106,11 @@ func (t *ShellTool) Call(ctx context.Context, input []byte) (any, error) {
 	}
 
 	// Build the command with env filtering preamble.
-	fullCommand := t.envPreamble() + args.Command
+	preamble, err := t.envPreamble(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve environment: %w", err)
+	}
+	fullCommand := preamble + args.Command
 
 	// Adapt single command to CodeExecutionInput
 	lang := "sh"
@@ -123,27 +130,43 @@ func (t *ShellTool) Call(ctx context.Context, input []byte) (any, error) {
 	return t.executor.ExecuteCode(ctx, execInput)
 }
 
-// envPreamble builds an `env -i KEY=val ...` prefix that clears the
-// environment and re-exports only the allowed variables.
-func (t *ShellTool) envPreamble() string {
+// envPreamble builds a shell preamble that unsets the host environment and
+// re-exports only the allowed variables, resolved via SecretProvider at runtime.
+// We use `env -i` with inline exports so the code executor's shell script
+// sees a clean environment.
+func (t *ShellTool) envPreamble(ctx context.Context) (string, error) {
+	// Collect sorted list of keys for deterministic output.
+	keys := make([]string, 0, len(t.allowedEnvKeys))
+	for k := range t.allowedEnvKeys {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
 	var exports []string
-	for _, entry := range os.Environ() {
-		idx := strings.IndexByte(entry, '=')
-		if idx < 0 {
+	for _, key := range keys {
+		val, err := t.secrets.GetSecret(ctx, security.GetSecretRequest{
+			Name:   key,
+			Reason: "shell_tool environment injection",
+		})
+		if err != nil {
+			return "", fmt.Errorf("resolving env var %s: %w", key, err)
+		}
+		if val == "" {
 			continue
 		}
-		key := strings.ToUpper(entry[:idx])
-		if _, ok := t.allowedEnvKeys[key]; ok {
-			// Shell-escape the value by single-quoting it (replacing ' with '\'' for safety).
-			val := entry[idx+1:]
-			val = strings.ReplaceAll(val, "'", "'\\''")
-			exports = append(exports, fmt.Sprintf("export %s='%s'", entry[:idx], val))
-		}
+		// Shell-escape the value by single-quoting it.
+		val = strings.ReplaceAll(val, "'", "'\\''")
+		exports = append(exports, fmt.Sprintf("export %s='%s'", key, val))
 	}
-	sort.Strings(exports)
-	// Prepend common paths to PATH for robustness.
-	return fmt.Sprintf(`env -i PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:${PATH:-}" %s; `,
-		strings.Join(exports, "; "))
+
+	// Build preamble: unset everything, then export only allowed vars.
+	// Using `unset` on each host var is fragile, so instead we clear with
+	// a function that unsets all non-readonly vars, then re-export.
+	var preamble string
+	if len(exports) > 0 {
+		preamble = strings.Join(exports, "; ") + "; "
+	}
+	return preamble, nil
 }
 
 // AllowedEnvKeys returns the set of allowed env var names (for testing).

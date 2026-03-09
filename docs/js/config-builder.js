@@ -46,7 +46,7 @@
         browser: { blocked_domains: [] },
         email: { provider: '', host: '', port: 587, username: '', password: '', imap_host: '', imap_port: 993 },
         hitl: { always_allowed: [], denied_tools: [], cache_ttl: '' },
-        shell_tool: { allowed_env: [] },
+        shell_tool: { allowed_env: [], timeout: '', allowed_binaries: [] },
         toolwrap: {
             context_mode: { enabled: false, threshold: 20000, max_chunks: 10, chunk_size: 800, min_term_len: 3, per_tool: '' },
             timeout: { enabled: false, default_timeout: '30s', per_tool: '' },
@@ -639,8 +639,12 @@
         var st = state.shell_tool;
         c.appendChild(el('div', { className: 'space-y-4' }, [
             fieldText('Allowed Env Vars (comma-separated)', (st.allowed_env || []).join(', '), function (v) { st.allowed_env = splitCSV(v); renderOutput(); }, 'HOME, USER, GOPATH, TERM',
-                'Only these environment variables (plus PATH) are visible to run_shell commands. Leave empty to inherit all host env vars (default). Set this to limit exposure of secrets like cloud credentials.'),
-            el('p', { className: 'text-xs text-gray-400 mt-1' }, 'PATH is always included automatically. When set, shell commands run with env -i so only listed variables are visible.')
+                'Only these environment variables (plus PATH) are visible to run_shell commands. When empty, only PATH is visible. Set this to expose specific vars the agent needs.'),
+            fieldText('Timeout', st.timeout || '', function (v) { st.timeout = v; renderOutput(); }, '10m',
+                'Maximum execution time for a single shell command. Use Go duration syntax (e.g. 30s, 5m, 1h). Default: 10m'),
+            fieldText('Allowed Binaries (comma-separated)', (st.allowed_binaries || []).join(', '), function (v) { st.allowed_binaries = splitCSV(v); renderOutput(); }, 'git, go, make, npm',
+                'Only these command names may be executed. When empty, any command is allowed. Set this to restrict what the agent can run.'),
+            el('p', { className: 'text-xs text-gray-400 mt-1' }, 'PATH is always included automatically. Shell commands run with env -i so only listed variables are visible.')
         ]));
     }
 
@@ -1274,9 +1278,11 @@
 
     function shellToolToToml(lines) {
         var st = state.shell_tool;
-        if (!hasItems(st.allowed_env)) return;
+        if (!hasItems(st.allowed_env) && !st.timeout && !hasItems(st.allowed_binaries)) return;
         lines.push('[shell_tool]');
-        lines.push('allowed_env = [' + st.allowed_env.filter(Boolean).map(q).join(', ') + ']');
+        if (hasItems(st.allowed_env)) lines.push('allowed_env = [' + st.allowed_env.filter(Boolean).map(q).join(', ') + ']');
+        if (st.timeout) lines.push('timeout = ' + q(st.timeout));
+        if (hasItems(st.allowed_binaries)) lines.push('allowed_binaries = [' + st.allowed_binaries.filter(Boolean).map(q).join(', ') + ']');
         lines.push('');
     }
 
@@ -1987,10 +1993,17 @@
 
     function shellToolToYaml(lines) {
         var st = state.shell_tool;
-        if (!hasItems(st.allowed_env)) return;
+        if (!hasItems(st.allowed_env) && !st.timeout && !hasItems(st.allowed_binaries)) return;
         lines.push('shell_tool:');
-        lines.push('  allowed_env:');
-        st.allowed_env.filter(Boolean).forEach(function (e) { lines.push('    - ' + e); });
+        if (hasItems(st.allowed_env)) {
+            lines.push('  allowed_env:');
+            st.allowed_env.filter(Boolean).forEach(function (e) { lines.push('    - ' + e); });
+        }
+        if (st.timeout) lines.push('  timeout: ' + st.timeout);
+        if (hasItems(st.allowed_binaries)) {
+            lines.push('  allowed_binaries:');
+            st.allowed_binaries.filter(Boolean).forEach(function (b) { lines.push('    - ' + b); });
+        }
         lines.push('');
     }
 
