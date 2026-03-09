@@ -359,21 +359,18 @@ var _ = Describe("ToolProvider", func() {
 		Expect(tools).To(BeNil())
 	})
 
-	It("returns five tools when store is non-nil", func() {
+	It("returns two tools when store is non-nil", func() {
 		store, err := graph.NewInMemoryStore()
 		Expect(err).NotTo(HaveOccurred())
 		defer func() { _ = store.Close(context.Background()) }()
 		provider := graph.NewToolProvider(store)
 		tools := provider.GetTools()
-		Expect(tools).To(HaveLen(5))
+		Expect(tools).To(HaveLen(2))
 		names := make([]string, len(tools))
 		for i, t := range tools {
 			names[i] = t.Declaration().Name
 		}
-		Expect(names).To(ContainElement("graph_store_entity"))
-		Expect(names).To(ContainElement("graph_store_relation"))
+		Expect(names).To(ContainElement("graph_store"))
 		Expect(names).To(ContainElement("graph_query"))
-		Expect(names).To(ContainElement("graph_get_entity"))
-		Expect(names).To(ContainElement("graph_shortest_path"))
 	})
 })

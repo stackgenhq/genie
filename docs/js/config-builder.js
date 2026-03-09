@@ -28,7 +28,7 @@
         mcp_servers: [],
         web_search: { provider: 'duckduckgo', google_api_key: 'GOOGLE_API_KEY', google_cx: 'GOOGLE_CSE_ID', bing_api_key: 'BING_API_KEY' },
         vector_memory: { persistence_dir: '', embedding_provider: 'dummy', api_key: 'OPENAI_API_KEY', ollama_url: '', ollama_model: '', huggingface_url: '', gemini_api_key: 'GOOGLE_API_KEY', gemini_model: '', vector_store_provider: 'inmemory', allowed_metadata_keys: [], qdrant: { host: '', port: 6334, api_key: 'QDRANT_API_KEY', use_tls: false, collection_name: '', dimension: 0 }, milvus: { address: '', username: '', password: '', db_name: '', api_key: 'MILVUS_API_KEY', collection_name: '', dimension: 0 } },
-        graph: { disabled: false, data_dir: '' },
+        graph: { disabled: false, backend: 'inmemory', data_dir: '' },
         data_sources: { enabled: false, sync_interval: '15m', search_keywords: [], gmail: { enabled: false, label_ids: [] }, gdrive: { enabled: false, folder_ids: [] }, github: { enabled: false, repos: [] }, gitlab: { enabled: false, repos: [] } },
         messenger: {
             platform: '', buffer_size: 100, allowed_senders: [],
@@ -41,10 +41,12 @@
             agui: { port: 9876, cors_origins: ['https://stackgenhq.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576, auth: { password: { enabled: false, value: '' }, jwt: { trusted_issuers: [], allowed_audiences: [] }, oidc: { issuer_url: '', client_id: '', client_secret: '', allowed_domains: [], redirect_url: '' }, api_keys: { keys: [] } } }
         },
         scm: { provider: '', token: 'SCM_TOKEN', base_url: '' },
+        ghcli: { token: '' },
         pm: { provider: '', api_token: 'PM_API_TOKEN', base_url: '', email: '' },
         browser: { blocked_domains: [] },
         email: { provider: '', host: '', port: 587, username: '', password: '', imap_host: '', imap_port: 993 },
         hitl: { always_allowed: [], denied_tools: [], cache_ttl: '' },
+        shell_tool: { allowed_env: [], timeout: '' },
         toolwrap: {
             context_mode: { enabled: false, threshold: 20000, max_chunks: 10, chunk_size: 800, min_term_len: 3, per_tool: '' },
             timeout: { enabled: false, default_timeout: '30s', per_tool: '' },
@@ -216,10 +218,12 @@
         renderDataSources();
         renderMessenger();
         renderSCM();
+        renderGHCli();
         renderPM();
         renderBrowser();
         renderEmail();
         renderHITL();
+        renderShellTool();
         renderToolwrap();
         renderSecurity();
         renderPII();
@@ -474,9 +478,12 @@
         c.innerHTML = '';
         var g = state.graph;
         var fields = [
-            fieldToggle('Disabled', g.disabled, function (v) { g.disabled = v; renderAll(); }, 'Turn off the knowledge graph and all graph_* tools (store entity, store relation, query neighbors, get entity, shortest path)'),
-            fieldText('Data Dir', g.data_dir, function (v) { g.data_dir = v; renderOutput(); }, '~/.genie/my-agent', 'Where to save the graph snapshot (memory.bin.zst). If left empty, the graph will not be persisted to disk.')
+            fieldToggle('Disabled', g.disabled, function (v) { g.disabled = v; renderAll(); }, 'Turn off the knowledge graph and all graph_* tools (graph_store, graph_query)'),
+            fieldSelect('Backend', g.backend, ['inmemory', 'vectorstore'], function (v) { g.backend = v; renderAll(); }, 'Storage backend — inmemory uses gob+zstd snapshots, vectorstore reuses the configured vector store (Qdrant/Milvus)')
         ];
+        if (g.backend === 'inmemory') {
+            fields.push(fieldText('Data Dir', g.data_dir, function (v) { g.data_dir = v; renderOutput(); }, '~/.genie/my-agent', 'Where to save the graph snapshot (memory.bin.zst). If left empty, the graph will not be persisted to disk. Ignored when backend is vectorstore.'));
+        }
         c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
     }
 
@@ -546,6 +553,17 @@
         c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
     }
 
+    // ── GH CLI (gh_cli tool) ──
+    function renderGHCli() {
+        var c = $('ghcli-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var g = state.ghcli;
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+            fieldEnvVar('GitHub Token', g.token, function (v) { g.token = v; renderOutput(); }, 'GITHUB_TOKEN', 'GitHub personal access token or fine-grained token — enables the gh_cli agent tool. Leave empty to disable.')
+        ]));
+    }
+
     // ── PM ──
     function renderPM() {
         var c = $('pm-body');
@@ -610,6 +628,21 @@
             fieldText('Read-Only Tools (comma-separated)', (h.always_allowed || []).join(', '), function (v) { h.always_allowed = splitCSV(v); renderOutput(); }, 'read_file, list_file', 'Tools that skip human approval — safe read-only operations'),
             fieldText('Denied Tools (comma-separated)', (h.denied_tools || []).join(', '), function (v) { h.denied_tools = splitCSV(v); renderOutput(); }, 'execute_code, run_shell', 'Tools that are completely blocked — the agent cannot use these at all. Supports wildcards (e.g. browser_*)'),
             fieldText('Approval Cache TTL', h.cache_ttl || '', function (v) { h.cache_ttl = v; renderOutput(); }, '10m', 'How long an approved tool+args combination stays auto-approved before requiring fresh human approval (e.g. 5m, 15m, 1h). Default: 10m')
+        ]));
+    }
+
+    // ── Shell Tool Security ──
+    function renderShellTool() {
+        var c = $('shelltool-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var st = state.shell_tool;
+        c.appendChild(el('div', { className: 'space-y-4' }, [
+            fieldText('Allowed Env Vars (comma-separated)', (st.allowed_env || []).join(', '), function (v) { st.allowed_env = splitCSV(v); renderOutput(); }, 'HOME, USER, GOPATH, TERM',
+                'Only these environment variables (plus PATH) are visible to run_shell commands. When empty, only PATH is visible. Set this to expose specific vars the agent needs.'),
+            fieldText('Timeout', st.timeout || '', function (v) { st.timeout = v; renderOutput(); }, '10m',
+                'Maximum execution time for a single shell command. Use Go duration syntax (e.g. 30s, 5m, 1h). Default: 10m'),
+            el('p', { className: 'text-xs text-gray-400 mt-1' }, 'PATH is always included automatically. Environment variables are resolved via the SecretProvider at runtime.')
         ]));
     }
 
@@ -1047,10 +1080,12 @@
 
     function graphToToml(lines) {
         var g = state.graph;
-        if (g.disabled && !g.data_dir) return;
+        // Always emit [graph] when disabled so the config is explicit.
+        if (!g.disabled && !g.data_dir && g.backend === 'inmemory') return;
         lines.push('[graph]');
         lines.push('disabled = ' + (g.disabled ? 'true' : 'false'));
-        if (g.data_dir) lines.push('data_dir = ' + q(g.data_dir));
+        if (g.backend && g.backend !== 'inmemory') lines.push('backend = ' + q(g.backend));
+        if (g.backend === 'inmemory' && g.data_dir) lines.push('data_dir = ' + q(g.data_dir));
         lines.push('');
     }
 
@@ -1146,10 +1181,12 @@
         dataSourcesToToml(lines);
         messengerToToml(lines);
         scmToToml(lines);
+        ghcliToToml(lines);
         pmToToml(lines);
         browserToToml(lines);
         emailToToml(lines);
         hitlToToml(lines);
+        shellToolToToml(lines);
         toolwrapToToml(lines);
         dbConfigToToml(lines);
 
@@ -1181,6 +1218,14 @@
         lines.push('provider = ' + q(s.provider));
         if (s.token) lines.push('token = ' + q('${' + s.token + '}'));
         if (s.base_url) lines.push('base_url = ' + q(s.base_url));
+        lines.push('');
+    }
+
+    function ghcliToToml(lines) {
+        var g = state.ghcli;
+        if (!g.token) return;
+        lines.push('[ghcli]');
+        lines.push('token = ' + q('${' + g.token + '}'));
         lines.push('');
     }
 
@@ -1226,6 +1271,15 @@
         if (hasItems(h.always_allowed)) lines.push('always_allowed = [' + h.always_allowed.filter(Boolean).map(q).join(', ') + ']');
         if (hasItems(h.denied_tools)) lines.push('denied_tools = [' + h.denied_tools.filter(Boolean).map(q).join(', ') + ']');
         if (h.cache_ttl) lines.push('cache_ttl = ' + q(h.cache_ttl));
+        lines.push('');
+    }
+
+    function shellToolToToml(lines) {
+        var st = state.shell_tool;
+        if (!hasItems(st.allowed_env) && !st.timeout) return;
+        lines.push('[shell_tool]');
+        if (hasItems(st.allowed_env)) lines.push('allowed_env = [' + st.allowed_env.filter(Boolean).map(q).join(', ') + ']');
+        if (st.timeout) lines.push('timeout = ' + q(st.timeout));
         lines.push('');
     }
 
@@ -1655,10 +1709,12 @@
 
     function graphToYaml(lines) {
         var g = state.graph;
-        if (g.disabled && !g.data_dir) return;
+        // Always emit graph: when disabled so the config is explicit.
+        if (!g.disabled && !g.data_dir && g.backend === 'inmemory') return;
         lines.push('graph:');
         lines.push('  disabled: ' + (g.disabled ? 'true' : 'false'));
-        if (g.data_dir) lines.push('  data_dir: ' + yq(g.data_dir));
+        if (g.backend && g.backend !== 'inmemory') lines.push('  backend: ' + yq(g.backend));
+        if (g.backend === 'inmemory' && g.data_dir) lines.push('  data_dir: ' + yq(g.data_dir));
         lines.push('');
     }
 
@@ -1753,10 +1809,12 @@
         dataSourcesToYaml(lines);
         messengerToYaml(lines);
         scmToYaml(lines);
+        ghcliToYaml(lines);
         pmToYaml(lines);
         browserToYaml(lines);
         emailToYaml(lines);
         hitlToYaml(lines);
+        shellToolToYaml(lines);
         toolwrapToYaml(lines);
         dbConfigToYaml(lines);
 
@@ -1862,6 +1920,14 @@
         lines.push('');
     }
 
+    function ghcliToYaml(lines) {
+        var g = state.ghcli;
+        if (!g.token) return;
+        lines.push('ghcli:');
+        lines.push('  token: ' + yq('${' + g.token + '}'));
+        lines.push('');
+    }
+
     function dbConfigToYaml(lines) {
         var d = state.db_config;
         if (!d.db_file) return;
@@ -1919,6 +1985,18 @@
             h.denied_tools.filter(Boolean).forEach(function (t) { lines.push('    - ' + t); });
         }
         if (h.cache_ttl) lines.push('  cache_ttl: ' + h.cache_ttl);
+        lines.push('');
+    }
+
+    function shellToolToYaml(lines) {
+        var st = state.shell_tool;
+        if (!hasItems(st.allowed_env) && !st.timeout) return;
+        lines.push('shell_tool:');
+        if (hasItems(st.allowed_env)) {
+            lines.push('  allowed_env:');
+            st.allowed_env.filter(Boolean).forEach(function (e) { lines.push('    - ' + e); });
+        }
+        if (st.timeout) lines.push('  timeout: ' + st.timeout);
         lines.push('');
     }
 

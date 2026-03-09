@@ -13,6 +13,14 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )
 
+// Tool name constants for the vector memory tools. Use these instead of
+// magic strings when referencing memory tools elsewhere (e.g. retrieval
+// tool classification, empty-memory guard, loop detection).
+const (
+	MemoryStoreToolName  = "memory_store"
+	MemorySearchToolName = "memory_search"
+)
+
 // allowedMetadataKeys returns a set of allowed keys for validation. If cfg is nil
 // or AllowedMetadataKeys is empty, nil is returned meaning "allow any key".
 func allowedMetadataKeys(cfg *Config) map[string]bool {
@@ -77,7 +85,7 @@ func NewMemoryStoreTool(store IStore, cfg *Config) tool.Tool {
 	s := &memoryStoreTool{store: store, cfg: cfg}
 	return function.NewFunctionTool(
 		s.execute,
-		function.WithName("memory_store"),
+		function.WithName(MemoryStoreToolName),
 		function.WithDescription("Store a piece of text into long-term vector memory for later retrieval. Use this to remember important facts, decisions, or observations. Optional id enables upsert (replace existing memory with the same id)."),
 	)
 }
@@ -158,7 +166,7 @@ func NewMemorySearchTool(store IStore, cfg *Config) tool.Tool {
 	s := &memorySearchTool{store: store, cfg: cfg}
 	return function.NewFunctionTool(
 		s.execute,
-		function.WithName("memory_search"),
+		function.WithName(MemorySearchToolName),
 		function.WithDescription(memorySearchDescription),
 	)
 }

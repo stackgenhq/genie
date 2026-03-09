@@ -39,13 +39,13 @@ func newJWTValidator(cfg JWTConfig) *jwtValidator {
 func (v *jwtValidator) Authenticate(w http.ResponseWriter, r *http.Request) *authcontext.Principal {
 	authHeader := r.Header.Get("Authorization")
 	if !strings.HasPrefix(authHeader, "Bearer ") {
-		writeJSON(w, http.StatusUnauthorized, "missing_token", "Authorization: Bearer <token> required", "jwt")
+		writeJSONWithIP(w, r, http.StatusUnauthorized, "missing_token", "Authorization: Bearer <token> required", "jwt")
 		return nil
 	}
 	token := strings.TrimPrefix(authHeader, "Bearer ")
 	idToken, err := v.validate(r.Context(), token)
 	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, "invalid_token", "Bearer token validation failed", "jwt")
+		writeJSONWithIP(w, r, http.StatusUnauthorized, "invalid_token", "Bearer token validation failed", "jwt")
 		return nil
 	}
 

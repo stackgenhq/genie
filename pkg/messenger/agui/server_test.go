@@ -601,6 +601,114 @@ var _ = Describe("AG-UI Server", func() {
 		})
 	})
 
+	Describe("handleApprove principal-scoped authorization", func() {
+		It("allows the creator to resolve their own approval", func() {
+			approvalID := "principal-allow-1"
+			fakeStore := &hitlfakes.FakeApprovalStore{}
+			fakeStore.GetReturns(hitl.ApprovalRequest{
+				ID:        approvalID,
+				ToolName:  "write_file",
+				CreatedBy: "demo-user",
+			}, nil)
+			fakeStore.ResolveReturns(nil)
+
+			handler := &aguifakes.FakeExpert{}
+			server := agui.NewServer(messenger.AGUIConfig{}, handler, fakeStore, nil, nil, nil, nil, "")
+
+			body := map[string]interface{}{
+				"approvalId": approvalID,
+				"decision":   "approved",
+			}
+			bodyBytes, _ := json.Marshal(body)
+			// No auth → demo-user principal injected → matches CreatedBy
+			req := httptest.NewRequest(http.MethodPost, "/approve", strings.NewReader(string(bodyBytes)))
+			req.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+			server.Handler().ServeHTTP(recorder, req)
+
+			Expect(recorder.Code).To(Equal(http.StatusOK))
+			Expect(fakeStore.ResolveCallCount()).To(Equal(1))
+			// Verify ResolvedBy is set to the principal's ID, not hardcoded "chat-ui"
+			_, resolveReq := fakeStore.ResolveArgsForCall(0)
+			Expect(resolveReq.ResolvedBy).To(Equal("demo-user"))
+		})
+
+		It("denies a non-creator non-admin from resolving", func() {
+			approvalID := "principal-deny-1"
+			fakeStore := &hitlfakes.FakeApprovalStore{}
+			fakeStore.GetReturns(hitl.ApprovalRequest{
+				ID:        approvalID,
+				ToolName:  "run_shell",
+				CreatedBy: "alice@example.com",
+			}, nil)
+
+			handler := &aguifakes.FakeExpert{}
+			server := agui.NewServer(messenger.AGUIConfig{}, handler, fakeStore, nil, nil, nil, nil, "")
+
+			body := map[string]interface{}{
+				"approvalId": approvalID,
+				"decision":   "approved",
+			}
+			bodyBytes, _ := json.Marshal(body)
+			// No auth → demo-user principal injected → does NOT match "alice@example.com"
+			req := httptest.NewRequest(http.MethodPost, "/approve", strings.NewReader(string(bodyBytes)))
+			req.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+			server.Handler().ServeHTTP(recorder, req)
+
+			Expect(recorder.Code).To(Equal(http.StatusForbidden))
+			Expect(fakeStore.ResolveCallCount()).To(Equal(0))
+		})
+
+		It("allows legacy approvals without CreatedBy to be resolved by anyone", func() {
+			approvalID := "principal-legacy-1"
+			fakeStore := &hitlfakes.FakeApprovalStore{}
+			fakeStore.GetReturns(hitl.ApprovalRequest{
+				ID:        approvalID,
+				ToolName:  "write_file",
+				CreatedBy: "", // legacy — no CreatedBy
+			}, nil)
+			fakeStore.ResolveReturns(nil)
+
+			handler := &aguifakes.FakeExpert{}
+			server := agui.NewServer(messenger.AGUIConfig{}, handler, fakeStore, nil, nil, nil, nil, "")
+
+			body := map[string]interface{}{
+				"approvalId": approvalID,
+				"decision":   "rejected",
+			}
+			bodyBytes, _ := json.Marshal(body)
+			req := httptest.NewRequest(http.MethodPost, "/approve", strings.NewReader(string(bodyBytes)))
+			req.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+			server.Handler().ServeHTTP(recorder, req)
+
+			Expect(recorder.Code).To(Equal(http.StatusOK))
+			Expect(fakeStore.ResolveCallCount()).To(Equal(1))
+		})
+
+		It("returns 404 when approval ID is not found", func() {
+			fakeStore := &hitlfakes.FakeApprovalStore{}
+			fakeStore.GetReturns(hitl.ApprovalRequest{}, fmt.Errorf("approval not found"))
+
+			handler := &aguifakes.FakeExpert{}
+			server := agui.NewServer(messenger.AGUIConfig{}, handler, fakeStore, nil, nil, nil, nil, "")
+
+			body := map[string]interface{}{
+				"approvalId": "nonexistent",
+				"decision":   "approved",
+			}
+			bodyBytes, _ := json.Marshal(body)
+			req := httptest.NewRequest(http.MethodPost, "/approve", strings.NewReader(string(bodyBytes)))
+			req.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+			server.Handler().ServeHTTP(recorder, req)
+
+			Expect(recorder.Code).To(Equal(http.StatusNotFound))
+			Expect(fakeStore.ResolveCallCount()).To(Equal(0))
+		})
+	})
+
 	Describe("CORS", func() {
 		It("should add CORS headers when origin matches", func() {
 			handler := &aguifakes.FakeExpert{}

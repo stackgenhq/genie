@@ -231,6 +231,24 @@
                     <div id="scm-body" class="config-section-body"></div>
                 </div>
 
+                <!-- GH CLI -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('ghcli-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">🐙</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">GitHub CLI (gh_cli tool)</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Enables the gh_cli agent tool for GitHub
+                                    Actions, deployments, Dependabot alerts, etc.</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="ghcli-body" class="config-section-body"></div>
+                </div>
                 <!-- PM -->
                 <div class="config-section">
                     <div class="config-section-header" onclick="toggleSection('pm-body')">
@@ -307,6 +325,24 @@
                     <div id="hitl-body" class="config-section-body"></div>
                 </div>
 
+                <!-- Shell Tool Security -->
+                <div class="config-section">
+                    <div class="config-section-header" onclick="toggleSection('shelltool-body')">
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg">🐚</span>
+                            <div>
+                                <h3 class="font-semibold text-sm">Shell Tool Security</h3>
+                                <p class="text-xs text-gray-400 mt-0.5">Restrict environment variables visible to
+                                    run_shell commands</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 chevron transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                    <div id="shelltool-body" class="config-section-body"></div>
+                </div>
                 <!-- Toolwrap Middleware -->
                 <div class="config-section">
                     <div class="config-section-header" onclick="toggleSection('toolwrap-body')">
@@ -426,7 +462,8 @@
                             <span class="text-lg">🖥️</span>
                             <div>
                                 <h3 class="font-semibold text-sm">AGUI Server</h3>
-                                <p class="text-xs text-gray-400 mt-0.5">HTTP server, authentication (password + JWT/OIDC), CORS, and rate limiting
+                                <p class="text-xs text-gray-400 mt-0.5">HTTP server, authentication (password +
+                                    JWT/OIDC), CORS, and rate limiting
                                 </p>
                             </div>
                         </div>

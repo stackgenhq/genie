@@ -18,7 +18,7 @@ good_for_task = "efficiency"
 
 [messenger]
 platform = "whatsapp"
-allowed_senders = ["19253538761"]
+allowed_senders = ["11234567890"]
 
 [vector_memory]
 embedding_provider = "ollama"

@@ -16,18 +16,14 @@ func NewToolProvider(store IStore) *ToolProvider {
 	return &ToolProvider{store: store}
 }
 
-// GetTools returns graph_store_entity, graph_store_relation, graph_query,
-// graph_get_entity, and graph_shortest_path when store is non-nil. Returns nil
+// GetTools returns graph_store and graph_query when store is non-nil. Returns nil
 // when store is nil so that disabled graph does not add tools.
 func (p *ToolProvider) GetTools() []tool.Tool {
 	if p.store == nil {
 		return nil
 	}
 	return []tool.Tool{
-		newStoreEntityTool(p.store),
-		newStoreRelationTool(p.store),
+		newGraphStoreTool(p.store),
 		newGraphQueryTool(p.store),
-		newGetEntityTool(p.store),
-		newShortestPathTool(p.store),
 	}
 }

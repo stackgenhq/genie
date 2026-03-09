@@ -102,4 +102,40 @@ var _ = Describe("buildSubAgentInstruction", func() {
 			Expect(instruction).To(ContainSubstring("do NOT re-fetch"))
 		})
 	})
+
+	Describe("incremental reporting and shared memory", func() {
+		It("includes INCREMENTAL REPORTING directive", func() {
+			instruction := buildSubAgentInstruction(nil)
+			Expect(instruction).To(ContainSubstring("INCREMENTAL REPORTING"))
+		})
+
+		It("instructs per-item reporting for batch operations", func() {
+			instruction := buildSubAgentInstruction(nil)
+			Expect(instruction).To(ContainSubstring("per-item results"))
+			Expect(instruction).To(ContainSubstring("Do NOT wait until all items are processed"))
+		})
+
+		It("warns about timeout data loss for partial results", func() {
+			instruction := buildSubAgentInstruction(nil)
+			Expect(instruction).To(ContainSubstring("if you time out"))
+			Expect(instruction).To(ContainSubstring("only the items already reported will be captured"))
+		})
+
+		It("includes SHARED MEMORY directive", func() {
+			instruction := buildSubAgentInstruction(nil)
+			Expect(instruction).To(ContainSubstring("SHARED MEMORY"))
+			Expect(instruction).To(ContainSubstring("shared working memory"))
+		})
+
+		It("informs about sibling agent visibility", func() {
+			instruction := buildSubAgentInstruction(nil)
+			Expect(instruction).To(ContainSubstring("Sibling agents running in parallel"))
+		})
+
+		It("recommends structured reporting for multi-agent workflows", func() {
+			instruction := buildSubAgentInstruction(nil)
+			Expect(instruction).To(ContainSubstring("report findings clearly"))
+			Expect(instruction).To(ContainSubstring("structured"))
+		})
+	})
 })

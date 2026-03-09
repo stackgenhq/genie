@@ -126,8 +126,9 @@ skills_roots = ["./skills"]
 # allowed_metadata_keys = ["product", "category", "source"]  # optional: only these keys allowed in memory_store metadata and memory_search filter (product/category buckets)
 
 # [graph]
-# disabled = false  # set true to disable knowledge graph and graph_* tools (store entity, store relation, query, get entity, shortest path)
-# data_dir = ""     # optional: e.g. ~/.genie/<agent>. When empty or unset, graph data is not persisted. Snapshot saved as memory.bin.zst (gob+zstd)
+# disabled = false       # set true to disable knowledge graph and graph_* tools (graph_store, graph_query)
+# backend = "inmemory"   # "inmemory" (default) or "vectorstore" (reuses the configured vector store)
+# data_dir = ""          # optional: e.g. ~/.genie/<agent>. When empty or unset, graph data is not persisted. Snapshot saved as memory.bin.zst (gob+zstd). Ignored when backend = "vectorstore".
 
 # ── Messenger ─────────────────────────────────────────────
 # [messenger]

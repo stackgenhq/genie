@@ -55,6 +55,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/semanticrouter"
 
 	"github.com/stackgenhq/genie/pkg/security"
+	"github.com/stackgenhq/genie/pkg/security/authcontext"
 
 	"github.com/stackgenhq/genie/pkg/tools"
 	"github.com/stackgenhq/genie/pkg/tools/codeskim"
@@ -62,6 +63,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/tools/doctool"
 	"github.com/stackgenhq/genie/pkg/tools/email"
 	"github.com/stackgenhq/genie/pkg/tools/encodetool"
+	"github.com/stackgenhq/genie/pkg/tools/ghcli"
 	"github.com/stackgenhq/genie/pkg/tools/google/calendar"
 	"github.com/stackgenhq/genie/pkg/tools/google/contacts"
 	"github.com/stackgenhq/genie/pkg/tools/google/gdrive"
@@ -288,19 +290,31 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 		log.Info("Vector memory initialized")
 	}
 
-	// --- Graph memory (interface-driven; in-memory implementation for now) ---
+	// --- Graph memory (interface-driven; in-memory or vector-backed) ---
 	if !a.cfg.Graph.Disabled {
-		dataDir := a.cfg.Graph.DataDir
-		opts := []graph.InMemoryStoreOption{}
-		if dataDir != "" {
-			opts = append(opts, graph.WithPersistenceDir(dataDir))
-		}
-		graphStore, gErr := graph.NewInMemoryStore(opts...)
-		if gErr != nil {
-			log.Warn("failed to initialize graph store, skipping graph tools", "error", gErr)
+		if a.cfg.Graph.IsVectorStoreBackend() && vectorStore != nil {
+			// Reuse the configured vector store (Qdrant/Milvus) for graph storage.
+			graphStore, gErr := graph.NewVectorBackedStore(vectorStore)
+			if gErr != nil {
+				log.Warn("failed to initialize vector-backed graph store, skipping graph tools", "error", gErr)
+			} else {
+				a.graphStore = graphStore
+				log.Info("Graph memory initialized (vector-backed)")
+			}
 		} else {
-			a.graphStore = graphStore
-			log.Info("Graph memory initialized", "data_dir", dataDir)
+			// Default: in-memory with optional gob+zstd persistence.
+			dataDir := a.cfg.Graph.DataDir
+			opts := []graph.InMemoryStoreOption{}
+			if dataDir != "" {
+				opts = append(opts, graph.WithPersistenceDir(dataDir))
+			}
+			graphStore, gErr := graph.NewInMemoryStore(opts...)
+			if gErr != nil {
+				log.Warn("failed to initialize graph store, skipping graph tools", "error", gErr)
+			} else {
+				a.graphStore = graphStore
+				log.Info("Graph memory initialized", "data_dir", dataDir)
+			}
 		}
 	}
 
@@ -680,10 +694,13 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 		// Span attributes alone only work if this specific span happens to
 		// be the Langfuse trace root, which is often not the case.
 		ctx = withLangfuseTraceBaggage(ctx, a.displayName(), "agui")
+		ctx = withPrincipalBaggage(ctx)
 
+		principal := authcontext.GetPrincipal(ctx)
 		ctx, aguiSpan := trace.Tracer.Start(ctx, a.displayName(), oteltrace.WithAttributes(
 			attribute.String("langfuse.trace.name", a.displayName()),
 			attribute.String("langfuse.trace.input", pii.Redact(message)),
+			attribute.String("langfuse.user.id", principal.ID),
 			attribute.StringSlice("langfuse.trace.tags", []string{
 				a.displayName(),
 				"agui",
@@ -822,6 +839,12 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 		log.Warn("failed to initialize SCM service, skipping SCM tools", "provider", a.cfg.SCM.Provider, "error", err)
 	}
 
+	// --- GitHub CLI (gh) tool ---
+	if ghProvider := ghcli.New(ctx, a.cfg.GHCli); ghProvider != nil {
+		providers = append(providers, ghProvider)
+		log.Info("gh CLI tool provider added")
+	}
+
 	// --- PM tools ---
 	if pmSvc, err := pm.New(a.cfg.ProjectManagement); err == nil {
 		if vErr := pmSvc.Validate(ctx); vErr != nil {
@@ -929,7 +952,7 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 	}
 
 	// --- Shell tool ---
-	providers = append(providers, tools.NewShellToolProvider(a.workingDir))
+	providers = append(providers, tools.NewShellToolProvider(a.workingDir, a.sp, a.cfg.ShellTool))
 	log.Debug("Shell tool provider added")
 
 	// --- Summarizer tool ---
@@ -1419,6 +1442,7 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 		// Set baggage so the baggageBatchSpanProcessor propagates tags
 		// to all child spans (including trpc-agent-go internal spans).
 		messengerCtx = withLangfuseTraceBaggage(messengerCtx, a.displayName(), string(msg.Platform), "messenger")
+		messengerCtx = withPrincipalBaggage(messengerCtx)
 
 		traceCtx, span := trace.Tracer.Start(messengerCtx, a.displayName(), oteltrace.WithAttributes(
 			attribute.String("langfuse.trace.name", a.displayName()),
@@ -1839,8 +1863,15 @@ func truncateForLog(s string, maxLen int) string {
 //
 // The tags are joined with commas because OTel baggage values are strings.
 // The langfuse exporter interprets the comma-separated value as an array.
+//
+// We use url.PathEscape (not QueryEscape) because OTel baggage treats `+`
+// literally — QueryEscape encodes spaces as `+` which is NOT decoded back
+// to spaces by the baggage spec, producing garbled values. PathEscape
+// encodes spaces as `%20` which is correctly round-tripped.
+// Note: PathEscape does not encode `/` — this is acceptable because tags
+// and user IDs should not contain bare slashes.
 func withLangfuseTraceBaggage(ctx context.Context, tags ...string) context.Context {
-	value := url.QueryEscape(strings.Join(tags, ","))
+	value := url.PathEscape(strings.Join(tags, ","))
 	member, err := baggage.NewMember("langfuse.trace.tags", value)
 	if err != nil {
 		logger.GetLogger(ctx).Warn("failed to create langfuse trace baggage member", "error", err, "tags", tags)
@@ -1854,5 +1885,49 @@ func withLangfuseTraceBaggage(ctx context.Context, tags ...string) context.Conte
 		logger.GetLogger(ctx).Warn("failed to set langfuse trace baggage", "error", err, "tags", tags)
 		return ctx
 	}
+	return baggage.ContextWithBaggage(ctx, bag)
+}
+
+// withPrincipalBaggage injects the authenticated Principal's identity into
+// OTel Baggage so that Langfuse traces carry user-level metadata on every
+// span. This enables filtering and grouping by user ID, role, and
+// authentication method in the Langfuse dashboard.
+//
+// Sets the following Langfuse-recognised keys:
+//   - langfuse.user.id              → principal.ID
+//   - langfuse.trace.metadata.user_name → principal.Name
+//   - langfuse.trace.metadata.user_role → principal.Role
+//   - langfuse.trace.metadata.auth_method → principal.AuthenticatedVia
+//
+// Only non-empty values are propagated. If the principal is the demo
+// fallback, the keys are still set so Langfuse can distinguish
+// unauthenticated traffic.
+func withPrincipalBaggage(ctx context.Context) context.Context {
+	p := authcontext.GetPrincipal(ctx)
+	bag := baggage.FromContext(ctx)
+
+	for _, kv := range []struct{ key, val string }{
+		{"langfuse.user.id", p.ID},
+		{"langfuse.trace.metadata.user_name", p.Name},
+		{"langfuse.trace.metadata.user_role", p.Role},
+		{"langfuse.trace.metadata.auth_method", p.AuthenticatedVia},
+	} {
+		if kv.val == "" {
+			continue
+		}
+		m, err := baggage.NewMember(kv.key, url.PathEscape(kv.val))
+		if err != nil {
+			logger.GetLogger(ctx).Warn("failed to create principal baggage member",
+				"key", kv.key, "error", err)
+			continue
+		}
+		bag, err = bag.SetMember(m)
+		if err != nil {
+			logger.GetLogger(ctx).Warn("failed to set principal baggage member",
+				"key", kv.key, "error", err)
+			continue
+		}
+	}
+
 	return baggage.ContextWithBaggage(ctx, bag)
 }

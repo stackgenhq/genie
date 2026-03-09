@@ -126,6 +126,25 @@ resource "aws_iam_role_policy_attachment" "readonly" {
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
 }
 
+# Attach an inline policy explicitly granting access to the secret value.
+# The ReadOnlyAccess managed policy does NOT include secretsmanager:GetSecretValue.
+resource "aws_iam_role_policy" "genie_secret_access" {
+  name   = "genie-secret-access"
+  role   = aws_iam_role.genie_readonly.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ]
+        Effect   = "Allow"
+        Resource = "${var.aws.secrets_manager_arn}-*"
+      }
+    ]
+  })
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 # PART 1.5 – EKS Access Entry
 # Map the SA's AWS IAM role to the Kubernetes cluster so the Copilot can log in
@@ -151,140 +170,6 @@ resource "kubernetes_namespace" "genie" {
   }
 }
 
-# ═════════════════════════════════════════════════════════════════════════════
-# PART 3 – External Secrets: SecretStore + ExternalSecret
-# ═════════════════════════════════════════════════════════════════════════════
-
-# SecretStore pointing at AWS Secrets Manager (uses the IRSA role from the SA)
-resource "kubernetes_manifest" "secret_store" {
-  manifest = {
-    apiVersion = "external-secrets.io/v1beta1"
-    kind       = "SecretStore"
-    metadata = {
-      name      = "genie-secret-store"
-      namespace = var.kubernetes.namespace
-    }
-    spec = {
-      provider = {
-        aws = {
-          service = "SecretsManager"
-          region  = var.aws.region
-        }
-      }
-    }
-  }
-}
-
-# ExternalSecret: syncs API keys from AWS Secrets Manager → K8s Secret "genie-secrets"
-resource "kubernetes_manifest" "external_secret" {
-  manifest = {
-    apiVersion = "external-secrets.io/v1beta1"
-    kind       = "ExternalSecret"
-    metadata = {
-      name      = "genie-secrets"
-      namespace = var.kubernetes.namespace
-    }
-    spec = {
-      refreshInterval = "15m"
-      secretStoreRef = {
-        name = "genie-secret-store"
-        kind = "SecretStore"
-      }
-      target = {
-        name           = "genie-secrets"
-        creationPolicy = "Owner"
-      }
-      data = [
-        {
-          secretKey = "LANGFUSE_HOST"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "LANGFUSE_HOST"
-          }
-        },
-        {
-          secretKey = "LANGFUSE_PUBLIC_KEY"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "LANGFUSE_PUBLIC_KEY"
-          }
-        },
-        {
-          secretKey = "LANGFUSE_SECRET_KEY"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "LANGFUSE_SECRET_KEY"
-          }
-        },
-        {
-          secretKey = "OPENAI_API_KEY"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "OPENAI_API_KEY"
-          }
-        },
-        {
-          secretKey = "ANTHROPIC_API_KEY"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "ANTHROPIC_API_KEY"
-          }
-        },
-        {
-          secretKey = "GEMINI_API_KEY"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "GEMINI_API_KEY"
-          }
-        },
-        {
-          secretKey = "GITHUB_TOKEN"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "GITHUB_TOKEN"
-          }
-        },
-        {
-          secretKey = "GRAFANA_URL"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "GRAFANA_URL"
-          }
-        },
-        {
-          secretKey = "GRAFANA_API_KEY"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "GRAFANA_API_KEY"
-          }
-        },
-        {
-          secretKey = "OIDC_ISSUER_URL"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "OIDC_ISSUER_URL"
-          }
-        },
-        {
-          secretKey = "OIDC_CLIENT_ID"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "OIDC_CLIENT_ID"
-          }
-        },
-        {
-          secretKey = "OIDC_CLIENT_SECRET"
-          remoteRef = {
-            key      = var.aws.secrets_manager_arn
-            property = "OIDC_CLIENT_SECRET"
-          }
-        },
-      ]
-    }
-  }
-
-  depends_on = [kubernetes_manifest.secret_store]
-}
 
 # ═════════════════════════════════════════════════════════════════════════════
 # PART 4 – Kubernetes Resources: ConfigMap, ServiceAccount, Deployment,
@@ -302,6 +187,21 @@ resource "kubernetes_config_map" "genie" {
   data = {
     "genie.toml" = file("${path.module}/genie.toml")
     "AGENTS.md"  = file("${path.module}/AGENTS.md")
+  }
+}
+
+# ── ConfigMap: container entrypoint scripts ─────────────────────────────────
+
+resource "kubernetes_config_map" "scripts" {
+  metadata {
+    name      = "genie-scripts"
+    namespace = var.kubernetes.namespace
+  }
+
+  data = {
+    "credential-bootstrap.sh" = file("${path.module}/scripts/credential-bootstrap.sh")
+    "credential-refresh.sh"   = file("${path.module}/scripts/credential-refresh.sh")
+    "genie-entrypoint.sh"     = file("${path.module}/scripts/genie-entrypoint.sh")
   }
 }
 
@@ -383,28 +283,26 @@ resource "kubernetes_cluster_role_binding" "genie_readonly" {
   }
 }
 
-# ── Persistent Volume Claim ─────────────────────────────────────────────────
-
-resource "kubernetes_persistent_volume_claim" "genie_data" {
-  metadata {
-    name      = "genie-data"
-    namespace = var.kubernetes.namespace
-  }
-
-  wait_until_bound = false
-
-  spec {
-    access_modes = ["ReadWriteOnce"]
-
-    resources {
-      requests = {
-        storage = "10Gi"
-      }
-    }
-  }
-}
 
 # ── Deployment ──────────────────────────────────────────────────────────────
+#
+# SECURITY: Credential Isolation via Init Container + Sidecar Pattern
+# ====================================================================
+# The genie container where users can run arbitrary shell commands via the
+# AG-UI agent MUST NOT have direct access to secrets or IRSA tokens.
+# Otherwise, a user can simply run `printenv` or `cat $AWS_WEB_IDENTITY_TOKEN_FILE`
+# to exfiltrate API keys, database credentials, and AWS IAM tokens.
+#
+# Architecture:
+#   1. Init container "credential-bootstrap": Has all secrets + IRSA token.
+#      Generates kubeconfig, resolves genie.toml with real credentials, and
+#      writes both to a shared emptyDir volume.
+#   2. Sidecar "credential-refresh": Periodically refreshes the kubeconfig
+#      token (IRSA tokens expire in 24h) so kubectl keeps working.
+#   3. Main container "genie": Has ZERO secret env vars, NO IRSA token mount.
+#      Reads resolved config and kubeconfig from the shared volume only.
+#
+# This ensures `printenv`, `env`, `cat` on any path cannot reveal credentials.
 
 resource "kubernetes_deployment" "genie" {
   metadata {
@@ -416,14 +314,24 @@ resource "kubernetes_deployment" "genie" {
     }
   }
 
+  timeouts {
+    create = "1m"
+    update = "1m"
+  }
+
   spec {
     replicas = var.genie.replicas
 
-    # Recreate strategy avoids ReadWriteOnce PVC multi-attach deadlock
-    # during rollouts: the old pod must fully terminate before the new
-    # pod can mount the volume.
+    # RollingUpdate with zero downtime: new pod starts before old one
+    # terminates. This is possible because all persistent state lives in
+    # PostgreSQL (sessions) and Qdrant (vectors), not local disk.
     strategy {
-      type = "Recreate"
+      type = "RollingUpdate"
+
+      rolling_update {
+        max_surge       = 1
+        max_unavailable = 0
+      }
     }
 
     selector {
@@ -437,6 +345,13 @@ resource "kubernetes_deployment" "genie" {
         labels = {
           app = "genie"
         }
+
+        annotations = {
+          # Force rolling restart when ConfigMap or Secret data changes.
+          # Terraform recomputes the SHA on every plan; if the hash differs
+          # the pod template spec changes and Kubernetes triggers a rollout.
+          "checksum/config"  = sha256(kubernetes_config_map.genie.data["genie.toml"])
+        }
       }
 
       spec {
@@ -446,24 +361,18 @@ resource "kubernetes_deployment" "genie" {
           fs_group = 65532
         }
 
-        container {
-          name              = "genie"
-          image             = var.genie.image
-          image_pull_policy = "Always"
+        # ── Init Container: Credential Bootstrap ──────────────────────
+        # Runs BEFORE the main container starts. Has access to all secrets
+        # and the IRSA token. Generates kubeconfig and resolves genie.toml
+        # with real credential values, writing both to /shared-credentials.
+        init_container {
+          name              = "credential-bootstrap"
+          image             = "amazon/aws-cli:latest"
+          image_pull_policy = "IfNotPresent"
 
-          security_context {
-            # Run as root to install tools, then drop privileges via su-exec.
-            run_as_user = 0
-          }
+          command = ["/bin/sh", "/scripts/credential-bootstrap.sh"]
 
-          command = ["/bin/sh", "-c"]
-          # Install AWS CLI, kubectl and other tools, then drop privileges to run Genie.
-          args = ["apk add --no-cache aws-cli kubectl jq curl bash su-exec && mkdir -p /home/stackgen/.kube && chown 65532:65532 /home/stackgen/.kube && chown -R 65532:65532 /data && exec su-exec 65532:65532 /usr/local/bin/genie --config /app/genie.toml --log-level debug"]
-
-          port {
-            container_port = var.genie.port
-          }
-
+          # IRSA environment variables — only in this init container
           env {
             name  = "AWS_REGION"
             value = var.aws.region
@@ -472,11 +381,6 @@ resource "kubernetes_deployment" "genie" {
           env {
             name  = "EKS_CLUSTER_NAME"
             value = var.aws.eks_cluster_name
-          }
-
-          env {
-            name  = "KUBECONFIG"
-            value = "/home/stackgen/.kube/config"
           }
 
           env {
@@ -489,30 +393,20 @@ resource "kubernetes_deployment" "genie" {
             value = aws_iam_role.genie_readonly.arn
           }
 
-          env_from {
-            secret_ref {
-              name     = "genie-secrets"
-              optional = true
-            }
+          env {
+            name  = "SECRETS_MANAGER_ARN"
+            value = var.aws.secrets_manager_arn
           }
 
-          # PostgreSQL credentials (POSTGRES_DSN, POSTGRES_USER, etc.)
+          env {
+            name  = "SECRETS_MANAGER_NAME"
+            value = var.aws.secrets_manager_name
+          }
+
           env_from {
             secret_ref {
               name = module.database.secret_name
             }
-          }
-
-          volume_mount {
-            name       = "config-volume"
-            mount_path = "/app/genie.toml"
-            sub_path   = "genie.toml"
-          }
-
-          volume_mount {
-            name       = "config-volume"
-            mount_path = "/app/AGENTS.md"
-            sub_path   = "AGENTS.md"
           }
 
           volume_mount {
@@ -522,8 +416,181 @@ resource "kubernetes_deployment" "genie" {
           }
 
           volume_mount {
-            name       = "genie-data"
-            mount_path = "/data"
+            name       = "config-volume"
+            mount_path = "/app-config"
+            read_only  = true
+          }
+
+          volume_mount {
+            name       = "shared-credentials"
+            mount_path = "/shared-credentials"
+          }
+
+          volume_mount {
+            name       = "scripts-volume"
+            mount_path = "/scripts"
+            read_only  = true
+          }
+        }
+
+        # ── Sidecar: Credential Refresh ───────────────────────────────
+        # Runs alongside the main container. Periodically refreshes the
+        # kubeconfig so the IRSA token (24h expiry) stays valid.
+        # This container has secrets but is NOT user-accessible.
+        container {
+          name              = "credential-refresh"
+          image             = "amazon/aws-cli:latest"
+          image_pull_policy = "IfNotPresent"
+
+          command = ["/bin/sh", "/scripts/credential-refresh.sh"]
+
+          env {
+            name  = "AWS_REGION"
+            value = var.aws.region
+          }
+
+          env {
+            name  = "EKS_CLUSTER_NAME"
+            value = var.aws.eks_cluster_name
+          }
+
+          env {
+            name  = "AWS_WEB_IDENTITY_TOKEN_FILE"
+            value = "/var/run/secrets/eks.amazonaws.com/serviceaccount/token"
+          }
+
+          env {
+            name  = "AWS_ROLE_ARN"
+            value = aws_iam_role.genie_readonly.arn
+          }
+
+          volume_mount {
+            name       = "aws-iam-token"
+            mount_path = "/var/run/secrets/eks.amazonaws.com/serviceaccount"
+            read_only  = true
+          }
+
+          volume_mount {
+            name       = "shared-credentials"
+            mount_path = "/shared-credentials"
+          }
+
+          volume_mount {
+            name       = "scripts-volume"
+            mount_path = "/scripts"
+            read_only  = true
+          }
+
+          resources {
+            requests = {
+              cpu    = "10m"
+              memory = "32Mi"
+            }
+            limits = {
+              cpu    = "50m"
+              memory = "64Mi"
+            }
+          }
+        }
+
+        # ── 3. Main container: genie ─────────────────────────────────────
+        # This container runs the genie binary that executes user-facing
+        # commands (shell, kubectl, aws, etc.). As a DevOps copilot it
+        # needs AWS CLI and kubectl access with IRSA credentials.
+        # API keys and other secrets are NOT in env vars — they are read
+        # from the resolved genie.toml on the shared volume.
+        container {
+          name              = "genie"
+          image             = var.genie.image
+          image_pull_policy = "Always"
+
+          security_context {
+            # Run as root to install tools, then drop privileges via su-exec.
+            run_as_user = 0
+          }
+
+          command = ["/bin/sh", "/scripts/genie-entrypoint.sh"]
+
+          port {
+            container_port = var.genie.port
+          }
+
+          # HOME must be set explicitly — user 65532 has no /etc/passwd
+          # entry in Alpine, so HOME defaults to "/". Sub-agents and gh CLI
+          # rely on HOME to locate config files (~/.config/gh/hosts.yml).
+          env {
+            name  = "HOME"
+            value = "/home/stackgen"
+          }
+
+          env {
+            name  = "KUBECONFIG"
+            value = "/home/stackgen/.kube/config"
+          }
+
+          # IRSA credentials — needed for aws CLI and kubectl auth
+          env {
+            name  = "AWS_REGION"
+            value = var.aws.region
+          }
+
+          env {
+            name  = "AWS_DEFAULT_REGION"
+            value = var.aws.region
+          }
+
+          env {
+            name  = "AWS_ROLE_ARN"
+            value = aws_iam_role.genie_readonly.arn
+          }
+
+          env {
+            name  = "AWS_WEB_IDENTITY_TOKEN_FILE"
+            value = "/var/run/secrets/eks.amazonaws.com/serviceaccount/token"
+          }
+
+          env {
+            name  = "AWS_STS_REGIONAL_ENDPOINTS"
+            value = "regional"
+          }
+
+          # Suppress the protobuf registration conflict between Qdrant and
+          # Milvus gRPC clients — both register "common.proto" but with
+          # different (unrelated) message types.  The "warn" policy logs it
+          # instead of panicking.
+          env {
+            name  = "GOLANG_PROTOBUF_REGISTRATION_CONFLICT"
+            value = "warn"
+          }
+
+          # NOTE: NO env_from blocks — API keys are NOT in env vars.
+          # They are resolved into genie.toml by the init container.
+
+          volume_mount {
+            name       = "config-volume"
+            mount_path = "/app/AGENTS.md"
+            sub_path   = "AGENTS.md"
+          }
+
+          volume_mount {
+            name       = "shared-credentials"
+            mount_path = "/shared-credentials"
+            read_only  = true
+          }
+
+
+
+          volume_mount {
+            name       = "scripts-volume"
+            mount_path = "/scripts"
+            read_only  = true
+          }
+
+          # IRSA token — needed for aws CLI and kubectl EKS auth
+          volume_mount {
+            name       = "aws-iam-token"
+            mount_path = "/var/run/secrets/eks.amazonaws.com/serviceaccount"
+            read_only  = true
           }
         }
 
@@ -536,10 +603,22 @@ resource "kubernetes_deployment" "genie" {
         }
 
         volume {
+          name = "scripts-volume"
+
+          config_map {
+            name         = kubernetes_config_map.scripts.metadata[0].name
+            default_mode = "0755"
+          }
+        }
+
+        # IRSA token volume — mounted ONLY in init and sidecar containers,
+        # NOT in the user-facing genie container.
+        volume {
           name = "aws-iam-token"
 
           projected {
-            default_mode = "0644"
+            # Restrictive permissions: owner-read only (was 0644).
+            default_mode = "0400"
 
             sources {
               service_account_token {
@@ -551,13 +630,18 @@ resource "kubernetes_deployment" "genie" {
           }
         }
 
+        # Shared emptyDir for credential handoff from init/sidecar → genie.
+        # Contains: kubeconfig (with embedded short-lived token) and
+        # resolved genie.toml (with real API keys substituted).
         volume {
-          name = "genie-data"
+          name = "shared-credentials"
 
-          persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.genie_data.metadata[0].name
+          empty_dir {
+            medium = "Memory"
           }
         }
+
+
       }
     }
   }

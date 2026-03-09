@@ -2,8 +2,14 @@ package auth
 
 import (
 	"encoding/json"
+	"log/slog"
+	"net"
 	"net/http"
+	"strings"
+	"sync"
 
+	"github.com/google/uuid"
+	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/security/authcontext"
 )
 
@@ -38,8 +44,14 @@ func Middleware(cfg Config, oidcHandler ...*OIDCHandler) func(http.Handler) http
 	auth := resolveAuthenticator(cfg, oh)
 	if auth == nil {
 		// No auth configured → inject a demo principal and pass through.
+		var warnOnce sync.Once
+		slog.Warn("auth: no authentication configured — all requests get DemoUser principal")
 		return func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				warnOnce.Do(func() {
+					slog.Info("auth: serving first request without authentication",
+						"ip", getIPAddress(r), "path", r.URL.Path)
+				})
 				ctx := authcontext.WithPrincipal(r.Context(), DemoUser())
 				next.ServeHTTP(w, r.WithContext(ctx))
 			})
@@ -56,6 +68,8 @@ func Middleware(cfg Config, oidcHandler ...*OIDCHandler) func(http.Handler) http
 
 			if p := auth.Authenticate(w, r); p != nil {
 				ctx := authcontext.WithPrincipal(r.Context(), *p)
+				ctx = logger.WithArgs(ctx, "principal", p, "request_id", uuid.NewString())
+				logger.GetLogger(ctx).Info("user authenticated", "user", p, "ip", getIPAddress(r))
 				next.ServeHTTP(w, r.WithContext(ctx))
 			}
 		})
@@ -80,7 +94,8 @@ func resolveAuthenticator(cfg Config, oh *OIDCHandler) Authenticator {
 	return nil
 }
 
-// writeJSON writes a JSON error response.
+// writeJSON writes a JSON error response. It does NOT log — use
+// writeJSONWithIP when audit/rate-limiting visibility is needed.
 func writeJSON(w http.ResponseWriter, status int, code, message, authMethod string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -92,4 +107,47 @@ func writeJSON(w http.ResponseWriter, status int, code, message, authMethod stri
 		payload["auth_method"] = authMethod
 	}
 	json.NewEncoder(w).Encode(payload) //nolint:errcheck
+}
+
+// writeJSONWithIP writes a JSON error response and logs the auth failure
+// with the client's IP address for audit/rate-limiting visibility.
+func writeJSONWithIP(w http.ResponseWriter, r *http.Request, status int, code, message, authMethod string) {
+	slog.Warn("auth: authentication failed",
+		"ip", getIPAddress(r),
+		"method", r.Method,
+		"path", r.URL.Path,
+		"error_code", code,
+		"auth_method", authMethod,
+		"status", status,
+	)
+	writeJSON(w, status, code, message, authMethod)
+}
+
+// getIPAddress extracts the client IP address from an HTTP request.
+// It checks proxy headers first (X-Forwarded-For, X-Real-Ip) before falling
+// back to the connection's RemoteAddr.
+func getIPAddress(r *http.Request) string {
+	// X-Forwarded-For may contain a comma-separated list; the first entry
+	// is the original client IP.
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		ip := strings.TrimSpace(strings.SplitN(xff, ",", 2)[0])
+		if ip != "" {
+			return ip
+		}
+	}
+
+	// X-Real-Ip is set by some reverse proxies (e.g. Nginx).
+	if xri := r.Header.Get("X-Real-Ip"); xri != "" {
+		if ip := strings.TrimSpace(xri); ip != "" {
+			return ip
+		}
+	}
+
+	// Fall back to the TCP connection address, stripping the port.
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		// RemoteAddr may already be a bare IP (no port).
+		return r.RemoteAddr
+	}
+	return ip
 }

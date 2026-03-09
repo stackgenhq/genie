@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/stackgenhq/genie/pkg/memory/graph"
+	"github.com/stackgenhq/genie/pkg/memory/vector"
 )
 
 //go:generate go tool counterfeiter -generate
@@ -54,6 +55,7 @@ type ApprovalRequest struct {
 	ExpiresAt     *time.Time     `json:"expires_at,omitempty"`
 	ResolvedAt    *time.Time     `json:"resolved_at,omitempty"`
 	ResolvedBy    string         `json:"resolved_by,omitempty"`
+	CreatedBy     string         `json:"created_by,omitempty"`
 	SenderContext string         `json:"sender_context,omitempty"`
 	Question      string         `json:"question,omitempty"`
 }
@@ -92,6 +94,7 @@ type CreateRequest struct {
 	TenantID      string
 	ToolName      string
 	Args          string
+	CreatedBy     string // principal ID of the user who initiated the tool call
 	SenderContext string // originating sender (e.g. "slack:U123:C456")
 	Question      string // original user question — needed for replay-on-resume
 }
@@ -163,7 +166,7 @@ type ApprovalStore interface {
 
 // defaultReadOnlyTools lists tool names that are auto-approved (no HITL gate).
 // Includes read-only tools and selected orchestration/mutation tools (e.g. create_agent,
-// graph_store_entity) that are intentionally exempt. Excluded from this list:
+// graph_store, graph_query) that are intentionally exempt. Excluded from this list:
 // send_message, sql_sql_query (writes), browser_navigate, delete_context, note (mutable).
 var defaultReadOnlyTools = []string{
 	"ask_clarifying_question",
@@ -193,7 +196,7 @@ var defaultReadOnlyTools = []string{
 	"list_file",
 	"list_skills",
 	"math",
-	"memory_search",
+	vector.MemorySearchToolName,
 	"ocr_extract_text",
 	"parse_document",
 	"read_file",
@@ -209,9 +212,32 @@ var defaultReadOnlyTools = []string{
 	"wikipedia_search",
 	"youtube_transcript",
 	"create_agent",
-	graph.StoreEntityToolName,
-	graph.StoreRelationToolName,
+	graph.GraphStoreToolName,
 	graph.GraphQueryToolName,
-	graph.GetEntityToolName,
-	graph.ShortestPathToolName,
+}
+
+// CanResolve checks whether the resolving user is authorized to approve or
+// reject an approval. Authorization rules:
+//  1. The principal who created the approval can always resolve it.
+//  2. Users with the "admin" role can resolve any approval.
+//  3. Legacy rows without a CreatedBy value are resolvable by anyone
+//     to maintain backward compatibility after the schema migration.
+//
+// Without this function, any authenticated user could approve or reject
+// any other user's pending tool calls, breaking tenant isolation in
+// multi-user deployments.
+func CanResolve(approval ApprovalRequest, resolverID, resolverRole string) bool {
+	// Legacy rows (pre-migration) have no CreatedBy — allow anyone.
+	if approval.CreatedBy == "" {
+		return true
+	}
+	// Creator can always resolve their own approvals.
+	if approval.CreatedBy == resolverID {
+		return true
+	}
+	// Admins can resolve any approval.
+	if resolverRole == "admin" {
+		return true
+	}
+	return false
 }

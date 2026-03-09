@@ -671,6 +671,12 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	if c.router != nil {
 		if cachedResult, hit := c.router.CheckCache(ctx, req.Question); hit {
 			logr.Info("semantic cache hit", "question", toolwrap.TruncateForAudit(req.Question, 50))
+			// Emit via AG-UI event bus so streaming clients (web UI) see the
+			// response.  The outputChan consumer in buildChatHandler skips
+			// emitting for AG-UI (to avoid duplicates with the tree executor),
+			// but the cache-hit path never enters the tree, so we must emit
+			// explicitly — matching the pattern used by emitShortCircuit.
+			agui.EmitAgentMessage(ctx, orchestratorcontext.AgentNameFromContext(ctx), cachedResult)
 			outputChan <- cachedResult
 			return nil
 		}
@@ -695,16 +701,24 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	// Uses sender-based key so each sender/thread has isolated history.
 	pastContext := c.recallConversation(ctx, req.Question)
 
+	// Retrieve relevant past episodes from episodic memory.
+	// Episodes capture prior Q&A turns and their outcomes, enabling
+	// the agent to learn from its own history.
+	episodicContext := c.recallEpisodes(ctx, req.Question)
+
 	// Build the message with past conversation context injected.
-	// When past context contains [HIDDEN:...], that indicates PII-redacted text the user
-	// already provided (e.g. email, "7 days"). Instruct the model not to re-ask for the
-	// same clarification so we avoid duplicate questions.
 	message := req.Question
-	if pastContext != "" {
-		hiddenHint := ""
+	if pastContext != "" || episodicContext != "" {
+		var contextParts []string
+		if pastContext != "" {
+			contextParts = append(contextParts, fmt.Sprintf("## Relevant Past Conversations\n%s", pastContext))
+		}
+		if episodicContext != "" {
+			contextParts = append(contextParts, fmt.Sprintf("## Relevant Past Episodes\n%s", episodicContext))
+		}
 		message = fmt.Sprintf(
-			"## Relevant Past Conversations\n%s%s\n\n## Current Question\n%s",
-			hiddenHint, pastContext, req.Question,
+			"%s\n\n## Current Question\n%s",
+			strings.Join(contextParts, "\n\n"), req.Question,
 		)
 	}
 
@@ -739,6 +753,11 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 
 	// Store the conversation turn in memory for future recall (best-effort).
 	c.storeConversation(ctx, req.Question, res.Output)
+
+	// Store the Q&A turn as an episode in episodic memory so future turns
+	// can recall what was asked and how it was answered. Stored as "pending"
+	// until a user reaction (👍/👎) upgrades or downgrades it.
+	c.storeEpisode(ctx, req.Question, res)
 
 	// Persist the result to semantic cache
 	if c.router != nil {
@@ -870,6 +889,89 @@ func (c *orchestrator) storeConversation(ctx context.Context, question, answer s
 		Actor:     "orchestrator",
 		Action:    "store_conversation",
 		Metadata:  map[string]interface{}{},
+	})
+}
+
+// recallEpisodes retrieves relevant past Q&A episodes from episodic memory
+// and formats them as context for the current question. This gives the
+// orchestrator the ability to learn from its own interaction history.
+// Without this, the agent would have no awareness of how it previously
+// handled similar questions, leading to repeated mistakes or redundant work.
+func (c *orchestrator) recallEpisodes(ctx context.Context, question string) string {
+	episodic := c.episodicMemoryForSender(ctx)
+
+	// Retrieve up to 3 most relevant past episodes.
+	episodes := episodic.Retrieve(ctx, question, 3)
+	if len(episodes) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	for _, ep := range episodes {
+		sb.WriteString(ep.String())
+		sb.WriteString("\n\n")
+	}
+
+	// Audit: log episodic memory recall.
+	c.auditor.Log(ctx, audit.LogRequest{
+		EventType: audit.EventMemoryAccess,
+		Actor:     "orchestrator",
+		Action:    "recall_episodes",
+		Metadata: map[string]interface{}{
+			"results": len(episodes),
+		},
+	})
+
+	return sb.String()
+}
+
+// storeEpisode persists a Q&A turn as an episode in episodic memory.
+// The episode is stored with "pending" status so that user reactions
+// (👍 → success, 👎 → failure) can later validate or invalidate it.
+// This prevents memory poisoning from graceful LLM failures — only
+// human-validated episodes are promoted to "success" status.
+// PII is redacted before storage to prevent sensitive data leakage.
+func (c *orchestrator) storeEpisode(ctx context.Context, question string, res reactree.TreeResult) {
+	// Only store episodes that produced meaningful output.
+	if strings.TrimSpace(res.Output) == "" {
+		return
+	}
+
+	episodic := c.episodicMemoryForSender(ctx)
+
+	// Cap trajectory to prevent large outputs from bloating future prompts.
+	trajectory := pii.Redact(toolwrap.TruncateForAudit(res.Output, 500))
+	goal := pii.Redact(toolwrap.TruncateForAudit(question, 300))
+
+	// Map tree status to episode status. Successful completions are
+	// stored as pending (awaiting human validation); failures are
+	// stored directly as failures.
+	epStatus := rtmemory.EpisodePending
+	if res.Status != reactree.Success {
+		epStatus = rtmemory.EpisodeFailure
+	}
+
+	episodic.Store(ctx, rtmemory.Episode{
+		Goal:       goal,
+		Trajectory: trajectory,
+		Status:     epStatus,
+	})
+
+	logger.GetLogger(ctx).Info("orchestrator Q&A stored in episodic memory",
+		"goal", toolwrap.TruncateForAudit(question, 60),
+		"status", epStatus,
+	)
+
+	// Audit: log episodic memory write.
+	c.auditor.Log(ctx, audit.LogRequest{
+		EventType: audit.EventMemoryAccess,
+		Actor:     "orchestrator",
+		Action:    "store_episode",
+		Metadata: map[string]interface{}{
+			"goal_length":       len(goal),
+			"trajectory_length": len(trajectory),
+			"status":            string(epStatus),
+		},
 	})
 }
 

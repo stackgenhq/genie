@@ -31,6 +31,7 @@ type Approval struct {
 	ExpiresAt     *time.Time `gorm:"index:idx_approvals_expires" json:"expires_at,omitempty"`
 	ResolvedAt    *time.Time `json:"resolved_at,omitempty"`
 	ResolvedBy    string     `gorm:"type:text;default:''" json:"resolved_by,omitempty"`
+	CreatedBy     string     `gorm:"type:text;default:''" json:"created_by,omitempty"`
 	Feedback      string     `gorm:"type:text;default:''" json:"feedback,omitempty"`
 	SenderContext string     `gorm:"type:text;default:''" json:"sender_context,omitempty"`
 	Question      string     `gorm:"type:text;default:''" json:"question,omitempty"`

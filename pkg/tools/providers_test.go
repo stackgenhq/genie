@@ -7,7 +7,9 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stackgenhq/genie/pkg/security/securityfakes"
 	"github.com/stackgenhq/genie/pkg/tools"
+	"github.com/stackgenhq/genie/pkg/tools/unix"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
@@ -68,7 +70,7 @@ var _ = Describe("Providers", func() {
 	Describe("ShellToolProvider", func() {
 		It("returns exactly one tool", func() {
 			// Arrange
-			provider := tools.NewShellToolProvider("/tmp")
+			provider := tools.NewShellToolProvider("/tmp", &securityfakes.FakeSecretProvider{}, unix.ShellToolConfig{})
 
 			// Act
 			got := provider.GetTools()
@@ -79,7 +81,7 @@ var _ = Describe("Providers", func() {
 
 		It("returns a tool named run_shell", func() {
 			// Arrange
-			provider := tools.NewShellToolProvider("/tmp")
+			provider := tools.NewShellToolProvider("/tmp", &securityfakes.FakeSecretProvider{}, unix.ShellToolConfig{})
 
 			// Act
 			got := provider.GetTools()
