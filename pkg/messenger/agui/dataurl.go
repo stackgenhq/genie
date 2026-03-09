@@ -82,6 +82,7 @@ func ExtractDataURLFiles(message, tempDir string) (cleanMessage string, attachme
 		// Decode the data URL.
 		data, mime, err := decodeDataURL(dataURL)
 		if err != nil || len(data) == 0 {
+			clean.WriteString(message[fullStart:fullEnd])
 			continue // skip malformed or empty data URLs
 		}
 

@@ -17,9 +17,9 @@ import (
 // ShellToolConfig configures the run_shell tool's security behaviour.
 type ShellToolConfig struct {
 	// AllowedEnv controls which environment variables are visible to shell
-	// commands. Only listed variables (plus PATH, which is always included)
-	// are resolved via the SecretProvider and injected. When empty or nil,
-	// only PATH is visible.
+	// commands. Only listed variables (plus base Unix variables like PATH,
+	// HOME, TMPDIR, etc.) are resolved via the SecretProvider and injected.
+	// When empty or nil, only the base Unix variables are visible.
 	AllowedEnv []string `yaml:"allowed_env" toml:"allowed_env"`
 
 	// Timeout overrides the default 10-minute shell execution timeout.

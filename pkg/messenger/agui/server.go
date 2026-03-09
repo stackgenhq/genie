@@ -634,12 +634,22 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	if input.ThreadID == "" {
 		input.ThreadID = uuid.NewString()
 	} else {
-		input.ThreadID = filepath.Base(filepath.Clean(input.ThreadID))
+		clean := filepath.Base(filepath.Clean(input.ThreadID))
+		if clean == "." || clean == ".." || clean == "" || clean == "/" || clean == "\\" {
+			input.ThreadID = uuid.NewString()
+		} else {
+			input.ThreadID = clean
+		}
 	}
 	if input.RunID == "" {
 		input.RunID = uuid.NewString()
 	} else {
-		input.RunID = filepath.Base(filepath.Clean(input.RunID))
+		clean := filepath.Base(filepath.Clean(input.RunID))
+		if clean == "." || clean == ".." || clean == "" || clean == "/" || clean == "\\" {
+			input.RunID = uuid.NewString()
+		} else {
+			input.RunID = clean
+		}
 	}
 
 	// Extract the last user message using SDK's ContentString() helper.
@@ -664,13 +674,17 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	// messenger.Attachment structs so the multimodal pipeline can process
 	// them the same way as WhatsApp media downloads.
 	tempDir := filepath.Join(os.TempDir(), "genie-agui-media", input.ThreadID)
+	// Ensure the thread temp directory is cleaned up after processing to prevent unbounded accumulation
+	defer os.RemoveAll(tempDir)
+
 	var chatAttachments []messenger.Attachment
 	userMessage, chatAttachments = ExtractDataURLFiles(userMessage, tempDir)
 
 	// Augment the message with attachment descriptions (file names, sizes, paths)
 	// so the LLM knows about the files even in text-only fallback mode.
 	if len(chatAttachments) > 0 {
-		desc := media.DescribeAttachments(chatAttachments)
+		// Pass tempDir as baseDir so LocalPath is relativized and server filesystem paths aren't leaked
+		desc := media.DescribeAttachments(chatAttachments, tempDir)
 		if userMessage == "" {
 			userMessage = desc
 		} else {

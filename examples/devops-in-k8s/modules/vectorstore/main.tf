@@ -413,6 +413,8 @@ resource "helm_release" "qdrant" {
       }
     }
   })]
+
+  depends_on = [kubernetes_storage_class.qdrant]
 }
 
 # ═════════════════════════════════════════════════════════════════════════════

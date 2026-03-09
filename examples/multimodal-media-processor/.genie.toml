@@ -45,6 +45,7 @@ always_allowed = ["ocr_extract_text", "youtube_transcript", "web_fetch"]
 [messenger.agui]
 port = 9876
 cors_origins = ["https://stackgenhq.github.io", "http://localhost:8888"]
+max_body_bytes = 26214400 # 25 MB to match the UI attachment limits
 
 # ── WhatsApp (optional) ─────────────────────────────────────────
 # Uncomment to enable WhatsApp support for receiving images/audio/video.

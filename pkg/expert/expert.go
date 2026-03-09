@@ -535,7 +535,7 @@ func convertAudioToWAV(ctx context.Context, srcPath string) (string, error) {
 	// Create output path alongside the source file.
 	dir := filepath.Dir(srcPath)
 	base := strings.TrimSuffix(filepath.Base(srcPath), filepath.Ext(srcPath))
-	wavPath := filepath.Join(dir, base+".wav")
+	wavPath := filepath.Join(dir, base+"_"+uuid.NewString()+".wav")
 
 	// Convert to 16kHz mono WAV (optimal for speech recognition models).
 	cmd := exec.CommandContext(ctx, "ffmpeg",

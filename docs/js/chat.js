@@ -168,13 +168,16 @@
     let pendingFiles = [];
     // Tracks blob: URLs created for image previews so we can revoke them.
     let activeBlobURLs = [];
+    // Tracks blob: URLs created to display user attachments in the chat history.
+    let chatHistoryBlobURLs = [];
     const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB per file
     const ACCEPTED_TYPES = {
         image: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp'],
         audio: ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/mp4', 'audio/aac', 'audio/flac'],
         video: ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-msvideo'],
+        document: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'text/csv', 'application/json', 'text/markdown', 'text/xml', 'application/xml', 'application/octet-stream'],
     };
-    const ALL_ACCEPTED_MIMES = [].concat(ACCEPTED_TYPES.image, ACCEPTED_TYPES.audio, ACCEPTED_TYPES.video);
+    const ALL_ACCEPTED_MIMES = [].concat(ACCEPTED_TYPES.image, ACCEPTED_TYPES.audio, ACCEPTED_TYPES.video, ACCEPTED_TYPES.document);
 
     // ── DOM Refs ──
     const messagesEl = document.getElementById('chat-messages');
@@ -213,12 +216,12 @@
             // The <input accept=...> only covers file-picker; drag-and-drop
             // and paste bypass it, so we enforce here for all paths.
             if (file.type && ALL_ACCEPTED_MIMES.indexOf(file.type) === -1) {
-                addErrorMessage(file.name + ' has unsupported type (' + (file.type || 'unknown') + '). Supported: images, audio, and video.');
+                addErrorMessage(file.name + ' has unsupported type (' + (file.type || 'unknown') + '). Supported: images, audio, video, and documents.');
                 continue;
             }
             // Reject files with no MIME type (unknown) as a safety measure.
             if (!file.type) {
-                addErrorMessage(file.name + ' has no recognized file type. Please use a supported image, audio, or video file.');
+                addErrorMessage(file.name + ' has no recognized file type. Please use a supported image, audio, video, or document file.');
                 continue;
             }
             // Skip duplicate names
@@ -1446,6 +1449,7 @@
             attachDiv.className = 'user-attachments';
             files.forEach(file => {
                 const url = URL.createObjectURL(file);
+                chatHistoryBlobURLs.push(url);
                 if (file.type.startsWith('image/')) {
                     const img = document.createElement('img');
                     img.src = url;
@@ -2686,6 +2690,12 @@
         currentAssistantBubble = null;
         currentAssistantContent = '';
         currentMessageId = null;
+
+        // Revoke any object URLs used in the previous conversation to prevent memory leaks
+        for (var i = 0; i < chatHistoryBlobURLs.length; i++) {
+            URL.revokeObjectURL(chatHistoryBlobURLs[i]);
+        }
+        chatHistoryBlobURLs = [];
 
         // Clear messages and pending approvals column
         messagesEl.innerHTML = '';
