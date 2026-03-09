@@ -42,6 +42,16 @@ func buildSubAgentInstruction(toolNames []string) string {
 		"you do not have it. The parent agent handles user communication. " +
 		"Any 'Working Memory' section contains data from sibling agents — use it directly, do NOT re-fetch. "
 
+	// === Incremental reporting and shared memory ===
+	instruction += "\nINCREMENTAL REPORTING: When processing multiple items (repos, services, files, etc.), " +
+		"structure your response with per-item results as you complete each one. " +
+		"Do NOT wait until all items are processed to report — if you time out, " +
+		"only the items already reported will be captured. " +
+		"\nSHARED MEMORY: Your results are automatically stored in shared working memory " +
+		"after completion. Sibling agents running in parallel can access your findings. " +
+		"If your goal involves gathering data that other agents need, report findings clearly " +
+		"and structured (e.g., using headers or bullet points per item). "
+
 	// === Behavioral guardrails ===
 	instruction += "\nNEVER say 'I don't know', 'I don't have access', or 'I cannot' when you have tools that can gather the information. " +
 		"You have tools for a reason: USE THEM to gather real data, then summarize the results. " +

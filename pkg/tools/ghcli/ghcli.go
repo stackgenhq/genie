@@ -1,0 +1,129 @@
+// Package ghcli provides a GitHub CLI (gh) tool that agents can use
+// for GitHub operations not covered by the native SCM tools, such as
+// viewing workflow run logs, listing Actions runs, and other gh-specific
+// capabilities.
+//
+// The tool is only bootstrapped when both the `gh` binary is available
+// on PATH and a GITHUB_TOKEN is provided via the secret configuration.
+// This keeps the tool optional — deployments without GitHub access
+// simply skip it.
+package ghcli
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+
+	"github.com/stackgenhq/genie/pkg/logger"
+	"trpc.group/trpc-go/trpc-agent-go/tool"
+)
+
+// Config holds configuration for the gh CLI tool provider.
+// Token is the GitHub personal access token or fine-grained token.
+// When empty, the tool provider is not bootstrapped.
+type Config struct {
+	Token string `yaml:"token,omitempty" toml:"token,omitempty"`
+}
+
+// ghCLITool wraps the gh CLI binary as an agent tool.
+// It authenticates via GITHUB_TOKEN environment variable injection
+// per-invocation (never written to disk or shell config).
+type ghCLITool struct {
+	token string
+}
+
+// Declaration returns the tool metadata for the LLM.
+func (t *ghCLITool) Declaration() *tool.Declaration {
+	return &tool.Declaration{
+		Name: "gh_cli",
+		Description: `Execute a GitHub CLI (gh) command. Use this for GitHub-specific operations 
+not covered by native SCM tools, such as:
+- Viewing workflow run logs: gh run view <id> --log-failed
+- Listing Actions runs: gh run list --repo owner/repo
+- Inspecting deployments: gh api repos/owner/repo/deployments
+- Branch protection audits: gh api repos/owner/repo/branches/main/protection
+- Dependabot alerts: gh api repos/owner/repo/dependabot/alerts
+
+The gh CLI is pre-authenticated. Pass the full gh command (without the leading 'gh' binary name).
+Example: command="run list --repo owner/repo --status failure --limit 10"`,
+		InputSchema: &tool.Schema{
+			Type:     "object",
+			Required: []string{"command"},
+			Properties: map[string]*tool.Schema{
+				"command": {
+					Type:        "string",
+					Description: "The gh CLI command to execute (without the leading 'gh'). Example: 'run list --repo owner/repo --status failure'",
+				},
+			},
+		},
+	}
+}
+
+// Call executes the gh CLI command with the configured token.
+// The token is passed via the GH_TOKEN environment variable for the
+// subprocess only — it is never persisted to disk or leaked to other
+// processes.
+func (t *ghCLITool) Call(ctx context.Context, input []byte) (any, error) {
+	var args struct {
+		Command string `json:"command"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return nil, fmt.Errorf("failed to parse arguments: %w", err)
+	}
+
+	if strings.TrimSpace(args.Command) == "" {
+		return nil, fmt.Errorf("command is required")
+	}
+
+	// Split the command string into args for exec.
+	// We use sh -c to handle pipes, redirects, etc.
+	cmd := exec.CommandContext(ctx, "sh", "-c", "gh "+args.Command)
+
+	// Inject the token as GH_TOKEN for this subprocess only.
+	cmd.Env = append(os.Environ(), "GITHUB_TOKEN="+t.token)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Sprintf("error: %s\noutput: %s", err.Error(), string(output)), nil
+	}
+
+	return string(output), nil
+}
+
+// ToolProvider wraps the gh CLI tool and satisfies the tools.ToolProviders
+// interface so it can be passed directly to tools.NewRegistry.
+// The provider is only created when gh is available and a token is configured.
+type ToolProvider struct {
+	tool *ghCLITool
+}
+
+// New creates a ToolProvider if both the gh binary is on PATH and the
+// token is non-empty. Returns nil if either prerequisite is missing.
+// This makes the tool entirely opt-in: deployments without the gh binary
+// or without a GITHUB_TOKEN simply don't get the tool.
+func New(ctx context.Context, cfg Config) *ToolProvider {
+	log := logger.GetLogger(ctx).With("fn", "ghcli.New")
+
+	if cfg.Token == "" {
+		log.Debug("gh CLI tool skipped: no GITHUB_TOKEN configured")
+		return nil
+	}
+
+	if _, err := exec.LookPath("gh"); err != nil {
+		log.Debug("gh CLI tool skipped: gh binary not found on PATH")
+		return nil
+	}
+
+	log.Info("gh CLI tool provider bootstrapped")
+	return &ToolProvider{
+		tool: &ghCLITool{token: cfg.Token},
+	}
+}
+
+// GetTools returns the gh_cli tool.
+func (p *ToolProvider) GetTools() []tool.Tool {
+	return []tool.Tool{p.tool}
+}

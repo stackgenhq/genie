@@ -768,21 +768,27 @@ func (t *createAgentTool) runHalGuardPostCheck(ctx context.Context, req CreateAg
 
 // storeResults persists the sub-agent result into working memory and
 // episodic memory for future retrieval by the parent agent and similar
-// future goals respectively.
+// future goals respectively. Results are stored regardless of status so
+// that partial findings from failed/timed-out sub-agents are preserved
+// in shared memory and available to sibling or follow-up agents.
 func (t *createAgentTool) storeResults(ctx context.Context, req CreateAgentRequest, sar subAgentResult) {
 	logr := logger.GetLogger(ctx).With("fn", "storeResults", "name", req.AgentName)
 
 	// Store sub-agent result in working memory so the parent can retrieve
 	// it via memory_search and compose a single user-facing message.
+	// Store even partial/error results — the parent agent can still
+	// extract useful information from incomplete findings.
 	if t.workingMemory != nil && sar.output != "" {
 		wmKey := fmt.Sprintf("subagent:%s:result", req.AgentName)
 		t.workingMemory.Store(wmKey, sar.output)
-		logr.Info("sub-agent result stored in working memory", "key", wmKey, "length", len(sar.output))
+		logr.Info("sub-agent result stored in working memory", "key", wmKey, "length", len(sar.output), "status", sar.status)
 	}
 
 	// Store result as an episode for future in-context retrieval.
 	// Paper Section 4.2: episodic memory stores subgoal-level experiences
 	// so future agent nodes with similar goals get relevant examples.
+	// Store both successful and failed episodes — failure episodes help
+	// future agents avoid repeating the same mistakes or strategies.
 	if t.episodic != nil && sar.output != "" {
 		trajectory := sar.output
 		const maxTrajectoryRunes = 500
@@ -791,7 +797,7 @@ func (t *createAgentTool) storeResults(ctx context.Context, req CreateAgentReque
 			trajectory = string(runes[:maxTrajectoryRunes]) + "... (truncated)"
 		}
 		episodeStatus := memory.EpisodeSuccess
-		if sar.timedOut {
+		if sar.timedOut || sar.status == "error" || sar.status == "partial" {
 			episodeStatus = memory.EpisodeFailure
 		}
 		t.episodic.Store(ctx, memory.Episode{
@@ -799,7 +805,7 @@ func (t *createAgentTool) storeResults(ctx context.Context, req CreateAgentReque
 			Trajectory: trajectory,
 			Status:     episodeStatus,
 		})
-		logr.Info("sub-agent result stored in episodic memory", "goal", toolwrap.TruncateForAudit(req.Goal, 60))
+		logr.Info("sub-agent result stored in episodic memory", "goal", toolwrap.TruncateForAudit(req.Goal, 60), "episode_status", episodeStatus)
 	}
 }
 

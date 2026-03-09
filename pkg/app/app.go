@@ -63,6 +63,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/tools/doctool"
 	"github.com/stackgenhq/genie/pkg/tools/email"
 	"github.com/stackgenhq/genie/pkg/tools/encodetool"
+	"github.com/stackgenhq/genie/pkg/tools/ghcli"
 	"github.com/stackgenhq/genie/pkg/tools/google/calendar"
 	"github.com/stackgenhq/genie/pkg/tools/google/contacts"
 	"github.com/stackgenhq/genie/pkg/tools/google/gdrive"
@@ -836,6 +837,12 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 		log.Info("SCM tool provider added", "provider", a.cfg.SCM.Provider)
 	} else if a.cfg.SCM.Provider != "" {
 		log.Warn("failed to initialize SCM service, skipping SCM tools", "provider", a.cfg.SCM.Provider, "error", err)
+	}
+
+	// --- GitHub CLI (gh) tool ---
+	if ghProvider := ghcli.New(ctx, a.cfg.GHCli); ghProvider != nil {
+		providers = append(providers, ghProvider)
+		log.Info("gh CLI tool provider added")
 	}
 
 	// --- PM tools ---

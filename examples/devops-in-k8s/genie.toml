@@ -234,6 +234,13 @@ host       = "${LANGFUSE_HOST}"
 provider = "github"
 token = "${GITHUB_TOKEN}"
 
+# ── GitHub CLI (gh_cli tool) ────────────────────────────────────────
+# Bootstraps the gh_cli agent tool only when the gh binary is on PATH
+# AND a token is configured. The token is injected per-subprocess via
+# GH_TOKEN — never persisted to disk or shell config.
+[ghcli]
+token = "${GITHUB_TOKEN}"
+
 # ── Knowledge Graph ─────────────────────────────────────────────────
 # Store entities and relations in the same Qdrant collection as vector memory.
 # Without this, the graph defaults to a volatile in-memory store that loses

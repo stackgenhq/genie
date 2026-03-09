@@ -41,6 +41,7 @@
             agui: { port: 9876, cors_origins: ['https://stackgenhq.github.io'], rate_limit: 0.5, rate_burst: 3, max_concurrent: 5, max_body_bytes: 1048576, auth: { password: { enabled: false, value: '' }, jwt: { trusted_issuers: [], allowed_audiences: [] }, oidc: { issuer_url: '', client_id: '', client_secret: '', allowed_domains: [], redirect_url: '' }, api_keys: { keys: [] } } }
         },
         scm: { provider: '', token: 'SCM_TOKEN', base_url: '' },
+        ghcli: { token: '' },
         pm: { provider: '', api_token: 'PM_API_TOKEN', base_url: '', email: '' },
         browser: { blocked_domains: [] },
         email: { provider: '', host: '', port: 587, username: '', password: '', imap_host: '', imap_port: 993 },
@@ -216,6 +217,7 @@
         renderDataSources();
         renderMessenger();
         renderSCM();
+        renderGHCli();
         renderPM();
         renderBrowser();
         renderEmail();
@@ -547,6 +549,17 @@
             fields.push(fieldText('Base URL', s.base_url, function (v) { s.base_url = v; renderOutput(); }, 'https://github.example.com', 'Enterprise instance URL — leave empty for cloud'));
         }
         c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
+    }
+
+    // ── GH CLI (gh_cli tool) ──
+    function renderGHCli() {
+        var c = $('ghcli-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var g = state.ghcli;
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+            fieldEnvVar('GitHub Token', g.token, function (v) { g.token = v; renderOutput(); }, 'GITHUB_TOKEN', 'GitHub personal access token or fine-grained token — enables the gh_cli agent tool. Leave empty to disable.')
+        ]));
     }
 
     // ── PM ──
@@ -1150,6 +1163,7 @@
         dataSourcesToToml(lines);
         messengerToToml(lines);
         scmToToml(lines);
+        ghcliToToml(lines);
         pmToToml(lines);
         browserToToml(lines);
         emailToToml(lines);
@@ -1185,6 +1199,14 @@
         lines.push('provider = ' + q(s.provider));
         if (s.token) lines.push('token = ' + q('${' + s.token + '}'));
         if (s.base_url) lines.push('base_url = ' + q(s.base_url));
+        lines.push('');
+    }
+
+    function ghcliToToml(lines) {
+        var g = state.ghcli;
+        if (!g.token) return;
+        lines.push('[ghcli]');
+        lines.push('token = ' + q('${' + g.token + '}'));
         lines.push('');
     }
 
@@ -1758,6 +1780,7 @@
         dataSourcesToYaml(lines);
         messengerToYaml(lines);
         scmToYaml(lines);
+        ghcliToYaml(lines);
         pmToYaml(lines);
         browserToYaml(lines);
         emailToYaml(lines);
@@ -1864,6 +1887,14 @@
         lines.push('  provider: ' + s.provider);
         if (s.token) lines.push('  token: ' + yq('${' + s.token + '}'));
         if (s.base_url) lines.push('  base_url: ' + yq(s.base_url));
+        lines.push('');
+    }
+
+    function ghcliToYaml(lines) {
+        var g = state.ghcli;
+        if (!g.token) return;
+        lines.push('ghcli:');
+        lines.push('  token: ' + yq('${' + g.token + '}'));
         lines.push('');
     }
 
