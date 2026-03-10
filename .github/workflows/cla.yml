@@ -23,6 +23,5 @@ jobs:
         with:
           path-to-signatures: 'signatures/version1/cla.json'
           path-to-document: 'https://github.com/stackgenhq/genie/blob/main/LICENSING.md'
-          # branch should not be protected
-          branch: 'main'
+          branch: 'cla'
           allowlist: dependabot[bot],greenkeeper[bot]
