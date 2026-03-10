@@ -901,18 +901,18 @@
         c.innerHTML = '';
         var p = state.pii;
         c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
-            fieldText('HMAC Salt', p.salt, function (v) { p.salt = v; renderOutput(); }, 'my-stable-salt-for-correlation',
-                'Deterministic hashing key — same input + same salt = same [HIDDEN:hash]. Leave empty for random (hashes change on restart).'),
-            fieldNumber('Entropy Threshold', p.entropy_threshold, function (v) { p.entropy_threshold = parseFloat(v) || 4.2; renderOutput(); }, 2, 5,
-                'Shannon entropy score above which tokens are treated as secrets. Lower = more aggressive (2.0), higher = more permissive (5.0). Default: 3.6'),
-            fieldNumber('Min Secret Length', p.min_secret_length, function (v) { p.min_secret_length = v; renderOutput(); }, 1, 64,
-                'Tokens shorter than this are never redacted (unless they are values of sensitive keys). Default: 6'),
-            fieldText('Sensitive Keys (comma-separated)', (p.sensitive_keys || []).join(', '), function (v) { p.sensitive_keys = splitCSV(v); renderOutput(); },
-                'pass, secret, token, key, api_key, password',
-                'Key names whose values are always redacted regardless of entropy. Case-insensitive.')
+            fieldText('HMAC Salt', p.salt, function (v) { p.salt = v; renderOutput(); }, 'my-stable-salt',
+                'A secret word confusing to humans that ensures hidden information stays hidden securely. Leave empty for a random word that changes every restart.'),
+            fieldNumber('Sensitivity (Entropy Threshold)', p.entropy_threshold, function (v) { p.entropy_threshold = parseFloat(v) || 4.2; renderOutput(); }, 2, 5,
+                'How aggressively to look for secrets like passwords. Lower numbers (2.0) mean more things are hidden, higher numbers (5.0) mean fewer things are hidden. Default is 3.6.'),
+            fieldNumber('Minimum Secret Length', p.min_secret_length, function (v) { p.min_secret_length = v; renderOutput(); }, 1, 64,
+                'Words shorter than this length will not automatically be treated as secrets. Default is 6 characters.'),
+            fieldText('Always Hide These Words (comma-separated)', (p.sensitive_keys || []).join(', '), function (v) { p.sensitive_keys = splitCSV(v); renderOutput(); },
+                'password, secret, token, api_key',
+                'A list of specific labels or names whose values will always be hidden, no matter what. Case-insensitive.')
         ]));
         c.appendChild(el('p', { className: 'text-xs text-gray-400 mt-2' },
-            'Powered by <a href="https://github.com/aragossa/pii-shield" class="text-purple-500 hover:underline" target="_blank">pii-shield</a> — entropy-based detection with Luhn CC validation, bigram analysis, and deterministic HMAC hashing.'));
+            'Automatically hides sensitive information like passwords, credit card numbers, and API keys so they are not sent to external services.'));
     }
 
     // ── Hallucination Guard ──
@@ -922,25 +922,23 @@
         c.innerHTML = '';
         var hg = state.halguard;
         c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
-            fieldToggle('Enable Pre-Check', hg.enable_pre_check, function (v) { hg.enable_pre_check = v; renderOutput(); },
-                'Score sub-agent goals for fabrication risk before delegation. Uses multi-signal grounding analysis (role-play, fabrication patterns, temporal urgency). Based on PCC and SINdex research.'),
-            fieldToggle('Enable Post-Check', hg.enable_post_check, function (v) { hg.enable_post_check = v; renderOutput(); },
-                'Verify sub-agent outputs using cross-model consistency checking after execution. Based on Finch-Zk methodology (arXiv:2508.14314).'),
-            fieldNumber('Pre-Check Threshold', hg.pre_check_threshold * 100, function (v) { hg.pre_check_threshold = (parseInt(v, 10) || 40) / 100; renderOutput(); }, 0, 100,
-                'Confidence score (0-100%) below which a sub-agent goal is rejected as likely fabricated. Lower = more permissive, higher = more strict. Default: 40%'),
-            fieldNumber('Cross-Model Samples', hg.cross_model_samples, function (v) { hg.cross_model_samples = v; renderOutput(); }, 1, 10,
-                'Number of independent model samples for full verification. 3 samples with batch judging maintains accuracy at manageable cost (Finch-Zk §2.5).'),
-            fieldNumber('Light Threshold (chars)', hg.light_threshold_chars, function (v) { hg.light_threshold_chars = v; renderOutput(); }, 50, 5000,
-                'Output length above which light (single-model) verification is applied. Default: 200 chars.'),
-            fieldNumber('Full Threshold (chars)', hg.full_threshold_chars, function (v) { hg.full_threshold_chars = v; renderOutput(); }, 100, 10000,
-                'Output length above which full cross-model verification is applied. Default: 500 chars.'),
-            fieldNumber('Max Blocks to Judge', hg.max_blocks_to_judge, function (v) { hg.max_blocks_to_judge = v; renderOutput(); }, 1, 100,
-                'Cap on blocks sent for cross-consistency judging to limit cost on very long outputs. Default: 20.')
+            fieldToggle('Check Tasks First (Pre-Check)', hg.enable_pre_check, function (v) { hg.enable_pre_check = v; renderOutput(); },
+                'Check if a task seems made up or hallucinated before asking an agent to do it. This prevents the agent from chasing fake goals.'),
+            fieldToggle('Double Check Answers (Post-Check)', hg.enable_post_check, function (v) { hg.enable_post_check = v; renderOutput(); },
+                'Review the agent\'s final answer to make sure it is real and not hallucinated by asking another AI to verify it.'),
+            fieldNumber('Strictness (Pre-Check Threshold %)', hg.pre_check_threshold * 100, function (v) { hg.pre_check_threshold = (parseInt(v, 10) || 40) / 100; renderOutput(); }, 0, 100,
+                'How strict to be when checking tasks. If confidence is below this percentage, the task is rejected. Lower means more relaxed, higher means more strict. Default is 40%.'),
+            fieldNumber('Verification AIs (Cross-Model Samples)', hg.cross_model_samples, function (v) { hg.cross_model_samples = v; renderOutput(); }, 1, 10,
+                'How many different AI models to ask when double-checking an answer. More models means better accuracy but slightly higher cost. Default is 3.'),
+            fieldNumber('Basic Check Length (chars)', hg.light_threshold_chars, function (v) { hg.light_threshold_chars = v; renderOutput(); }, 50, 5000,
+                'If the agent\'s answer is longer than this text length, it gets a basic hallucination check. Default is 200 characters.'),
+            fieldNumber('Deep Check Length (chars)', hg.full_threshold_chars, function (v) { hg.full_threshold_chars = v; renderOutput(); }, 100, 10000,
+                'If the agent\'s answer is longer than this text length, it gets a deep, multi-model verification check. Default is 500 characters.'),
+            fieldNumber('Maximum Text to Check', hg.max_blocks_to_judge, function (v) { hg.max_blocks_to_judge = v; renderOutput(); }, 1, 100,
+                'Limit how much text is sent for verification to save money on very long answers. Default is taking the first 20 chunks.')
         ]));
         c.appendChild(el('p', { className: 'text-xs text-gray-400 mt-2' },
-            'Powered by multi-signal grounding analysis and Finch-Zk cross-model verification. ' +
-            'Requires at least one model with <code>good_for_task = "efficiency"</code> for optimal cross-model diversity. ' +
-            'Reference: <a href="https://arxiv.org/abs/2508.14314" class="text-purple-500 hover:underline" target="_blank">arXiv:2508.14314</a>.'));
+            'Hallucination Guard helps ensure your agent doesn\'t make things up. It requires having an extra, cheaper AI model configured to help double-check the work.'));
     }
 
     // ── Semantic Router ──
@@ -950,9 +948,9 @@
         c.innerHTML = '';
         var sr = state.semantic_router;
         c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
-            fieldToggle('Disabled', sr.disabled, function (v) { sr.disabled = v; renderOutput(); }, 'Turn off embedding-based intent routing entirely.'),
-            fieldToggle('Enable Caching', sr.enable_caching, function (v) { sr.enable_caching = v; renderOutput(); }, 'Cache successful responses syntactically to bypass generating identical intent replies.'),
-            fieldNumber('Threshold', sr.threshold, function (v) { sr.threshold = parseFloat(v) || 0.85; renderOutput(); }, 0, 1.0, 'Vector search threshold (0.0 to 1.0) above which routes match.')
+            fieldToggle('Turn Off Automatic Routing', sr.disabled, function (v) { sr.disabled = v; renderOutput(); }, 'Disable the feature that automatically sorts user messages into different categories or "routes".'),
+            fieldToggle('Enable Quick Replies (Caching)', sr.enable_caching, function (v) { sr.enable_caching = v; renderOutput(); }, 'Remember previous answers for similar questions to respond faster without using the AI.'),
+            fieldNumber('Matching Strictness (Threshold)', sr.threshold, function (v) { sr.threshold = parseFloat(v) || 0.85; renderOutput(); }, 0, 1.0, 'How closely a user message needs to match your examples to trigger the route. Range is 0.0 to 1.0. Higher means it has to be a closer match.')
         ]));
 
         sr.routes.forEach(function (r, i) {
@@ -962,8 +960,8 @@
                     el('button', { className: 'btn-remove', onClick: function () { sr.routes.splice(i, 1); renderAll(); } }, '✕')
                 ]),
                 el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
-                    fieldText('Name', r.name, function (v) { r.name = v; renderOutput(); }, 'custom_route', 'Route identifier'),
-                    fieldText('Utterances (comma-separated)', (r.utterances || []).join(', '), function (v) { r.utterances = splitCSV(v); renderOutput(); }, 'Can you write code?, How do I code?', 'Examples to match intent')
+                    fieldText('Route Name', r.name, function (v) { r.name = v; renderOutput(); }, 'coding_help', 'A simple name for this category'),
+                    fieldText('Example Phrases (comma-separated)', (r.utterances || []).join(', '), function (v) { r.utterances = splitCSV(v); renderOutput(); }, 'Can you write code?, How do I code?', 'Examples of what a user might say to trigger this route')
                 ])
             ]));
         });
