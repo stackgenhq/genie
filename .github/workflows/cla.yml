@@ -22,6 +22,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           path-to-signatures: 'signatures/version1/cla.json'
-          path-to-document: 'https://github.com/stackgenhq/genie/blob/main/LICENSING.md'
+          path-to-document: 'https://github.com/stackgenhq/genie/blob/main/CLA.md'
           branch: 'cla'
           allowlist: dependabot[bot],greenkeeper[bot]
