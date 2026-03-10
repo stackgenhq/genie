@@ -32,7 +32,7 @@ func NewNotifyTool(cfg Config) tool.CallableTool {
 }
 
 func (req NotifyRequest) validate() error {
-	missingFields := make([]string, 3)
+	missingFields := make([]string, 0, 3)
 	if req.Justification == "" {
 		missingFields = append(missingFields, "justification")
 	}
@@ -42,7 +42,7 @@ func (req NotifyRequest) validate() error {
 	if req.Message == "" {
 		missingFields = append(missingFields, "message")
 	}
-	if len(missingFields) > 0 {
+	if len(missingFields) != 0 {
 		return fmt.Errorf("missing fields: %s", strings.Join(missingFields, ", "))
 	}
 	return nil
@@ -57,15 +57,12 @@ func (n *notifyTool) Notify(ctx context.Context, req NotifyRequest) (string, err
 	var errs []string
 	notifiedCount := 0
 
-	// Pre-format the broadcast message.
-	textMessage := fmt.Errorf("Agent %s requires assistance.\nJustification: %s\nMessage: %s", req.AgentName, req.Justification, req.Message).Error()
-
 	// 1. Slack
 	for _, slk := range n.cfg.Slack {
 		if slk.WebhookURL == "" {
 			continue
 		}
-		if err := sendSlack(ctx, slk.WebhookURL, textMessage); err != nil {
+		if err := sendSlack(ctx, slk.WebhookURL, req); err != nil {
 			errs = append(errs, fmt.Sprintf("slack error: %v", err))
 		} else {
 			notifiedCount++
@@ -77,7 +74,7 @@ func (n *notifyTool) Notify(ctx context.Context, req NotifyRequest) (string, err
 		if wh.URL == "" {
 			continue
 		}
-		if err := sendWebhook(ctx, wh.URL, wh.Headers, textMessage); err != nil {
+		if err := sendWebhook(ctx, wh.URL, wh.Headers, req); err != nil {
 			errs = append(errs, fmt.Sprintf("webhook error: %v", err))
 		} else {
 			notifiedCount++
@@ -89,7 +86,7 @@ func (n *notifyTool) Notify(ctx context.Context, req NotifyRequest) (string, err
 		if twi.AccountSID == "" || twi.AuthToken == "" || twi.From == "" || twi.To == "" {
 			continue
 		}
-		if err := sendTwilio(ctx, twi.AccountSID, twi.AuthToken, twi.From, twi.To, textMessage); err != nil {
+		if err := sendTwilio(ctx, twi.AccountSID, twi.AuthToken, twi.From, twi.To, req); err != nil {
 			errs = append(errs, fmt.Sprintf("twilio error: %v", err))
 		} else {
 			notifiedCount++
@@ -101,7 +98,7 @@ func (n *notifyTool) Notify(ctx context.Context, req NotifyRequest) (string, err
 		if dsc.WebhookURL == "" {
 			continue
 		}
-		if err := sendDiscord(ctx, dsc.WebhookURL, textMessage); err != nil {
+		if err := sendDiscord(ctx, dsc.WebhookURL, req); err != nil {
 			errs = append(errs, fmt.Sprintf("discord error: %v", err))
 		} else {
 			notifiedCount++

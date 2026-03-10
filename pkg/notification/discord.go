@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"github.com/stackgenhq/genie/pkg/httputil"
 )
 
-func sendDiscord(ctx context.Context, webhookURL string, msg string) error {
+func sendDiscord(ctx context.Context, webhookURL string, notifyReq NotifyRequest) error {
+	msg := fmt.Sprintf("🚨 **Agent %s requires assistance**\n**Justification:** %s\n**Message:** %s", notifyReq.AgentName, notifyReq.Justification, notifyReq.Message)
 	payload := map[string]string{"content": msg}
 	body, _ := json.Marshal(payload)
 
@@ -18,7 +21,7 @@ func sendDiscord(ctx context.Context, webhookURL string, msg string) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httputil.GetClient().Do(req)
 	if err != nil {
 		return err
 	}

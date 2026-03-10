@@ -8,7 +8,8 @@ import (
 	"net/http"
 )
 
-func sendWebhook(ctx context.Context, u string, headers map[string]string, msg string) error {
+func sendWebhook(ctx context.Context, u string, headers map[string]string, notifyReq NotifyRequest) error {
+	msg := fmt.Sprintf("Agent %s requires assistance.\nJustification: %s\nMessage: %s", notifyReq.AgentName, notifyReq.Justification, notifyReq.Message)
 	payload := map[string]string{"message": msg}
 	body, _ := json.Marshal(payload)
 

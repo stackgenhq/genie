@@ -25,7 +25,7 @@ var _ = Describe("Slack Notification", func() {
 
 			var payload map[string]string
 			json.NewDecoder(r.Body).Decode(&payload)
-			Expect(payload["text"]).To(ContainSubstring("Justification: Stuck"))
+			Expect(payload["text"]).To(ContainSubstring("*Justification:* Stuck"))
 
 			w.WriteHeader(http.StatusOK)
 		}))
