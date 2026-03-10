@@ -58,9 +58,9 @@ func main() {
 	}
 
 	fmt.Println(strings.Repeat("═", 70))
-	fmt.Printf("  🤖 Agent Usage Stats: %s", agentName)
-	fmt.Printf("  🔗 Langfuse Host:     %s", cfg.Host)
-	fmt.Printf("  ⏰ Queried at:        %s", time.Now().Format(time.RFC3339))
+	fmt.Printf("  🤖 Agent Usage Stats: %s\n", agentName)
+	fmt.Printf("  🔗 Langfuse Host:     %s\n", cfg.Host)
+	fmt.Printf("  ⏰ Queried at:        %s\n", time.Now().Format(time.RFC3339))
 	fmt.Println(strings.Repeat("═", 70))
 
 	for _, w := range windows {
@@ -69,13 +69,13 @@ func main() {
 			AgentName: agentName,
 		})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "❌ Error fetching stats for %s: %v", w.Label, err)
+			fmt.Fprintf(os.Stderr, "❌ Error fetching stats for %s: %v\n", w.Label, err)
 			continue
 		}
 
 		fmt.Println(strings.Repeat("═", 70))
 
-		fmt.Printf("📊 %s", w.Label)
+		fmt.Printf("📊 %s\n", w.Label)
 		fmt.Println(strings.Repeat("─", 70))
 
 		if len(stats) == 0 {
@@ -83,15 +83,15 @@ func main() {
 			continue
 		}
 
-		fmt.Printf("  %-30s %12s %12s %12s", "AGENT", "TOTAL COST", "TOKENS", "CALLS")
+		fmt.Printf("  %-30s %12s %12s %12s\n", "AGENT", "TOTAL COST", "TOKENS", "CALLS")
 		fmt.Println(strings.Repeat("─", 70))
 
 		for _, s := range stats {
-			fmt.Printf("  %-30s $%11.6f %12.0f %12.0f",
+			fmt.Printf("  %-30s $%11.6f %12.0f %12.0f\n",
 				truncate(s.AgentName, 30), s.TotalCost, s.TotalTokens, s.Count)
 
-			fmt.Printf("    ├─ Input tokens:  %12.0f", s.InputTokens)
-			fmt.Printf("    └─ Output tokens: %12.0f", s.OutputTokens)
+			fmt.Printf("    ├─ Input tokens:  %12.0f\n", s.InputTokens)
+			fmt.Printf("    └─ Output tokens: %12.0f\n", s.OutputTokens)
 		}
 	}
 
@@ -105,7 +105,7 @@ func main() {
 		Duration: 24 * time.Hour,
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌ Error fetching all agent stats: %v", err)
+		fmt.Fprintf(os.Stderr, "❌ Error fetching all agent stats: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -114,17 +114,17 @@ func main() {
 		return
 	}
 
-	fmt.Printf("  %-35s %12s %12s %8s", "AGENT", "TOTAL COST", "TOKENS", "CALLS")
+	fmt.Printf("  %-35s %12s %12s %8s\n", "AGENT", "TOTAL COST", "TOKENS", "CALLS")
 	fmt.Println(strings.Repeat("─", 70))
 
 	var grandTotal float64
 	for _, s := range allStats {
-		fmt.Printf("  %-35s $%11.6f %12.0f %8.0f",
+		fmt.Printf("  %-35s $%11.6f %12.0f %8.0f\n",
 			truncate(s.AgentName, 35), s.TotalCost, s.TotalTokens, s.Count)
 		grandTotal += s.TotalCost
 	}
 	fmt.Println(strings.Repeat("─", 70))
-	fmt.Printf("  %-35s $%11.6f", "GRAND TOTAL", grandTotal)
+	fmt.Printf("  %-35s $%11.6f\n", "GRAND TOTAL", grandTotal)
 	fmt.Println(strings.Repeat("═", 70))
 }
 
