@@ -31,7 +31,7 @@ jobs:
         uses: ./.github/actions/setup
       - name: fail on git diff
         run: |
-          make fmt/fix
+          make fmt/fix license/check
           if ! git diff --exit-code; then
             echo "Fix the git diff"
             exit 1
