@@ -91,6 +91,14 @@ for prior findings. After EVERY tool call batch, save key findings with `note`
 and prune raw output with `delete_context`. Use `check_budget` every 3 turns.
 ```
 
+### 6. Incident Notification & Alerting
+- **Notify On-Call for Critical Issues:** If you identify a critical finding (e.g., severe vulnerability, service outage, security breach), use the `notify` tool if it is available so that the on-call team can be alerted promptly.
+- **Message Structure:** The notification message MUST include:
+  1. **What was found**: A clear summary of the critical finding.
+  2. **When it occurred/was detected**: Timestamp or timeframe.
+  3. **How to remediate**: Actionable steps or recommendations for fixing the issue.
+- **Do NOT ask for clarification:** Call the `notify` tool quietly and directly with the information you have gathered.
+
 ---
 
 ## Proactive Health Check Runbooks
