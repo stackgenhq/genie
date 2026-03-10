@@ -3,7 +3,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/stackgenhq/genie.svg)](https://pkg.go.dev/github.com/stackgenhq/genie)
 [![Go Report Card](https://goreportcard.com/badge/github.com/stackgenhq/genie)](https://goreportcard.com/report/github.com/stackgenhq/genie)
 [![CI](https://github.com/stackgenhq/genie/actions/workflows/go-test.yml/badge.svg)](https://github.com/stackgenhq/genie/actions/workflows/go-test.yml)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![License: Apache 2.0 + BSL 1.1](https://img.shields.io/badge/License-Apache%202.0%20%2B%20BSL%201.1-blue.svg)](./LICENSING.md)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12058/badge)](https://www.bestpractices.dev/projects/12058)
 [![Release](https://img.shields.io/github/v/release/stackgenhq/genie)](https://img.shields.io/github/v/release/stackgenhq/genie)
 [![Scorecard](https://api.scorecard.dev/projects/github.com/stackgenhq/genie/badge)](https://scorecard.dev/viewer/?uri=github.com/stackgenhq/genie)
@@ -334,7 +334,7 @@ We are redefining agentic automation. If you want to contribute, check out our [
 | [Code of Conduct](./CODE_OF_CONDUCT.md) | Community behavior standards |
 | [Security Policy](./SECURITY.md) | How to report vulnerabilities |
 | [Changelog](./CHANGELOG.md) | Release notes and history |
-| [License](./LICENSE) | Apache License 2.0 |
+| [Licensing](./LICENSING.md) | Apache 2.0 / BSL 1.1 |
 
 ---
 

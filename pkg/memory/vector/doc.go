@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package vector provides the vector store used for Genie's semantic memory:
 // embedding and searching over documents (runbooks, synced data from Drive,
 // Gmail, Slack, etc.) so the agent can retrieve relevant context via memory_search.

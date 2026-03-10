@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package agui provides a Messenger adapter for the AG-UI SSE server.
 //
 // Unlike other adapters that connect to external platforms, this adapter

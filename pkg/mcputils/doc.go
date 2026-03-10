@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package mcputils provides utilities for integrating MCP (Model Context Protocol) tools
 // with trpc-agent-go. It handles the conversion of MCP tool schemas and provides
 // wrapper types to make MCP tools compatible with the trpc-agent-go tool interface.

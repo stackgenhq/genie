@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package osutils provides OS and path helpers used by Genie.
 //
 // It solves the problem of standardizing paths and environment checks (e.g.

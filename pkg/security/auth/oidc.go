@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package auth – oidc.go implements the generic OIDC browser login flow
 // using golang.org/x/oauth2 and coreos/go-oidc.
 //

@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package cron provides a recurring task scheduler whose task definitions and
 // execution history are persisted in a GORM-backed database. Instead of relying
 // on an in-memory runner such as robfig/cron/v3, it polls the database for due

@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package youtubetranscript provides a tool to fetch transcript/captions from
 // YouTube videos. It mimics how other systems (e.g. LangChain YoutubeLoader,
 // youtube-transcript-api) do it: fetch the watch page, extract the caption

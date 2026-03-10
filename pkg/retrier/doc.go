@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package retrier provides configurable retry logic with backoff for operations
 // that may transiently fail (e.g. network calls, MCP connections).
 //

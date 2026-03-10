@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package telegram provides a Messenger adapter for the Telegram platform
 // using long-polling for bi-directional communication.
 //

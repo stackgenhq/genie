@@ -1,3 +1,6 @@
+// Copyright (C) StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package tasks provides Google Tasks API tools for agents. It enables list,
 // create, update, and delete operations using the Tasks API with the shared
 // Google OAuth token (Calendar, Contacts, Drive, Gmail). One sign-in can power

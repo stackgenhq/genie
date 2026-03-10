@@ -1,3 +1,6 @@
+// Copyright (C) StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package websearch
 
 // FormatBingResultsForTest exports formatBingResults for tests only. Not part of the public API.

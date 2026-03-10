@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package slack provides a Messenger adapter for the Slack platform.
 //
 // This file implements the HTTP Events API handler (eventsHTTPHandler),

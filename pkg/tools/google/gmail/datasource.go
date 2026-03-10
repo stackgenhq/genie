@@ -1,3 +1,6 @@
+// Copyright (C) StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package gmail provides a DataSource connector that enumerates Gmail messages
 // for given labels for vectorization. It uses the existing Gmail Service to list
 // messages (by label) and optionally fetches full body for richer content.

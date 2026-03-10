@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package modelprovider
 
 // TaskType represents different categories of tasks that LLMs are benchmarked against.

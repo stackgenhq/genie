@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package teams provides a Messenger adapter for Microsoft Teams using the
 // Bot Framework protocol for bi-directional communication.
 //

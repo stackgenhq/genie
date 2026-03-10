@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package hooks defines lifecycle hook interfaces for the ReAcTree execution engine.
 //
 // Hooks are observer-style callbacks invoked at well-defined points during

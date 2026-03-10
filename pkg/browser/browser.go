@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package browser provides a chromedp-backed browser automation provider.
 // It exposes small, composable trpc-agent tools that an AI agent can invoke
 // to navigate pages, interact with elements, extract content, and take

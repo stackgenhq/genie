@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package webfetch provides a URL content fetcher for agents. This is a
 // critical fallback when web_search is unavailable — agents can directly
 // fetch and read content from known URLs. The tool fetches a webpage via

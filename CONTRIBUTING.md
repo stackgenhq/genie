@@ -99,6 +99,6 @@ Open a [GitHub Issue](https://github.com/stackgenhq/genie/issues/new) with:
 - Please read and follow our [Code of Conduct](./CODE_OF_CONDUCT.md).
 - To report security vulnerabilities, see [SECURITY.md](./SECURITY.md).
 
-## License
+## License and CLA
 
-By contributing, you agree that your contributions will be licensed under the [Apache License 2.0](LICENSE).
+Genie uses a dual licensing model (Apache 2.0 + BSL 1.1). By contributing, you agree to sign our Contributor License Agreement (CLA), which grants StackGen the right to license your contributions under these terms. See [LICENSING.md](./LICENSING.md) for details.

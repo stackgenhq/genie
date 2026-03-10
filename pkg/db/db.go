@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package db provides a central GORM-based database layer that supports
 // both SQLite (default, file-based) and PostgreSQL (DSN-based).
 // All persistent tables (e.g. HITL approvals) are registered here as GORM

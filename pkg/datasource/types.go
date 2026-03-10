@@ -1,3 +1,6 @@
+// Copyright (C) StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package datasource defines the unified data source abstraction for Genie:
 // connectors that enumerate items from external systems (Drive, Gmail, Slack,
 // Linear, GitHub, Calendar) and produce normalized items for vectorization.

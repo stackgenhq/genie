@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package toolwrap provides composable middleware for tool execution.
 //
 // Each Middleware wraps a Handler, returning a new Handler with added

@@ -1,3 +1,6 @@
+// Copyright (C) StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package contacts provides Google Contacts (People API) tools for agents.
 // It enables listing and searching the user's contacts using the same
 // embedded OAuth client as Calendar when built with -X (see pkg/tools/google/oauth).

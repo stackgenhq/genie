@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package toolwrap – context-mode middleware for local tool-output compression.
 package toolwrap
 

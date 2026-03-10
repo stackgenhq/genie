@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package mcp provides MCP (Model Context Protocol) integration for Genie using trpc-agent-go.
 // It enables Genie to connect to MCP servers via multiple transports (stdio, HTTP, SSE) and
 // manage tool discovery and execution.

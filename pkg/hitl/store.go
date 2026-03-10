@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package hitl implements human-in-the-loop approval for non-readonly tool calls.
 // When a mutating tool is invoked, execution pauses until a human approves or
 // rejects the call. Without this package, the agent would execute all tool calls

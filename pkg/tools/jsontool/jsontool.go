@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package jsontool provides JSON querying, validation, and transformation
 // tools backed by gjson (reads) and sjson (writes). These libraries support
 // powerful dot-path syntax with array indexing, wildcards, and modifiers —

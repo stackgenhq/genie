@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package dedup provides a generic type-safe wrapper around
 // golang.org/x/sync/singleflight. When multiple goroutines call Do with the
 // same key concurrently, only the first caller executes the function —

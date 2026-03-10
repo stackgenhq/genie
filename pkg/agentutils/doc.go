@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package agentutils provides utilities used by the agent and orchestrator layer.
 //
 // It solves the problem of condensing verbose tool outputs and content into

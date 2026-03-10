@@ -1,3 +1,6 @@
+// Copyright (C) StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package ghcli provides a GitHub CLI (gh) tool that agents can use
 // for GitHub operations not covered by the native SCM tools, such as
 // viewing workflow run logs, listing Actions runs, and other gh-specific

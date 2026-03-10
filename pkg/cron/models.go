@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package cron re-exports model types from pkg/db for convenience.
 // The actual GORM models live in pkg/db to avoid import cycles
 // (pkg/cron → pkg/agui → pkg/db).

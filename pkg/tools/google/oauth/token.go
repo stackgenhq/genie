@@ -1,3 +1,6 @@
+// Copyright (C) StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package oauth: token retrieval (file, inline, or device keychain) and
 // OAuth2 HTTP client construction with token refresh and persist.
 package oauth

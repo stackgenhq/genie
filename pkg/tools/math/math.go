@@ -1,3 +1,6 @@
+// Copyright (C) StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package math provides mathematical tools (a unified arithmetic tool and a
 // calculator/expression evaluator) that can be registered with the tool
 // registry. These tools allow agents to perform precise arithmetic instead of

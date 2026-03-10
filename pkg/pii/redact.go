@@ -1,3 +1,6 @@
+// Copyright (C) StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package pii provides PII redaction for text before storage in memory
 // and vector stores. It delegates to pii-shield's entropy-based scanner
 // which combines Shannon entropy analysis, English bigram scoring,

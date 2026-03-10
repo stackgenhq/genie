@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package scm provides a single DataSource connector backed by go-scm for all
 // SCM providers (GitHub, GitLab, Bitbucket). It lists pull requests and repo
 // metadata (name, URL, description, language) for each repo in scope and returns

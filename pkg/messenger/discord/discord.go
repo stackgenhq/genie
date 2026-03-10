@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package discord provides a Messenger adapter for the Discord platform
 // using the WebSocket gateway for bi-directional communication.
 //

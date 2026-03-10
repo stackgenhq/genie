@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package graph provides a knowledge graph store (entities and relations) for
 // agent memory. The store is interface-driven so backends can be swapped
 // (in-memory now; Trigo or SQLite later). When persistence is

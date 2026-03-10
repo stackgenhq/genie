@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package htmlutils provides utilities for extracting readable text content
 // from raw HTML. It uses golang.org/x/net/html for robust parsing that
 // gracefully handles malformed, truncated, and noisy HTML from the wild web.

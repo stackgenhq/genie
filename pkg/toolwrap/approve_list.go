@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package toolwrap provides an in-memory approve list for temporary HITL bypass.
 // Users can add a tool to the list when approving so future calls are auto-approved
 // for a chosen duration (blind or when args contain given strings).

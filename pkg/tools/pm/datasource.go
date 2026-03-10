@@ -1,3 +1,6 @@
+// Copyright (C) StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package pm provides a DataSource connector for issue-tracking systems.
 // The Linear (and optionally other) backend can list issues and return them as
 // NormalizedItems for vectorization. Scope uses LinearTeamIDs; when the
