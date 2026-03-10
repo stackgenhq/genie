@@ -152,7 +152,7 @@ var _ = Describe("ShellTool", func() {
 			_, err := callable.Call(ctx, []byte(`{"command": "echo test"}`))
 			Expect(err).NotTo(HaveOccurred())
 			// Should have called GetSecret for all base keys + HOME
-			Expect(fakeSP.GetSecretCallCount()).To(BeNumerically(">=", 11))
+			Expect(fakeSP.GetSecretCallCount()).To(BeNumerically(">=", len(unix.BaseEnvKeys)))
 		})
 	})
 })

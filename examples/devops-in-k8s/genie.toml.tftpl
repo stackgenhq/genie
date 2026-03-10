@@ -38,6 +38,7 @@ disable_resume = true
 "OIDC_CLIENT_ID" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=OIDC_CLIENT_ID"
 "OIDC_CLIENT_SECRET" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=OIDC_CLIENT_SECRET"
 "AGUI_COOKIE_SECRET" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=AGUI_COOKIE_SECRET"
+"SLACK_WEBHOOK_URL" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=SLACK_WEBHOOK_URL"
 %{ if qdrant_api_key != "" ~}
 "QDRANT_API_KEY" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=QDRANT_API_KEY"
 %{ endif ~}
@@ -329,7 +330,7 @@ allowed_domains = ["stackgen.com"]
 # Auto-approve graph, and SCM tools for autonomous/background agents.
 # Without this, sub-agents block for their entire timeout (180s) waiting for
 # human approval that never comes in headless sessions.
-always_allowed = ["graph_*", "scm_*"]
+always_allowed = ["graph_*", "scm_*", "notify"]
 
 # ── PII Redaction ───────────────────────────────────────────────────
 # Tuned for DevOps agents: infrastructure output is full of mixed-case
@@ -401,3 +402,8 @@ pattern = '(?i)\b(VirtualMachines|VMScaleSets|virtualNetworks|storageAccounts|co
 [[pii.safe_regexes]]
 name = "provisioning_state"
 pattern = '(?i)\b(Succeeded|Failed|Creating|Updating|Deleting|Canceled|InProgress|Registered|NotRegistered)\b'
+
+[notify]
+
+[[notify.slack]]
+webhook_url = "$${SLACK_WEBHOOK_URL}"

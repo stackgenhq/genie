@@ -49,6 +49,7 @@ import (
 	_ "github.com/stackgenhq/genie/pkg/messenger/teams"    // register adapter
 	_ "github.com/stackgenhq/genie/pkg/messenger/telegram" // register adapter
 	_ "github.com/stackgenhq/genie/pkg/messenger/whatsapp" // register adapter
+	"github.com/stackgenhq/genie/pkg/notification"
 	"github.com/stackgenhq/genie/pkg/orchestrator"
 	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 	"github.com/stackgenhq/genie/pkg/pii"
@@ -791,6 +792,10 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 		ocrtool.NewToolProvider(),
 		tools.Tools(sqltool.NewToolProvider(sp).GetTools("sql")),
 		tools.Tools(calendar.NewToolProvider(sp).GetTools("google_calendar")),
+	}
+	// Add notification tool if configured
+	if !a.cfg.Notification.IsEmpty() {
+		providers = append(providers, tools.Tools{notification.NewNotifyTool(a.cfg.Notification)})
 	}
 
 	// --- Google Contacts (conditional — only when OAuth credentials are available) ---

@@ -44,14 +44,14 @@ func NewShellTool(executor codeexecutor.CodeExecutor, secrets security.SecretPro
 	t := &ShellTool{
 		executor:       executor,
 		secrets:        secrets,
-		allowedEnvKeys: make(map[string]struct{}, len(config.AllowedEnv)+len(baseEnvKeys)),
+		allowedEnvKeys: make(map[string]struct{}, len(config.AllowedEnv)+len(BaseEnvKeys)),
 	}
 	// Always inject essential Unix environment variables so that tools
 	// like aws, git, kubectl, and npm work correctly even though env -i
 	// clears the inherited environment. Without these, subprocesses fail
 	// with errors like "RuntimeError: HOME not set" or write to "/" instead
 	// of the user's home directory.
-	for _, k := range baseEnvKeys {
+	for _, k := range BaseEnvKeys {
 		t.allowedEnvKeys[k] = struct{}{}
 	}
 	for _, k := range config.AllowedEnv {
@@ -60,9 +60,9 @@ func NewShellTool(executor codeexecutor.CodeExecutor, secrets security.SecretPro
 	return t
 }
 
-// baseEnvKeys are always passed through env -i to ensure a functioning
+// BaseEnvKeys are always passed through env -i to ensure a functioning
 // Unix environment. These are read-only identifiers and paths — no secrets.
-var baseEnvKeys = []string{
+var BaseEnvKeys = []string{
 	"PATH",   // command resolution
 	"HOME",   // ~/ expansion, config dirs, credential caches
 	"USER",   // whoami, git commit author

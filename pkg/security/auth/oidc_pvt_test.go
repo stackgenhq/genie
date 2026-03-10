@@ -5,6 +5,41 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+var _ = Describe("sanitizeReturnTo (private)", func() {
+	const fallback = "/ui/chat.html"
+
+	DescribeTable("validates and sanitizes redirect paths",
+		func(input, expected string) {
+			Expect(sanitizeReturnTo(input)).To(Equal(expected))
+		},
+		// Valid local paths
+		Entry("valid root path", "/", "/"),
+		Entry("valid local path", "/ui/chat.html", "/ui/chat.html"),
+		Entry("valid nested path", "/dashboard/settings", "/dashboard/settings"),
+		Entry("valid path with query string", "/page?foo=bar", "/page?foo=bar"),
+
+		// Fallback cases
+		Entry("empty string", "", fallback),
+		Entry("protocol-relative //", "//evil.com", fallback),
+		Entry("backslash in second position /\\", "/\\evil.com", fallback),
+		Entry("plain backslash", "\\evil.com", fallback),
+		Entry("absolute http URL", "http://evil.com", fallback),
+		Entry("absolute https URL", "https://evil.com", fallback),
+		Entry("no leading slash", "evil.com", fallback),
+
+		// Encoded attack vectors
+		Entry("encoded backslash %5C", "/%5Cevil.com", fallback),
+		Entry("double encoded backslash %5C%5C", "/%5C%5Cevil.com", fallback),
+		Entry("encoded forward slash %2F", "/%2Fevil.com", fallback),
+
+		// Control characters
+		Entry("contains null byte", "/page\x00evil", fallback),
+		Entry("contains newline", "/page\nevil", fallback),
+		Entry("contains tab", "/page\tevil", fallback),
+		Entry("contains DEL character", "/page\x7fevil", fallback),
+	)
+})
+
 var _ = Describe("isDomainAllowed (private)", func() {
 	DescribeTable("matches domain or email against allow list",
 		func(val string, allowed []string, expected bool) {

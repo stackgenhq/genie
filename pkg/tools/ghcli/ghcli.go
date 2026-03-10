@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/google/shlex"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
@@ -89,8 +90,11 @@ func (t *ghCLITool) Call(ctx context.Context, input []byte) (any, error) {
 		return nil, fmt.Errorf("command contains disallowed shell metacharacters — use simple gh arguments only (no pipes, redirects, or sub-shells)")
 	}
 
-	// Split into argv and execute gh directly — no shell involved.
-	argv := strings.Fields(args.Command)
+	// Split into argv using shlex to respect embedded quotes and execute gh directly — no shell involved.
+	argv, err := shlex.Split(args.Command)
+	if err != nil {
+		return nil, fmt.Errorf("failed to split arguments: %w", err)
+	}
 	cmd := exec.CommandContext(ctx, "gh", argv...)
 
 	// Build a minimal environment for the gh subprocess. Only expose

@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -240,12 +241,7 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	returnTo := "/ui/chat.html"
 	if rUrl, ok := statePayload["return_to"]; ok && rUrl != "" {
-		// Strict protection against open redirects: only allow absolute local paths.
-		// Ensures the path starts with a single '/', but not '//' or '/\'.
-		// We explicitly reject hostnames by avoiding url.Parse entirely.
-		if strings.HasPrefix(rUrl, "/") && !strings.HasPrefix(rUrl, "//") && !strings.HasPrefix(rUrl, "/\\") {
-			returnTo = rUrl
-		}
+		returnTo = sanitizeReturnTo(rUrl)
 	}
 
 	// Check for errors from provider.
@@ -488,4 +484,42 @@ func isDomainAllowed(val string, allowed []string) bool {
 		}
 	}
 	return false
+}
+
+// sanitizeReturnTo validates and sanitizes the return_to redirect path to prevent
+// open redirect vulnerabilities. It decodes URL-encoded characters, rejects backslashes
+// and control characters, and ensures the result is a safe local path.
+// Without this function, an attacker could use URL-encoded sequences (e.g. /%5C%5Cevil.com)
+// to bypass prefix-only checks and redirect users to malicious domains.
+func sanitizeReturnTo(raw string) string {
+	const fallback = "/ui/chat.html"
+	if raw == "" {
+		return fallback
+	}
+
+	// Decode percent-encoded characters to catch encoded bypass attacks.
+	decoded, err := url.PathUnescape(raw)
+	if err != nil {
+		return fallback
+	}
+
+	// Reject any backslashes (some user-agents normalize \ to /).
+	if strings.ContainsAny(decoded, "\\") {
+		return fallback
+	}
+
+	// Reject control characters (ASCII 0-31, 127).
+	for _, c := range decoded {
+		if c < 0x20 || c == 0x7f {
+			return fallback
+		}
+	}
+
+	// Must start with "/" and the second character must NOT be "/" or "\" to
+	// prevent protocol-relative redirects (e.g. "//evil.com" or "/\evil.com").
+	if !strings.HasPrefix(decoded, "/") || (len(decoded) >= 2 && (decoded[1] == '/' || decoded[1] == '\\')) {
+		return fallback
+	}
+
+	return decoded
 }
