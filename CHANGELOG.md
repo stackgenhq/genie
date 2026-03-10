@@ -39,9 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Semantic cache responses now emitted via AG-UI event bus (`agui.EmitAgentMessage`) so streaming web UI clients see cache-hit responses that previously bypassed the tree executor.
 - Sub-agent shared memory instructions — `buildSubAgentInstruction` now includes `INCREMENTAL REPORTING` (per-item results as they complete) and `SHARED MEMORY` (findings written to working memory for sibling agents).
 - Auth middleware logs first unauthenticated request IP/path and injects `principal` + `request_id` into logger context and OTel trace attributes (`langfuse.user.id`) for authenticated requests.
-- Hardened Qdrant Terraform deployment for multi-AZ HA with PodDisruptionBudgets, topology spread constraints, NetworkPolicies, and snapshot backups (`examples/devops-in-k8s`).
-- Multimodal media attachment support in AG-UI chat (extracting and processing images, video, and audio from browser data-URLs).
+- Hardened Qdrant Terraform deployment for multi-AZ HA with PodDisruptionBudgets, topology spread constraints online for - Multimodal media attachment support in AG-UI chat (extracting and processing images, video, and audio from browser data-URLs).
 - Automated WAV conversion using `ffmpeg` for unsupported audio formats (like OGG from WhatsApp voice notes) before forwarding them to the LLM.
+- Cron tool suite: added `list_recurring_tasks`, `delete_recurring_task`, `history_recurring_task`, `toggle_recurring_task` (pause/resume), and `trigger_recurring_task` (run-now on demand) agent tools for managing and inspecting scheduled tasks at runtime.
+- Cron scheduler now injects a notify-on-failure instruction at dispatch-time for all cron tasks (config-defined and tool-created), directing sub-agents to use the `notify` tool when they cannot complete scheduled work.
 ### Changed
 
 - Refactored `examples/devops-in-k8s` Terraform configurations to use structured input objects (`aws`, `genie`, `kubernetes`, `auth`) and properly inject local authentication configuration.

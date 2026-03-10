@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stackgenhq/genie/pkg/cron"
@@ -131,6 +132,57 @@ var _ = Describe("Store", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tasks).To(BeEmpty())
 		})
+
+		It("should return error when deleting nonexistent task", func(ctx context.Context) {
+			err := store.DeleteTask(ctx, cron.DeleteTaskRequest{ID: uuid.MustParse("00000000-0000-0000-0000-999999999999")})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("cron task not found"))
+		})
+	})
+
+	Describe("GetTask", func() {
+		It("should return a task by ID", func(ctx context.Context) {
+			task, err := store.CreateTask(ctx, cron.CreateTaskRequest{
+				Name: "get-me", Expression: "* * * * *", Action: "a", Source: "config",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			found, err := store.GetTask(ctx, task.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found.Name).To(Equal("get-me"))
+		})
+
+		It("should return error when task not found", func(ctx context.Context) {
+			_, err := store.GetTask(ctx, uuid.MustParse("00000000-0000-0000-0000-999999999999"))
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to get cron task"))
+		})
+	})
+
+	Describe("SetEnabled", func() {
+		It("should disable and re-enable a task", func(ctx context.Context) {
+			task, err := store.CreateTask(ctx, cron.CreateTaskRequest{
+				Name: "toggle-me", Expression: "* * * * *", Action: "a", Source: "config",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(task.Enabled).To(BeTrue())
+
+			// Disable.
+			err = store.SetEnabled(ctx, task.ID, false)
+			Expect(err).NotTo(HaveOccurred())
+
+			tasks, err := store.ListTasks(ctx, cron.ListTasksRequest{EnabledOnly: true})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tasks).To(BeEmpty())
+
+			// Re-enable.
+			err = store.SetEnabled(ctx, task.ID, true)
+			Expect(err).NotTo(HaveOccurred())
+
+			tasks, err = store.ListTasks(ctx, cron.ListTasksRequest{EnabledOnly: true})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tasks).To(HaveLen(1))
+		})
 	})
 
 	Describe("RecordRun and UpdateRun", func() {
@@ -187,6 +239,58 @@ var _ = Describe("Store", func() {
 			failures, err := store.RecentFailures(ctx, cron.RecentFailuresRequest{Limit: 10})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(failures).To(BeEmpty())
+		})
+	})
+
+	Describe("RecentRuns", func() {
+		It("should return recent runs for a specific task", func(ctx context.Context) {
+			task1, err := store.CreateTask(ctx, cron.CreateTaskRequest{
+				Name: "task1", Expression: "* * * * *", Action: "a", Source: "config",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			task2, err := store.CreateTask(ctx, cron.CreateTaskRequest{
+				Name: "task2", Expression: "* * * * *", Action: "a", Source: "config",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Record runs for task1
+			_, err = store.RecordRun(ctx, cron.RecordRunRequest{
+				TaskID: task1.ID, TaskName: task1.Name, Status: "success",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = store.RecordRun(ctx, cron.RecordRunRequest{
+				TaskID: task1.ID, TaskName: task1.Name, Status: "failed",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Record run for task2
+			_, err = store.RecordRun(ctx, cron.RecordRunRequest{
+				TaskID: task2.ID, TaskName: task2.Name, Status: "success",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			runs, err := store.RecentRuns(ctx, cron.RecentRunsRequest{TaskID: task1.ID, Limit: 10})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(runs).To(HaveLen(2))
+			Expect(runs[0].Status).To(Equal(db.CronStatusFailed))
+			Expect(runs[1].Status).To(Equal(db.CronStatusSuccess))
+
+			runs2, err := store.RecentRuns(ctx, cron.RecentRunsRequest{TaskID: task2.ID, Limit: 10})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(runs2).To(HaveLen(1))
+		})
+
+		It("should return empty when task has no runs", func(ctx context.Context) {
+			task, err := store.CreateTask(ctx, cron.CreateTaskRequest{
+				Name: "no-runs-task", Expression: "* * * * *", Action: "a", Source: "config",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			runs, err := store.RecentRuns(ctx, cron.RecentRunsRequest{TaskID: task.ID, Limit: 10})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(runs).To(BeEmpty())
 		})
 	})
 
