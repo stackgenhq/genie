@@ -1447,8 +1447,8 @@ architecture:
       same pipeline to the LLM and back.
     diagram: |
       ┌─────────┐              ┌─────────────────────────┐  Chat()  ┌────────────────┐  Run()  ┌──────────────────┐
-      │ Browser │─── POST / ──▶│                         │────────▶│  CodeOwner      │───────▶│  ReAcTree Engine  │
-      │ (SSE)   │◀── events ───│  Messenger Adapter      │◀────────│  pkg/codeowner  │◀───────│  pkg/reactree     │
+      │ Browser │─── POST / ──▶│                         │────────▶│  Orchestrator    │───────▶│  ReAcTree Engine  │
+      │ (SSE)   │◀── events ───│  Messenger Adapter      │◀────────│  pkg/orchestrator│◀───────│  pkg/reactree     │
       └─────────┘              │  pkg/messenger/agui     │ events  │                │ result │                    │
       ┌─────────┐              │  pkg/messenger/slack    │         │  • Classify    │        │  • Sequence        │
       │  Slack  │◀─ Socket ──▶│  pkg/messenger/whatsapp │          │  • Memory      │        │  • Fallback        │
@@ -1490,7 +1490,7 @@ architecture:
         - ["`CleanupHistory`", "`store.go`", "Periodic pruning of old cron history entries"]
         - ["`HealthCheck`", "`scheduler.go`", "Aggregates recent failures per task for monitoring"]
 
-    - title: "🧑‍💻 CodeOwner Expert (pkg/codeowner)"
+    - title: "🧑‍💻 Orchestrator Expert (pkg/orchestrator)"
       desc: >
         The primary agent orchestrator. Receives a user question, classifies it,
         recalls relevant conversation history, and delegates complex work to the
