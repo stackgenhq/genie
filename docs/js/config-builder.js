@@ -1493,7 +1493,7 @@
             tw.context_mode.min_term_len !== 3 || tw.context_mode.per_tool;
         var any = cmNonDefault || tw.timeout.enabled || tw.rate_limit.enabled || tw.circuit_breaker.enabled ||
             tw.concurrency.enabled || tw.retry.enabled || tw.metrics.enabled ||
-            tw.tracing.enabled || tw.sanitize.enabled || tw.validation.enabled;
+            tw.tracing.enabled || tw.sanitize.enabled;
         if (!any) return;
 
         if (tw.context_mode.enabled) {
@@ -2217,7 +2217,7 @@
             tw.context_mode.min_term_len !== 3 || tw.context_mode.per_tool;
         var any = cmNonDefault || tw.timeout.enabled || tw.rate_limit.enabled || tw.circuit_breaker.enabled ||
             tw.concurrency.enabled || tw.retry.enabled || tw.metrics.enabled ||
-            tw.tracing.enabled || tw.sanitize.enabled || tw.validation.enabled;
+            tw.tracing.enabled || tw.sanitize.enabled;
         if (!any) return;
         lines.push('toolwrap:');
 
