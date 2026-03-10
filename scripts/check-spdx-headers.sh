@@ -9,8 +9,8 @@ cd "$REPO_ROOT"
 echo "Checking license headers..."
 FAIL=0
 
-# Iterate over all go files in pkg and cmd, excluding generated fakes
-for f in $(find pkg cmd -name "*.go" -not -path "*/*fakes*" -type f); do
+# Iterate over all go files, excluding vendor, hidden folders, out directories, and generated fakes
+for f in $(find . -name "*.go" -not -path "*/vendor/*" -not -path "*/.*" -not -path "*/*fakes*" -type f | sed 's|^\./||'); do
     if [[ "$f" == pkg/reactree/* ]] || [[ "$f" == pkg/halguard/* ]] || [[ "$f" == pkg/orchestrator/* ]] || [[ "$f" == pkg/semanticrouter/* ]]; then
         if ! grep -q "SPDX-License-Identifier: BUSL-1.1" "$f"; then
             echo "Missing BSL header: $f"
