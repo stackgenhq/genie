@@ -1,13 +1,8 @@
 package notification
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/stackgenhq/genie/pkg/logger"
@@ -36,16 +31,27 @@ func NewNotifyTool(cfg Config) tool.CallableTool {
 	)
 }
 
-func (n *notifyTool) Notify(ctx context.Context, req NotifyRequest) (string, error) {
-	log := logger.GetLogger(ctx)
+func (req NotifyRequest) validate() error {
+	missingFields := make([]string, 3)
 	if req.Justification == "" {
-		return "", fmt.Errorf("justification is required")
+		missingFields = append(missingFields, "justification")
 	}
 	if req.AgentName == "" {
-		return "", fmt.Errorf("agent_name is required")
+		missingFields = append(missingFields, "agent_name")
 	}
 	if req.Message == "" {
-		return "", fmt.Errorf("message is required")
+		missingFields = append(missingFields, "message")
+	}
+	if len(missingFields) > 0 {
+		return fmt.Errorf("missing fields: %s", strings.Join(missingFields, ", "))
+	}
+	return nil
+}
+
+func (n *notifyTool) Notify(ctx context.Context, req NotifyRequest) (string, error) {
+	log := logger.GetLogger(ctx)
+	if err := req.validate(); err != nil {
+		return "", err
 	}
 
 	var errs []string
@@ -115,100 +121,4 @@ func (n *notifyTool) Notify(ctx context.Context, req NotifyRequest) (string, err
 	}
 
 	return fmt.Sprintf("Successfully sent notification through %d endpoint(s).", notifiedCount), nil
-}
-
-func sendSlack(ctx context.Context, webhookURL string, msg string) error {
-	payload := map[string]string{"text": msg}
-	body, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewBuffer(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("slack returned status code %d", resp.StatusCode)
-	}
-	return nil
-}
-
-func sendWebhook(ctx context.Context, u string, headers map[string]string, msg string) error {
-	payload := map[string]string{"message": msg}
-	body, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", u, bytes.NewBuffer(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("webhook returned status code %d", resp.StatusCode)
-	}
-	return nil
-}
-
-func sendTwilio(ctx context.Context, accountSID, authToken, from, to, msg string) error {
-	apiURL := fmt.Sprintf("https://api.twilio.com/2010-04-01/Accounts/%s/Messages.json", accountSID)
-
-	data := url.Values{}
-	data.Set("To", to)
-	data.Set("From", from)
-	data.Set("Body", msg)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, strings.NewReader(data.Encode()))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(accountSID+":"+authToken)))
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("twilio returned status code %d", resp.StatusCode)
-	}
-	return nil
-}
-
-func sendDiscord(ctx context.Context, webhookURL string, msg string) error {
-	payload := map[string]string{"content": msg}
-	body, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewBuffer(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("discord returned status code %d", resp.StatusCode)
-	}
-	return nil
 }

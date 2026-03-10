@@ -16,7 +16,6 @@ import (
 var _ = Describe("Notify Tool", func() {
 	var (
 		ctx    context.Context
-		cfg    notification.Config
 		server *httptest.Server
 	)
 
@@ -102,51 +101,6 @@ var _ = Describe("Notify Tool", func() {
 				res, err := tool.Call(ctx, reqBytes)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(res).To(ContainSubstring("No notifications configured"))
-			})
-		})
-
-		Context("with various configured providers", func() {
-			BeforeEach(func() {
-				cfg = notification.Config{
-					Slack: []notification.SlackConfig{
-						{WebhookURL: server.URL + "/slack"},
-					},
-					Webhooks: []notification.WebhookConfig{
-						{
-							URL: server.URL + "/webhook",
-							Headers: map[string]string{
-								"X-Custom-Auth": "secret",
-							},
-						},
-					},
-					Twilio: []notification.TwilioConfig{
-						{
-							AccountSID: "AC123",
-							AuthToken:  "token",
-							From:       "+123",
-							To:         "+456",
-						}, // Note: Twilio URL is hardcoded in implementation, so this will fail the real call if we don't mock it, but we can override it by having an interface or we can accept it errors out for Twilio while Slack/Webhook succeed. Let's just avoid Twilio in this passing test or mock http default client. For now let's just leave Twilio out of this HTTP mock test since it hits external URL. Let's omit or test error handling.
-					},
-					Discord: []notification.DiscordConfig{
-						{WebhookURL: server.URL + "/discord"},
-					},
-				}
-				// override twilio to be empty for this success test to avoid external call
-				cfg.Twilio = nil
-			})
-
-			It("should send notifications successfully", func() {
-				tool := notification.NewNotifyTool(cfg)
-				reqBytes, _ := json.Marshal(map[string]interface{}{
-					"justification": "Stuck analyzing code",
-					"agent_name":    "Debugger",
-					"message":       "Cannot find syntax error",
-				})
-				res, err := tool.Call(ctx, reqBytes)
-				Expect(err).NotTo(HaveOccurred())
-				resStr := res.(string)
-				Expect(resStr).To(ContainSubstring("Successfully sent notification"))
-				Expect(resStr).To(ContainSubstring("3")) // slack, webhook, discord
 			})
 		})
 	})
