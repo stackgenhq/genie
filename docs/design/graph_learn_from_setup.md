@@ -22,7 +22,7 @@
 
 ### 5. **No prompt or system hint to "use graph with datasource data"**
 - The agent is not instructed by default to prefer building a graph from `memory_search` results when the user asks relationship-style questions.
-- **Mitigation**: Add a persona or system hint (e.g. in codeowner/skills) that when the user asks about "who worked on what" or "connections", the agent should use `memory_search` and then populate/query the graph.
+- **Mitigation**: Add a persona or system hint (e.g. in orchestrator/skills) that when the user asks about "who worked on what" or "connections", the agent should use `memory_search` and then populate/query the graph.
 
 ### 6. **Rate limits and cost**
 - A "build graph from all memory" pass could trigger many `memory_search` calls and many `graph_store_*` calls; with large mailboxes or Drive, that could hit rate limits or cost.

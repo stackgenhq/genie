@@ -6,7 +6,7 @@
 
 ```mermaid
 graph TD
-    A["Parent Agent<br/>(codeowner)"] -->|"Expand action<br/>Algorithm 1, L20-28"| B["create_agent tool<br/>with steps + flow_type"]
+    A["Parent Agent<br/>(orchestrator)"] -->|"Expand action<br/>Algorithm 1, L20-28"| B["create_agent tool<br/>with steps + flow_type"]
     B -->|"Steps → Plan"| C["ExecutePlan()<br/>Algorithm 2"]
     C -->|"f^n = sequence"| D["BuildSequenceWithEarlyExit"]
     C -->|"f^n = parallel"| E["BuildParallel"]
@@ -200,5 +200,5 @@ graph TD
 | [control_flow.go](./pkg/reactree/control_flow.go) | BuildSequence, BuildParallel, BuildFallback |
 | [memory/episodic.go](./pkg/reactree/memory/episodic.go) | Episode, EpisodicMemory interface |
 | [memory/working.go](./pkg/reactree/memory) | WorkingMemory shared blackboard |
-| [codeowner/expert.go](./pkg/codeowner/expert.go) | Wires expert + episodic into createAgentTool |
+| [orchestrator/expert.go](./pkg/orchestrator/expert.go) | Wires expert + episodic into createAgentTool |
 | [orchestrator_test.go](./pkg/reactree/orchestrator_test.go) | 17 paper-mapped unit tests |
