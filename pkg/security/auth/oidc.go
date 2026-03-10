@@ -500,29 +500,32 @@ func sanitizeReturnTo(raw string) string {
 		return fallback
 	}
 
-	// Decode percent-encoded characters to catch encoded bypass attacks.
-	decoded, err := url.PathUnescape(raw)
-	if err != nil {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host != "" || parsed.Scheme != "" {
 		return fallback
 	}
 
-	// Reject any backslashes (some user-agents normalize \ to /).
-	if strings.ContainsAny(decoded, "\\") {
+	path := parsed.Path
+	if path == "" {
+		path = "/"
+	}
+
+	// Reject if path attempts protocol-relative redirect or tries to trick path matching.
+	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") || strings.HasPrefix(path, "/\\") {
 		return fallback
 	}
 
-	// Reject control characters (ASCII 0-31, 127).
-	for _, c := range decoded {
-		if c < 0x20 || c == 0x7f {
-			return fallback
-		}
+	// Reconstruct a strictly local URL object.
+	safeURL := url.URL{
+		Path:     path,
+		RawQuery: parsed.RawQuery,
 	}
 
-	// Must start with "/" and the second character must NOT be "/" or "\" to
-	// prevent protocol-relative redirects (e.g. "//evil.com" or "/\evil.com").
-	if !strings.HasPrefix(decoded, "/") || (len(decoded) >= 2 && (decoded[1] == '/' || decoded[1] == '\\')) {
+	// Ensure the resulting string still meets our criteria.
+	result := safeURL.String()
+	if !strings.HasPrefix(result, "/") || strings.HasPrefix(result, "//") || strings.HasPrefix(result, "/\\") {
 		return fallback
 	}
 
-	return decoded
+	return result
 }
