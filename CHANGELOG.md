@@ -38,7 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Semantic cache responses now emitted via AG-UI event bus (`agui.EmitAgentMessage`) so streaming web UI clients see cache-hit responses that previously bypassed the tree executor.
 - Sub-agent shared memory instructions — `buildSubAgentInstruction` now includes `INCREMENTAL REPORTING` (per-item results as they complete) and `SHARED MEMORY` (findings written to working memory for sibling agents).
 - Auth middleware logs first unauthenticated request IP/path and injects `principal` + `request_id` into logger context and OTel trace attributes (`langfuse.user.id`) for authenticated requests.
-
+- Hardened Qdrant Terraform deployment for multi-AZ HA with PodDisruptionBudgets, topology spread constraints, NetworkPolicies, and snapshot backups (`examples/devops-in-k8s`).
+- Multimodal media attachment support in AG-UI chat (extracting and processing images, video, and audio from browser data-URLs).
+- Automated WAV conversion using `ffmpeg` for unsupported audio formats (like OGG from WhatsApp voice notes) before forwarding them to the LLM.
 ### Changed
 
 - Refactored `examples/devops-in-k8s` Terraform configurations to use structured input objects (`aws`, `genie`, `kubernetes`, `auth`) and properly inject local authentication configuration.
@@ -78,6 +80,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - PostgreSQL compatibility: removed hardcoded `gorm:"type:blob"` tags from `SessionState`, `AppState`, and `UserState` models in `pkg/db/session_store.go` — `blob` is a SQLite/MySQL type that causes `ERROR: type "blob" does not exist (SQLSTATE 42704)` on PostgreSQL. GORM now auto-maps `[]byte` to `bytea` (PostgreSQL) or `blob` (SQLite).
 - Checkpoint saver wrapped with retry logic to handle transient PostgreSQL connection failures (e.g. after pod evictions) instead of crashing.
 - Semantic cache hits now properly emit responses to AG-UI streaming clients, which were previously invisible because the cache-hit path never entered the tree executor.
+- Mitigated path traversal vulnerabilities by enforcing strict temporary directory boundaries during multimedia extraction.
+- Prevented memory leaks in `docs/js/chat.js` by automatically revoking object URLs used for attachment previews.
+- Prevented out-of-bounds panics on malformed data-URLs by implementing length assertions and checking empty data array.
 
 ### Removed
 

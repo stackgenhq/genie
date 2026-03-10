@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +23,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/hitl"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/messenger/media"
 	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 	"github.com/stackgenhq/genie/pkg/security/auth"
 	"github.com/stackgenhq/genie/pkg/security/authcontext"
@@ -34,10 +37,11 @@ import (
 
 // ChatRequest bundles the inputs for a single AG-UI chat invocation.
 type ChatRequest struct {
-	ThreadID  string
-	RunID     string
-	Message   string
-	EventChan chan<- interface{}
+	ThreadID    string
+	RunID       string
+	Message     string
+	Attachments []messenger.Attachment
+	EventChan   chan<- interface{}
 }
 
 // Expert is the one who knows how to handle a chat request.
@@ -626,12 +630,26 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Generate IDs if not provided
+	// Generate IDs if not provided, and sanitize provided IDs to prevent path traversal
 	if input.ThreadID == "" {
 		input.ThreadID = uuid.NewString()
+	} else {
+		clean := filepath.Base(filepath.Clean(input.ThreadID))
+		if clean == "." || clean == ".." || clean == "" || clean == "/" || clean == "\\" {
+			input.ThreadID = uuid.NewString()
+		} else {
+			input.ThreadID = clean
+		}
 	}
 	if input.RunID == "" {
 		input.RunID = uuid.NewString()
+	} else {
+		clean := filepath.Base(filepath.Clean(input.RunID))
+		if clean == "." || clean == ".." || clean == "" || clean == "/" || clean == "\\" {
+			input.RunID = uuid.NewString()
+		} else {
+			input.RunID = clean
+		}
 	}
 
 	// Extract the last user message using SDK's ContentString() helper.
@@ -648,6 +666,34 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	if len(strings.TrimSpace(userMessage)) == 0 {
 		http.Error(w, `{"error":"user message is empty"}`, http.StatusBadRequest)
 		return
+	}
+
+	// Extract embedded data-URL files from the message (browser → server).
+	// The chat UI encodes attached images/audio/video as base64 data URLs
+	// in the message body. We decode them to temp files and create
+	// messenger.Attachment structs so the multimodal pipeline can process
+	// them the same way as WhatsApp media downloads.
+	var chatAttachments []messenger.Attachment
+	var tempDir string
+	userMessage, tempDir, chatAttachments = ExtractDataURLFiles(userMessage)
+
+	// Ensure the generated temp directory is cleaned up after processing (if one was created)
+	if tempDir != "" {
+		defer func() {
+			_ = os.RemoveAll(tempDir)
+		}()
+	}
+
+	// Augment the message with attachment descriptions (file names, sizes, paths)
+	// so the LLM knows about the files even in text-only fallback mode.
+	if len(chatAttachments) > 0 {
+		// Pass tempDir as baseDir so LocalPath is relativized and server filesystem paths aren't leaked
+		desc := media.DescribeAttachments(chatAttachments, tempDir)
+		if userMessage == "" {
+			userMessage = desc
+		} else {
+			userMessage = userMessage + "\n\n" + desc
+		}
 	}
 
 	// Set up SSE writer
@@ -710,10 +756,11 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 			close(eventChan)
 		}()
 		s.chatHandler.Handle(ctx, ChatRequest{
-			ThreadID:  input.ThreadID,
-			RunID:     input.RunID,
-			Message:   userMessage,
-			EventChan: eventChan,
+			ThreadID:    input.ThreadID,
+			RunID:       input.RunID,
+			Message:     userMessage,
+			Attachments: chatAttachments,
+			EventChan:   eventChan,
 		})
 	}()
 

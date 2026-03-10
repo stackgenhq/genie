@@ -33,11 +33,15 @@ variable "kubernetes" {
 variable "vectorstore" {
   description = "Qdrant vector store configuration"
   type = object({
-    s3_bucket = string
-    replicas  = optional(number, 1)
-    storage_size = optional(string, "10Gi")
-    image_tag    = optional(string, "")
-    api_key      = optional(string, "")
+    s3_bucket               = string
+    replicas                = optional(number, 3)
+    storage_size            = optional(string, "10Gi")
+    storage_class           = optional(string, "qdrant-gp3")
+    create_storage_class    = optional(bool, true)
+    snapshot_schedule       = optional(string, "0 2 * * *")
+    snapshot_retention_days = optional(number, 30)
+    image_tag               = optional(string, "")
+    api_key                 = optional(string, "")
     resources_limits = optional(object({
       cpu    = optional(string, "1")
       memory = optional(string, "2Gi")

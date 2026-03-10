@@ -76,9 +76,23 @@ chown -R 65532:65532 /home/stackgen/.kube
 # HOME must be set explicitly: user 65532 has no /etc/passwd entry in
 # Alpine, so HOME defaults to "/" without this export.
 export HOME=/home/stackgen
+# TMPDIR must point to a writable directory. Without this, Go's
+# os.MkdirTemp("", ...) defaults to os.TempDir() which returns "/"
+# for users without a passwd entry — and "/" is not writable in
+# containers with a read-only root filesystem or non-root users.
+# This caused the run_shell tool's circuit breaker to trip on every
+# AWS CLI command (os.MkdirTemp used by the code executor to write
+# intermediate script files).
+export TMPDIR=/tmp
 # Ensure ~/.aws is writable by genie user for AWS SDK credential caching.
 mkdir -p /home/stackgen/.aws
 chown -R 65532:65532 /home/stackgen/.aws
+# Create a writable working directory for the shell tool. The code executor
+# creates .exec_* temp subdirectories inside the working directory for
+# script files. Without a writable WorkDir, all shell commands fail.
+mkdir -p /home/stackgen/work
+chown -R 65532:65532 /home/stackgen/work
 exec su-exec 65532:65532 /usr/local/bin/genie \
   --config /shared-credentials/genie.toml \
+  --working-dir /home/stackgen/work \
   --log-level debug

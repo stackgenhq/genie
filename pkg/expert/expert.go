@@ -3,6 +3,10 @@ package expert
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,6 +16,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/messenger"
 	messengeragui "github.com/stackgenhq/genie/pkg/messenger/agui"
+	"github.com/stackgenhq/genie/pkg/messenger/media"
 	"github.com/stackgenhq/genie/pkg/osutils"
 	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
 	"github.com/stackgenhq/genie/pkg/retrier"
@@ -80,8 +85,10 @@ type Request struct {
 	WorkingMemory *rtmemory.WorkingMemory
 
 	// Attachments holds file/media attachments from the incoming message.
-	// Image attachments with LocalPath are added as multimodal content parts
-	// so the LLM can "see" them. Other attachments are described textually.
+	// Image attachments with LocalPath are added as multimodal visual content.
+	// Audio attachments are added as audio content parts (with OGG→WAV conversion).
+	// Video attachments are embedded via the File API with explicit MIME type.
+	// Other attachments (PDF, DOCX) are described textually or embedded as files.
 	Attachments []messenger.Attachment
 }
 
@@ -366,41 +373,231 @@ func (e *expert) emitEventToTUI(ctx context.Context, event *event.Event) {
 // buildUserMessage constructs a model.Message from a Request. When the request
 // contains attachments with a local file path (e.g., WhatsApp downloads):
 //   - Images are embedded as visual ContentParts via AddImageFilePath (vision).
+//   - Audio is embedded via AddAudioFilePath (audio understanding).
+//   - Video is embedded via AddFileData with explicit MIME (Gemini File API).
 //   - Other files (PDFs, documents) are embedded via AddFilePath (document input).
+//
+// Audio attachments in unsupported formats (e.g., OGG from WhatsApp voice notes)
+// are automatically converted to WAV using ffmpeg before being sent to the model.
 //
 // Attachments without a LocalPath are already described textually in req.Message.
 func buildUserMessage(ctx context.Context, req Request) model.Message {
 	msg := model.NewUserMessage(req.Message)
+	logr := logger.GetLogger(ctx)
 
 	for _, att := range req.Attachments {
 		if att.LocalPath == "" {
 			continue // No local file to embed — URL/text description already in message.
 		}
+
 		if isImageMIME(att.ContentType) {
-			// Embed image as visual content so the LLM can "see" it.
-			if err := msg.AddImageFilePath(att.LocalPath, "auto"); err != nil {
-				logger.GetLogger(ctx).Warn(
-					"failed to add image attachment to user message",
-					"path", att.LocalPath,
-					"error", err,
-				)
-			}
-		} else {
-			// Embed PDF / document / other file as file content.
-			if err := msg.AddFilePath(att.LocalPath); err != nil {
-				logger.GetLogger(ctx).Warn(
-					"failed to add file attachment to user message",
-					"path", att.LocalPath,
-					"error", err,
-				)
-			}
+			addImageAttachment(ctx, &msg, att)
+			continue
+		}
+
+		if isAudioMIME(att.ContentType) {
+			addAudioAttachment(ctx, &msg, att)
+			continue
+		}
+
+		if isVideoMIME(att.ContentType) {
+			addVideoAttachment(ctx, &msg, att)
+			continue
+		}
+
+		// Fallback: embed PDF / document / other file as file content.
+		if err := msg.AddFilePath(att.LocalPath); err != nil {
+			logr.Warn(
+				"failed to add file attachment to user message",
+				"path", att.LocalPath,
+				"error", err,
+			)
 		}
 	}
 
 	return msg
 }
 
+// addImageAttachment embeds an image as visual content so the LLM can "see" it.
+// This enables vision-capable models (Gemini, GPT-4V) to analyze screenshots,
+// photos, and diagrams. Without this, images would be treated as opaque files.
+//
+// Note: we read the file and call AddImageData with the full MIME type
+// (e.g. "image/png") from the attachment metadata. The trpc-agent-go
+// AddImageFilePath helper stores only the bare extension ("png") which the
+// Gemini SDK rejects.
+func addImageAttachment(ctx context.Context, msg *model.Message, att messenger.Attachment) {
+	data := readFileBytes(att.LocalPath)
+	if data == nil {
+		logger.GetLogger(ctx).Warn(
+			"failed to read image file for embedding",
+			"path", att.LocalPath,
+		)
+		return
+	}
+
+	// Use the full MIME type from the attachment (e.g. "image/png").
+	// Fall back to inferring from extension if not set.
+	mime := att.ContentType
+	if mime == "" {
+		mime = media.MIMEFromFilename(att.LocalPath)
+	}
+	msg.AddImageData(data, "auto", mime)
+}
+
+// addAudioAttachment embeds audio as an audio content part so the LLM can
+// understand spoken content (e.g., WhatsApp voice notes).
+//
+// trpc-agent-go's AddAudioFilePath only supports WAV and MP3. WhatsApp sends
+// voice messages as OGG (Opus codec), so this function automatically converts
+// unsupported formats to WAV using ffmpeg when available.
+//
+// Without this function, audio attachments would fall through to AddFilePath,
+// which fails because audio extensions (.mp3, .wav, .ogg) are not in the
+// trpc-agent-go MIME map — causing voice messages to be silently dropped.
+func addAudioAttachment(ctx context.Context, msg *model.Message, att messenger.Attachment) {
+	logr := logger.GetLogger(ctx)
+	audioPath := att.LocalPath
+
+	// Check if the audio format is natively supported (WAV or MP3).
+	ext := strings.ToLower(filepath.Ext(audioPath))
+	if ext != ".wav" && ext != ".mp3" {
+		// Attempt to convert unsupported format (e.g., OGG) to WAV via ffmpeg.
+		converted, err := convertAudioToWAV(ctx, audioPath)
+		if err != nil {
+			logr.Warn(
+				"audio format not supported and ffmpeg conversion failed, embedding as file",
+				"path", audioPath,
+				"format", ext,
+				"error", err,
+			)
+			// Fallback: embed as generic file (model may still handle it).
+			data := readFileBytes(audioPath)
+			if data == nil {
+				logr.Warn("failed to read audio file for fallback embedding", "path", audioPath)
+				return
+			}
+			msg.AddFileData(filepath.Base(audioPath), data, att.ContentType)
+			return
+		}
+		audioPath = converted
+	}
+
+	if err := msg.AddAudioFilePath(audioPath); err != nil {
+		logr.Warn(
+			"failed to add audio attachment to user message",
+			"path", audioPath,
+			"error", err,
+		)
+	}
+}
+
+// addVideoAttachment embeds video as a file content part with explicit MIME type.
+//
+// trpc-agent-go does not have a dedicated ContentTypeVideo, but Gemini's File API
+// supports video via ContentTypeFile with the correct MIME type (e.g., video/mp4).
+// OpenAI models may not support video files natively.
+//
+// Without this function, video attachments would fall through to AddFilePath,
+// which fails because video extensions (.mp4, .webm) are not in the
+// trpc-agent-go MIME map.
+func addVideoAttachment(ctx context.Context, msg *model.Message, att messenger.Attachment) {
+	logr := logger.GetLogger(ctx)
+	data := readFileBytes(att.LocalPath)
+	if data == nil {
+		logr.Warn(
+			"failed to read video file for embedding",
+			"path", att.LocalPath,
+		)
+		return
+	}
+
+	// Embed as file with explicit MIME type — Gemini handles video/mp4 natively.
+	mime := att.ContentType
+	if mime == "" {
+		mime = inferVideoMIME(att.LocalPath)
+	}
+	msg.AddFileData(filepath.Base(att.LocalPath), data, mime)
+}
+
+// convertAudioToWAV converts an audio file to WAV format using ffmpeg.
+// Returns the path to the converted WAV file, or an error if conversion fails.
+//
+// This exists primarily for WhatsApp voice notes which arrive as OGG (Opus codec),
+// a format not supported by trpc-agent-go's AddAudioFilePath. ffmpeg is the
+// industry-standard tool for this conversion: fast, lossless for WAV output,
+// and available on all platforms.
+func convertAudioToWAV(ctx context.Context, srcPath string) (string, error) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		return "", fmt.Errorf("ffmpeg not found on PATH: required for audio format conversion: %w", err)
+	}
+
+	// Create output path alongside the source file.
+	dir := filepath.Dir(srcPath)
+	base := strings.TrimSuffix(filepath.Base(srcPath), filepath.Ext(srcPath))
+	wavPath := filepath.Join(dir, base+"_"+uuid.NewString()+".wav")
+
+	// Convert to 16kHz mono WAV (optimal for speech recognition models).
+	cmd := exec.CommandContext(ctx, "ffmpeg",
+		"-i", srcPath,
+		"-ar", "16000", // 16kHz sample rate
+		"-ac", "1", // mono
+		"-y", // overwrite
+		wavPath,
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("ffmpeg conversion failed: %s: %w", string(output), err)
+	}
+
+	logger.GetLogger(ctx).Info("converted audio to WAV for model input",
+		"source", filepath.Base(srcPath),
+		"target", filepath.Base(wavPath),
+	)
+	return wavPath, nil
+}
+
+// readFileBytes reads a file and returns its contents. Returns nil on error.
+// This is a convenience wrapper used when we need to embed file data directly
+// (e.g., video via AddFileData) rather than via AddFilePath.
+func readFileBytes(path string) []byte {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
 // isImageMIME returns true if the content type is an image.
 func isImageMIME(contentType string) bool {
 	return len(contentType) > 6 && contentType[:6] == "image/"
+}
+
+// isAudioMIME returns true if the content type is an audio format.
+// Covers standard audio types including WhatsApp voice notes (audio/ogg).
+func isAudioMIME(contentType string) bool {
+	return len(contentType) > 6 && contentType[:6] == "audio/"
+}
+
+// isVideoMIME returns true if the content type is a video format.
+func isVideoMIME(contentType string) bool {
+	return len(contentType) > 6 && contentType[:6] == "video/"
+}
+
+// inferVideoMIME returns a MIME type for a video file based on its extension.
+// Returns "video/mp4" as the default if the extension is unknown.
+func inferVideoMIME(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".mp4":
+		return "video/mp4"
+	case ".webm":
+		return "video/webm"
+	case ".mov":
+		return "video/quicktime"
+	case ".avi":
+		return "video/x-msvideo"
+	case ".mkv":
+		return "video/x-matroska"
+	default:
+		return "video/mp4"
+	}
 }

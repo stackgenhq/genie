@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -241,8 +240,10 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	returnTo := "/ui/chat.html"
 	if rUrl, ok := statePayload["return_to"]; ok && rUrl != "" {
-		// Basic protection against open redirects: only allow relative paths
-		if parsed, err := url.Parse(rUrl); err == nil && parsed.Host == "" && strings.HasPrefix(rUrl, "/") && !strings.HasPrefix(rUrl, "//") && !strings.HasPrefix(rUrl, "/\\") {
+		// Strict protection against open redirects: only allow absolute local paths.
+		// Ensures the path starts with a single '/', but not '//' or '/\'.
+		// We explicitly reject hostnames by avoiding url.Parse entirely.
+		if strings.HasPrefix(rUrl, "/") && !strings.HasPrefix(rUrl, "//") && !strings.HasPrefix(rUrl, "/\\") {
 			returnTo = rUrl
 		}
 	}

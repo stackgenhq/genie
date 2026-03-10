@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
+	"github.com/stackgenhq/genie/pkg/htmlutils"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )
@@ -96,6 +97,40 @@ type WaitRequest struct {
 // WaitResponse is the output for the browser_wait tool.
 type WaitResponse struct {
 	Status string `json:"status"`
+}
+
+// GetElementsRequest is the input for the browser_get_elements tool.
+type GetElementsRequest struct{}
+
+// ElementInfo describes an interactable element on the page.
+type ElementInfo struct {
+	Index    int    `json:"index"`
+	Tag      string `json:"tag"`
+	Text     string `json:"text"`
+	Selector string `json:"selector"`
+}
+
+// GetElementsResponse is the output for the browser_get_elements tool.
+type GetElementsResponse struct {
+	Elements []ElementInfo `json:"elements"`
+}
+
+// ScreenshotAnnotatedRequest is the input for the browser_screenshot_annotated tool.
+type ScreenshotAnnotatedRequest struct{}
+
+// ScreenshotAnnotatedResponse is the output for the browser_screenshot_annotated tool.
+type ScreenshotAnnotatedResponse struct {
+	ImageBase64 string `json:"image_base64"`
+}
+
+// ReadMarkdownRequest is the input for the browser_read_markdown tool.
+type ReadMarkdownRequest struct {
+	Summarize bool `json:"summarize,omitempty" jsonschema:"description=If true and a summarizer is configured, uses an LLM to read and summarize the HTML content of the page instead of producing raw markdown."`
+}
+
+// ReadMarkdownResponse is the output for the browser_read_markdown tool.
+type ReadMarkdownResponse struct {
+	Markdown string `json:"markdown"`
 }
 
 // ── Tool constructors ───────────────────────────────────────────────────
@@ -200,6 +235,42 @@ func NewWaitTool(b *Browser) tool.CallableTool {
 	)
 }
 
+// NewGetElementsTool creates the browser_get_elements tool. It executes a script
+// to discover interactable elements, assigns them unique indices, and returns their
+// selectors and text content so the agent easily knows what it can interact with.
+func NewGetElementsTool(b *Browser) tool.CallableTool {
+	ts := &toolSet{b: b}
+	return function.NewFunctionTool(
+		ts.getElements,
+		function.WithName("browser_get_elements"),
+		function.WithDescription("Retrieve a list of visible, interactable elements on the page. Each element is assigned a unique selector like [data-ag-index=\"0\"]. Use this to discover what you can click or type into, and use the provided selector in subsequent browser_click or browser_type commands."),
+	)
+}
+
+// NewScreenshotAnnotatedTool creates the browser_screenshot_annotated tool. It draws
+// numbered boxes around interactive elements (matching the browser_get_elements indices)
+// and captures a screenshot. This is very useful for vision models.
+func NewScreenshotAnnotatedTool(b *Browser) tool.CallableTool {
+	ts := &toolSet{b: b}
+	return function.NewFunctionTool(
+		ts.screenshotAnnotated,
+		function.WithName("browser_screenshot_annotated"),
+		function.WithDescription("Take a full-page PNG screenshot with red numbered bounding boxes drawn over every interactable element. The numbers match the indices returned by browser_get_elements."),
+	)
+}
+
+// NewReadMarkdownTool creates the browser_read_markdown tool. It extracts the page
+// content as a clean, structured Markdown string, ignoring hidden elements, scripts, and styles.
+// If the Summarize option is toggled, it will use an LLM Summarizer (if configured on the Browser).
+func NewReadMarkdownTool(b *Browser) tool.CallableTool {
+	ts := &toolSet{b: b}
+	return function.NewFunctionTool(
+		ts.readMarkdown,
+		function.WithName("browser_read_markdown"),
+		function.WithDescription("Read the entire page content as a clean Markdown string. Useful for reading documentation, articles, or overall page structure without noisy HTML. Set 'summarize' to true to have an LLM condense the page instead."),
+	)
+}
+
 // AllTools returns every browser tool wired to the given Browser instance.
 // This is a convenience function for registering all tools at once.
 func AllTools(b *Browser) []tool.CallableTool {
@@ -212,6 +283,9 @@ func AllTools(b *Browser) []tool.CallableTool {
 		NewScreenshotTool(b),
 		NewEvalJSTool(b),
 		NewWaitTool(b),
+		NewGetElementsTool(b),
+		NewScreenshotAnnotatedTool(b),
+		NewReadMarkdownTool(b),
 	}
 }
 
@@ -354,4 +428,174 @@ func (ts *toolSet) wait(ctx context.Context, req WaitRequest) (WaitResponse, err
 	}
 
 	return WaitResponse{Status: "ok"}, nil
+}
+
+func (ts *toolSet) getElements(ctx context.Context, req GetElementsRequest) (GetElementsResponse, error) {
+	script := `
+		(() => {
+			const interactiveElements = [];
+			const allElements = document.querySelectorAll('*');
+			let currentIndex = 0;
+			for (const el of allElements) {
+				const tag = el.tagName.toLowerCase();
+				const isInteractive = ['a', 'button', 'input', 'select', 'textarea'].includes(tag) || 
+									  el.hasAttribute('onclick') || 
+									  el.getAttribute('role') === 'button' ||
+									  (el.hasAttribute('tabindex') && el.getAttribute('tabindex') !== '-1');
+				
+				if (!isInteractive) continue;
+				
+				const rect = el.getBoundingClientRect();
+				if (rect.width === 0 || rect.height === 0) continue;
+				const style = window.getComputedStyle(el);
+				if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
+				
+				el.setAttribute('data-ag-index', currentIndex);
+				
+				let text = el.innerText || el.value || el.getAttribute('placeholder') || el.getAttribute('aria-label') || el.title || '';
+				if (typeof text !== 'string') text = String(text);
+				text = text.trim().replace(/\s+/g, ' ').substring(0, 100);
+				
+				interactiveElements.push({
+					index: currentIndex,
+					tag: tag,
+					text: text,
+					selector: '[data-ag-index="' + currentIndex + '"]'
+				});
+				currentIndex++;
+			}
+			return JSON.stringify(interactiveElements);
+		})();
+	`
+	var result string
+	if err := ts.b.run(ctx, chromedp.Evaluate(script, &result)); err != nil {
+		return GetElementsResponse{}, fmt.Errorf("get elements failed to execute script: %w", err)
+	}
+
+	var elements []ElementInfo
+	if err := json.Unmarshal([]byte(result), &elements); err != nil {
+		return GetElementsResponse{}, fmt.Errorf("get elements failed to parse elements: %w", err)
+	}
+	return GetElementsResponse{Elements: elements}, nil
+}
+
+func (ts *toolSet) screenshotAnnotated(ctx context.Context, req ScreenshotAnnotatedRequest) (ScreenshotAnnotatedResponse, error) {
+	script := `
+		(() => {
+			const allElements = document.querySelectorAll('*');
+			let currentIndex = 0;
+			for (const el of allElements) {
+				const tag = el.tagName.toLowerCase();
+				const isInteractive = ['a', 'button', 'input', 'select', 'textarea'].includes(tag) || 
+									  el.hasAttribute('onclick') || 
+									  el.getAttribute('role') === 'button' ||
+									  (el.hasAttribute('tabindex') && el.getAttribute('tabindex') !== '-1');
+				if (!isInteractive) continue;
+				const rect = el.getBoundingClientRect();
+				if (rect.width === 0 || rect.height === 0) continue;
+				const style = window.getComputedStyle(el);
+				if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
+				
+				const label = document.createElement('div');
+				label.className = 'ag-annotated-label';
+				label.textContent = currentIndex;
+				label.style.position = 'absolute';
+				label.style.left = (rect.left + window.scrollX) + 'px';
+				label.style.top = (rect.top + window.scrollY) + 'px';
+				label.style.backgroundColor = 'red';
+				label.style.color = 'white';
+				label.style.padding = '1px 3px';
+				label.style.fontSize = '12px';
+				label.style.fontWeight = 'bold';
+				label.style.zIndex = '2147483647';
+				label.style.pointerEvents = 'none';
+				label.style.borderRadius = '3px';
+				label.style.boxShadow = '0 0 2px black';
+				
+				document.body.appendChild(label);
+				currentIndex++;
+			}
+		})();
+	`
+
+	cleanupScript := `
+		(() => {
+			const labels = document.querySelectorAll('.ag-annotated-label');
+			labels.forEach(label => label.remove());
+		})();
+	`
+
+	if err := ts.b.run(ctx, chromedp.Evaluate(script, nil)); err != nil {
+		return ScreenshotAnnotatedResponse{}, fmt.Errorf("failed to attach labels: %w", err)
+	}
+
+	var buf []byte
+	err := ts.b.run(ctx, chromedp.CaptureScreenshot(&buf))
+
+	_ = ts.b.run(context.Background(), chromedp.Evaluate(cleanupScript, nil))
+
+	if err != nil {
+		return ScreenshotAnnotatedResponse{}, fmt.Errorf("annotated screenshot failed: %w", err)
+	}
+
+	return ScreenshotAnnotatedResponse{ImageBase64: base64.StdEncoding.EncodeToString(buf)}, nil
+}
+
+func (ts *toolSet) readMarkdown(ctx context.Context, req ReadMarkdownRequest) (ReadMarkdownResponse, error) {
+	if req.Summarize {
+		if ts.b.summarize == nil {
+			return ReadMarkdownResponse{}, fmt.Errorf("summarization is requested but no SummarizeFunc is configured for this Browser")
+		}
+
+		var html string
+		if err := ts.b.run(ctx, chromedp.OuterHTML("html", &html)); err != nil {
+			return ReadMarkdownResponse{}, fmt.Errorf("failed to extract HTML for summarization: %w", err)
+		}
+
+		cleanText := htmlutils.ExtractText(html)
+		summary, err := ts.b.summarize(ctx, cleanText, "MARKDOWN")
+		if err != nil {
+			return ReadMarkdownResponse{}, fmt.Errorf("failed to summarize page: %w", err)
+		}
+
+		return ReadMarkdownResponse{Markdown: summary}, nil
+	}
+
+	script := `
+		(() => {
+			function minifyHTML(node) {
+				if (node.nodeType === Node.TEXT_NODE) return node.textContent.trim() ? node.textContent : ' ';
+				if (node.nodeType !== Node.ELEMENT_NODE) return '';
+				
+				const tag = node.tagName.toLowerCase();
+				if (['script', 'style', 'noscript', 'svg', 'iframe'].includes(tag)) return '';
+				
+				const style = window.getComputedStyle(node);
+				if (style.display === 'none' || style.visibility === 'hidden') return '';
+				
+				const children = Array.from(node.childNodes).map(minifyHTML).join('');
+				
+				switch(tag) {
+					case 'h1': return '# ' + children.trim() + '\n\n';
+					case 'h2': return '## ' + children.trim() + '\n\n';
+					case 'h3': return '### ' + children.trim() + '\n\n';
+					case 'h4': return '#### ' + children.trim() + '\n\n';
+					case 'p': return children.trim() + '\n\n';
+					case 'a': return '[' + children.trim() + '](' + node.href + ')';
+					case 'img': return '![' + (node.alt || 'image') + '](' + node.src + ')';
+					case 'li': return '- ' + children.trim() + '\n';
+					case 'ul': case 'ol': return children.trim() + '\n\n';
+					case 'br': return '\n';
+					case 'div': case 'section': case 'article': case 'main': return children.trim() + '\n';
+					default: return children;
+				}
+			}
+			return minifyHTML(document.body).replace(/\n{3,}/g, '\n\n').trim();
+		})();
+	`
+	var result string
+	if err := ts.b.run(ctx, chromedp.Evaluate(script, &result)); err != nil {
+		return ReadMarkdownResponse{}, fmt.Errorf("read markdown failed: %w", err)
+	}
+	return ReadMarkdownResponse{Markdown: result}, nil
 }

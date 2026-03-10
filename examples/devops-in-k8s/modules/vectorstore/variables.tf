@@ -19,10 +19,11 @@ variable "s3_region" {
 variable "qdrant" {
   description = "Qdrant configuration"
   type = object({
-    replicas         = optional(number, 1)
-    storage_size     = optional(string, "10Gi")
-    image_tag        = optional(string, "")
-    api_key          = optional(string, "")
+    replicas      = optional(number, 3)
+    storage_size  = optional(string, "10Gi")
+    storage_class = optional(string, "qdrant-gp3")
+    image_tag     = optional(string, "")
+    api_key       = optional(string, "")
     resources_limits = optional(object({
       cpu    = optional(string, "1")
       memory = optional(string, "2Gi")
@@ -33,6 +34,24 @@ variable "qdrant" {
     }), {})
   })
   default = {}
+}
+
+variable "create_storage_class" {
+  description = "Whether to create the gp3 StorageClass. Set to false if it already exists in the cluster."
+  type        = bool
+  default     = true
+}
+
+variable "snapshot_schedule" {
+  description = "Cron schedule for automated Qdrant snapshots. Set to empty string to disable. Default: daily at 2 AM UTC."
+  type        = string
+  default     = "0 2 * * *"
+}
+
+variable "snapshot_retention_days" {
+  description = "Number of days to retain snapshots in the S3 bucket before expiration."
+  type        = number
+  default     = 30
 }
 
 variable "oidc_provider_arn" {

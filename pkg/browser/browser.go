@@ -15,6 +15,10 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
+// SummarizeFunc defines a function that can condense verbose text into a specific format
+// (e.g., "MARKDOWN", "JSON"). The browser uses this to automatically summarize large page extracts.
+type SummarizeFunc func(ctx context.Context, content string, format string) (string, error)
+
 // defaultTimeout is the maximum duration for any single browser action.
 const defaultTimeout = 1 * time.Minute
 
@@ -35,6 +39,7 @@ type browserOpts struct {
 	timeout        time.Duration
 	blockedDomains []string
 	width, height  int
+	summarize      SummarizeFunc
 }
 
 // WithHeadless controls whether the browser runs without a visible window.
@@ -64,6 +69,11 @@ func WithViewport(width, height int) Option {
 	}
 }
 
+// WithSummarizer provides a SummarizeFunc so the browser can natively invoke summarization tools.
+func WithSummarizer(sf SummarizeFunc) Option {
+	return func(o *browserOpts) { o.summarize = sf }
+}
+
 // Browser manages a shared chromedp browser session. All tools operate on
 // the same browser tab so that navigation state is preserved across calls.
 // Without this struct every tool call would launch a new browser, losing
@@ -74,6 +84,7 @@ type Browser struct {
 	ctx            context.Context
 	timeout        time.Duration
 	blockedDomains []string
+	summarize      SummarizeFunc
 }
 
 // New allocates a new Chrome browser process (headless by default) and returns
@@ -115,6 +126,7 @@ func New(ctx context.Context, opts ...Option) (*Browser, error) {
 		ctx:            ctx,
 		timeout:        cfg.timeout,
 		blockedDomains: cfg.blockedDomains,
+		summarize:      cfg.summarize,
 	}, nil
 }
 
