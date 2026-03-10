@@ -1,7 +1,6 @@
 package notification_test
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +19,7 @@ var _ = Describe("Twilio Notification", func() {
 	BeforeEach(func() {
 
 		server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer GinkgoRecover()
 			Expect(r.Method).To(Equal("POST"))
 			Expect(r.Header.Get("Content-Type")).To(Equal("application/x-www-form-urlencoded"))
 
@@ -31,7 +31,7 @@ var _ = Describe("Twilio Notification", func() {
 		server.Close()
 	})
 
-	It("sends to the configured test server successfully", func(ctx context.Context) {
+	It("sends to the configured test server successfully", func(ctx SpecContext) {
 		cfg := notification.Config{
 			Twilio: []notification.TwilioConfig{
 				{

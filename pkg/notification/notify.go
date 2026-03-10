@@ -64,6 +64,7 @@ func (n *notifyTool) Notify(ctx context.Context, req NotifyRequest) (string, err
 
 	// 1. Slack
 	for _, slk := range n.cfg.Slack {
+		slk := slk // capture loop variable
 		if slk.WebhookURL == "" {
 			continue
 		}
@@ -81,6 +82,7 @@ func (n *notifyTool) Notify(ctx context.Context, req NotifyRequest) (string, err
 
 	// 2. Webhooks
 	for _, wh := range n.cfg.Webhooks {
+		wh := wh // capture loop variable
 		if wh.URL == "" {
 			continue
 		}
@@ -98,6 +100,7 @@ func (n *notifyTool) Notify(ctx context.Context, req NotifyRequest) (string, err
 
 	// 3. Twilio
 	for _, twi := range n.cfg.Twilio {
+		twi := twi // capture loop variable
 		if twi.AccountSID == "" || twi.AuthToken == "" || twi.From == "" || twi.To == "" {
 			continue
 		}
@@ -115,6 +118,7 @@ func (n *notifyTool) Notify(ctx context.Context, req NotifyRequest) (string, err
 
 	// 4. Discord
 	for _, dsc := range n.cfg.Discord {
+		dsc := dsc // capture loop variable
 		if dsc.WebhookURL == "" {
 			continue
 		}

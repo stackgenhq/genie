@@ -170,7 +170,7 @@
     let activeBlobURLs = [];
     // Tracks blob: URLs created to display user attachments in the chat history.
     let chatHistoryBlobURLs = [];
-    const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB per file
+    const MAX_FILE_SIZE = 18 * 1024 * 1024; // 18 MB per file (base64 expands ~33%, keeping under typical 25 MB server limit)
     const ACCEPTED_TYPES = {
         image: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp'],
         audio: ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/mp4', 'audio/aac', 'audio/flac'],
@@ -209,7 +209,7 @@
         for (const file of files) {
             // Size check
             if (file.size > MAX_FILE_SIZE) {
-                addErrorMessage(file.name + ' exceeds 25 MB limit. Please use a smaller file.');
+                addErrorMessage(file.name + ' exceeds 18 MB limit. Please use a smaller file.');
                 continue;
             }
             // MIME type allowlist: reject unsupported file types.
@@ -1192,6 +1192,12 @@
 
         // Mid-run feedback injection if agent is already thinking
         if (isStreaming) {
+            // Block attachments during mid-run injection: the inject endpoint
+            // only supports plain text, so file data would be silently dropped.
+            if (filesToSend.length > 0) {
+                addErrorMessage('File attachments cannot be sent while the agent is thinking. Please wait for the current response to finish.');
+                return;
+            }
             try {
                 const response = await fetch(serverUrl + '/api/v1/inject', {
                     method: 'POST',

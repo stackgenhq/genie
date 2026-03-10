@@ -1,7 +1,6 @@
 package notification_test
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -38,7 +37,7 @@ var _ = Describe("Slack Notification", func() {
 		server.Close()
 	})
 
-	It("should send notifications successfully using Slack", func(ctx context.Context) {
+	It("should send notifications successfully using Slack", func(ctx SpecContext) {
 		cfg := notification.Config{
 			Slack: []notification.SlackConfig{
 				{WebhookURL: server.URL + "/slack"},

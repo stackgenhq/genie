@@ -57,7 +57,8 @@
             retry: { enabled: false, max_attempts: 3, initial_backoff: '500ms', max_backoff: '10s' },
             metrics: { enabled: false, prefix: 'tools' },
             tracing: { enabled: false },
-            sanitize: { enabled: false, replacement: '[REDACTED]', per_tool: '' }
+            sanitize: { enabled: false, replacement: '[REDACTED]', per_tool: '' },
+            validation: { enabled: false }
         },
         db_config: { db_file: '' },
 
@@ -1343,12 +1344,12 @@
         });
 
         n.twilio.forEach(function (t) {
-            if (t.account_sid || t.auth_token || t.from || t.to) {
+            if (t.account_sid && t.auth_token) {
                 lines.push('[[notification.twilio]]');
                 lines.push('account_sid = ' + q('${' + t.account_sid + '}'));
                 lines.push('auth_token = ' + q('${' + t.auth_token + '}'));
-                lines.push('from = ' + q(t.from));
-                lines.push('to = ' + q(t.to));
+                if (t.from) lines.push('from = ' + q(t.from));
+                if (t.to) lines.push('to = ' + q(t.to));
                 lines.push('');
             }
         });
@@ -2017,11 +2018,11 @@
         if (n.twilio.length > 0) {
             lines.push('  twilio:');
             n.twilio.forEach(function (t) {
-                if (t.account_sid || t.auth_token || t.from || t.to) {
+                if (t.account_sid && t.auth_token) {
                     lines.push('    - account_sid: ' + yq('${' + t.account_sid + '}'));
                     lines.push('      auth_token: ' + yq('${' + t.auth_token + '}'));
-                    lines.push('      from: ' + yq(t.from));
-                    lines.push('      to: ' + yq(t.to));
+                    if (t.from) lines.push('      from: ' + yq(t.from));
+                    if (t.to) lines.push('      to: ' + yq(t.to));
                 }
             });
         }
@@ -2329,7 +2330,7 @@
         lines.push(inner + 'max_body_bytes: ' + a.max_body_bytes);
 
         var au = a.auth;
-        var hasAuth = au.password.enabled || hasItems(au.jwt.trusted_issuers) || au.oauth.client_id;
+        var hasAuth = au.password.enabled || hasItems(au.jwt.trusted_issuers) || au.oidc.client_id;
         if (hasAuth) {
             var ai = inner + '  ';
             var ai2 = ai + '  ';
@@ -2348,15 +2349,16 @@
                     au.jwt.allowed_audiences.filter(Boolean).forEach(function (aud) { lines.push(ai2 + '  - ' + yq(aud)); });
                 }
             }
-            if (au.oauth.client_id) {
-                lines.push(ai + 'oauth:');
-                lines.push(ai2 + 'client_id: ' + yq(au.oauth.client_id));
-                if (au.oauth.client_secret) lines.push(ai2 + 'client_secret: ' + yq('${' + au.oauth.client_secret + '}'));
-                if (hasItems(au.oauth.allowed_domains)) {
+            if (au.oidc.client_id) {
+                lines.push(ai + 'oidc:');
+                lines.push(ai2 + 'issuer_url: ' + yq(au.oidc.issuer_url));
+                lines.push(ai2 + 'client_id: ' + yq(au.oidc.client_id));
+                if (au.oidc.client_secret) lines.push(ai2 + 'client_secret: ' + yq('${' + au.oidc.client_secret + '}'));
+                if (hasItems(au.oidc.allowed_domains)) {
                     lines.push(ai2 + 'allowed_domains:');
-                    au.oauth.allowed_domains.filter(Boolean).forEach(function (d) { lines.push(ai2 + '  - ' + yq(d)); });
+                    au.oidc.allowed_domains.filter(Boolean).forEach(function (d) { lines.push(ai2 + '  - ' + yq(d)); });
                 }
-                if (au.oauth.redirect_url) lines.push(ai2 + 'redirect_url: ' + yq(au.oauth.redirect_url));
+                if (au.oidc.redirect_url) lines.push(ai2 + 'redirect_url: ' + yq(au.oidc.redirect_url));
             }
         }
     }

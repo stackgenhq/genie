@@ -20,7 +20,7 @@ This document outlines the testing procedures for the `notification` tool, which
     file = "persona.md"
     disable_resume = true
     ```
-3.  **Provider Credentials**: You will need valid credentials (webhooks URLs, API keys, etc.) for each provider you intend to test.
+3.  **Provider Credentials**: You will need valid credentials (webhook URLs, API keys, etc.) for each provider you intend to test.
 
 ## Section 1: Slack Integration
 

@@ -13,7 +13,10 @@ import (
 func sendDiscord(ctx context.Context, webhookURL string, notifyReq NotifyRequest) error {
 	msg := fmt.Sprintf("🚨 **Agent %s requires assistance**\n**Justification:** %s\n**Message:** %s", notifyReq.AgentName, notifyReq.Justification, notifyReq.Message)
 	payload := map[string]string{"content": msg}
-	body, _ := json.Marshal(payload)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal discord payload: %w", err)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewBuffer(body))
 	if err != nil {

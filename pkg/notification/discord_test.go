@@ -22,6 +22,7 @@ var _ = Describe("Discord Notification", func() {
 		ctx = context.Background()
 
 		server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer GinkgoRecover()
 			Expect(r.Method).To(Equal("POST"))
 			Expect(r.Header.Get("Content-Type")).To(Equal("application/json"))
 

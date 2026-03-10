@@ -3,6 +3,7 @@ package notification_test
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 
@@ -24,12 +25,11 @@ var _ = Describe("Notify Tool", func() {
 
 		// Start a mock server for all webhook needs
 		server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var body []byte
+			defer GinkgoRecover()
 			_ = r.ParseForm()
 			if r.ContentLength > 0 {
-				buf := make([]byte, r.ContentLength)
-				r.Body.Read(buf)
-				body = buf
+				body, err := io.ReadAll(r.Body)
+				Expect(err).NotTo(HaveOccurred())
 				if r.Header.Get("Content-Type") == "application/x-www-form-urlencoded" {
 					_ = r.Form.Encode()
 				} else {
