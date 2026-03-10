@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Agent learning from failures — previously, failed task outputs were discarded; the agent now stores them as episodic memories with LLM-generated verbal reflections, enabling it to avoid repeating the same mistakes.
+- Recency-weighted episodic memory retrieval using exponential decay (`e^(-0.01 × hours)`), so recent lessons surface first and old episodes naturally fade over ~2 weeks without manual pruning.
+- Importance scoring for episodic memories — each stored episode receives a 1-10 importance score via a cheap LLM call (`TaskEfficiency`), boosting critical lessons in weighted retrieval.
+- Daily wisdom consolidation (`EpisodeConsolidator`) — reads recent episodes, summarizes them into concise bullet-point lessons via LLM, and stores as `WisdomNote`s. Idempotent per period; ready to be wired into a cron job.
+- Wisdom notes injected into agent prompts as a `## Consolidated Lessons` section, providing distilled experience alongside raw episodic memories.
+- Loop-level failure capture — adaptive loop terminations (repetition, errors, failure status) now stored as failure episodes with reflections via `storeLoopFailureEpisode`.
+- QA test plan for agent learning features (`qa/20260310_failure_learning.md`) — 6 manual test scenarios plus inventory of 46 automated Ginkgo/Gomega tests.
+
 
 ## [0.1.7] - 2026-03-10
 

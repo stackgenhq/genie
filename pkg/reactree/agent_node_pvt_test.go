@@ -29,7 +29,7 @@ var _ = Describe("buildAgentPrompt", func() {
 	})
 
 	prompt := func(goal, prevOutput, iterCtx string, iterCount int, exhausted []string) string {
-		return buildAgentPrompt(context.Background(), goal, wm, fakeEp,
+		return buildAgentPrompt(context.Background(), goal, wm, fakeEp, nil,
 			prevOutput, iterCtx, iterCount, exhausted)
 	}
 
@@ -89,7 +89,7 @@ var _ = Describe("buildAgentPrompt", func() {
 	})
 
 	It("includes episodic memory", func() {
-		fakeEp.RetrieveReturns([]memory.Episode{
+		fakeEp.RetrieveWeightedReturns([]memory.Episode{
 			{Goal: "similar", Trajectory: "used run_shell", Status: memory.EpisodeSuccess},
 		})
 		p := prompt("find files", "", "", 0, nil)
@@ -122,23 +122,89 @@ var _ = Describe("buildAgentPrompt", func() {
 	})
 
 	It("includes failed episodic memories so agents learn from past failures", func() {
-		fakeEp.RetrieveReturns([]memory.Episode{
-			{Goal: "scan repos for PRs", Trajectory: "[BUDGET EXCEEDED] partial data", Status: memory.EpisodeFailure},
+		fakeEp.RetrieveWeightedReturns([]memory.Episode{
+			{Goal: "scan repos for PRs", Trajectory: "[BUDGET EXCEEDED] partial data", Status: memory.EpisodeFailure,
+				Reflection: "Budget was exceeded. Use pagination or limit scope."},
 		})
 		p := prompt("scan repos for PRs", "", "", 0, nil)
 		Expect(p).To(ContainSubstring("Relevant Past Experiences"))
-		Expect(p).To(ContainSubstring("BUDGET EXCEEDED"))
-		Expect(p).To(ContainSubstring(string(memory.EpisodeFailure)))
+		Expect(p).To(ContainSubstring("Previous Failure"))
+		Expect(p).To(ContainSubstring("Budget was exceeded"))
 	})
 
 	It("shows both successful and failed episodes for context", func() {
-		fakeEp.RetrieveReturns([]memory.Episode{
+		fakeEp.RetrieveWeightedReturns([]memory.Episode{
 			{Goal: "check services", Trajectory: "all 5 services healthy", Status: memory.EpisodeSuccess},
-			{Goal: "check services", Trajectory: "[TIME LIMIT] only checked 2", Status: memory.EpisodeFailure},
+			{Goal: "check services", Trajectory: "[TIME LIMIT] only checked 2", Status: memory.EpisodeFailure,
+				Reflection: "Time limit reached. Only checked 2 of 5 services."},
 		})
 		p := prompt("check services", "", "", 0, nil)
 		Expect(p).To(ContainSubstring("Relevant Past Experiences"))
 		Expect(p).To(ContainSubstring("all 5 services healthy"))
-		Expect(p).To(ContainSubstring("TIME LIMIT"))
+		Expect(p).To(ContainSubstring("Time limit reached"))
+	})
+
+	It("includes consolidated wisdom notes when WisdomStore is provided", func() {
+		fakeWs := &memoryfakes.FakeWisdomStore{}
+		fakeWs.RetrieveWisdomReturns([]memory.WisdomNote{
+			{Summary: "On 2026-03-10, you learned:\n- Always check nil before deref"},
+		})
+		p := buildAgentPrompt(context.Background(), "find files", wm, fakeEp, fakeWs,
+			"", "", 0, nil)
+		Expect(p).To(ContainSubstring("Consolidated Lessons"))
+		Expect(p).To(ContainSubstring("Always check nil"))
+	})
+
+	It("skips wisdom section when WisdomStore returns nothing", func() {
+		fakeWs := &memoryfakes.FakeWisdomStore{}
+		fakeWs.RetrieveWisdomReturns(nil)
+		p := buildAgentPrompt(context.Background(), "find files", wm, fakeEp, fakeWs,
+			"", "", 0, nil)
+		Expect(p).NotTo(ContainSubstring("Consolidated Lessons"))
 	})
 })
+
+var _ = Describe("generateFailureReflection", func() {
+	It("returns a basic fallback when reflector is nil", func() {
+		result := generateFailureReflection(context.Background(), "deploy app", "connection refused", nil)
+		Expect(result).To(ContainSubstring("Task failed with output: connection refused"))
+	})
+
+	It("truncates long error output in fallback", func() {
+		longError := strings.Repeat("x", 300)
+		result := generateFailureReflection(context.Background(), "deploy", longError, nil)
+		Expect(result).To(ContainSubstring("..."))
+		Expect(len(result)).To(BeNumerically("<", 300))
+	})
+
+	It("delegates to the reflector when available", func() {
+		fakeReflector := &memoryfakes.FakeFailureReflector{}
+		fakeReflector.ReflectReturns("Use retry logic")
+
+		result := generateFailureReflection(context.Background(), "deploy", "timeout", fakeReflector)
+		Expect(result).To(Equal("Use retry logic"))
+		Expect(fakeReflector.ReflectCallCount()).To(Equal(1))
+	})
+})
+
+var _ = Describe("scoreEpisodeImportance", func() {
+	It("returns 0 when scorer is nil", func() {
+		score := scoreEpisodeImportance(context.Background(), nil, "test", "output", memory.EpisodeSuccess)
+		Expect(score).To(Equal(0))
+	})
+
+	It("delegates to the scorer when available", func() {
+		fakeScorer := &memoryfakes.FakeImportanceScorer{}
+		fakeScorer.ScoreReturns(7)
+
+		score := scoreEpisodeImportance(context.Background(), fakeScorer, "deploy", "deployed ok", memory.EpisodeSuccess)
+		Expect(score).To(Equal(7))
+		Expect(fakeScorer.ScoreCallCount()).To(Equal(1))
+
+		_, req := fakeScorer.ScoreArgsForCall(0)
+		Expect(req.Goal).To(Equal("deploy"))
+		Expect(req.Output).To(Equal("deployed ok"))
+		Expect(req.Status).To(Equal(memory.EpisodeSuccess))
+	})
+})
+

@@ -66,6 +66,22 @@ type AgentNodeConfig struct {
 
 	// Hooks provides access to the execution lifecycle events
 	Hooks hooks.ExecutionHook
+
+	// FailureReflector generates verbal reflections on agent failures.
+	// When set, failed episodes are stored with a reflection explaining
+	// what went wrong and what to try differently. When nil, failures
+	// are stored with just the raw error output.
+	FailureReflector memory.FailureReflector
+
+	// ImportanceScorer assigns 1-10 importance scores to episodes.
+	// When set, the score is stored on the episode and influences
+	// weighted retrieval. When nil, episodes use a neutral default.
+	ImportanceScorer memory.ImportanceScorer
+
+	// WisdomStore provides access to consolidated daily wisdom notes.
+	// When set, recent wisdom notes are injected into the agent prompt
+	// so the agent benefits from distilled past experiences.
+	WisdomStore memory.WisdomStore
 }
 
 // NewAgentNodeFunc creates a graph.NodeFunc that wraps an expert.Expert call.
@@ -101,7 +117,7 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 		iterationCount, _ := graph.GetStateValue[int](state, StateKeyIterationCount)
 
 		// Build prompt enriched with memory and previous stage context
-		prompt := buildAgentPrompt(ctx, goal, wm, ep, prevOutput, iterationCtx, iterationCount, cfg.BudgetExhaustedTools)
+		prompt := buildAgentPrompt(ctx, goal, wm, ep, cfg.WisdomStore, prevOutput, iterationCtx, iterationCount, cfg.BudgetExhaustedTools)
 
 		logr.Info("agent node calling expert",
 			"prompt_length", len(prompt),
@@ -183,9 +199,9 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 			output = ""
 		}
 
-		// Only store successful episodes in episodic memory.
-		// Skip when output is empty (terminal-only runs delivered via tool) or
-		// when output looks like an error (would poison future context).
+		// Store episodes in episodic memory for future reference.
+		// Successful outputs are stored as pending (awaiting user validation).
+		// Error-like outputs are stored as failures with verbal reflections.
 		if output != "" && !looksLikeError(output) {
 			// Cap trajectory to prevent large tool outputs from bloating
 			// future prompts when this episode is retrieved.
@@ -195,18 +211,38 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 			if len(runes) > maxTrajectoryRunes {
 				trajectory = string(runes[:maxTrajectoryRunes]) + "... (truncated)"
 			}
-			ep.Store(ctx, memory.Episode{
+
+			episode := memory.Episode{
 				Goal:       goal,
 				Trajectory: trajectory,
 				Status:     memory.EpisodePending,
-			})
+				Importance: scoreEpisodeImportance(ctx, cfg.ImportanceScorer, goal, trajectory, memory.EpisodePending),
+			}
+			ep.Store(ctx, episode)
 
 			// Auto-store output into working memory so sibling/downstream
 			// agents see it via prompt injection (trpc-agent-go pattern).
 			// This replaces the scratchpad_write tool — no LLM call needed.
 			wm.Store(goal, trajectory)
 		} else if output != "" {
-			logr.Warn("skipping episodic memory storage for error-like output", "output_prefix", toolwrap.TruncateForAudit(output, 100))
+			// Failed output: generate a verbal reflection and store for learning.
+			// This is the key change — instead of discarding failures, we learn
+			// from them via the Reflexion pattern (verbal reinforcement).
+			reflection := generateFailureReflection(ctx, goal, output, cfg.FailureReflector)
+			episode := memory.Episode{
+				Goal:       goal,
+				Trajectory: output,
+				Status:     memory.EpisodeFailure,
+				Reflection: reflection,
+				Importance: scoreEpisodeImportance(ctx, cfg.ImportanceScorer, goal, reflection, memory.EpisodeFailure),
+			}
+			ep.Store(ctx, episode)
+			logr.Info("stored failure episode with reflection",
+				"goal", goal,
+				"has_reflection", reflection != "",
+				"importance", episode.Importance,
+				"output_prefix", toolwrap.TruncateForAudit(output, 100),
+			)
 		}
 
 		logr.Info("agent node completed",
@@ -259,6 +295,7 @@ func buildAgentPrompt(
 	goal string,
 	wm *memory.WorkingMemory,
 	ep memory.EpisodicMemory,
+	ws memory.WisdomStore,
 	previousStageOutput string,
 	iterationContext string,
 	iterationCount int,
@@ -367,12 +404,26 @@ func buildAgentPrompt(
 		}
 	}
 
-	// Include episodic memory (past similar experiences)
-	episodes := ep.Retrieve(ctx, goal, 2)
+	// Include episodic memory (past similar experiences) with weighted retrieval.
+	// RetrieveWeighted ranks by recency (exponential decay) × importance,
+	// so recent lessons surface first and old ones naturally fade away.
+	episodes := ep.RetrieveWeighted(ctx, goal, 3)
 	if len(episodes) > 0 {
 		sb.WriteString("## Relevant Past Experiences\n")
 		for _, ep := range episodes {
-			fmt.Fprintf(&sb, "### Goal: %s (outcome: %s)\n%s\n\n", ep.Goal, ep.Status, ep.Trajectory)
+			sb.WriteString(ep.String())
+			sb.WriteString("\n\n")
+		}
+	}
+
+	// Include consolidated daily wisdom notes.
+	// These are distilled summaries from the daily consolidation job,
+	// providing high-level lessons without raw episode clutter.
+	if ws != nil {
+		notes := ws.RetrieveWisdom(ctx, 3)
+		wisdomSection := memory.FormatWisdomForPrompt(notes)
+		if wisdomSection != "" {
+			sb.WriteString(wisdomSection)
 		}
 	}
 

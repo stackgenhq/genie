@@ -139,12 +139,15 @@ type TreeRequest struct {
 
 // tree is the default TreeExecutor implementation backed by graph.StateGraph.
 type tree struct {
-	expert        expert.Expert
-	workingMemory *memory.WorkingMemory
-	episodic      memory.EpisodicMemory
-	config        TreeConfig
-	reflector     ActionReflector
-	hooks         hooks.ExecutionHook
+	expert           expert.Expert
+	workingMemory    *memory.WorkingMemory
+	episodic         memory.EpisodicMemory
+	config           TreeConfig
+	reflector        ActionReflector
+	hooks            hooks.ExecutionHook
+	failureReflector memory.FailureReflector
+	importanceScorer memory.ImportanceScorer
+	wisdomStore      memory.WisdomStore
 }
 
 // NewTreeExecutor creates a TreeExecutor configured with the given expert and options.
@@ -172,6 +175,16 @@ func NewTreeExecutor(
 		execHooks = hooks.NoOpHook{}
 	}
 
+	var failureReflector memory.FailureReflector
+	if config.Toggles.FailureReflector != nil {
+		failureReflector = config.Toggles.FailureReflector
+	}
+
+	var importanceScorer memory.ImportanceScorer
+	if config.Toggles.ImportanceScorer != nil {
+		importanceScorer = config.Toggles.ImportanceScorer
+	}
+
 	logger.GetLogger(context.Background()).Info("TreeExecutor created",
 		"max_depth", config.MaxDepth,
 		"max_decisions_per_node", config.MaxDecisionsPerNode,
@@ -184,14 +197,19 @@ func NewTreeExecutor(
 		"enterprise.mcp", config.Toggles.EnableMCPServerAccess,
 		"enterprise.audit", config.Toggles.EnableAuditDashboard,
 		"enterprise.hooks", execHooks != nil,
+		"enterprise.failure_reflector", failureReflector != nil,
+		"enterprise.importance_scorer", importanceScorer != nil,
 	)
 	return &tree{
-		expert:        exp,
-		workingMemory: workingMem,
-		episodic:      episodic,
-		config:        config,
-		reflector:     reflector,
-		hooks:         execHooks,
+		expert:           exp,
+		workingMemory:    workingMem,
+		episodic:         episodic,
+		config:           config,
+		reflector:        reflector,
+		hooks:            execHooks,
+		failureReflector: failureReflector,
+		importanceScorer: importanceScorer,
+		wisdomStore:      config.Toggles.WisdomStore,
 	}
 }
 
@@ -261,14 +279,17 @@ func (t *tree) runSingleNode(ctx context.Context, req TreeRequest) (TreeResult, 
 	}
 
 	innerFunc := NewAgentNodeFunc(AgentNodeConfig{
-		Goal:          req.Goal,
-		Expert:        t.expert,
-		WorkingMemory: t.resolveWorkingMemory(req),
-		Episodic:      t.resolveEpisodic(req),
-		MaxDecisions:  t.config.MaxDecisionsPerNode,
-		Tools:         toolsToUse,
-		Attachments:   req.Attachments,
-		Hooks:         t.hooks,
+		Goal:             req.Goal,
+		Expert:           t.expert,
+		WorkingMemory:    t.resolveWorkingMemory(req),
+		Episodic:         t.resolveEpisodic(req),
+		MaxDecisions:     t.config.MaxDecisionsPerNode,
+		Tools:            toolsToUse,
+		Attachments:      req.Attachments,
+		Hooks:            t.hooks,
+		FailureReflector: t.failureReflector,
+		ImportanceScorer: t.importanceScorer,
+		WisdomStore:      t.wisdomStore,
 	})
 
 	wrappedFunc := func(ctx context.Context, state graph.State) (any, error) {
@@ -384,15 +405,18 @@ func (t *tree) runMultiStage(ctx context.Context, req TreeRequest) (TreeResult, 
 		}
 
 		innerFunc := NewAgentNodeFunc(AgentNodeConfig{
-			Goal:          stageGoal,
-			Expert:        t.expert,
-			WorkingMemory: t.resolveWorkingMemory(req),
-			Episodic:      t.resolveEpisodic(req),
-			MaxDecisions:  t.config.MaxDecisionsPerNode,
-			Tools:         toolsToUse,
-			TaskType:      stage.TaskType,
-			Attachments:   req.Attachments,
-			Hooks:         t.hooks,
+			Goal:             stageGoal,
+			Expert:           t.expert,
+			WorkingMemory:    t.resolveWorkingMemory(req),
+			Episodic:         t.resolveEpisodic(req),
+			MaxDecisions:     t.config.MaxDecisionsPerNode,
+			Tools:            toolsToUse,
+			TaskType:         stage.TaskType,
+			Attachments:      req.Attachments,
+			Hooks:            t.hooks,
+			FailureReflector: t.failureReflector,
+			ImportanceScorer: t.importanceScorer,
+			WisdomStore:      t.wisdomStore,
 		})
 
 		// Wrap the node func to emit stage events and capture the last output

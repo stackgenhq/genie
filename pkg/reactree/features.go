@@ -7,7 +7,10 @@
 
 package reactree
 
-import "github.com/stackgenhq/genie/pkg/hooks"
+import (
+	"github.com/stackgenhq/genie/pkg/hooks"
+	"github.com/stackgenhq/genie/pkg/reactree/memory"
+)
 
 // Toggles configures optional predictability and bounding mechanisms.
 // All fields default to zero values (disabled). Callers opt in by setting booleans
@@ -28,4 +31,20 @@ type Toggles struct {
 	// Hooks replace the previous AuditEmitter field — the AuditHook
 	// implementation provides the same audit-logging behavior.
 	Hooks hooks.ExecutionHook `json:"-"`
+
+	// FailureReflector generates verbal reflections on agent failures.
+	// When set, failed episodes store an actionable summary of what went
+	// wrong and what to try differently, instead of discarding the failure.
+	FailureReflector memory.FailureReflector `json:"-"`
+
+	// ImportanceScorer assigns 1-10 importance scores to episodes.
+	// When set, every stored episode gets an importance score that
+	// influences weighted retrieval — high-importance episodes surface
+	// even when older. When nil, episodes get a neutral default (0.5).
+	ImportanceScorer memory.ImportanceScorer `json:"-"`
+
+	// WisdomStore provides access to consolidated daily wisdom notes.
+	// When set, wisdom notes are injected into agent prompts. The store
+	// is populated by the EpisodeConsolidator running periodically.
+	WisdomStore memory.WisdomStore `json:"-"`
 }
