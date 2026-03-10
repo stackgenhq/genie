@@ -5,7 +5,17 @@ This document outlines the testing procedures for the `notification` tool, which
 ## Prerequisites
 
 1.  **Genie Configuration**: Ensure you have a valid `genie.toml` or `genie.yaml` file to configure the notification providers. You can use the Config Builder UI ([docs/config-builder.html](../docs/config-builder.html)) to generate it.
-2.  **Provider Credentials**: You will need valid credentials (webhooks URLs, API keys, etc.) for each provider you intend to test.
+2.  **Notification Persona (Required)**: Out of the box, the default agent resume might not include notification capabilities, causing the AI front-desk to reject your request as "out of scope." To fix this, create a file named `persona.md` containing:
+    ```markdown
+    You are a DevOps assistant. You have access to a notification tool and can send messages, alerts, and notifications to platforms like Slack, Discord, Webhooks, and Twilio. Always use the notification tool when asked to notify users or send a message.
+    ```
+    And configure it in your `genie.toml`:
+    ```toml
+    [persona]
+    file = "persona.md"
+    disable_resume = true
+    ```
+3.  **Provider Credentials**: You will need valid credentials (webhooks URLs, API keys, etc.) for each provider you intend to test.
 
 ## Section 1: Slack Integration
 
