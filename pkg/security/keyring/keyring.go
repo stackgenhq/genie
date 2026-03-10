@@ -1,10 +1,6 @@
 // Copyright (C) 2026 StackGen, Inc. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-/*
-Copyright © 2026 StackGen, Inc.
-*/
-
 // Package keyring: device keychain storage for arbitrary key-value secrets.
 // Uses macOS Keychain, Windows Credential Manager, or Linux Secret Service
 // (via go-keyring). Callers use a logical service name and account (key) to

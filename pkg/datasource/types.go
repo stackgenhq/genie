@@ -1,4 +1,4 @@
-// Copyright (C) StackGen, Inc. All rights reserved.
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 // Package datasource defines the unified data source abstraction for Genie:

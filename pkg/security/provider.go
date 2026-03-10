@@ -1,10 +1,6 @@
 // Copyright (C) 2026 StackGen, Inc. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-/*
-Copyright © 2026 StackGen, Inc.
-*/
-
 // Package security provides a centralized SecretProvider abstraction backed
 // by gocloud.dev/runtimevar. It replaces scattered os.Getenv calls with a
 // single injectable interface that can resolve secrets from GCP Secret

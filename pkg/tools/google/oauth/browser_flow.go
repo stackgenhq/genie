@@ -1,9 +1,5 @@
-// Copyright (C) StackGen, Inc. All rights reserved.
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
-
-/*
-Copyright © 2026 StackGen, Inc.
-*/
 
 // Package oauth: browser_flow runs the OAuth2 authorization code flow by
 // opening the system browser and running a local redirect server to capture

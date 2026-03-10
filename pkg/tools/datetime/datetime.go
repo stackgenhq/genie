@@ -1,4 +1,4 @@
-// Copyright (C) StackGen, Inc. All rights reserved.
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 // Package datetime provides time and date tools for agents. LLMs are

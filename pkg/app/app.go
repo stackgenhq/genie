@@ -1,10 +1,6 @@
 // Copyright (C) 2026 StackGen, Inc. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-/*
-Copyright © 2026 StackGen, Inc.
-*/
-
 // Package app provides the Application service layer that owns the full
 // Genie lifecycle: config → bootstrap → start → close. It is the single
 // place where all dependencies (DB, tools, codeowner, messenger, cron,

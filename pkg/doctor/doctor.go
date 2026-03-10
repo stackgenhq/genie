@@ -1,10 +1,6 @@
 // Copyright (C) 2026 StackGen, Inc. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-/*
-Copyright © 2026 StackGen, Inc.
-*/
-
 // Package doctor runs diagnostic checks on Genie configuration and environment
 // (config file, secrets, MCP, SCM, model provider) and returns a list of
 // results (errors, warnings, info) with stable ErrCodes for troubleshooting.

@@ -1,4 +1,4 @@
-// Copyright (C) StackGen, Inc. All rights reserved.
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 // Package oauth: token retrieval (file, inline, or device keychain) and

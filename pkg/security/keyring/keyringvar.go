@@ -1,10 +1,6 @@
 // Copyright (C) 2026 StackGen, Inc. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-/*
-Copyright © 2026 StackGen, Inc.
-*/
-
 // Package keyring provides a runtimevar implementation backed by the
 // system keyring (macOS Keychain, Windows Credential Manager, Linux Secret
 // Service). Use OpenVariable or OpenVariableURL to construct a

@@ -1,10 +1,6 @@
 // Copyright (C) 2026 StackGen, Inc. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-/*
-Copyright © 2026 StackGen, Inc.
-*/
-
 // Package setup: tools_spec loads optional-tool definitions from embedded JSON
 // and applies collected answers to config.GenieConfig so the setup wizard can
 // offer dynamic, data-driven forms for email, web search, calendar, etc.

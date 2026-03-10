@@ -1,4 +1,4 @@
-// Copyright (C) StackGen, Inc. All rights reserved.
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 // Package gmail provides Gmail API tools for agents. It enables list, get, and

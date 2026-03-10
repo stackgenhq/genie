@@ -1,10 +1,6 @@
 // Copyright (C) 2026 StackGen, Inc. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-/*
-Copyright © 2026 StackGen, Inc.
-*/
-
 // Package interrupt defines the [InterruptError] sentinel used by tools and
 // middleware to signal that a tool call needs external input (human approval,
 // clarification answer, etc.) before it can complete.
