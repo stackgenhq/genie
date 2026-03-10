@@ -115,6 +115,17 @@ fmt: deps
 fmt/fix:
 	gofmt -w .
 
+# ------------------------------ license commands ------------------------------
+
+.PHONY: license/check
+license/check: ## Check that all files have correct SPDX headers
+	@echo "Checking license headers..."
+	@./scripts/add-spdx-headers.sh
+	@if ! git diff --exit-code; then \
+		echo "Missing or incorrect SPDX license headers found. The script has fixed them, please commit the changes."; \
+		exit 1; \
+	fi
+
 # Install the binary
 .PHONY: install
 install:
