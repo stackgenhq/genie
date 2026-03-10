@@ -26,7 +26,6 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/infracloudio/msbotbuilder-go v0.2.5
-	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/klauspost/compress v1.18.4
 	github.com/mark3labs/mcp-go v0.45.0
 	github.com/onsi/ginkgo/v2 v2.28.1
