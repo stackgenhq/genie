@@ -26,7 +26,7 @@ func sendWebhook(ctx context.Context, u string, headers map[string]string, notif
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("webhook returned status code %d", resp.StatusCode)

@@ -35,7 +35,7 @@ func sendTwilio(ctx context.Context, accountSID, authToken, from, to, baseURL st
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("twilio returned status code %d", resp.StatusCode)

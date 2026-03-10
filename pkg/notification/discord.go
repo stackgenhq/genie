@@ -25,7 +25,7 @@ func sendDiscord(ctx context.Context, webhookURL string, notifyReq NotifyRequest
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("discord returned status code %d", resp.StatusCode)

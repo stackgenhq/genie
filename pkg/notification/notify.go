@@ -141,7 +141,7 @@ func (n *notifyTool) Notify(ctx context.Context, req NotifyRequest) (string, err
 	}
 
 	if notifiedCount.Load() == 0 && len(errs) > 0 {
-		return "", fmt.Errorf("Failed to send notification to all configured endpoints. Errors: %s", strings.Join(errs, "; "))
+		return "", fmt.Errorf("failed to send notification to all configured endpoints. Errors: %s", strings.Join(errs, "; "))
 	}
 
 	if len(errs) > 0 {
