@@ -119,25 +119,7 @@ fmt/fix:
 
 .PHONY: license/check
 license/check: ## Check that all files have correct SPDX headers
-	@echo "Checking license headers..."
-	@FAIL=0; \
-	for f in $$(find pkg cmd -name "*.go" -not -path "*/*fakes*" -type f); do \
-		if [[ "$$f" == pkg/reactree/* ]] || [[ "$$f" == pkg/halguard/* ]] || [[ "$$f" == pkg/orchestrator/* ]] || [[ "$$f" == pkg/semanticrouter/* ]]; then \
-			if ! grep -q "SPDX-License-Identifier: BUSL-1.1" "$$f"; then \
-				echo "Missing BSL header: $$f"; \
-				FAIL=1; \
-			fi \
-		else \
-			if ! grep -q "SPDX-License-Identifier: Apache-2.0" "$$f"; then \
-				echo "Missing Apache header: $$f"; \
-				FAIL=1; \
-			fi \
-		fi \
-	done; \
-	if [ $$FAIL -ne 0 ]; then \
-		echo "Missing or incorrect SPDX license headers found. Please add them manually."; \
-		exit 1; \
-	fi
+	@./scripts/check-spdx-headers.sh
 
 # Install the binary
 .PHONY: install
