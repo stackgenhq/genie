@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/stackgenhq/genie/pkg/logger"
+	"golang.org/x/sync/errgroup"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )
@@ -55,18 +58,25 @@ func (n *notifyTool) Notify(ctx context.Context, req NotifyRequest) (string, err
 	}
 
 	var errs []string
-	notifiedCount := 0
+	var errsMu sync.Mutex
+	notifiedCount := atomic.Int32{}
+	errGroup, ctx := errgroup.WithContext(ctx)
 
 	// 1. Slack
 	for _, slk := range n.cfg.Slack {
 		if slk.WebhookURL == "" {
 			continue
 		}
-		if err := sendSlack(ctx, slk.WebhookURL, req); err != nil {
-			errs = append(errs, fmt.Sprintf("slack error: %v", err))
-		} else {
-			notifiedCount++
-		}
+		errGroup.Go(func() error {
+			if err := sendSlack(ctx, slk.WebhookURL, req); err != nil {
+				errsMu.Lock()
+				errs = append(errs, fmt.Sprintf("slack error: %v", err))
+				errsMu.Unlock()
+			} else {
+				notifiedCount.Add(1)
+			}
+			return nil
+		})
 	}
 
 	// 2. Webhooks
@@ -74,11 +84,16 @@ func (n *notifyTool) Notify(ctx context.Context, req NotifyRequest) (string, err
 		if wh.URL == "" {
 			continue
 		}
-		if err := sendWebhook(ctx, wh.URL, wh.Headers, req); err != nil {
-			errs = append(errs, fmt.Sprintf("webhook error: %v", err))
-		} else {
-			notifiedCount++
-		}
+		errGroup.Go(func() error {
+			if err := sendWebhook(ctx, wh.URL, wh.Headers, req); err != nil {
+				errsMu.Lock()
+				errs = append(errs, fmt.Sprintf("webhook error: %v", err))
+				errsMu.Unlock()
+			} else {
+				notifiedCount.Add(1)
+			}
+			return nil
+		})
 	}
 
 	// 3. Twilio
@@ -86,11 +101,16 @@ func (n *notifyTool) Notify(ctx context.Context, req NotifyRequest) (string, err
 		if twi.AccountSID == "" || twi.AuthToken == "" || twi.From == "" || twi.To == "" {
 			continue
 		}
-		if err := sendTwilio(ctx, twi.AccountSID, twi.AuthToken, twi.From, twi.To, req); err != nil {
-			errs = append(errs, fmt.Sprintf("twilio error: %v", err))
-		} else {
-			notifiedCount++
-		}
+		errGroup.Go(func() error {
+			if err := sendTwilio(ctx, twi.AccountSID, twi.AuthToken, twi.From, twi.To, req); err != nil {
+				errsMu.Lock()
+				errs = append(errs, fmt.Sprintf("twilio error: %v", err))
+				errsMu.Unlock()
+			} else {
+				notifiedCount.Add(1)
+			}
+			return nil
+		})
 	}
 
 	// 4. Discord
@@ -98,24 +118,31 @@ func (n *notifyTool) Notify(ctx context.Context, req NotifyRequest) (string, err
 		if dsc.WebhookURL == "" {
 			continue
 		}
-		if err := sendDiscord(ctx, dsc.WebhookURL, req); err != nil {
-			errs = append(errs, fmt.Sprintf("discord error: %v", err))
-		} else {
-			notifiedCount++
-		}
+		errGroup.Go(func() error {
+			if err := sendDiscord(ctx, dsc.WebhookURL, req); err != nil {
+				errsMu.Lock()
+				errs = append(errs, fmt.Sprintf("discord error: %v", err))
+				errsMu.Unlock()
+			} else {
+				notifiedCount.Add(1)
+			}
+			return nil
+		})
 	}
+
+	_ = errGroup.Wait()
 
 	if len(errs) > 0 {
 		log.Warn("One or more notification endpoints failed", "errors", errs)
 	}
 
-	if notifiedCount == 0 && len(errs) == 0 {
+	if notifiedCount.Load() == 0 && len(errs) == 0 {
 		return "No notifications configured. The issue was not reported to any endpoints.", nil
 	}
 
-	if notifiedCount == 0 && len(errs) > 0 {
+	if notifiedCount.Load() == 0 && len(errs) > 0 {
 		return "", fmt.Errorf("Failed to send notification to all configured endpoints. Errors: %s", strings.Join(errs, "; "))
 	}
 
-	return fmt.Sprintf("Successfully sent notification through %d endpoint(s).", notifiedCount), nil
+	return fmt.Sprintf("Successfully sent notification through %d endpoint(s).", notifiedCount.Load()), nil
 }
