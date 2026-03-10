@@ -24,7 +24,7 @@ var _ = Describe("Slack Notification", func() {
 
 			defer GinkgoRecover()
 			var payload map[string]string
-			json.NewDecoder(r.Body).Decode(&payload)
+			Expect(json.NewDecoder(r.Body).Decode(&payload)).To(Succeed())
 			Expect(payload["justification"]).To(ContainSubstring("Stuck"))
 			Expect(payload["agentName"]).To(Equal("Debugger"))
 			Expect(payload["message"]).To(Equal("Cannot find syntax error"))

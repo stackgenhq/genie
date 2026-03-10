@@ -28,7 +28,7 @@ var _ = Describe("Webhook Notification", func() {
 			Expect(r.Header.Get("X-Custom-Auth")).To(Equal("secret"))
 
 			var payload map[string]interface{}
-			json.NewDecoder(r.Body).Decode(&payload)
+			Expect(json.NewDecoder(r.Body).Decode(&payload)).To(Succeed())
 			message, ok := payload["message"].(string)
 			Expect(ok).To(BeTrue())
 			Expect(message).To(ContainSubstring("Justification: Stuck"))

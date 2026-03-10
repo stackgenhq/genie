@@ -515,8 +515,9 @@ func sanitizeReturnTo(raw string) string {
 		}
 	}
 
-	// Must start with "/" and must NOT be protocol-relative ("//").
-	if !strings.HasPrefix(decoded, "/") || strings.HasPrefix(decoded, "//") {
+	// Must start with "/" and the second character must NOT be "/" or "\" to
+	// prevent protocol-relative redirects (e.g. "//evil.com" or "/\evil.com").
+	if !strings.HasPrefix(decoded, "/") || (len(decoded) >= 2 && (decoded[1] == '/' || decoded[1] == '\\')) {
 		return fallback
 	}
 

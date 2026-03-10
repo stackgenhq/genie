@@ -27,7 +27,7 @@ var _ = Describe("Discord Notification", func() {
 			Expect(r.Header.Get("Content-Type")).To(Equal("application/json"))
 
 			var payload map[string]string
-			json.NewDecoder(r.Body).Decode(&payload)
+			Expect(json.NewDecoder(r.Body).Decode(&payload)).To(Succeed())
 			Expect(payload["content"]).To(ContainSubstring("**Justification:** Stuck"))
 
 			w.WriteHeader(http.StatusOK)

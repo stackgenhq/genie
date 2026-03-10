@@ -14,7 +14,7 @@ type TwilioConfig struct {
 	AuthToken  string `yaml:"auth_token" toml:"auth_token"`
 	From       string `yaml:"from" toml:"from"`
 	To         string `yaml:"to" toml:"to"`
-	BaseURL    string `yaml:"base_url,omitempty" toml:"base_url,omitempty"`
+	BaseURL    string `yaml:"-" toml:"-"`
 }
 
 type DiscordConfig struct {
