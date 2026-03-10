@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package agui — dataurl.go extracts embedded data-URL files from AG-UI chat
 // messages sent by the browser client, saves them to a temp directory, and
 // returns clean message text plus messenger.Attachment structs with LocalPath

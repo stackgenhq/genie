@@ -1,6 +1,5 @@
-/*
-Copyright © 2026 StackGen, Inc.
-*/
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 // Package setup: detect checks for existing AI API keys in the environment
 // so the wizard can pre-select a provider and optionally skip the "paste key" step.

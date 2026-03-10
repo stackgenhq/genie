@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package config provides loading and aggregation of Genie configuration.
 //
 // It solves the problem of unifying all component settings (model, MCP, tools,

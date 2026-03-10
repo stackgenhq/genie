@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package oauth provides build-time injected OAuth client credentials
 // shared by Google API tools (Calendar, Contacts). Both use the same client
 // ID and secret so one OAuth consent can grant Calendar + Contacts.

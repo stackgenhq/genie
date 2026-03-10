@@ -1,6 +1,5 @@
-/*
-Copyright © 2026 StackGen, Inc.
-*/
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 // Package setup: tools_spec loads optional-tool definitions from embedded JSON
 // and applies collected answers to config.GenieConfig so the setup wizard can

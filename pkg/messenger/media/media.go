@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package media provides shared utility functions for building and describing
 // messenger.Attachment values across platform adapters.
 package media

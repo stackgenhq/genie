@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package doctool provides document parsing tools for agents. It extracts
 // text content from common file formats so agents can process file
 // attachments received through messenger platforms.

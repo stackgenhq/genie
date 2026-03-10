@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package messenger provides a generic, platform-agnostic interface for
 // bi-directional messaging across chat platforms (Slack, Telegram, Teams,
 // Google Chat, Discord, etc.).

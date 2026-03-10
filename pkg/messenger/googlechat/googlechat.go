@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package googlechat provides a Messenger adapter for Google Chat using
 // HTTP push for incoming events and the Chat API for outgoing messages.
 //

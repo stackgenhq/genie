@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package qdrantstore provides the Qdrant vector store backend for Genie's
 // semantic memory. It wraps the trpc-agent-go Qdrant driver and exposes a
 // Config + New() constructor so the parent vector package can build a Qdrant

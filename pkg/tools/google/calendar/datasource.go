@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package calendar provides a DataSource connector that enumerates Google
 // Calendar events for configured calendars. It uses the Calendar API to list
 // events in a time window and returns one NormalizedItem per event for the

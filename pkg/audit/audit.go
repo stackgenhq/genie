@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package audit provides durable, structured logging of agent and tool events
 // (commands, tool calls, LLM requests/responses, errors) for debugging and
 // compliance.

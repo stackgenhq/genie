@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package ocrtool provides optical character recognition (OCR) tools for
 // agents. It extracts text from images (screenshots, photos, scanned
 // documents, whiteboard captures) using the Tesseract OCR engine.

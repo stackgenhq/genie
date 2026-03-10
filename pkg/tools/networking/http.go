@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package networking provides agent-callable tools for making HTTP requests
 // (GET, POST, etc.) to arbitrary URLs with configurable headers, body, and
 // timeout. It enables the agent to fetch APIs and web content when web_search

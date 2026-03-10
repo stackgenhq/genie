@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package httputil provides HTTP client and transport utilities used across Genie.
 //
 // It solves the problem of centralizing TLS configuration (NIST 2030 minimums:

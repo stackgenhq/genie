@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package agui provides types and helpers for the Agent GUI (AG-UI) event protocol
 // used by Genie to stream agent state to UIs (TUI, web, external systems).
 //

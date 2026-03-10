@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package calendar provides calendar management tools for agents. It enables
 // agents to create, read, update, and delete calendar events using the Google
 // Calendar API, making scheduling accessible through natural language.

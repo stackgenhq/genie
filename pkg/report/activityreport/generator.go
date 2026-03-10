@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package activityreport generates markdown reports from recent audit
 // activities and writes them to ~/.genie/reports/<agent_name>/<YYYYMMDD>_<report_name>.md,
 // then stores the summary in the vector store so the agent can use it as

@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package codeskim provides a code outline/skimming tool for agents.
 // It strips implementation details from source files and returns only
 // the structural elements: package declarations, imports, type definitions,

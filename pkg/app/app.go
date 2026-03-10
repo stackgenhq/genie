@@ -1,6 +1,5 @@
-/*
-Copyright © 2026 StackGen, Inc.
-*/
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 // Package app provides the Application service layer that owns the full
 // Genie lifecycle: config → bootstrap → start → close. It is the single

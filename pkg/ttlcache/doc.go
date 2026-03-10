@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package ttlcache provides a TTL-based cache for values that can be refreshed
 // on expiry (e.g. OAuth tokens, API metadata).
 //

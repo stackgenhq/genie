@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package regextool provides regular expression tools for agents. LLMs are
 // notoriously unreliable at generating and reasoning about regex patterns —
 // this tool lets them test, match, extract, and replace using Go's regexp

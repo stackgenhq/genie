@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package slack provides a Messenger adapter for the Slack platform using
 // Socket Mode for bi-directional communication without a public endpoint.
 //

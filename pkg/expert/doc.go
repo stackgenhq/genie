@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package expert provides the LLM "expert" abstraction used by Genie's
 // orchestrator and ReAcTree execution engine.
 //

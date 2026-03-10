@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package gmail provides Gmail API tools for agents. It enables list, get, and
 // send operations using the Gmail API with the shared Google OAuth token
 // (Calendar, Contacts, Drive, Gmail). One sign-in can power all Google tools.

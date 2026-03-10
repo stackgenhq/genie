@@ -1,6 +1,5 @@
-/*
-Copyright © 2026 StackGen, Inc.
-*/
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 // Package setup provides config generation for the day-1 onboarding wizard.
 // It builds config.GenieConfig from wizard answers and encodes it with the

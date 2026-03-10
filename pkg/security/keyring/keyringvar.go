@@ -1,6 +1,5 @@
-/*
-Copyright © 2026 StackGen, Inc.
-*/
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 // Package keyring provides a runtimevar implementation backed by the
 // system keyring (macOS Keychain, Windows Credential Manager, Linux Secret

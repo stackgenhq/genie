@@ -164,6 +164,7 @@
               <h4 class="text-sm font-semibold text-gray-900 mb-3">Community</h4>
               <div class="space-y-2">
                 <a href="https://github.com/stackgenhq/genie" target="_blank" rel="noopener" class="block text-sm text-gray-500 hover:text-purple-600 no-underline">GitHub</a>
+                <a href="https://github.com/stackgenhq/genie/blob/main/LICENSING.md" target="_blank" rel="noopener" class="block text-sm text-gray-500 hover:text-purple-600 no-underline">License</a>
                 <a href="https://github.com/stackgenhq/genie/issues" target="_blank" rel="noopener" class="block text-sm text-gray-500 hover:text-purple-600 no-underline">Issues</a>
                 <a href="contact.html" class="block text-sm text-gray-500 hover:text-purple-600 no-underline">Contact Us</a>
                 <a href="https://forms.gle/iF5fi1cssLB7uwAs6" target="_blank" rel="noopener" class="block text-sm text-gray-500 hover:text-purple-600 no-underline">Feedback</a>

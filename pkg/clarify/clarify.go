@@ -1,6 +1,5 @@
-/*
-Copyright © 2026 StackGen, Inc.
-*/
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 // Package clarify provides a durable store for clarifying questions that
 // the LLM can ask the user. It uses a DB + in-process channel hybrid

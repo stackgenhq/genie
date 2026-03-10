@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // trace-cost-calculator connects to the Langfuse API and fetches usage
 // statistics for the "devops-copilot" agent using the langfuse.Client from
 // pkg/langfuse. It reads credentials from environment variables.
@@ -66,11 +69,13 @@ func main() {
 			AgentName: agentName,
 		})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "\n❌ Error fetching stats for %s: %v\n", w.Label, err)
+			fmt.Fprintf(os.Stderr, "❌ Error fetching stats for %s: %v\n", w.Label, err)
 			continue
 		}
 
-		fmt.Printf("\n📊 %s\n", w.Label)
+		fmt.Println(strings.Repeat("═", 70))
+
+		fmt.Printf("📊 %s\n", w.Label)
 		fmt.Println(strings.Repeat("─", 70))
 
 		if len(stats) == 0 {
@@ -91,7 +96,7 @@ func main() {
 	}
 
 	// Also show all agents for context (last 24h).
-	fmt.Printf("\n\n")
+	fmt.Printf("\n")
 	fmt.Println(strings.Repeat("═", 70))
 	fmt.Println("  📋 All Agents (Last 24 hours)")
 	fmt.Println(strings.Repeat("═", 70))

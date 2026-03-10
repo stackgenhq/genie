@@ -1,3 +1,10 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
+//
+// Use of this source code is governed by the Business Source License 1.1
+// included in the LICENSE-BSL file at the root of this repository.
+//
+
 package reactree
 
 // Unit tests for orchestrator.go, mapped to ReAcTree paper (arXiv:2511.02424).

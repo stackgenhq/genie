@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package sqltool provides SQL database query tools for agents. It enables
 // agents to query PostgreSQL, MySQL, and SQLite databases using SQL, making
 // structured data accessible through natural language workflows.

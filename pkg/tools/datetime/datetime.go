@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package datetime provides time and date tools for agents. LLMs are
 // notoriously poor at temporal reasoning — this package gives them precise
 // control over current time queries, timezone conversions, date arithmetic,

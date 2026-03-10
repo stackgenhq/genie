@@ -99,6 +99,6 @@ Open a [GitHub Issue](https://github.com/stackgenhq/genie/issues/new) with:
 - Please read and follow our [Code of Conduct](./CODE_OF_CONDUCT.md).
 - To report security vulnerabilities, see [SECURITY.md](./SECURITY.md).
 
-## License
+## License and CLA
 
-By contributing, you agree that your contributions will be licensed under the [Apache License 2.0](LICENSE).
+Genie uses a dual licensing model (Apache 2.0 + BSL 1.1). By contributing, you agree to sign our [Contributor License Agreement (CLA)](./LICENSING.md), which grants StackGen the right to license your contributions under these terms. You must complete the CLA before your first pull request can be merged. When you open a pull request, a CLA status check will appear with a link to review and sign the CLA using your GitHub account; once you have signed it, the check will pass automatically for this and future PRs. See [LICENSING.md](./LICENSING.md) for details on the licensing model.

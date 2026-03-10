@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package messenger
 
 // DeriveVisibility determines the memory visibility scope from a MessageOrigin.

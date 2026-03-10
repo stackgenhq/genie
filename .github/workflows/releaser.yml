@@ -52,6 +52,15 @@ jobs:
           chmod +x /usr/local/bin/quill
           rm -rf /tmp/quill.tar.gz /tmp/quill*
           quill --version
+      - name: Install gettext-base (for envsubst)
+        run: |
+          if command -v apt-get >/dev/null; then
+            apt-get update && apt-get install -y gettext-base
+          elif command -v apk >/dev/null; then
+            apk add --no-cache gettext
+          elif command -v yum >/dev/null; then
+            yum install -y gettext
+          fi
       - name: Install cosign
         uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22 # v4.1.0
         with:

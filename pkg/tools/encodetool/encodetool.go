@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package encodetool provides encoding, decoding, and hashing tools for
 // agents. LLMs cannot natively perform base64 encoding, URL encoding, or
 // cryptographic hashing — this package fills that gap with deterministic,

@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package whatsapp provides a Messenger adapter for WhatsApp using the
 // WhatsApp Web multi-device protocol via whatsmeow.
 //

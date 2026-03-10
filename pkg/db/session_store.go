@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package db — session_store.go provides a GORM-backed implementation of the
 // trpc-agent-go session.Service interface, modeled after the storage builder
 // pattern in trpc-agent-go/storage (e.g. storage/mysql).

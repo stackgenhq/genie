@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package slack provides a DataSource connector that enumerates Slack channel
 // messages for vectorization. It uses the Slack Web API (conversations.history)
 // and requires a bot token with channels:history and channels:read.

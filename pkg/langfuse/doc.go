@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package langfuse provides observability and tracing for LLM interactions via
 // the Langfuse service.
 //

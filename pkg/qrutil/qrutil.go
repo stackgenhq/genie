@@ -1,3 +1,6 @@
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package qrutil provides utilities for generating QR code images and
 // terminal-printable QR codes from arbitrary string content such as URLs,
 // pairing codes, or any text that needs to be shared visually.

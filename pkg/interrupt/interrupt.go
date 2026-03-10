@@ -1,6 +1,5 @@
-/*
-Copyright © 2026 StackGen, Inc.
-*/
+// Copyright (C) 2026 StackGen, Inc. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 // Package interrupt defines the [InterruptError] sentinel used by tools and
 // middleware to signal that a tool call needs external input (human approval,
