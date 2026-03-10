@@ -64,6 +64,7 @@
         langfuse: { public_key: 'LANGFUSE_PUBLIC_KEY', secret_key: 'LANGFUSE_SECRET_KEY', host: 'https://cloud.langfuse.com', enable_prompts: false },
 
         cron: { enabled: false, tasks: [] },
+        notification: { slack: [], webhooks: [], discord: [], twilio: [] },
         security: { secrets: [] },
         pii: { salt: '', entropy_threshold: 4.2, min_secret_length: 12, sensitive_keys: [] },
         agent_name: '',
@@ -210,6 +211,7 @@
      * ================================================================ */
 
     function renderAll() {
+        renderGeneral();
         renderProviders();
 
         renderSkills();
@@ -230,6 +232,7 @@
         renderToolwrap();
         renderSecurity();
         renderPII();
+        renderNotification();
         renderDBConfig();
         renderAGUI();
         renderLangfuse();
@@ -237,6 +240,29 @@
         renderSemanticRouter();
         renderCron();
         renderOutput();
+    }
+
+    // ── General Settings ──
+    function renderGeneral() {
+        var c = $('general-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var fields = [
+            fieldText('Agent Name', state.agent_name, function (v) { state.agent_name = v; renderOutput(); }, 'my-agent',
+                'User-chosen name for the agent. Gives the agent a personality and sets the default audit log path.'),
+            fieldText('Audit Path', state.audit_path, function (v) { state.audit_path = v; renderOutput(); }, '~/.genie/audit.jsonl',
+                'Overrides the default audit log path. When set, writes to this single file (no date rotation).'),
+            fieldNumber('Persona Token Threshold', state.persona_token_threshold, function (v) { state.persona_token_threshold = v; renderOutput(); }, 0, 1000000,
+                'Max recommended token length for the persona/system prompt. Warning emitted if exceeded (default 2000).'),
+            fieldText('Persona File', state.persona.file, function (v) { state.persona.file = v; renderOutput(); }, './STANDARDS.md',
+                'Path to a file whose contents are appended to the agent system prompt as project-level coding standards. Supports absolute paths or paths relative to the working directory.'),
+            fieldToggle('Disable Agent Resume Creation', state.persona.disable_resume, function (v) { state.persona.disable_resume = v; renderOutput(); },
+                'Makes the generation of the agent\'s resume optional. If disabled, the persona file is used as is.'),
+            fieldToggle('Disable Pensieve Tools', state.disable_pensieve, function (v) { state.disable_pensieve = v; renderOutput(); },
+                'Disable context self-management tools (delete_context, check_budget, note, read_notes). ' +
+                'delete_context and note require HITL approval. Based on the StateLM paper (arXiv:2602.12108).')
+        ];
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
     }
 
     // ── Model Providers ──
@@ -623,18 +649,104 @@
         }
     }
 
-    // ── HITL ──
-    function renderHITL() {
-        var c = $('hitl-body');
+    // ── PII Redaction ──
+    function renderPII() {
+        var c = $('pii-body');
         if (!c) return;
         c.innerHTML = '';
-        var h = state.hitl;
-        c.appendChild(el('div', { className: 'space-y-4' }, [
-            fieldText('Read-Only Tools (comma-separated)', (h.always_allowed || []).join(', '), function (v) { h.always_allowed = splitCSV(v); renderOutput(); }, 'read_file, list_file', 'Tools that skip human approval — safe read-only operations'),
-            fieldText('Denied Tools (comma-separated)', (h.denied_tools || []).join(', '), function (v) { h.denied_tools = splitCSV(v); renderOutput(); }, 'execute_code, run_shell', 'Tools that are completely blocked — the agent cannot use these at all. Supports wildcards (e.g. browser_*)'),
-            fieldText('Approval Cache TTL', h.cache_ttl || '', function (v) { h.cache_ttl = v; renderOutput(); }, '10m', 'How long an approved tool+args combination stays auto-approved before requiring fresh human approval (e.g. 5m, 15m, 1h). Default: 10m')
+        var p = state.pii;
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+            fieldText('HMAC Salt', p.salt, function (v) { p.salt = v; renderOutput(); }, 'my-stable-salt-for-correlation',
+                'Deterministic hashing key — same input + same salt = same [HIDDEN:hash]. Leave empty for random (hashes change on restart).'),
+            fieldNumber('Entropy Threshold', p.entropy_threshold, function (v) { p.entropy_threshold = parseFloat(v) || 4.2; renderOutput(); }, 2, 5,
+                'Shannon entropy score above which tokens are treated as secrets. Lower = more aggressive (2.0), higher = more permissive (5.0). Default: 3.6'),
+            fieldNumber('Min Secret Length', p.min_secret_length, function (v) { p.min_secret_length = v; renderOutput(); }, 1, 64,
+                'Tokens shorter than this are never redacted (unless they are values of sensitive keys). Default: 6'),
+            fieldText('Sensitive Keys (comma-separated)', (p.sensitive_keys || []).join(', '), function (v) { p.sensitive_keys = splitCSV(v); renderOutput(); },
+                'pass, secret, token, key, api_key, password',
+                'Key names whose values are always redacted regardless of entropy. Case-insensitive.')
+        ]));
+        c.appendChild(el('p', { className: 'text-xs text-gray-400 mt-2' },
+            'Powered by <a href="https://github.com/aragossa/pii-shield" class="text-purple-500 hover:underline" target="_blank">pii-shield</a> — entropy-based detection with Luhn CC validation, bigram analysis, and deterministic HMAC hashing.'));
+
+        // General agent settings live in PII section for proximity to security settings.
+        c.appendChild(el('div', { className: 'mt-6 pt-4', style: 'border-top: 1px solid rgba(0,0,0,0.06)' }, [
+            fieldText('Agent Name', state.agent_name, function (v) { state.agent_name = v; renderOutput(); }, 'my-agent',
+                'User-chosen name for the agent. Gives the agent a personality and sets the default audit log path.'),
+            fieldText('Audit Path', state.audit_path, function (v) { state.audit_path = v; renderOutput(); }, '~/.genie/audit.jsonl',
+                'Overrides the default audit log path. When set, writes to this single file (no date rotation).'),
+            fieldNumber('Persona Token Threshold', state.persona_token_threshold, function (v) { state.persona_token_threshold = v; renderOutput(); }, 0, 1000000,
+                'Maximum tokens recommended for the generated system prompt before emitting a warning.'),
+            fieldToggle('Disable Pensieve Context Tools', state.disable_pensieve, function (v) { state.disable_pensieve = v; renderOutput(); },
+                'Disables tools that allow the agent to manage its own memory context.')
         ]));
     }
+
+    // ── Notifications ──
+    function renderNotification() {
+        var c = $('notification-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var n = state.notification;
+
+        // Slack section
+        c.appendChild(el('div', { className: 'mt-4' }, [
+            el('h4', { className: 'text-sm font-semibold mb-2' }, 'Slack Notifications')
+        ]));
+        n.slack.forEach(function (s, i) {
+            c.appendChild(el('div', { className: 'flex items-center gap-2 mb-2' }, [
+                fieldEnvVar('Webhook URL', s.webhook_url, function (v) { s.webhook_url = v; renderOutput(); }, 'SLACK_WEBHOOK_URL', 'Slack incoming webhook URL'),
+                el('button', { className: 'btn-remove mt-6', onClick: function () { n.slack.splice(i, 1); renderAll(); } }, '✕')
+            ]));
+        });
+        c.appendChild(el('button', { className: 'btn-add mt-1', onClick: function () { n.slack.push({ webhook_url: '' }); renderAll(); } }, '+ Add Slack Webhook'));
+
+        // Webhooks section
+        c.appendChild(el('div', { className: 'mt-6' }, [
+            el('h4', { className: 'text-sm font-semibold mb-2' }, 'Custom Webhooks')
+        ]));
+        n.webhooks.forEach(function (w, i) {
+            c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4 mb-2 p-4 bg-gray-50 rounded-lg' }, [
+                fieldText('URL', w.url, function (v) { w.url = v; renderOutput(); }, 'https://api.example.com/notify'),
+                el('div', {}, [
+                    fieldText('Headers (JSON string)', JSON.stringify(w.headers), function (v) {
+                        try { w.headers = JSON.parse(v); renderOutput(); } catch (e) { }
+                    }, '{"Authorization": "Bearer token"}'),
+                    el('button', { className: 'btn-remove mt-4 float-right', onClick: function () { n.webhooks.splice(i, 1); renderAll(); } }, 'Remove Webhook')
+                ])
+            ]));
+        });
+        c.appendChild(el('button', { className: 'btn-add mt-1', onClick: function () { n.webhooks.push({ url: '', headers: {} }); renderAll(); } }, '+ Add Custom Webhook'));
+
+        // Discord section
+        c.appendChild(el('div', { className: 'mt-6' }, [
+            el('h4', { className: 'text-sm font-semibold mb-2' }, 'Discord Notifications')
+        ]));
+        n.discord.forEach(function (d, i) {
+            c.appendChild(el('div', { className: 'flex items-center gap-2 mb-2' }, [
+                fieldEnvVar('Webhook URL', d.webhook_url, function (v) { d.webhook_url = v; renderOutput(); }, 'DISCORD_WEBHOOK_URL', 'Discord incoming webhook URL'),
+                el('button', { className: 'btn-remove mt-6', onClick: function () { n.discord.splice(i, 1); renderAll(); } }, '✕')
+            ]));
+        });
+        c.appendChild(el('button', { className: 'btn-add mt-1', onClick: function () { n.discord.push({ webhook_url: '' }); renderAll(); } }, '+ Add Discord Webhook'));
+
+        // Twilio section
+        c.appendChild(el('div', { className: 'mt-6' }, [
+            el('h4', { className: 'text-sm font-semibold mb-2' }, 'Twilio SMS')
+        ]));
+        n.twilio.forEach(function (t, i) {
+            c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4 mb-2 p-4 bg-gray-50 rounded-lg relative' }, [
+                el('button', { className: 'btn-remove absolute top-2 right-2', onClick: function () { n.twilio.splice(i, 1); renderAll(); } }, '✕'),
+                fieldEnvVar('Account SID', t.account_sid, function (v) { t.account_sid = v; renderOutput(); }, 'TWILIO_ACCOUNT_SID'),
+                fieldEnvVar('Auth Token', t.auth_token, function (v) { t.auth_token = v; renderOutput(); }, 'TWILIO_AUTH_TOKEN'),
+                fieldText('From Number', t.from, function (v) { t.from = v; renderOutput(); }, '+1234567890'),
+                fieldText('To Number', t.to, function (v) { t.to = v; renderOutput(); }, '+0987654321')
+            ]));
+        });
+        c.appendChild(el('button', { className: 'btn-add mt-1', onClick: function () { n.twilio.push({ account_sid: '', auth_token: '', from: '', to: '' }); renderAll(); } }, '+ Add Twilio SMS'));
+    }
+
+    // ── DB Config ──
 
     // ── Shell Tool Security ──
     function renderShellTool() {
@@ -791,22 +903,6 @@
         c.appendChild(el('p', { className: 'text-xs text-gray-400 mt-2' },
             'Powered by <a href="https://github.com/aragossa/pii-shield" class="text-purple-500 hover:underline" target="_blank">pii-shield</a> — entropy-based detection with Luhn CC validation, bigram analysis, and deterministic HMAC hashing.'));
 
-        // General agent settings live in PII section for proximity to security settings.
-        c.appendChild(el('div', { className: 'mt-6 pt-4', style: 'border-top: 1px solid rgba(0,0,0,0.06)' }, [
-            fieldText('Agent Name', state.agent_name, function (v) { state.agent_name = v; renderOutput(); }, 'my-agent',
-                'User-chosen name for the agent. Gives the agent a personality and sets the default audit log path.'),
-            fieldText('Audit Path', state.audit_path, function (v) { state.audit_path = v; renderOutput(); }, '~/.genie/audit.jsonl',
-                'Overrides the default audit log path. When set, writes to this single file (no date rotation).'),
-            fieldNumber('Persona Token Threshold', state.persona_token_threshold, function (v) { state.persona_token_threshold = v; renderOutput(); }, 0, 1000000,
-                'Max recommended token length for the persona/system prompt. Warning emitted if exceeded (default 2000).'),
-            fieldText('Persona File', state.persona.file, function (v) { state.persona.file = v; renderOutput(); }, './STANDARDS.md',
-                'Path to a file whose contents are appended to the agent system prompt as project-level coding standards. Supports absolute paths or paths relative to the working directory.'),
-            fieldToggle('Disable Agent Resume Creation', state.persona.disable_resume, function (v) { state.persona.disable_resume = v; renderOutput(); },
-                'Makes the generation of the agent\'s resume optional. If disabled, the persona file is used as is.'),
-            fieldToggle('Disable Pensieve Tools', state.disable_pensieve, function (v) { state.disable_pensieve = v; renderOutput(); },
-                'Disable context self-management tools (delete_context, check_budget, note, read_notes). ' +
-                'delete_context and note require HITL approval. Based on the StateLM paper (arXiv:2602.12108).')
-        ]));
     }
 
     // ── Hallucination Guard ──
@@ -1171,6 +1267,432 @@
         aguiToToml(lines);
     }
 
+    function scmToToml(lines) {
+        var s = state.scm;
+        if (!s.provider) return;
+        lines.push('[scm]');
+        lines.push('provider = ' + q(s.provider));
+        if (s.token) lines.push('token = ' + q('${' + s.token + '}'));
+        if (s.base_url) lines.push('base_url = ' + q(s.base_url));
+        lines.push('');
+    }
+
+    function ghcliToToml(lines) {
+        var g = state.ghcli;
+        if (!g.token) return;
+        lines.push('[ghcli]');
+        lines.push('token = ' + q('${' + g.token + '}'));
+        lines.push('');
+    }
+
+    function pmToToml(lines) {
+        var p = state.pm;
+        if (!p.provider) return;
+        lines.push('[project_management]');
+        lines.push('provider = ' + q(p.provider));
+        if (p.api_token) lines.push('api_token = ' + q('${' + p.api_token + '}'));
+        if (p.base_url) lines.push('base_url = ' + q(p.base_url));
+        if (p.provider === 'jira' && p.email) lines.push('email = ' + q(p.email));
+        lines.push('');
+    }
+
+
+
+    function browserToToml(lines) {
+        var b = state.browser;
+        if (!hasItems(b.blocked_domains)) return;
+        lines.push('[browser]');
+        lines.push('blocked_domains = [' + b.blocked_domains.filter(Boolean).map(q).join(', ') + ']');
+        lines.push('');
+    }
+
+    function emailToToml(lines) {
+        var e = state.email;
+        if (!e.provider) return;
+        lines.push('[email]');
+        lines.push('provider = ' + q(e.provider));
+        if (e.host) lines.push('host = ' + q(e.host));
+        lines.push('port = ' + e.port);
+        if (e.username) lines.push('username = ' + q('${' + e.username + '}'));
+        if (e.password) lines.push('password = ' + q('${' + e.password + '}'));
+        if (e.imap_host) lines.push('imap_host = ' + q(e.imap_host));
+        lines.push('imap_port = ' + e.imap_port);
+        lines.push('');
+    }
+
+    function hitlToToml(lines) {
+        var h = state.hitl;
+        if (!hasItems(h.always_allowed) && !hasItems(h.denied_tools) && !h.cache_ttl) return;
+        lines.push('[hitl]');
+        if (hasItems(h.always_allowed)) lines.push('always_allowed = [' + h.always_allowed.filter(Boolean).map(q).join(', ') + ']');
+        if (hasItems(h.denied_tools)) lines.push('denied_tools = [' + h.denied_tools.filter(Boolean).map(q).join(', ') + ']');
+        if (h.cache_ttl) lines.push('cache_ttl = ' + q(h.cache_ttl));
+        lines.push('');
+    }
+
+    function shellToolToToml(lines) {
+        var st = state.shell_tool;
+        if (!hasItems(st.allowed_env) && !st.timeout) return;
+        lines.push('[shell_tool]');
+        if (hasItems(st.allowed_env)) lines.push('allowed_env = [' + st.allowed_env.filter(Boolean).map(q).join(', ') + ']');
+        if (st.timeout) lines.push('timeout = ' + q(st.timeout));
+        lines.push('');
+    }
+
+    function parseKVPairs(str) {
+        if (!str) return {};
+        var result = {};
+        str.split(',').forEach(function (pair) {
+            var parts = pair.trim().split(':');
+            if (parts.length === 2 && parts[0].trim() && parts[1].trim()) {
+                result[parts[0].trim()] = parts[1].trim();
+            }
+        });
+        return result;
+    }
+
+    /** Parse context_mode per-tool overrides: "run_shell:40000/15/800/2, web_fetch:30000" */
+    function parseContextModePerTool(str) {
+        if (!str) return {};
+        var result = {};
+        str.split(',').forEach(function (entry) {
+            var parts = entry.trim().split(':');
+            if (parts.length === 2 && parts[0].trim()) {
+                var vals = parts[1].trim().split('/');
+                var o = {};
+                if (vals[0]) o.threshold = parseInt(vals[0], 10) || 0;
+                if (vals[1]) o.max_chunks = parseInt(vals[1], 10) || 0;
+                if (vals[2]) o.chunk_size = parseInt(vals[2], 10) || 0;
+                if (vals[3]) o.min_term_len = parseInt(vals[3], 10) || 0;
+                result[parts[0].trim()] = o;
+            }
+        });
+        return result;
+    }
+
+    function parseSanitizePerTool(str) {
+        if (!str) return {};
+        var result = {};
+        str.split(',').forEach(function (entry) {
+            var parts = entry.trim().split(':');
+            if (parts.length === 2 && parts[0].trim() && parts[1].trim()) {
+                result[parts[0].trim()] = parts[1].trim().split('|').map(function (s) { return s.trim(); }).filter(Boolean);
+            }
+        });
+        return result;
+    }
+
+    function toolwrapToToml(lines) {
+        var tw = state.toolwrap;
+        var cmNonDefault = tw.context_mode.enabled || tw.context_mode.threshold !== 20000 ||
+            tw.context_mode.max_chunks !== 10 || tw.context_mode.chunk_size !== 800 ||
+            tw.context_mode.min_term_len !== 3 || tw.context_mode.per_tool;
+        var any = cmNonDefault || tw.timeout.enabled || tw.rate_limit.enabled || tw.circuit_breaker.enabled ||
+            tw.concurrency.enabled || tw.retry.enabled || tw.metrics.enabled ||
+            tw.tracing.enabled || tw.sanitize.enabled || tw.validation.enabled;
+        if (!any) return;
+
+        if (tw.context_mode.enabled) {
+            lines.push('[toolwrap.context_mode]');
+            lines.push('enabled = true');
+            var cmChanged = tw.context_mode.threshold !== 20000 ||
+                tw.context_mode.max_chunks !== 10 ||
+                tw.context_mode.chunk_size !== 800 ||
+                tw.context_mode.min_term_len !== 3 ||
+                tw.context_mode.per_tool;
+            if (cmChanged) {
+                lines.push('[toolwrap.context_mode]');
+                if (tw.context_mode.threshold !== 20000) lines.push('threshold = ' + tw.context_mode.threshold);
+                if (tw.context_mode.max_chunks !== 10) lines.push('max_chunks = ' + tw.context_mode.max_chunks);
+                if (tw.context_mode.chunk_size !== 800) lines.push('chunk_size = ' + tw.context_mode.chunk_size);
+                if (tw.context_mode.min_term_len !== 3) lines.push('min_term_len = ' + tw.context_mode.min_term_len);
+                var cmPerTool = parseContextModePerTool(tw.context_mode.per_tool);
+                Object.keys(cmPerTool).forEach(function (tool) {
+                    var o = cmPerTool[tool];
+                    lines.push('[toolwrap.context_mode.per_tool.' + tool + ']');
+                    if (o.threshold) lines.push('threshold = ' + o.threshold);
+                    if (o.max_chunks) lines.push('max_chunks = ' + o.max_chunks);
+                    if (o.chunk_size) lines.push('chunk_size = ' + o.chunk_size);
+                    if (o.min_term_len) lines.push('min_term_len = ' + o.min_term_len);
+                });
+                lines.push('');
+            }
+        }
+
+        if (tw.timeout.enabled) {
+            lines.push('[toolwrap.timeout]');
+            lines.push('enabled = true');
+            if (tw.timeout.default_timeout) lines.push('default = ' + q(tw.timeout.default_timeout));
+            var perTool = parseKVPairs(tw.timeout.per_tool);
+            if (Object.keys(perTool).length > 0) {
+                lines.push('[toolwrap.timeout.per_tool]');
+                Object.keys(perTool).forEach(function (k) { lines.push(k + ' = ' + q(perTool[k])); });
+            }
+            lines.push('');
+        }
+        if (tw.rate_limit.enabled) {
+            lines.push('[toolwrap.rate_limit]');
+            lines.push('enabled = true');
+            lines.push('global_rate_per_minute = ' + tw.rate_limit.global_rate_per_minute);
+            var perToolRL = parseKVPairs(tw.rate_limit.per_tool_rate_per_minute);
+            if (Object.keys(perToolRL).length > 0) {
+                lines.push('[toolwrap.rate_limit.per_tool_rate_per_minute]');
+                Object.keys(perToolRL).forEach(function (k) { lines.push(k + ' = ' + perToolRL[k]); });
+            }
+            lines.push('');
+        }
+        if (tw.circuit_breaker.enabled) {
+            lines.push('[toolwrap.circuit_breaker]');
+            lines.push('enabled = true');
+            lines.push('failure_threshold = ' + tw.circuit_breaker.failure_threshold);
+            if (tw.circuit_breaker.open_duration) lines.push('open_duration = ' + q(tw.circuit_breaker.open_duration));
+            lines.push('');
+        }
+        if (tw.concurrency.enabled) {
+            lines.push('[toolwrap.concurrency]');
+            lines.push('enabled = true');
+            lines.push('global_limit = ' + tw.concurrency.global_limit);
+            var perToolConc = parseKVPairs(tw.concurrency.per_tool_limits);
+            if (Object.keys(perToolConc).length > 0) {
+                lines.push('[toolwrap.concurrency.per_tool_limits]');
+                Object.keys(perToolConc).forEach(function (k) { lines.push(k + ' = ' + perToolConc[k]); });
+            }
+            lines.push('');
+        }
+        if (tw.retry.enabled) {
+            lines.push('[toolwrap.retry]');
+            lines.push('enabled = true');
+            lines.push('max_attempts = ' + tw.retry.max_attempts);
+            if (tw.retry.initial_backoff) lines.push('initial_backoff = ' + q(tw.retry.initial_backoff));
+            if (tw.retry.max_backoff) lines.push('max_backoff = ' + q(tw.retry.max_backoff));
+            lines.push('');
+        }
+        if (tw.metrics.enabled) {
+            lines.push('[toolwrap.metrics]');
+            lines.push('enabled = true');
+            if (tw.metrics.prefix) lines.push('prefix = ' + q(tw.metrics.prefix));
+            lines.push('');
+        }
+        if (tw.tracing.enabled) {
+            lines.push('[toolwrap.tracing]');
+            lines.push('enabled = true');
+            lines.push('');
+        }
+        if (tw.sanitize.enabled) {
+            lines.push('[toolwrap.sanitize]');
+            lines.push('enabled = true');
+            if (tw.sanitize.replacement) lines.push('replacement = ' + q(tw.sanitize.replacement));
+            var perToolSan = parseSanitizePerTool(tw.sanitize.per_tool);
+            if (Object.keys(perToolSan).length > 0) {
+                lines.push('[toolwrap.sanitize.per_tool]');
+                Object.keys(perToolSan).forEach(function (k) {
+                    lines.push(k + ' = [' + perToolSan[k].map(q).join(', ') + ']');
+                });
+            }
+            lines.push('');
+        }
+        if (tw.validation.enabled) {
+            lines.push('[toolwrap.validation]');
+            lines.push('enabled = true');
+            lines.push('');
+        }
+    }
+
+    function dbConfigToToml(lines) {
+        var d = state.db_config;
+        if (!d.db_file) return;
+        lines.push('[db_config]');
+        lines.push('db_file = ' + q(d.db_file));
+        lines.push('');
+    }
+
+    function aguiToToml(lines) {
+        var a = state.messenger.agui;
+        lines.push('[messenger.agui]');
+        lines.push('port = ' + a.port);
+        if (hasItems(a.cors_origins)) lines.push('cors_origins = [' + a.cors_origins.filter(Boolean).map(q).join(', ') + ']');
+        lines.push('rate_limit = ' + a.rate_limit);
+        lines.push('rate_burst = ' + a.rate_burst);
+        lines.push('max_concurrent = ' + a.max_concurrent);
+        lines.push('max_body_bytes = ' + a.max_body_bytes);
+        lines.push('');
+
+        var au = a.auth;
+        if (au.password.enabled) {
+            lines.push('[messenger.agui.auth.password]');
+            lines.push('enabled = true');
+            if (au.password.value) lines.push('value = ' + q('${' + au.password.value + '}'));
+            lines.push('');
+        }
+        if (hasItems(au.jwt.trusted_issuers)) {
+            lines.push('[messenger.agui.auth.jwt]');
+            lines.push('trusted_issuers = [' + au.jwt.trusted_issuers.filter(Boolean).map(q).join(', ') + ']');
+            if (hasItems(au.jwt.allowed_audiences)) lines.push('allowed_audiences = [' + au.jwt.allowed_audiences.filter(Boolean).map(q).join(', ') + ']');
+            lines.push('');
+        }
+        if (au.oidc.client_id) {
+            lines.push('[messenger.agui.auth.oidc]');
+            if (au.oidc.issuer_url) lines.push('issuer_url = ' + q(au.oidc.issuer_url));
+            lines.push('client_id = ' + q(au.oidc.client_id));
+            if (au.oidc.client_secret) lines.push('client_secret = ' + q('${' + au.oidc.client_secret + '}'));
+            if (hasItems(au.oidc.allowed_domains)) lines.push('allowed_domains = [' + au.oidc.allowed_domains.filter(Boolean).map(q).join(', ') + ']');
+            if (au.oidc.redirect_url) lines.push('redirect_url = ' + q(au.oidc.redirect_url));
+            lines.push('');
+        }
+        if (hasItems(au.api_keys.keys)) {
+            lines.push('[messenger.agui.auth.api_keys]');
+            lines.push('keys = [' + au.api_keys.keys.filter(Boolean).map(q).join(', ') + ']');
+            lines.push('');
+        }
+    }
+
+    function personaToToml(lines) {
+        if (!state.persona.file && !state.persona.disable_resume) return;
+        lines.push('[persona]');
+        if (state.persona.file) lines.push('file = ' + q(state.persona.file));
+        if (state.persona.disable_resume) lines.push('disable_resume = true');
+        lines.push('');
+    }
+
+    function rootLevelToToml(lines) {
+        var hasRoot = false;
+        if (state.agent_name) { lines.push('agent_name = ' + q(state.agent_name)); hasRoot = true; }
+        if (state.persona_token_threshold && state.persona_token_threshold !== 2000) { lines.push('persona_token_threshold = ' + state.persona_token_threshold); hasRoot = true; }
+        if (state.audit_path) { lines.push('audit_path = ' + q(state.audit_path)); hasRoot = true; }
+        if (state.disable_pensieve) { lines.push('disable_pensieve = true'); hasRoot = true; }
+        if (hasRoot) lines.push('');
+    }
+
+    function securityToToml(lines) {
+        var sec = state.security;
+        var mapped = sec.secrets.filter(function (s) { return s.name && s.url; });
+        if (mapped.length > 0) {
+            lines.push('[security.secrets]');
+            mapped.forEach(function (s) {
+                lines.push(q(s.name) + ' = ' + q(s.url));
+            });
+            lines.push('');
+        }
+    }
+
+    function piiToToml(lines) {
+        var p = state.pii;
+        var hasContent = p.salt || p.entropy_threshold !== 4.2 || p.min_secret_length !== 12 || hasItems(p.sensitive_keys);
+        if (!hasContent) return;
+        lines.push('[pii]');
+        if (p.salt) lines.push('salt = ' + q(p.salt));
+        if (p.entropy_threshold !== 4.2) lines.push('entropy_threshold = ' + p.entropy_threshold);
+        if (p.min_secret_length !== 12) lines.push('min_secret_length = ' + p.min_secret_length);
+        if (hasItems(p.sensitive_keys)) lines.push('sensitive_keys = [' + p.sensitive_keys.filter(Boolean).map(q).join(', ') + ']');
+        lines.push('');
+    }
+
+    function halguardToToml(lines) {
+        var hg = state.halguard;
+        var isDefault = hg.enable_pre_check && hg.enable_post_check &&
+            hg.light_threshold_chars === 200 && hg.full_threshold_chars === 500 &&
+            hg.cross_model_samples === 3 && hg.max_blocks_to_judge === 20 &&
+            hg.pre_check_threshold === 0.4;
+        if (isDefault) return;
+        lines.push('[halguard]');
+        if (!hg.enable_pre_check) lines.push('enable_pre_check = false');
+        if (!hg.enable_post_check) lines.push('enable_post_check = false');
+        if (hg.light_threshold_chars !== 200) lines.push('light_threshold_chars = ' + hg.light_threshold_chars);
+        if (hg.full_threshold_chars !== 500) lines.push('full_threshold_chars = ' + hg.full_threshold_chars);
+        if (hg.cross_model_samples !== 3) lines.push('cross_model_samples = ' + hg.cross_model_samples);
+        if (hg.max_blocks_to_judge !== 20) lines.push('max_blocks_to_judge = ' + hg.max_blocks_to_judge);
+        if (hg.pre_check_threshold !== 0.4) lines.push('pre_check_threshold = ' + hg.pre_check_threshold);
+        lines.push('');
+    }
+
+    function semanticRouterToToml(lines) {
+        var sr = state.semantic_router;
+        var isDefault = !sr.disabled && sr.threshold === 0.85 && sr.enable_caching;
+        if (isDefault) return;
+        lines.push('[semantic_router]');
+        if (sr.disabled) lines.push('disabled = true');
+        if (sr.threshold !== 0.85) lines.push('threshold = ' + sr.threshold);
+        if (!sr.enable_caching) lines.push('enable_caching = false');
+
+        sr.routes.forEach(function (r) {
+            if (!r.name) return;
+            lines.push('[[semantic_router.routes]]');
+            lines.push('name = ' + q(r.name));
+            if (hasItems(r.utterances)) lines.push('utterances = [' + r.utterances.filter(Boolean).map(q).join(', ') + ']');
+            lines.push('');
+        });
+        lines.push('');
+    }
+
+    function cronToToml(lines) {
+        var cr = state.cron;
+        if (!cr.enabled) return;
+        lines.push('[cron]');
+        lines.push('enabled = true');
+
+        lines.push('');
+        cr.tasks.forEach(function (t) {
+            if (!t.name && !t.expression && !t.action) return;
+            lines.push('[[cron.tasks]]');
+            if (t.name) lines.push('name = ' + q(t.name));
+            if (t.expression) lines.push('expression = ' + q(t.expression));
+            if (t.action) lines.push('action = ' + q(t.action));
+            lines.push('');
+        });
+    }
+
+    function notificationToYaml(lines) {
+        var n = state.notification;
+        if (n.slack.length === 0 && n.webhooks.length === 0 && n.discord.length === 0 && n.twilio.length === 0) return;
+        lines.push('notification:');
+
+        if (n.slack.length > 0) {
+            lines.push('  slack:');
+            n.slack.forEach(function (s) {
+                if (s.webhook_url) {
+                    lines.push('    - webhook_url: ' + yq('${' + s.webhook_url + '}'));
+                }
+            });
+        }
+
+        if (n.webhooks.length > 0) {
+            lines.push('  webhooks:');
+            n.webhooks.forEach(function (w) {
+                if (w.url) {
+                    lines.push('    - url: ' + yq(w.url));
+                    if (Object.keys(w.headers).length > 0) {
+                        lines.push('      headers:');
+                        Object.keys(w.headers).forEach(function (k) {
+                            lines.push('        ' + yq(k) + ': ' + yq(w.headers[k]));
+                        });
+                    }
+                }
+            });
+        }
+
+        if (n.discord.length > 0) {
+            lines.push('  discord:');
+            n.discord.forEach(function (d) {
+                if (d.webhook_url) {
+                    lines.push('    - webhook_url: ' + yq('${' + d.webhook_url + '}'));
+                }
+            });
+        }
+
+        if (n.twilio.length > 0) {
+            lines.push('  twilio:');
+            n.twilio.forEach(function (t) {
+                if (t.account_sid || t.auth_token || t.from || t.to) {
+                    lines.push('    - account_sid: ' + yq('${' + t.account_sid + '}'));
+                    lines.push('      auth_token: ' + yq('${' + t.auth_token + '}'));
+                    lines.push('      from: ' + yq(t.from));
+                    lines.push('      to: ' + yq(t.to));
+                }
+            });
+        }
+        lines.push('');
+    }
+
     /** Assemble full TOML output. */
     function toToml() {
         var lines = [];
@@ -1178,7 +1700,6 @@
         rootLevelToToml(lines);
         personaToToml(lines);
         if (state.providers.length > 0) providersToToml(lines);
-
 
         skillsToToml(lines);
         mcpToToml(lines);
@@ -1204,7 +1725,54 @@
         semanticRouterToToml(lines);
 
         cronToToml(lines);
+        notificationToToml(lines);
         return lines.join('\n');
+    }
+
+    function notificationToToml(lines) {
+        var n = state.notification;
+        if (n.slack.length === 0 && n.webhooks.length === 0 && n.discord.length === 0 && n.twilio.length === 0) return;
+
+        n.slack.forEach(function (s) {
+            if (s.webhook_url) {
+                lines.push('[[notification.slack]]');
+                lines.push('webhook_url = ' + q('${' + s.webhook_url + '}'));
+                lines.push('');
+            }
+        });
+
+        n.webhooks.forEach(function (w) {
+            if (w.url) {
+                lines.push('[[notification.webhooks]]');
+                lines.push('url = ' + q(w.url));
+                if (Object.keys(w.headers).length > 0) {
+                    lines.push('[notification.webhooks.headers]');
+                    Object.keys(w.headers).forEach(function (k) {
+                        lines.push(q(k) + ' = ' + q(w.headers[k]));
+                    });
+                }
+                lines.push('');
+            }
+        });
+
+        n.discord.forEach(function (d) {
+            if (d.webhook_url) {
+                lines.push('[[notification.discord]]');
+                lines.push('webhook_url = ' + q('${' + d.webhook_url + '}'));
+                lines.push('');
+            }
+        });
+
+        n.twilio.forEach(function (t) {
+            if (t.account_sid || t.auth_token || t.from || t.to) {
+                lines.push('[[notification.twilio]]');
+                lines.push('account_sid = ' + q('${' + t.account_sid + '}'));
+                lines.push('auth_token = ' + q('${' + t.auth_token + '}'));
+                lines.push('from = ' + q(t.from));
+                lines.push('to = ' + q(t.to));
+                lines.push('');
+            }
+        });
     }
 
     function langfuseToToml(lines) {
@@ -1830,6 +2398,7 @@
         semanticRouterToYaml(lines);
 
         cronToYaml(lines);
+        notificationToYaml(lines);
         return lines.join('\n');
     }
 

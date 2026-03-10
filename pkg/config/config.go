@@ -21,6 +21,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/memory/graph"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/notification"
 	"github.com/stackgenhq/genie/pkg/pii"
 	"github.com/stackgenhq/genie/pkg/tools"
 	unixtools "github.com/stackgenhq/genie/pkg/tools/unix"
@@ -76,11 +77,12 @@ type GenieConfig struct {
 
 	ProjectManagement pm.Config `yaml:"project_management,omitempty" toml:"project_management,omitempty"`
 
-	Email    email.Config    `yaml:"email,omitempty" toml:"email,omitempty"`
-	GDrive   gdrive.Config   `yaml:"google_drive,omitempty" toml:"google_drive,omitempty"`
-	HITL     hitl.Config     `yaml:"hitl,omitempty" toml:"hitl,omitempty"`
-	DBConfig db.Config       `yaml:"db_config,omitempty" toml:"db_config,omitempty"`
-	Langfuse langfuse.Config `yaml:"langfuse,omitempty" toml:"langfuse,omitempty"`
+	Email        email.Config        `yaml:"email,omitempty" toml:"email,omitempty"`
+	GDrive       gdrive.Config       `yaml:"google_drive,omitempty" toml:"google_drive,omitempty"`
+	Notification notification.Config `yaml:"notification,omitempty" toml:"notification,omitempty"`
+	HITL         hitl.Config         `yaml:"hitl,omitempty" toml:"hitl,omitempty"`
+	DBConfig     db.Config           `yaml:"db_config,omitempty" toml:"db_config,omitempty"`
+	Langfuse     langfuse.Config     `yaml:"langfuse,omitempty" toml:"langfuse,omitempty"`
 
 	Cron cron.Config `yaml:"cron,omitempty" toml:"cron,omitempty"`
 	// Unified data sources configuration
