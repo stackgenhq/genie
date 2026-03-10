@@ -56,38 +56,28 @@ var _ = Describe("Notify Tool", func() {
 
 	Describe("Execution", func() {
 		Context("with invalid inputs", func() {
-			It("should fail if justification is missing", func() {
-				tool := notification.NewNotifyTool(notification.Config{})
-				reqBytes, _ := json.Marshal(map[string]interface{}{
+			DescribeTable("missing fields validation",
+				func(req map[string]interface{}, expectedErr string) {
+					toolInstance := notification.NewNotifyTool(notification.Config{})
+					reqBytes, _ := json.Marshal(req)
+					_, err := toolInstance.Call(ctx, reqBytes)
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring(expectedErr))
+				},
+				Entry("justification is missing", map[string]interface{}{
 					"agent_name": "TestAgent",
 					"message":    "Help!",
-				})
-				_, err := tool.Call(ctx, reqBytes)
-				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(ContainSubstring("justification is required"))
-			})
-
-			It("should fail if agent_name is missing", func() {
-				tool := notification.NewNotifyTool(notification.Config{})
-				reqBytes, _ := json.Marshal(map[string]interface{}{
+				}, "missing fields: justification"),
+				Entry("agent_name is missing", map[string]interface{}{
 					"justification": "Needs help",
 					"message":       "Help!",
-				})
-				_, err := tool.Call(ctx, reqBytes)
-				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(ContainSubstring("agent_name is required"))
-			})
-
-			It("should fail if message is missing", func() {
-				tool := notification.NewNotifyTool(notification.Config{})
-				reqBytes, _ := json.Marshal(map[string]interface{}{
+				}, "missing fields: agent_name"),
+				Entry("message is missing", map[string]interface{}{
 					"justification": "Needs help",
 					"agent_name":    "TestAgent",
-				})
-				_, err := tool.Call(ctx, reqBytes)
-				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(ContainSubstring("message is required"))
-			})
+				}, "missing fields: message"),
+				Entry("all fields missing", map[string]interface{}{}, "missing fields: justification, agent_name, message"),
+			)
 		})
 
 		Context("with valid inputs and no config", func() {
