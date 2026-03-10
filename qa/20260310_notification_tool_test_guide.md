@@ -24,9 +24,9 @@ webhook_url = "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
     - The agent should successfully execute the `notify` tool.
     - A message should appear in the configured Slack channel in the format:
       ```
-      [Testing Genie Slack integration] Requires your attention. 
-      Agent: [Agent Name]
+      Agent [Agent Name] requires assistance.
       Justification: Verification testing
+      Message: Testing Genie Slack integration
       ```
 
 ## Section 2: Webhooks Integration
@@ -106,7 +106,7 @@ Configure at least two providers in your `genie.toml` (e.g., Slack and a Webhook
 ### Test Case 6.1: Invalid Provider Credentials
 1. Configure a provider with invalid credentials (e.g., a dummy Slack webhook URL).
 2. Run a notification test.
-3. **Expected Result**: The tool execution should fail (or return an error string to the model), and an error log should be generated indicating the failure for that specific provider.
+3. **Expected Result**: The notification for the misconfigured provider should fail and generate an error or warning log indicating the failure for that specific provider, but the overall tool execution may still be reported as successful as long as at least one other configured provider succeeds.
 
 ### Test Case 6.2: Missing Required Fields
 If trying specifically to invoke the tool directly, instruct the agent to omit the justification.
