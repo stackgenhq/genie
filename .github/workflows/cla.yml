@@ -31,4 +31,4 @@ jobs:
           path-to-signatures: 'signatures/version1/cla.json'
           path-to-document: 'https://github.com/stackgenhq/genie/blob/main/CLA.md'
           branch: 'cla'
-          allowlist: dependabot[bot],greenkeeper[bot]
+          allowlist: dependabot[bot],greenkeeper[bot],step-security-bot
