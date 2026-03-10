@@ -120,9 +120,22 @@ fmt/fix:
 .PHONY: license/check
 license/check: ## Check that all files have correct SPDX headers
 	@echo "Checking license headers..."
-	@./scripts/add-spdx-headers.sh
-	@if ! git diff --exit-code; then \
-		echo "Missing or incorrect SPDX license headers found. The script has fixed them, please commit the changes."; \
+	@FAIL=0; \
+	for f in $$(find pkg cmd -name "*.go" -not -path "*/*fakes*" -type f); do \
+		if [[ "$$f" == pkg/reactree/* ]] || [[ "$$f" == pkg/halguard/* ]] || [[ "$$f" == pkg/orchestrator/* ]] || [[ "$$f" == pkg/semanticrouter/* ]]; then \
+			if ! grep -q "SPDX-License-Identifier: BUSL-1.1" "$$f"; then \
+				echo "Missing BSL header: $$f"; \
+				FAIL=1; \
+			fi \
+		else \
+			if ! grep -q "SPDX-License-Identifier: Apache-2.0" "$$f"; then \
+				echo "Missing Apache header: $$f"; \
+				FAIL=1; \
+			fi \
+		fi \
+	done; \
+	if [ $$FAIL -ne 0 ]; then \
+		echo "Missing or incorrect SPDX license headers found. Please add them manually."; \
 		exit 1; \
 	fi
 

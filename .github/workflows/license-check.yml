@@ -18,13 +18,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Verify SPDX Headers
-        run: |
-          chmod +x ./scripts/add-spdx-headers.sh
-          ./scripts/add-spdx-headers.sh
-          if ! git diff --exit-code; then
-            echo "::error::Missing or incorrect SPDX license headers found! Run './scripts/add-spdx-headers.sh' locally and commit the changes."
-            exit 1
-          fi
+        run: make license/check
