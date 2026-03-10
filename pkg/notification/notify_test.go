@@ -50,7 +50,7 @@ var _ = Describe("Notify Tool", func() {
 			Expect(callable).NotTo(BeNil())
 			toolInfo := callable.(tool.Tool)
 			Expect(toolInfo.Declaration().Name).To(Equal("notify"))
-			Expect(toolInfo.Declaration().Description).To(ContainSubstring("Notify users"))
+			Expect(toolInfo.Declaration().Description).To(ContainSubstring("Send notifications, alerts, or messages"))
 		})
 	})
 

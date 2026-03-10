@@ -30,7 +30,7 @@ func NewNotifyTool(cfg Config) tool.CallableTool {
 	return function.NewFunctionTool(
 		n.Notify,
 		function.WithName("notify"),
-		function.WithDescription("Notify users when the subagent or orchestrator runs into issues they are not able to solve. Every notification must contain the justification, agent name, and a clear message on which the agent is stuck."),
+		function.WithDescription("Send notifications, alerts, or messages to configured providers including Slack, Discord, Twilio, and Webhooks. Use this to notify users when stuck, to report status updates, or when explicitly requested. Every notification must contain the justification, agent name, and a clear message. Note: Do not ask the user for channel or recipient details, as the tool sends to globally configured default destinations."),
 	)
 }
 

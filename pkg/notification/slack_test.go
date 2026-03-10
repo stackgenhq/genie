@@ -23,9 +23,12 @@ var _ = Describe("Slack Notification", func() {
 			Expect(r.Method).To(Equal("POST"))
 			Expect(r.Header.Get("Content-Type")).To(Equal("application/json"))
 
+			defer GinkgoRecover()
 			var payload map[string]string
 			json.NewDecoder(r.Body).Decode(&payload)
-			Expect(payload["text"]).To(ContainSubstring("*Justification:* Stuck"))
+			Expect(payload["justification"]).To(ContainSubstring("Stuck"))
+			Expect(payload["agentName"]).To(Equal("Debugger"))
+			Expect(payload["message"]).To(Equal("Cannot find syntax error"))
 
 			w.WriteHeader(http.StatusOK)
 		}))

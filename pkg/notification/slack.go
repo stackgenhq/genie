@@ -11,8 +11,11 @@ import (
 )
 
 func sendSlack(ctx context.Context, webhookURL string, notifyReq NotifyRequest) error {
-	msg := fmt.Sprintf("🚨 *Agent %s requires assistance*\n*Justification:* %s\n*Message:* %s", notifyReq.AgentName, notifyReq.Justification, notifyReq.Message)
-	payload := map[string]string{"text": msg}
+	payload := map[string]string{
+		"Message":       notifyReq.Message,
+		"agent_name":    notifyReq.AgentName,
+		"Justification": notifyReq.Justification,
+	}
 	body, _ := json.Marshal(payload)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewBuffer(body))
