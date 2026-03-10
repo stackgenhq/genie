@@ -94,4 +94,24 @@ var _ = Describe("Notify Tool", func() {
 			})
 		})
 	})
+	Describe("Config", func() {
+		DescribeTable("IsEmpty",
+			func(cfg notification.Config, expected bool) {
+				Expect(cfg.IsEmpty()).To(Equal(expected))
+			},
+			Entry("fully empty config", notification.Config{}, true),
+			Entry("with slack configured", notification.Config{
+				Slack: []notification.SlackConfig{{WebhookURL: "https://hooks.slack.com/test"}},
+			}, false),
+			Entry("with webhook configured", notification.Config{
+				Webhooks: []notification.WebhookConfig{{URL: "https://example.com/hook"}},
+			}, false),
+			Entry("with twilio configured", notification.Config{
+				Twilio: []notification.TwilioConfig{{AccountSID: "AC123", AuthToken: "tok", From: "+1", To: "+2"}},
+			}, false),
+			Entry("with discord configured", notification.Config{
+				Discord: []notification.DiscordConfig{{WebhookURL: "https://discord.com/api/webhooks/test"}},
+			}, false),
+		)
+	})
 })
