@@ -26,3 +26,7 @@ type Config struct {
 	Twilio   []TwilioConfig  `yaml:"twilio,omitempty" toml:"twilio,omitempty"`
 	Discord  []DiscordConfig `yaml:"discord,omitempty" toml:"discord,omitempty"`
 }
+
+func (c Config) IsEmpty() bool {
+	return len(c.Slack) == 0 && len(c.Webhooks) == 0 && len(c.Twilio) == 0 && len(c.Discord) == 0
+}

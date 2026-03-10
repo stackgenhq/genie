@@ -790,9 +790,12 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 		doctool.NewToolProvider(),
 		codeskim.NewToolProvider(),
 		ocrtool.NewToolProvider(),
-		tools.Tools{notification.NewNotifyTool(a.cfg.Notification)},
 		tools.Tools(sqltool.NewToolProvider(sp).GetTools("sql")),
 		tools.Tools(calendar.NewToolProvider(sp).GetTools("google_calendar")),
+	}
+	// Add notification tool if configured
+	if !a.cfg.Notification.IsEmpty() {
+		providers = append(providers, tools.Tools{notification.NewNotifyTool(a.cfg.Notification)})
 	}
 
 	// --- Google Contacts (conditional — only when OAuth credentials are available) ---

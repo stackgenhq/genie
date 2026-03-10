@@ -57,8 +57,7 @@
             retry: { enabled: false, max_attempts: 3, initial_backoff: '500ms', max_backoff: '10s' },
             metrics: { enabled: false, prefix: 'tools' },
             tracing: { enabled: false },
-            sanitize: { enabled: false, replacement: '[REDACTED]', per_tool: '' },
-            validation: { enabled: false }
+            sanitize: { enabled: false, replacement: '[REDACTED]', per_tool: '' }
         },
         db_config: { db_file: '' },
 
@@ -865,10 +864,7 @@
                 fieldToggle('Hide Secrets', tw.sanitize.enabled, function (v) { tw.sanitize.enabled = v; renderAll(); }, 'Automatically remove sensitive information from what tools return.'),
                 tw.sanitize.enabled ? fieldText('Replacement Word', tw.sanitize.replacement, function (v) { tw.sanitize.replacement = v; renderOutput(); }, '[REDACTED]', 'The word to show where a secret was removed.') : null,
                 tw.sanitize.enabled ? fieldText('Specific Hidden Words', tw.sanitize.per_tool, function (v) { tw.sanitize.per_tool = v; renderOutput(); }, 'read_file:API_KEY|password', 'Hide custom labels for specific tools (e.g., tell the file reader to hide "API_KEY").') : null
-            ].filter(Boolean)),
-            el('div', { className: 'grid grid-cols-1 sm:grid-cols-3 gap-4 mt-2' }, [
-                fieldToggle('Input Checking', tw.validation.enabled, function (v) { tw.validation.enabled = v; renderOutput(); }, 'Ensure the AI provides exactly everything required before it can use a tool.')
-            ])
+            ].filter(Boolean))
         ]));
     }
 
@@ -1597,11 +1593,6 @@
                     lines.push(k + ' = [' + perToolSan[k].map(q).join(', ') + ']');
                 });
             }
-            lines.push('');
-        }
-        if (tw.validation.enabled) {
-            lines.push('[toolwrap.validation]');
-            lines.push('enabled = true');
             lines.push('');
         }
     }
