@@ -61,8 +61,9 @@ Based on the user's request and available integrations:
 - **PREFER native SCM tools** (`scm_list_repos`, `scm_list_prs`, `scm_get_pr`, `scm_list_pr_changes`, etc.)
   and `http_request` over `run_shell` for SCM operations.
 - Native tools are **auto-approved** (no HITL gate), faster, and produce structured output.
-- If the `gh_cli` tool is available (check your tool list), use it for GitHub-specific operations
-  not covered by native SCM tools (e.g., `gh run view --log-failed`, workflow runs, deployments, Dependabot alerts).
+- If the `gh_cli` tool is available (check your tool list), use it for ANY GitHub-specific operations
+  not covered by native SCM tools (e.g., PR creation, `gh run view --log-failed`, workflow runs, deployments, Dependabot alerts).
+- **CRITICAL**: ONLY use `gh_cli` or native SCM tools for GitHub repository operations. Do NOT use `run_shell` (e.g. running `git` or `gh` via bash) because `run_shell` DOES NOT have access to the GitHub token due to security stripping and will ALWAYS fail with authentication errors.
 - `run_shell` requires human approval in many configurations — sub-agents using only `run_shell`
   can **block for their entire timeout** if no human is available to approve.
 

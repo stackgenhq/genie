@@ -11,9 +11,13 @@ import (
 	"github.com/stackgenhq/genie/pkg/httputil"
 )
 
-func sendTwilio(ctx context.Context, accountSID, authToken, from, to string, notifyReq NotifyRequest) error {
+func sendTwilio(ctx context.Context, accountSID, authToken, from, to, baseURL string, notifyReq NotifyRequest) error {
 	msg := fmt.Sprintf("Agent %s requires assistance.\nJustification: %s\nMessage: %s", notifyReq.AgentName, notifyReq.Justification, notifyReq.Message)
-	apiURL := fmt.Sprintf("https://api.twilio.com/2010-04-01/Accounts/%s/Messages.json", accountSID)
+	host := "https://api.twilio.com"
+	if baseURL != "" {
+		host = baseURL
+	}
+	apiURL := fmt.Sprintf("%s/2010-04-01/Accounts/%s/Messages.json", host, accountSID)
 
 	data := url.Values{}
 	data.Set("To", to)

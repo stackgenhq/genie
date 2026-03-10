@@ -563,13 +563,12 @@
                     el('button', { className: 'btn-remove', onClick: function () { n.slack.splice(i, 1); renderAll(); } }, '✕')
                 ]),
                 el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
-                    fieldEnvVar('Webhook URL', s.webhook_url, function (v) { s.webhook_url = v; renderOutput(); }, 'SLACK_WEBHOOK_URL', 'Slack incoming webhook URL for the channel'),
-                    fieldText('Channel Name', s.channel, function (v) { s.channel = v; renderOutput(); }, '#genie-alerts', 'Optional: channel name to override webhook default')
+                    fieldEnvVar('Webhook URL', s.webhook_url, function (v) { s.webhook_url = v; renderOutput(); }, 'SLACK_WEBHOOK_URL', 'Slack incoming webhook URL for the channel')
                 ])
             ]));
         });
         c.appendChild(
-            el('button', { className: 'btn-add mt-2', onClick: function () { n.slack.push({ webhook_url: '', channel: '' }); renderAll(); } }, '+ Add Slack Channel')
+            el('button', { className: 'btn-add mt-2', onClick: function () { n.slack.push({ webhook_url: '' }); renderAll(); } }, '+ Add Slack Channel')
         );
 
         // Webhooks
@@ -584,15 +583,13 @@
                     el('button', { className: 'btn-remove', onClick: function () { n.webhooks.splice(i, 1); renderAll(); } }, '✕')
                 ]),
                 el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
-                    fieldText('Name', w.name, function (v) { w.name = v; renderOutput(); }, 'my-alert-system', 'A friendly name for the webhook'),
                     fieldText('URL', w.url, function (v) { w.url = v; renderOutput(); }, 'https://api.example.com/alerts', 'The HTTP endpoint to send notifications to'),
-                    fieldText('Method', w.method, function (v) { w.method = v; renderOutput(); }, 'POST', 'HTTP method (e.g., POST, PUT)'),
                     fieldText('Headers (one per line: Name: value)', headersMapToLines(w.headers), function (v) { w.headers = parseHeadersLines(v); renderOutput(); }, 'Content-Type: application/json', 'Custom HTTP headers')
                 ])
             ]));
         });
         c.appendChild(
-            el('button', { className: 'btn-add mt-2', onClick: function () { n.webhooks.push({ name: '', url: '', method: 'POST', headers: {} }); renderAll(); } }, '+ Add Webhook')
+            el('button', { className: 'btn-add mt-2', onClick: function () { n.webhooks.push({ url: '', headers: {} }); renderAll(); } }, '+ Add Webhook')
         );
 
         // Discord
@@ -629,13 +626,13 @@
                 el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
                     fieldEnvVar('Account SID', t.account_sid, function (v) { t.account_sid = v; renderOutput(); }, 'TWILIO_ACCOUNT_SID', 'Your Twilio Account SID'),
                     fieldEnvVar('Auth Token', t.auth_token, function (v) { t.auth_token = v; renderOutput(); }, 'TWILIO_AUTH_TOKEN', 'Your Twilio Auth Token'),
-                    fieldText('From Phone Number', t.from_number, function (v) { t.from_number = v; renderOutput(); }, '+15017122661', 'Your Twilio phone number (e.g., +15017122661)'),
-                    fieldText('To Phone Number', t.to_number, function (v) { t.to_number = v; renderOutput(); }, '+15558675310', 'Recipient phone number (e.g., +15558675310)')
+                    fieldText('From Phone Number', t.from, function (v) { t.from = v; renderOutput(); }, '+15017122661', 'Your Twilio phone number (e.g., +15017122661)'),
+                    fieldText('To Phone Number', t.to, function (v) { t.to = v; renderOutput(); }, '+15558675310', 'Recipient phone number (e.g., +15558675310)')
                 ])
             ]));
         });
         c.appendChild(
-            el('button', { className: 'btn-add mt-2', onClick: function () { n.twilio.push({ account_sid: '', auth_token: '', from_number: '', to_number: '' }); renderAll(); } }, '+ Add Twilio Recipient')
+            el('button', { className: 'btn-add mt-2', onClick: function () { n.twilio.push({ account_sid: '', auth_token: '', from: '', to: '' }); renderAll(); } }, '+ Add Twilio Recipient')
         );
     }
 
@@ -1319,7 +1316,6 @@
             if (s.webhook_url) {
                 lines.push('[[notification.slack]]');
                 lines.push('webhook_url = ' + q('${' + s.webhook_url + '}'));
-                if (s.channel) lines.push('channel = ' + q(s.channel));
                 lines.push('');
             }
         });
@@ -1327,9 +1323,7 @@
         n.webhooks.forEach(function (w) {
             if (w.url) {
                 lines.push('[[notification.webhooks]]');
-                if (w.name) lines.push('name = ' + q(w.name));
                 lines.push('url = ' + q(w.url));
-                if (w.method) lines.push('method = ' + q(w.method));
                 if (Object.keys(w.headers).length > 0) {
                     lines.push('[notification.webhooks.headers]');
                     Object.keys(w.headers).forEach(function (k) {
@@ -1349,12 +1343,12 @@
         });
 
         n.twilio.forEach(function (t) {
-            if (t.account_sid || t.auth_token || t.from_number || t.to_number) {
+            if (t.account_sid || t.auth_token || t.from || t.to) {
                 lines.push('[[notification.twilio]]');
                 lines.push('account_sid = ' + q('${' + t.account_sid + '}'));
                 lines.push('auth_token = ' + q('${' + t.auth_token + '}'));
-                lines.push('from_number = ' + q(t.from_number));
-                lines.push('to_number = ' + q(t.to_number));
+                lines.push('from = ' + q(t.from));
+                lines.push('to = ' + q(t.to));
                 lines.push('');
             }
         });
@@ -1992,7 +1986,6 @@
             n.slack.forEach(function (s) {
                 if (s.webhook_url) {
                     lines.push('    - webhook_url: ' + yq('${' + s.webhook_url + '}'));
-                    if (s.channel) lines.push('      channel: ' + yq(s.channel));
                 }
             });
         }
@@ -2002,8 +1995,6 @@
             n.webhooks.forEach(function (w) {
                 if (w.url) {
                     lines.push('    - url: ' + yq(w.url));
-                    if (w.name) lines.push('      name: ' + yq(w.name));
-                    if (w.method) lines.push('      method: ' + yq(w.method));
                     if (Object.keys(w.headers).length > 0) {
                         lines.push('      headers:');
                         Object.keys(w.headers).forEach(function (k) {
@@ -2026,11 +2017,11 @@
         if (n.twilio.length > 0) {
             lines.push('  twilio:');
             n.twilio.forEach(function (t) {
-                if (t.account_sid || t.auth_token || t.from_number || t.to_number) {
+                if (t.account_sid || t.auth_token || t.from || t.to) {
                     lines.push('    - account_sid: ' + yq('${' + t.account_sid + '}'));
                     lines.push('      auth_token: ' + yq('${' + t.auth_token + '}'));
-                    lines.push('      from_number: ' + yq(t.from_number));
-                    lines.push('      to_number: ' + yq(t.to_number));
+                    lines.push('      from: ' + yq(t.from));
+                    lines.push('      to: ' + yq(t.to));
                 }
             });
         }

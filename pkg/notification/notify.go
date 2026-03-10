@@ -102,7 +102,7 @@ func (n *notifyTool) Notify(ctx context.Context, req NotifyRequest) (string, err
 			continue
 		}
 		errGroup.Go(func() error {
-			if err := sendTwilio(ctx, twi.AccountSID, twi.AuthToken, twi.From, twi.To, req); err != nil {
+			if err := sendTwilio(ctx, twi.AccountSID, twi.AuthToken, twi.From, twi.To, twi.BaseURL, req); err != nil {
 				errsMu.Lock()
 				errs = append(errs, fmt.Sprintf("twilio error: %v", err))
 				errsMu.Unlock()
@@ -142,6 +142,15 @@ func (n *notifyTool) Notify(ctx context.Context, req NotifyRequest) (string, err
 
 	if notifiedCount.Load() == 0 && len(errs) > 0 {
 		return "", fmt.Errorf("Failed to send notification to all configured endpoints. Errors: %s", strings.Join(errs, "; "))
+	}
+
+	if len(errs) > 0 {
+		return fmt.Sprintf(
+			"Successfully sent notification through %d endpoint(s), but %d endpoint(s) failed: %s",
+			notifiedCount.Load(),
+			len(errs),
+			strings.Join(errs, "; "),
+		), nil
 	}
 
 	return fmt.Sprintf("Successfully sent notification through %d endpoint(s).", notifiedCount.Load()), nil
