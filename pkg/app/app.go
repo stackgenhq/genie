@@ -100,17 +100,18 @@ type Application struct {
 	auditPath  string
 
 	// --- populated during Bootstrap ---
-	db            *gorm.DB
-	toolRegistry  *tools.Registry
-	codeOwner     orchestrator.Orchestrator
-	approvalStore hitl.ApprovalStore
-	cronStore     cron.ICronStore
-	msgr          messenger.Messenger
-	notifierStore *messengerhitl.NotifierStore
-	browser       *browser.Browser
-	mcpClient     *mcp.Client
-	auditor       audit.Auditor
-	sp            security.SecretProvider // same provider used everywhere; audits lookups when [security.secrets] set
+	db               *gorm.DB
+	toolRegistry     *tools.Registry
+	codeOwner        orchestrator.Orchestrator
+	approvalStore    hitl.ApprovalStore
+	cronStore        cron.ICronStore
+	cronToolProvider *cron.ToolProvider
+	msgr             messenger.Messenger
+	notifierStore    *messengerhitl.NotifierStore
+	browser          *browser.Browser
+	mcpClient        *mcp.Client
+	auditor          audit.Auditor
+	sp               security.SecretProvider // same provider used everywhere; audits lookups when [security.secrets] set
 
 	// pendingReplays holds approvals recovered during Bootstrap that can be
 	// replayed once the chat handler is available in Start().
@@ -452,6 +453,12 @@ func (a *Application) Start(ctx context.Context) error {
 		return bgWorker.HandleEvent(ctx, req)
 	}
 	cronScheduler := a.cfg.Cron.NewScheduler(a.cronStore, dispatcher)
+
+	// Inject the dispatcher into the cron tool provider so the
+	// trigger_recurring_task tool can dispatch tasks on demand.
+	if a.cronToolProvider != nil {
+		a.cronToolProvider.SetDispatcher(dispatcher)
+	}
 
 	if err := cronScheduler.Start(ctx); err != nil {
 		log.Warn("Failed to start cron scheduler", "error", err)
@@ -964,7 +971,8 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 	log.Debug("Messenger send_message tool provider added")
 
 	// --- Cron tool ---
-	providers = append(providers, cron.NewToolProvider(a.cronStore))
+	a.cronToolProvider = cron.NewToolProvider(a.cronStore)
+	providers = append(providers, a.cronToolProvider)
 	log.Debug("Cron tool provider added")
 
 	// --- File tools (scoped to working directory) ---

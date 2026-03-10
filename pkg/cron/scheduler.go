@@ -245,11 +245,14 @@ func (s *Scheduler) executeAndAdvance(ctx context.Context, task CronTask) error 
 	}
 
 	// Dispatch.
+	// Inject notify-on-failure instruction at dispatch-time (not persisted)
+	// so it applies to all cron tasks and avoids duplication on upsert.
+	dispatchAction := task.Action + "\n\nCRITICAL INSTRUCTION: If you are unable to successfully complete your assigned task or encounter blocking issues during this run, you MUST use the notify tool (if available) to alert the user."
 	payload, _ := json.Marshal(map[string]string{
 		"task_name":  task.Name,
-		"action":     task.Action,
+		"action":     dispatchAction,
 		"expression": task.Expression,
-		"message":    fmt.Sprintf("Cron task [%s]: %s", task.Name, task.Action),
+		"message":    fmt.Sprintf("Cron task [%s]: %s", task.Name, dispatchAction),
 	})
 	runID, dispatchErr := s.dispatcher(ctx, agui.EventRequest{
 		Source:  "cron:" + task.Name,

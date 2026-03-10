@@ -53,6 +53,12 @@ type RecentFailuresRequest struct {
 	Limit int
 }
 
+// RecentRunsRequest specifies how many recent runs to retrieve for a specific task.
+type RecentRunsRequest struct {
+	TaskID uuid.UUID
+	Limit  int
+}
+
 // ICronStore defines the repository interface for cron task persistence.
 // Implementations must be safe for concurrent use.
 //
@@ -60,10 +66,14 @@ type RecentFailuresRequest struct {
 type ICronStore interface {
 	// ListTasks returns all cron tasks, optionally filtered to enabled-only.
 	ListTasks(ctx context.Context, req ListTasksRequest) ([]CronTask, error)
+	// GetTask returns a single cron task by ID.
+	GetTask(ctx context.Context, id uuid.UUID) (*CronTask, error)
 	// CreateTask persists a new cron task, upserting on name conflict.
 	CreateTask(ctx context.Context, req CreateTaskRequest) (*CronTask, error)
 	// DeleteTask removes a cron task by ID.
 	DeleteTask(ctx context.Context, req DeleteTaskRequest) error
+	// SetEnabled updates the enabled flag for a task (pause/resume).
+	SetEnabled(ctx context.Context, taskID uuid.UUID, enabled bool) error
 	// DueTasks returns all enabled tasks whose NextRunAt <= now.
 	DueTasks(ctx context.Context, now time.Time) ([]CronTask, error)
 	// MarkTriggered sets LastTriggeredAt for a task.
@@ -76,6 +86,8 @@ type ICronStore interface {
 	UpdateRun(ctx context.Context, req UpdateRunRequest) error
 	// RecentFailures returns the most recent failed cron runs.
 	RecentFailures(ctx context.Context, req RecentFailuresRequest) ([]CronHistory, error)
+	// RecentRuns returns the most recent runs for a specific cron task.
+	RecentRuns(ctx context.Context, req RecentRunsRequest) ([]CronHistory, error)
 	// CleanupHistory deletes cron_history entries older than the given duration.
 	CleanupHistory(ctx context.Context, olderThan time.Duration) (int64, error)
 }
@@ -95,6 +107,14 @@ func NewStore(db *gorm.DB) *Store {
 // ListTasks returns all cron tasks, optionally filtered to enabled-only.
 // Without this method, the scheduler would have no way to discover which
 // tasks to register on startup.
+func (s *Store) GetTask(ctx context.Context, id uuid.UUID) (*CronTask, error) {
+	var task CronTask
+	if err := s.db.WithContext(ctx).Where("id = ?", id).First(&task).Error; err != nil {
+		return nil, fmt.Errorf("failed to get cron task: %w", err)
+	}
+	return &task, nil
+}
+
 func (s *Store) ListTasks(ctx context.Context, req ListTasksRequest) ([]CronTask, error) {
 	var tasks []CronTask
 	query := s.db.WithContext(ctx)
@@ -148,6 +168,21 @@ func (s *Store) DeleteTask(ctx context.Context, req DeleteTaskRequest) error {
 	result := s.db.WithContext(ctx).Where("id = ?", req.ID).Delete(&CronTask{})
 	if result.Error != nil {
 		return fmt.Errorf("failed to delete cron task: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("cron task not found: %s", req.ID)
+	}
+	return nil
+}
+
+// SetEnabled updates the enabled flag for a task.
+func (s *Store) SetEnabled(ctx context.Context, taskID uuid.UUID, enabled bool) error {
+	result := s.db.WithContext(ctx).
+		Model(&CronTask{}).
+		Where("id = ?", taskID).
+		Update("enabled", enabled)
+	if result.Error != nil {
+		return fmt.Errorf("failed to set enabled for cron task: %w", result.Error)
 	}
 	return nil
 }
@@ -249,6 +284,24 @@ func (s *Store) RecentFailures(ctx context.Context, req RecentFailuresRequest) (
 		return nil, fmt.Errorf("failed to query recent cron failures: %w", err)
 	}
 	return failures, nil
+}
+
+// RecentRuns returns the most recent runs for a specific cron task, ordered by
+// started_at descending.
+func (s *Store) RecentRuns(ctx context.Context, req RecentRunsRequest) ([]CronHistory, error) {
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+	var runs []CronHistory
+	if err := s.db.WithContext(ctx).
+		Where("task_id = ?", req.TaskID).
+		Order("started_at DESC").
+		Limit(limit).
+		Find(&runs).Error; err != nil {
+		return nil, fmt.Errorf("failed to query recent cron runs: %w", err)
+	}
+	return runs, nil
 }
 
 // CleanupHistory deletes cron_history entries older than the given duration.

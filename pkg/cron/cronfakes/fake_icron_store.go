@@ -65,6 +65,20 @@ type FakeICronStore struct {
 		result1 []cron.CronTask
 		result2 error
 	}
+	GetTaskStub        func(context.Context, uuid.UUID) (*cron.CronTask, error)
+	getTaskMutex       sync.RWMutex
+	getTaskArgsForCall []struct {
+		arg1 context.Context
+		arg2 uuid.UUID
+	}
+	getTaskReturns struct {
+		result1 *cron.CronTask
+		result2 error
+	}
+	getTaskReturnsOnCall map[int]struct {
+		result1 *cron.CronTask
+		result2 error
+	}
 	ListTasksStub        func(context.Context, cron.ListTasksRequest) ([]cron.CronTask, error)
 	listTasksMutex       sync.RWMutex
 	listTasksArgsForCall []struct {
@@ -106,6 +120,20 @@ type FakeICronStore struct {
 		result1 []cron.CronHistory
 		result2 error
 	}
+	RecentRunsStub        func(context.Context, cron.RecentRunsRequest) ([]cron.CronHistory, error)
+	recentRunsMutex       sync.RWMutex
+	recentRunsArgsForCall []struct {
+		arg1 context.Context
+		arg2 cron.RecentRunsRequest
+	}
+	recentRunsReturns struct {
+		result1 []cron.CronHistory
+		result2 error
+	}
+	recentRunsReturnsOnCall map[int]struct {
+		result1 []cron.CronHistory
+		result2 error
+	}
 	RecordRunStub        func(context.Context, cron.RecordRunRequest) (*cron.CronHistory, error)
 	recordRunMutex       sync.RWMutex
 	recordRunArgsForCall []struct {
@@ -119,6 +147,19 @@ type FakeICronStore struct {
 	recordRunReturnsOnCall map[int]struct {
 		result1 *cron.CronHistory
 		result2 error
+	}
+	SetEnabledStub        func(context.Context, uuid.UUID, bool) error
+	setEnabledMutex       sync.RWMutex
+	setEnabledArgsForCall []struct {
+		arg1 context.Context
+		arg2 uuid.UUID
+		arg3 bool
+	}
+	setEnabledReturns struct {
+		result1 error
+	}
+	setEnabledReturnsOnCall map[int]struct {
+		result1 error
 	}
 	SetNextRunStub        func(context.Context, uuid.UUID, time.Time) error
 	setNextRunMutex       sync.RWMutex
@@ -406,6 +447,71 @@ func (fake *FakeICronStore) DueTasksReturnsOnCall(i int, result1 []cron.CronTask
 	}{result1, result2}
 }
 
+func (fake *FakeICronStore) GetTask(arg1 context.Context, arg2 uuid.UUID) (*cron.CronTask, error) {
+	fake.getTaskMutex.Lock()
+	ret, specificReturn := fake.getTaskReturnsOnCall[len(fake.getTaskArgsForCall)]
+	fake.getTaskArgsForCall = append(fake.getTaskArgsForCall, struct {
+		arg1 context.Context
+		arg2 uuid.UUID
+	}{arg1, arg2})
+	stub := fake.GetTaskStub
+	fakeReturns := fake.getTaskReturns
+	fake.recordInvocation("GetTask", []interface{}{arg1, arg2})
+	fake.getTaskMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeICronStore) GetTaskCallCount() int {
+	fake.getTaskMutex.RLock()
+	defer fake.getTaskMutex.RUnlock()
+	return len(fake.getTaskArgsForCall)
+}
+
+func (fake *FakeICronStore) GetTaskCalls(stub func(context.Context, uuid.UUID) (*cron.CronTask, error)) {
+	fake.getTaskMutex.Lock()
+	defer fake.getTaskMutex.Unlock()
+	fake.GetTaskStub = stub
+}
+
+func (fake *FakeICronStore) GetTaskArgsForCall(i int) (context.Context, uuid.UUID) {
+	fake.getTaskMutex.RLock()
+	defer fake.getTaskMutex.RUnlock()
+	argsForCall := fake.getTaskArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeICronStore) GetTaskReturns(result1 *cron.CronTask, result2 error) {
+	fake.getTaskMutex.Lock()
+	defer fake.getTaskMutex.Unlock()
+	fake.GetTaskStub = nil
+	fake.getTaskReturns = struct {
+		result1 *cron.CronTask
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeICronStore) GetTaskReturnsOnCall(i int, result1 *cron.CronTask, result2 error) {
+	fake.getTaskMutex.Lock()
+	defer fake.getTaskMutex.Unlock()
+	fake.GetTaskStub = nil
+	if fake.getTaskReturnsOnCall == nil {
+		fake.getTaskReturnsOnCall = make(map[int]struct {
+			result1 *cron.CronTask
+			result2 error
+		})
+	}
+	fake.getTaskReturnsOnCall[i] = struct {
+		result1 *cron.CronTask
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *FakeICronStore) ListTasks(arg1 context.Context, arg2 cron.ListTasksRequest) ([]cron.CronTask, error) {
 	fake.listTasksMutex.Lock()
 	ret, specificReturn := fake.listTasksReturnsOnCall[len(fake.listTasksArgsForCall)]
@@ -599,6 +705,71 @@ func (fake *FakeICronStore) RecentFailuresReturnsOnCall(i int, result1 []cron.Cr
 	}{result1, result2}
 }
 
+func (fake *FakeICronStore) RecentRuns(arg1 context.Context, arg2 cron.RecentRunsRequest) ([]cron.CronHistory, error) {
+	fake.recentRunsMutex.Lock()
+	ret, specificReturn := fake.recentRunsReturnsOnCall[len(fake.recentRunsArgsForCall)]
+	fake.recentRunsArgsForCall = append(fake.recentRunsArgsForCall, struct {
+		arg1 context.Context
+		arg2 cron.RecentRunsRequest
+	}{arg1, arg2})
+	stub := fake.RecentRunsStub
+	fakeReturns := fake.recentRunsReturns
+	fake.recordInvocation("RecentRuns", []interface{}{arg1, arg2})
+	fake.recentRunsMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeICronStore) RecentRunsCallCount() int {
+	fake.recentRunsMutex.RLock()
+	defer fake.recentRunsMutex.RUnlock()
+	return len(fake.recentRunsArgsForCall)
+}
+
+func (fake *FakeICronStore) RecentRunsCalls(stub func(context.Context, cron.RecentRunsRequest) ([]cron.CronHistory, error)) {
+	fake.recentRunsMutex.Lock()
+	defer fake.recentRunsMutex.Unlock()
+	fake.RecentRunsStub = stub
+}
+
+func (fake *FakeICronStore) RecentRunsArgsForCall(i int) (context.Context, cron.RecentRunsRequest) {
+	fake.recentRunsMutex.RLock()
+	defer fake.recentRunsMutex.RUnlock()
+	argsForCall := fake.recentRunsArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeICronStore) RecentRunsReturns(result1 []cron.CronHistory, result2 error) {
+	fake.recentRunsMutex.Lock()
+	defer fake.recentRunsMutex.Unlock()
+	fake.RecentRunsStub = nil
+	fake.recentRunsReturns = struct {
+		result1 []cron.CronHistory
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeICronStore) RecentRunsReturnsOnCall(i int, result1 []cron.CronHistory, result2 error) {
+	fake.recentRunsMutex.Lock()
+	defer fake.recentRunsMutex.Unlock()
+	fake.RecentRunsStub = nil
+	if fake.recentRunsReturnsOnCall == nil {
+		fake.recentRunsReturnsOnCall = make(map[int]struct {
+			result1 []cron.CronHistory
+			result2 error
+		})
+	}
+	fake.recentRunsReturnsOnCall[i] = struct {
+		result1 []cron.CronHistory
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *FakeICronStore) RecordRun(arg1 context.Context, arg2 cron.RecordRunRequest) (*cron.CronHistory, error) {
 	fake.recordRunMutex.Lock()
 	ret, specificReturn := fake.recordRunReturnsOnCall[len(fake.recordRunArgsForCall)]
@@ -662,6 +833,69 @@ func (fake *FakeICronStore) RecordRunReturnsOnCall(i int, result1 *cron.CronHist
 		result1 *cron.CronHistory
 		result2 error
 	}{result1, result2}
+}
+
+func (fake *FakeICronStore) SetEnabled(arg1 context.Context, arg2 uuid.UUID, arg3 bool) error {
+	fake.setEnabledMutex.Lock()
+	ret, specificReturn := fake.setEnabledReturnsOnCall[len(fake.setEnabledArgsForCall)]
+	fake.setEnabledArgsForCall = append(fake.setEnabledArgsForCall, struct {
+		arg1 context.Context
+		arg2 uuid.UUID
+		arg3 bool
+	}{arg1, arg2, arg3})
+	stub := fake.SetEnabledStub
+	fakeReturns := fake.setEnabledReturns
+	fake.recordInvocation("SetEnabled", []interface{}{arg1, arg2, arg3})
+	fake.setEnabledMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeICronStore) SetEnabledCallCount() int {
+	fake.setEnabledMutex.RLock()
+	defer fake.setEnabledMutex.RUnlock()
+	return len(fake.setEnabledArgsForCall)
+}
+
+func (fake *FakeICronStore) SetEnabledCalls(stub func(context.Context, uuid.UUID, bool) error) {
+	fake.setEnabledMutex.Lock()
+	defer fake.setEnabledMutex.Unlock()
+	fake.SetEnabledStub = stub
+}
+
+func (fake *FakeICronStore) SetEnabledArgsForCall(i int) (context.Context, uuid.UUID, bool) {
+	fake.setEnabledMutex.RLock()
+	defer fake.setEnabledMutex.RUnlock()
+	argsForCall := fake.setEnabledArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeICronStore) SetEnabledReturns(result1 error) {
+	fake.setEnabledMutex.Lock()
+	defer fake.setEnabledMutex.Unlock()
+	fake.SetEnabledStub = nil
+	fake.setEnabledReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeICronStore) SetEnabledReturnsOnCall(i int, result1 error) {
+	fake.setEnabledMutex.Lock()
+	defer fake.setEnabledMutex.Unlock()
+	fake.SetEnabledStub = nil
+	if fake.setEnabledReturnsOnCall == nil {
+		fake.setEnabledReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.setEnabledReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
 }
 
 func (fake *FakeICronStore) SetNextRun(arg1 context.Context, arg2 uuid.UUID, arg3 time.Time) error {
