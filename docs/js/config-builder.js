@@ -66,6 +66,9 @@
         cron: { enabled: false, tasks: [] },
         security: { secrets: [] },
         pii: { salt: '', entropy_threshold: 4.2, min_secret_length: 12, sensitive_keys: [] },
+        agent_name: '',
+        audit_path: '',
+        persona_token_threshold: 2000,
         disable_pensieve: false,
         persona: { file: '', disable_resume: false },
         halguard: { enable_pre_check: true, enable_post_check: true, light_threshold_chars: 200, full_threshold_chars: 500, cross_model_samples: 3, max_blocks_to_judge: 20, pre_check_threshold: 0.4 },
@@ -788,15 +791,21 @@
         c.appendChild(el('p', { className: 'text-xs text-gray-400 mt-2' },
             'Powered by <a href="https://github.com/aragossa/pii-shield" class="text-purple-500 hover:underline" target="_blank">pii-shield</a> — entropy-based detection with Luhn CC validation, bigram analysis, and deterministic HMAC hashing.'));
 
-        // Pensieve toggle and persona file live in PII section for proximity to security settings.
+        // General agent settings live in PII section for proximity to security settings.
         c.appendChild(el('div', { className: 'mt-6 pt-4', style: 'border-top: 1px solid rgba(0,0,0,0.06)' }, [
-            fieldToggle('Disable Pensieve Tools', state.disable_pensieve, function (v) { state.disable_pensieve = v; renderOutput(); },
-                'Disable context self-management tools (delete_context, check_budget, note, read_notes). ' +
-                'delete_context and note require HITL approval. Based on the StateLM paper (arXiv:2602.12108).'),
+            fieldText('Agent Name', state.agent_name, function (v) { state.agent_name = v; renderOutput(); }, 'my-agent',
+                'User-chosen name for the agent. Gives the agent a personality and sets the default audit log path.'),
+            fieldText('Audit Path', state.audit_path, function (v) { state.audit_path = v; renderOutput(); }, '~/.genie/audit.jsonl',
+                'Overrides the default audit log path. When set, writes to this single file (no date rotation).'),
+            fieldNumber('Persona Token Threshold', state.persona_token_threshold, function (v) { state.persona_token_threshold = v; renderOutput(); }, 0, 1000000,
+                'Max recommended token length for the persona/system prompt. Warning emitted if exceeded (default 2000).'),
             fieldText('Persona File', state.persona.file, function (v) { state.persona.file = v; renderOutput(); }, './STANDARDS.md',
                 'Path to a file whose contents are appended to the agent system prompt as project-level coding standards. Supports absolute paths or paths relative to the working directory.'),
             fieldToggle('Disable Agent Resume Creation', state.persona.disable_resume, function (v) { state.persona.disable_resume = v; renderOutput(); },
-                'Makes the generation of the agent\'s resume optional. If disabled, the persona file is used as is.')
+                'Makes the generation of the agent\'s resume optional. If disabled, the persona file is used as is.'),
+            fieldToggle('Disable Pensieve Tools', state.disable_pensieve, function (v) { state.disable_pensieve = v; renderOutput(); },
+                'Disable context self-management tools (delete_context, check_budget, note, read_notes). ' +
+                'delete_context and note require HITL approval. Based on the StateLM paper (arXiv:2602.12108).')
         ]));
     }
 
@@ -1166,7 +1175,7 @@
     function toToml() {
         var lines = [];
         // Root-level keys must come before any [section] headers in TOML.
-        pensieveToToml(lines);
+        rootLevelToToml(lines);
         personaToToml(lines);
         if (state.providers.length > 0) providersToToml(lines);
 
@@ -1496,10 +1505,13 @@
         lines.push('');
     }
 
-    function pensieveToToml(lines) {
-        if (!state.disable_pensieve) return;
-        lines.push('disable_pensieve = true');
-        lines.push('');
+    function rootLevelToToml(lines) {
+        var hasRoot = false;
+        if (state.agent_name) { lines.push('agent_name = ' + q(state.agent_name)); hasRoot = true; }
+        if (state.persona_token_threshold && state.persona_token_threshold !== 2000) { lines.push('persona_token_threshold = ' + state.persona_token_threshold); hasRoot = true; }
+        if (state.audit_path) { lines.push('audit_path = ' + q(state.audit_path)); hasRoot = true; }
+        if (state.disable_pensieve) { lines.push('disable_pensieve = true'); hasRoot = true; }
+        if (hasRoot) lines.push('');
     }
 
     function securityToToml(lines) {
@@ -1789,7 +1801,7 @@
     function toYaml() {
         var lines = [];
         // Root-level keys first for consistency with TOML output.
-        pensieveToYaml(lines);
+        rootLevelToYaml(lines);
         personaToYaml(lines);
         if (state.providers.length > 0) providersToYaml(lines);
         langfuseToYaml(lines);
@@ -2220,10 +2232,13 @@
         lines.push('');
     }
 
-    function pensieveToYaml(lines) {
-        if (!state.disable_pensieve) return;
-        lines.push('disable_pensieve: true');
-        lines.push('');
+    function rootLevelToYaml(lines) {
+        var hasRoot = false;
+        if (state.agent_name) { lines.push('agent_name: ' + yq(state.agent_name)); hasRoot = true; }
+        if (state.persona_token_threshold && state.persona_token_threshold !== 2000) { lines.push('persona_token_threshold: ' + state.persona_token_threshold); hasRoot = true; }
+        if (state.audit_path) { lines.push('audit_path: ' + yq(state.audit_path)); hasRoot = true; }
+        if (state.disable_pensieve) { lines.push('disable_pensieve: true'); hasRoot = true; }
+        if (hasRoot) lines.push('');
     }
 
     function halguardToYaml(lines) {

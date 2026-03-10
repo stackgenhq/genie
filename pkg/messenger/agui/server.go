@@ -679,7 +679,9 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 
 	// Ensure the generated temp directory is cleaned up after processing (if one was created)
 	if tempDir != "" {
-		defer os.RemoveAll(tempDir)
+		defer func() {
+			_ = os.RemoveAll(tempDir)
+		}()
 	}
 
 	// Augment the message with attachment descriptions (file names, sizes, paths)

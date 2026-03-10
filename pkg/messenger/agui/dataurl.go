@@ -92,22 +92,10 @@ func ExtractDataURLFiles(message string) (cleanMessage string, tempDir string, a
 		}
 		ext = safeExtPattern.ReplaceAllString(ext, "")
 
-		// Save to disk with a secure, OS-generated name by using os.CreateTemp
-		// which prevents any path traversal risk from the extension string.
-		f, err := os.CreateTemp(safeTempDir, "upload_*"+ext)
+		localPath, err := saveDataURLFile(safeTempDir, ext, data)
 		if err != nil {
 			continue
 		}
-		localPath := f.Name()
-		if err := f.Chmod(0o600); err != nil {
-			f.Close()
-			continue
-		}
-		if _, err := f.Write(data); err != nil {
-			f.Close()
-			continue
-		}
-		f.Close()
 
 		attachments = append(attachments, messenger.Attachment{
 			Name:        fileName,
@@ -124,6 +112,28 @@ func ExtractDataURLFiles(message string) (cleanMessage string, tempDir string, a
 	cleanedMsg := strings.TrimSpace(clean.String())
 
 	return cleanedMsg, safeTempDir, attachments
+}
+
+// saveDataURLFile writes the decoded data to a temporary file in safeTempDir
+// and returns the local path to the file.
+func saveDataURLFile(safeTempDir, ext string, data []byte) (string, error) {
+	// Save to disk with a secure, OS-generated name by using os.CreateTemp
+	// which prevents any path traversal risk from the extension string.
+	f, err := os.CreateTemp(safeTempDir, "upload_*"+ext)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+
+	if err := f.Chmod(0o600); err != nil {
+		return "", err
+	}
+	if _, err := f.Write(data); err != nil {
+		return "", err
+	}
+	return f.Name(), nil
 }
 
 // decodeDataURL parses a "data:mime;base64,..." URL and returns the decoded

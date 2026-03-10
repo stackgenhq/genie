@@ -532,7 +532,7 @@ func (ts *toolSet) screenshotAnnotated(ctx context.Context, req ScreenshotAnnota
 	var buf []byte
 	err := ts.b.run(ctx, chromedp.CaptureScreenshot(&buf))
 
-	ts.b.run(context.Background(), chromedp.Evaluate(cleanupScript, nil))
+	_ = ts.b.run(context.Background(), chromedp.Evaluate(cleanupScript, nil))
 
 	if err != nil {
 		return ScreenshotAnnotatedResponse{}, fmt.Errorf("annotated screenshot failed: %w", err)
