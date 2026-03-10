@@ -12,9 +12,9 @@ import (
 
 func sendSlack(ctx context.Context, webhookURL string, notifyReq NotifyRequest) error {
 	payload := map[string]string{
-		"Message":       notifyReq.Message,
-		"agent_name":    notifyReq.AgentName,
-		"Justification": notifyReq.Justification,
+		"message":       notifyReq.Message,
+		"agentName":     notifyReq.AgentName,
+		"justification": notifyReq.Justification,
 	}
 	body, _ := json.Marshal(payload)
 

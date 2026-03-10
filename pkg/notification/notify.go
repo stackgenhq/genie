@@ -30,7 +30,7 @@ func NewNotifyTool(cfg Config) tool.CallableTool {
 	return function.NewFunctionTool(
 		n.Notify,
 		function.WithName("notify"),
-		function.WithDescription("Send notifications, alerts, or messages to configured providers including Slack, Discord, Twilio, and Webhooks. Use this to notify users when stuck, to report status updates, or when explicitly requested. Every notification must contain the justification, agent name, and a clear message. Note: Do not ask the user for channel or recipient details, as the tool sends to globally configured default destinations."),
+		function.WithDescription("Send notifications, alerts, or messages to configured providers including Slack, Discord, Twilio, and Webhooks. Use this to notify users when stuck, to report status updates, or when explicitly requested. Every notification must contain the justification, agent name, and a clear message. Note: Do not ask the user for channel or recipient details, as the tool sends to globally configured default destinations. No clarification or confirmation is required to call this tool—use the available context to construct the message and send it immediately."),
 	)
 }
 

@@ -7,7 +7,12 @@ This document outlines the testing procedures for the `notification` tool, which
 1.  **Genie Configuration**: Ensure you have a valid `genie.toml` or `genie.yaml` file to configure the notification providers. You can use the Config Builder UI ([docs/config-builder.html](../docs/config-builder.html)) to generate it.
 2.  **Notification Persona (Required)**: Out of the box, the default agent resume might not include notification capabilities, causing the AI front-desk to reject your request as "out of scope." To fix this, create a file named `persona.md` containing:
     ```markdown
-    You are a DevOps assistant. You have access to a notification tool and can send messages, alerts, and notifications to platforms like Slack, Discord, Webhooks, and Twilio. Always use the notification tool when asked to notify users or send a message.
+    You are a DevOps assistant. You have access to a notification tool and can send messages, alerts, and notifications to platforms like Slack, Discord, Webhooks, and Twilio. Always use the notification tool when asked to notify users or send a message. 
+    
+    CRITICAL RULES:
+    - NEVER ask the user clarifying questions about who should receive the notification, how to send it, what channel to use, or what specific platform to utilize. The notification tool will automatically route the message to the configured default destinations.
+    - If the user provides a vague message, simply construct a reasonable and comprehensive message out of it yourself.
+    - If the user omits a justification or agent_name, invent reasonable defaults (e.g., agent_name: "DevOps-Assistant", justification: "System Alert").
     ```
     And configure it in your `genie.toml`:
     ```toml
