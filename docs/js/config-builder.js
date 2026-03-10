@@ -781,11 +781,14 @@
         c.innerHTML = '';
         var tw = state.toolwrap;
 
+        c.appendChild(el('p', { className: 'text-sm text-gray-500 mb-6' },
+            'The Tool Middleware is a safety layer between your AI agent and the tools it uses. Turn on the options below to protect your tools from being overused, handle crashes gracefully, and ensure data stays secure.'));
+
         // Context Mode
         c.appendChild(el('div', { className: 'space-y-3 mb-4' }, [
-            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Context Mode'),
+            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Output Compression (Context Mode)'),
             el('div', { className: 'grid grid-cols-1 sm:grid-cols-3 gap-4' }, [
-                fieldToggle('Enabled', tw.context_mode.enabled, function (v) { tw.context_mode.enabled = v; renderAll(); }, 'Local BM25 compression for large tool outputs — reduces token usage without LLM calls. Disabled by default.'),
+                fieldToggle('Enabled', tw.context_mode.enabled, function (v) { tw.context_mode.enabled = v; renderAll(); }, 'Automatically shrink large tool outputs to save money and AI memory. Disabled by default.'),
                 tw.context_mode.enabled ? fieldNumber('Threshold (chars)', tw.context_mode.threshold, function (v) { tw.context_mode.threshold = v; renderOutput(); }, 1000, 500000, 'Character count above which responses are compressed (default 20000 ≈ 5k tokens)') : null,
                 tw.context_mode.enabled ? fieldNumber('Max Chunks', tw.context_mode.max_chunks, function (v) { tw.context_mode.max_chunks = v; renderOutput(); }, 1, 100, 'Maximum number of top-scored chunks returned (default 10)') : null,
                 tw.context_mode.enabled ? fieldNumber('Chunk Size (chars)', tw.context_mode.chunk_size, function (v) { tw.context_mode.chunk_size = v; renderOutput(); }, 100, 10000, 'Target character count per chunk (default 800)') : null,
@@ -796,75 +799,75 @@
 
         // Timeout
         c.appendChild(el('div', { className: 'space-y-3 mb-4' }, [
-            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Timeout'),
+            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Time Limits (Timeout)'),
             el('div', { className: 'grid grid-cols-1 sm:grid-cols-3 gap-4' }, [
-                fieldToggle('Enabled', tw.timeout.enabled, function (v) { tw.timeout.enabled = v; renderAll(); }, 'Enforce per-tool execution deadlines'),
-                tw.timeout.enabled ? fieldText('Default', tw.timeout.default_timeout, function (v) { tw.timeout.default_timeout = v; renderOutput(); }, '30s', 'Default timeout for all tools') : null,
-                tw.timeout.enabled ? fieldText('Per-Tool Overrides', tw.timeout.per_tool, function (v) { tw.timeout.per_tool = v; renderOutput(); }, 'execute_code:120s, web_search:15s', 'Tool-specific timeouts (name:duration, comma-separated)') : null
+                fieldToggle('Enabled', tw.timeout.enabled, function (v) { tw.timeout.enabled = v; renderAll(); }, 'Stop a tool if it takes too long to finish.'),
+                tw.timeout.enabled ? fieldText('Default Limit', tw.timeout.default_timeout, function (v) { tw.timeout.default_timeout = v; renderOutput(); }, '30s', 'How long any tool is allowed to run by default (e.g. 30s).') : null,
+                tw.timeout.enabled ? fieldText('Specific Tool Limits', tw.timeout.per_tool, function (v) { tw.timeout.per_tool = v; renderOutput(); }, 'execute_code:120s, web_search:15s', 'Set custom limits for specific tools.') : null
             ].filter(Boolean))
         ]));
 
         // Rate Limit
         c.appendChild(el('div', { className: 'space-y-3 mb-4' }, [
-            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Rate Limit'),
+            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Usage Limits (Rate Limit)'),
             el('div', { className: 'grid grid-cols-1 sm:grid-cols-3 gap-4' }, [
-                fieldToggle('Enabled', tw.rate_limit.enabled, function (v) { tw.rate_limit.enabled = v; renderAll(); }, 'Token-bucket rate limiting'),
-                tw.rate_limit.enabled ? fieldNumber('Global Rate/min', tw.rate_limit.global_rate_per_minute, function (v) { tw.rate_limit.global_rate_per_minute = v; renderOutput(); }, 1, 10000, 'Calls per minute across all tools') : null,
-                tw.rate_limit.enabled ? fieldText('Per-Tool Rates', tw.rate_limit.per_tool_rate_per_minute, function (v) { tw.rate_limit.per_tool_rate_per_minute = v; renderOutput(); }, 'web_search:10, api_call:30', 'Per-tool limits (name:rate, comma-separated)') : null
+                fieldToggle('Enabled', tw.rate_limit.enabled, function (v) { tw.rate_limit.enabled = v; renderAll(); }, 'Prevent the AI from using tools too quickly.'),
+                tw.rate_limit.enabled ? fieldNumber('Global Rate/min', tw.rate_limit.global_rate_per_minute, function (v) { tw.rate_limit.global_rate_per_minute = v; renderOutput(); }, 1, 10000, 'Max total tool uses allowed per minute.') : null,
+                tw.rate_limit.enabled ? fieldText('Per-Tool Rates', tw.rate_limit.per_tool_rate_per_minute, function (v) { tw.rate_limit.per_tool_rate_per_minute = v; renderOutput(); }, 'web_search:10, api_call:30', 'Max uses allowed for specific tools per minute.') : null
             ].filter(Boolean))
         ]));
 
         // Circuit Breaker
         c.appendChild(el('div', { className: 'space-y-3 mb-4' }, [
-            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Circuit Breaker'),
+            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Failure Protection (Circuit Breaker)'),
             el('div', { className: 'grid grid-cols-1 sm:grid-cols-3 gap-4' }, [
-                fieldToggle('Enabled', tw.circuit_breaker.enabled, function (v) { tw.circuit_breaker.enabled = v; renderAll(); }, 'Per-tool circuit breakers'),
-                tw.circuit_breaker.enabled ? fieldNumber('Failure Threshold', tw.circuit_breaker.failure_threshold, function (v) { tw.circuit_breaker.failure_threshold = v; renderOutput(); }, 1, 100, 'Failures before circuit opens') : null,
-                tw.circuit_breaker.enabled ? fieldText('Open Duration', tw.circuit_breaker.open_duration, function (v) { tw.circuit_breaker.open_duration = v; renderOutput(); }, '30s', 'Cooldown before half-open probe') : null
+                fieldToggle('Enabled', tw.circuit_breaker.enabled, function (v) { tw.circuit_breaker.enabled = v; renderAll(); }, 'Temporarily pause a tool if it keeps crashing.'),
+                tw.circuit_breaker.enabled ? fieldNumber('Failure Threshold', tw.circuit_breaker.failure_threshold, function (v) { tw.circuit_breaker.failure_threshold = v; renderOutput(); }, 1, 100, 'How many times a tool must fail before it gets paused.') : null,
+                tw.circuit_breaker.enabled ? fieldText('Pause Duration', tw.circuit_breaker.open_duration, function (v) { tw.circuit_breaker.open_duration = v; renderOutput(); }, '30s', 'How long to wait before trying the tool again.') : null
             ].filter(Boolean))
         ]));
 
         // Concurrency
         c.appendChild(el('div', { className: 'space-y-3 mb-4' }, [
-            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Concurrency'),
+            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Simultaneous Use Limits (Concurrency)'),
             el('div', { className: 'grid grid-cols-1 sm:grid-cols-3 gap-4' }, [
-                fieldToggle('Enabled', tw.concurrency.enabled, function (v) { tw.concurrency.enabled = v; renderAll(); }, 'Weighted concurrency semaphore'),
-                tw.concurrency.enabled ? fieldNumber('Global Limit', tw.concurrency.global_limit, function (v) { tw.concurrency.global_limit = v; renderOutput(); }, 1, 1000, 'Max simultaneous tool executions') : null,
-                tw.concurrency.enabled ? fieldText('Per-Tool Limits', tw.concurrency.per_tool_limits, function (v) { tw.concurrency.per_tool_limits = v; renderOutput(); }, 'web_search:3, browser:2', 'Per-tool caps (name:limit, comma-separated)') : null
+                fieldToggle('Enabled', tw.concurrency.enabled, function (v) { tw.concurrency.enabled = v; renderAll(); }, 'Limit how many tools run at the exact same time.'),
+                tw.concurrency.enabled ? fieldNumber('Global Limit', tw.concurrency.global_limit, function (v) { tw.concurrency.global_limit = v; renderOutput(); }, 1, 1000, 'Max tools running together across everything.') : null,
+                tw.concurrency.enabled ? fieldText('Per-Tool Limits', tw.concurrency.per_tool_limits, function (v) { tw.concurrency.per_tool_limits = v; renderOutput(); }, 'web_search:3, browser:2', 'Max parallel runs allowed for specific tools.') : null
             ].filter(Boolean))
         ]));
 
         // Retry
         c.appendChild(el('div', { className: 'space-y-3 mb-4' }, [
-            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Retry'),
+            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Auto-Retry'),
             el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
-                fieldToggle('Enabled', tw.retry.enabled, function (v) { tw.retry.enabled = v; renderAll(); }, 'Automatic retry with exponential backoff'),
-                tw.retry.enabled ? fieldNumber('Max Attempts', tw.retry.max_attempts, function (v) { tw.retry.max_attempts = v; renderOutput(); }, 1, 20, 'Total attempts including first call') : null,
-                tw.retry.enabled ? fieldText('Initial Backoff', tw.retry.initial_backoff, function (v) { tw.retry.initial_backoff = v; renderOutput(); }, '500ms', 'Wait before first retry') : null,
-                tw.retry.enabled ? fieldText('Max Backoff', tw.retry.max_backoff, function (v) { tw.retry.max_backoff = v; renderOutput(); }, '10s', 'Maximum backoff cap') : null
+                fieldToggle('Enabled', tw.retry.enabled, function (v) { tw.retry.enabled = v; renderAll(); }, 'Automatically try a tool again if it fails.'),
+                tw.retry.enabled ? fieldNumber('Max Attempts', tw.retry.max_attempts, function (v) { tw.retry.max_attempts = v; renderOutput(); }, 1, 20, 'How many times to try before giving up completely.') : null,
+                tw.retry.enabled ? fieldText('Wait Between Retries', tw.retry.initial_backoff, function (v) { tw.retry.initial_backoff = v; renderOutput(); }, '500ms', 'How long to wait before trying for the second time.') : null,
+                tw.retry.enabled ? fieldText('Max Wait Time', tw.retry.max_backoff, function (v) { tw.retry.max_backoff = v; renderOutput(); }, '10s', 'The longest amount of time to wait between retries.') : null
             ].filter(Boolean))
         ]));
 
         // Observability row
         c.appendChild(el('div', { className: 'space-y-3 mb-4' }, [
-            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Observability'),
+            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Tracking (Observability)'),
             el('div', { className: 'grid grid-cols-1 sm:grid-cols-3 gap-4' }, [
-                fieldToggle('Metrics', tw.metrics.enabled, function (v) { tw.metrics.enabled = v; renderAll(); }, 'Emit OTel metrics per tool call'),
-                tw.metrics.enabled ? fieldText('Prefix', tw.metrics.prefix, function (v) { tw.metrics.prefix = v; renderOutput(); }, 'tools', 'Metric name prefix') : null,
-                fieldToggle('Tracing', tw.tracing.enabled, function (v) { tw.tracing.enabled = v; renderOutput(); }, 'Create OTel spans per tool call')
+                fieldToggle('Metrics', tw.metrics.enabled, function (v) { tw.metrics.enabled = v; renderAll(); }, 'Track how often each tool is used and how long it takes.'),
+                tw.metrics.enabled ? fieldText('Prefix', tw.metrics.prefix, function (v) { tw.metrics.prefix = v; renderOutput(); }, 'tools', 'A custom label attached to tool metrics.') : null,
+                fieldToggle('Tracing', tw.tracing.enabled, function (v) { tw.tracing.enabled = v; renderOutput(); }, 'Create detailed logs of the exact path the AI took while using tools.')
             ].filter(Boolean))
         ]));
 
         // Security row
         c.appendChild(el('div', { className: 'space-y-3 mb-4' }, [
-            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Security'),
+            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Data Security'),
             el('div', { className: 'grid grid-cols-1 sm:grid-cols-3 gap-4' }, [
-                fieldToggle('Sanitize', tw.sanitize.enabled, function (v) { tw.sanitize.enabled = v; renderAll(); }, 'Redact secrets from tool output'),
-                tw.sanitize.enabled ? fieldText('Replacement', tw.sanitize.replacement, function (v) { tw.sanitize.replacement = v; renderOutput(); }, '[REDACTED]', 'Text to replace redacted values') : null,
-                tw.sanitize.enabled ? fieldText('Per-Tool Patterns', tw.sanitize.per_tool, function (v) { tw.sanitize.per_tool = v; renderOutput(); }, 'read_file:API_KEY|password, execute_code:token', 'Patterns per tool (tool:pat1|pat2, comma-separated)') : null
+                fieldToggle('Hide Secrets', tw.sanitize.enabled, function (v) { tw.sanitize.enabled = v; renderAll(); }, 'Automatically remove sensitive information from what tools return.'),
+                tw.sanitize.enabled ? fieldText('Replacement Word', tw.sanitize.replacement, function (v) { tw.sanitize.replacement = v; renderOutput(); }, '[REDACTED]', 'The word to show where a secret was removed.') : null,
+                tw.sanitize.enabled ? fieldText('Specific Hidden Words', tw.sanitize.per_tool, function (v) { tw.sanitize.per_tool = v; renderOutput(); }, 'read_file:API_KEY|password', 'Hide custom labels for specific tools (e.g., tell the file reader to hide "API_KEY").') : null
             ].filter(Boolean)),
             el('div', { className: 'grid grid-cols-1 sm:grid-cols-3 gap-4 mt-2' }, [
-                fieldToggle('Validation', tw.validation.enabled, function (v) { tw.validation.enabled = v; renderOutput(); }, 'Validate tool args against JSON schema')
+                fieldToggle('Input Checking', tw.validation.enabled, function (v) { tw.validation.enabled = v; renderOutput(); }, 'Ensure the AI provides exactly everything required before it can use a tool.')
             ])
         ]));
     }
