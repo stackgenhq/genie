@@ -49,4 +49,10 @@ type Toggles struct {
 	// When set, wisdom notes are injected into agent prompts. The store
 	// is populated by the EpisodeConsolidator running periodically.
 	WisdomStore memory.WisdomStore `json:"-"`
+
+	// PlanAdvisor consults episodic memory and wisdom before executing
+	// multi-step plans. When set, each plan step's context is enriched
+	// with relevant past successes and failures so the agent learns from
+	// history when decomposing and executing tasks.
+	PlanAdvisor memory.PlanAdvisor `json:"-"`
 }

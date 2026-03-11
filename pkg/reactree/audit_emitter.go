@@ -18,11 +18,11 @@ import (
 
 // AuditEventType constants for ReAcTree-specific audit events.
 const (
-	AuditEventIterationStart  audit.EventType = "reactree_iteration_start"
-	AuditEventIterationEnd    audit.EventType = "reactree_iteration_end"
-	AuditEventReflection      audit.EventType = "reactree_reflection"
-	AuditEventDryRun          audit.EventType = "reactree_dry_run"
-	AuditEventPlanExecution   audit.EventType = "reactree_plan_execution"
+	AuditEventIterationStart audit.EventType = "reactree_iteration_start"
+	AuditEventIterationEnd   audit.EventType = "reactree_iteration_end"
+	AuditEventReflection     audit.EventType = "reactree_reflection"
+	AuditEventDryRun         audit.EventType = "reactree_dry_run"
+	AuditEventPlanExecution  audit.EventType = "reactree_plan_execution"
 )
 
 // AuditHook implements hooks.ExecutionHook by writing structured events to

@@ -204,6 +204,11 @@ type createAgentTool struct {
 	// When set, the score is stored on the episode and influences
 	// weighted retrieval. When nil, episodes use a neutral default.
 	importanceScorer memory.ImportanceScorer
+
+	// planAdvisor consults episodic memory and wisdom before executing
+	// multi-step plans. When set, each step's context is enriched with
+	// relevant past successes and failures.
+	planAdvisor memory.PlanAdvisor
 }
 
 // CreateAgentOption configures the create_agent tool.
@@ -233,6 +238,12 @@ func WithFailureReflector(fr memory.FailureReflector) CreateAgentOption {
 // receive 1-10 importance scores that influence weighted retrieval.
 func WithImportanceScorer(is memory.ImportanceScorer) CreateAgentOption {
 	return func(t *createAgentTool) { t.importanceScorer = is }
+}
+
+// WithPlanAdvisor injects a plan advisor so multi-step plans are enriched
+// with relevant past experiences before execution.
+func WithPlanAdvisor(pa memory.PlanAdvisor) CreateAgentOption {
+	return func(t *createAgentTool) { t.planAdvisor = pa }
 }
 
 // orchestrationOnlyTools lists tool names that are available to the main agent
@@ -933,11 +944,37 @@ func (t *createAgentTool) executePlan(ctx context.Context, req CreateAgentReques
 		parentCtx = fmt.Sprintf("Top-level plan objective constraints: %s\n\nAdditional Context:\n%s", req.Goal, req.Context)
 	}
 
+	// --- Pre-planning wisdom consultation ---
+	// Consult episodic memory and wisdom BEFORE executing the plan so each
+	// step's context is enriched with relevant past successes and failures.
+	// This closes the gap where plan decomposition was "blind" to history.
+	var advisoryResult memory.PlanAdvisoryResult
+	if t.planAdvisor != nil {
+		stepGoals := make(map[string]string, len(req.Steps))
+		for _, step := range req.Steps {
+			stepGoals[step.Name] = step.Goal
+		}
+		advisoryResult = t.planAdvisor.Advise(ctx, memory.PlanAdvisoryRequest{
+			OverallGoal: req.Goal,
+			StepGoals:   stepGoals,
+		})
+		logr.Info("pre-planning advisory complete",
+			"steps_advised", advisoryResult.StepsAdvised(),
+			"total_steps", len(req.Steps),
+		)
+	}
+
 	for i := range req.Steps {
 		if req.Steps[i].Context != "" {
 			req.Steps[i].Context = parentCtx + "\n\nStep Context:\n" + req.Steps[i].Context
 		} else {
 			req.Steps[i].Context = parentCtx
+		}
+
+		// Append advisory from past experiences if available.
+		advisory := advisoryResult.ForStep(req.Steps[i].Name)
+		if advisory != "" {
+			req.Steps[i].Context += advisory
 		}
 	}
 

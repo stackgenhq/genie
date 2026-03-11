@@ -298,6 +298,14 @@ func NewOrchestrator(
 	failureReflector := reactree.NewExpertFailureReflector(exp)
 	importanceScorer := reactree.NewExpertImportanceScorer(exp)
 
+	// Wire pre-planning wisdom consultation. This creates a PlanAdvisor
+	// that queries episodic memory and wisdom for relevant past experiences
+	// BEFORE executing multi-step plans, enriching each step's context
+	// with prior successes, failures, and consolidated lessons.
+	planAdvisor := rtmemory.NewPlanAdvisor(rtmemory.PlanAdvisorConfig{
+		Episodic: episodicMem,
+	})
+
 	createAgentTool := reactree.NewCreateAgentTool(
 		modelProvider, exp, summarizer, availableTools,
 		wm, episodicMem,
@@ -307,6 +315,7 @@ func NewOrchestrator(
 		reactree.WithSkipSummarizeMarker(true),
 		reactree.WithFailureReflector(failureReflector),
 		reactree.WithImportanceScorer(importanceScorer),
+		reactree.WithPlanAdvisor(planAdvisor),
 	)
 	createAgentTool.SetHalGuardThreshold(oo.halGuardConfig.PreCheckThreshold)
 	// Log tool counts so operators can verify email, gmail, etc. are wired for sub-agents.
