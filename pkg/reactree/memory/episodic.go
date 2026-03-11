@@ -165,6 +165,10 @@ func (s *serviceEpisodicMemory) RetrieveWeighted(ctx context.Context, goal strin
 // When weighted is true, episodes are scored and sorted using a weighted sum
 // (0.6*recency + 0.4*importance).
 func (s *serviceEpisodicMemory) retrieveEpisodes(ctx context.Context, goal string, k int, weighted bool) []Episode {
+	if k <= 0 {
+		return nil
+	}
+
 	entries, err := s.svc.SearchMemories(ctx, s.userKey, goal)
 	if err != nil || len(entries) == 0 {
 		return nil

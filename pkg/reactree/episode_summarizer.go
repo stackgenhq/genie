@@ -70,8 +70,9 @@ func (s *ExpertEpisodeSummarizer) Summarize(ctx context.Context, episodes []memo
 		if ep.Status == memory.EpisodeFailure && ep.Reflection != "" {
 			content = ep.Reflection
 		}
-		if len(content) > maxPerEpisode {
-			content = content[:maxPerEpisode] + "..."
+		runes := []rune(content)
+		if len(runes) > maxPerEpisode {
+			content = string(runes[:maxPerEpisode]) + "..."
 		}
 
 		fmt.Fprintf(&episodeBuf, "%d. [%s] Goal: %s → %s\n", i+1, ep.Status, ep.Goal, content)
