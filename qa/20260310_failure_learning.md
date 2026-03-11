@@ -303,16 +303,16 @@ The system degrades gracefully — even without wisdom consolidation, per-step e
 
 ## Unit Test Coverage (Automated)
 
-The following scenarios are covered by automated Ginkgo/Gomega tests:
+The following scenarios are covered by automated Ginkgo/Gomega tests (96 specs across 6 files):
 
 | Test File | Suite | Tests |
 |-----------|-------|-------|
 | `pkg/reactree/memory/failure_learning_test.go` | Memory Suite | 12 tests |
 | `pkg/reactree/memory/consolidation_test.go` | Memory Suite | 14 tests |
-| `pkg/reactree/memory/plan_advisor_test.go` | Memory Suite | 18 tests |
+| `pkg/reactree/memory/plan_advisor_test.go` | Memory Suite | 30 tests |
 | `pkg/reactree/failure_reflector_test.go` | Reactree Suite | 6 tests |
-| `pkg/reactree/importance_and_consolidation_test.go` | Reactree Suite | 15 tests |
-| `pkg/reactree/agent_node_pvt_test.go` | Reactree Suite | 3 updated tests |
+| `pkg/reactree/importance_and_consolidation_test.go` | Reactree Suite | 12 tests |
+| `pkg/reactree/agent_node_pvt_test.go` | Reactree Suite | 22 tests (includes pre-existing + new failure learning tests) |
 
 ### Automated Test Scenarios
 

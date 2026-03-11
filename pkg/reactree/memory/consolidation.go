@@ -95,6 +95,12 @@ func (c *EpisodeConsolidator) Consolidate(ctx context.Context) int {
 	// Retrieve a generous batch of recent episodes.
 	// We use the standard Retrieve (not weighted) since we want all
 	// recent episodes regardless of similarity scoring.
+	//
+	// TODO(perf): Retrieve("", 50) triggers an unbounded LIKE '%%' in the
+	// DB-backed SearchMemories (no SQL LIMIT). Consider adding a dedicated
+	// RetrieveRecent(ctx, limit) API or extending the backend search with
+	// server-side limiting so daily consolidation stays O(limit) as the
+	// memory table grows.
 	episodes := c.episodic.Retrieve(ctx, "", 50)
 	if len(episodes) == 0 {
 		logr.Info("no episodes to consolidate")

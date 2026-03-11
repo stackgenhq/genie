@@ -21,8 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `RetrieveWeighted` method on episodic memory — scores episodes as a weighted sum (0.6 × recency + 0.4 × importance) for balanced retrieval.
 - Failure episodes display with ⚠️ prefix and verbal reflection in agent prompts; capped at 500 runes to prevent prompt bloat.
 - Early-return guard in `RetrieveWisdom` when `limit ≤ 0` to prevent unnecessary processing.
-- QA test plan for agent learning features (`qa/20260310_failure_learning.md`) — 6 manual test scenarios plus inventory of 46 automated Ginkgo/Gomega tests.
-- 46 new Ginkgo/Gomega tests across `memory/failure_learning_test.go`, `memory/consolidation_test.go`, `failure_reflector_test.go`, and `importance_and_consolidation_test.go`.
+- QA test plan for agent learning features (`qa/20260310_failure_learning.md`) — 10 manual acceptance tests plus 96 automated Ginkgo/Gomega specs.
+- 96 Ginkgo/Gomega test specs across `memory/failure_learning_test.go`, `memory/consolidation_test.go`, `memory/plan_advisor_test.go`, `failure_reflector_test.go`, `importance_and_consolidation_test.go`, and `agent_node_pvt_test.go`.
 
 ### Changed
 

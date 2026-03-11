@@ -174,10 +174,22 @@ func (s *serviceEpisodicMemory) retrieveEpisodes(ctx context.Context, goal strin
 		return nil
 	}
 
-	// For non-weighted retrieval, limit entries to k before decoding
-	// so the decode loop stays O(k) instead of O(N).
+	// Cap entries before the decode loop to avoid O(N) JSON unmarshal
+	// when the memory table grows large. SearchMemories returns results
+	// ordered by updated_at DESC, so truncating keeps the most recent.
 	if !weighted && len(entries) > k {
+		// Non-weighted: only need exactly k entries.
 		entries = entries[:k]
+	} else if weighted {
+		// Weighted: keep a larger candidate pool for scoring diversity,
+		// but still bounded so decode stays O(cap) instead of O(all).
+		cap := k * 10
+		if cap < 50 {
+			cap = 50
+		}
+		if len(entries) > cap {
+			entries = entries[:cap]
+		}
 	}
 
 	// Parse matching entries into episodes.
