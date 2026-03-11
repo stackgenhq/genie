@@ -74,7 +74,7 @@
         disable_pensieve: false,
         persona: { file: '', disable_resume: false },
         halguard: { enable_pre_check: true, enable_post_check: true, light_threshold_chars: 200, full_threshold_chars: 500, cross_model_samples: 3, max_blocks_to_judge: 20, pre_check_threshold: 0.4 },
-        semantic_router: { disabled: false, threshold: 0.85, enable_caching: true, routes: [] }
+        semantic_router: { disabled: false, threshold: 0.85, enable_caching: true, cache_ttl: '5m', l0_regex: { disabled: false, extra_patterns: [] }, follow_up_bypass: { disabled: false }, routes: [] }
     };
 
     var PROVIDERS = ['openai', 'gemini', 'anthropic'];
@@ -957,10 +957,33 @@
         if (!c) return;
         c.innerHTML = '';
         var sr = state.semantic_router;
+        sr.l0_regex = sr.l0_regex || { disabled: false, extra_patterns: [] };
+        sr.follow_up_bypass = sr.follow_up_bypass || { disabled: false };
+
         c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
             fieldToggle('Turn Off Automatic Routing', sr.disabled, function (v) { sr.disabled = v; renderOutput(); }, 'Disable the feature that automatically sorts user messages into different categories or "routes".'),
             fieldToggle('Enable Quick Replies (Caching)', sr.enable_caching, function (v) { sr.enable_caching = v; renderOutput(); }, 'Remember previous answers for similar questions to respond faster without using the AI.'),
-            fieldNumber('Matching Strictness (Threshold)', sr.threshold, function (v) { sr.threshold = parseFloat(v) || 0.85; renderOutput(); }, 0, 1.0, 'How closely a user message needs to match your examples to trigger the route. Range is 0.0 to 1.0. Higher means it has to be a closer match.')
+            fieldNumber('Matching Strictness (Threshold)', sr.threshold, function (v) { sr.threshold = parseFloat(v) || 0.85; renderOutput(); }, 0, 1.0, 'How closely a user message needs to match your examples to trigger the route. Range is 0.0 to 1.0. Higher means it has to be a closer match.'),
+            fieldText('Cache TTL', sr.cache_ttl || '5m', function (v) { sr.cache_ttl = v; renderOutput(); }, '5m', 'How long cached responses stay valid. Use Go duration syntax (e.g. 5m, 1h). Default: 5m')
+        ]));
+
+        // L0 Regex section
+        c.appendChild(el('div', { className: 'space-y-3 mt-6 mb-4' }, [
+            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, '🔤 L0 Regex Pre-Filter'),
+            el('p', { className: 'text-xs text-gray-400 mb-2' }, 'Catches conversational follow-ups (e.g. "try again", "retry") using fast regex before any embedding or LLM call.'),
+        ]));
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+            fieldToggle('Disable L0 Regex', sr.l0_regex.disabled, function (v) { sr.l0_regex.disabled = v; renderOutput(); }, 'Turn off regex follow-up detection. When off, follow-up detection relies on L1 vector matching only.'),
+            fieldText('Extra Patterns (comma-separated regexes)', (sr.l0_regex.extra_patterns || []).join(', '), function (v) { sr.l0_regex.extra_patterns = splitCSV(v); renderOutput(); }, '(?i)^rerun, (?i)^same as before', 'Additional regex patterns that flag messages as follow-ups. Invalid patterns are logged and skipped at startup.')
+        ]));
+
+        // Follow-Up Bypass section
+        c.appendChild(el('div', { className: 'space-y-3 mt-6 mb-4' }, [
+            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, '⏩ Follow-Up Bypass'),
+            el('p', { className: 'text-xs text-gray-400 mb-2' }, 'When a message is flagged as a follow-up by L0 and L1 doesn\'t match, bypass the expensive L2 LLM call and classify directly as COMPLEX.'),
+        ]));
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+            fieldToggle('Disable Follow-Up Bypass', sr.follow_up_bypass.disabled, function (v) { sr.follow_up_bypass.disabled = v; renderOutput(); }, 'When disabled, follow-up messages always go through L2 LLM classification.')
         ]));
 
         sr.routes.forEach(function (r, i) {
@@ -1723,12 +1746,31 @@
 
     function semanticRouterToToml(lines) {
         var sr = state.semantic_router;
-        var isDefault = !sr.disabled && sr.threshold === 0.85 && sr.enable_caching;
-        if (isDefault) return;
+        var isDefault = !sr.disabled && sr.threshold === 0.85 && sr.enable_caching && (sr.cache_ttl === '5m' || !sr.cache_ttl);
+        var l0 = sr.l0_regex || {};
+        var fub = sr.follow_up_bypass || {};
+        var hasL0 = l0.disabled || hasItems(l0.extra_patterns);
+        var hasFub = fub.disabled;
+        if (isDefault && !hasL0 && !hasFub && !sr.routes.length) return;
         lines.push('[semantic_router]');
         if (sr.disabled) lines.push('disabled = true');
         if (sr.threshold !== 0.85) lines.push('threshold = ' + sr.threshold);
         if (!sr.enable_caching) lines.push('enable_caching = false');
+        if (sr.cache_ttl && sr.cache_ttl !== '5m') lines.push('cache_ttl = ' + q(sr.cache_ttl));
+        lines.push('');
+
+        if (hasL0) {
+            lines.push('[semantic_router.l0_regex]');
+            if (l0.disabled) lines.push('disabled = true');
+            if (hasItems(l0.extra_patterns)) lines.push('extra_patterns = [' + l0.extra_patterns.filter(Boolean).map(q).join(', ') + ']');
+            lines.push('');
+        }
+
+        if (hasFub) {
+            lines.push('[semantic_router.follow_up_bypass]');
+            lines.push('disabled = true');
+            lines.push('');
+        }
 
         sr.routes.forEach(function (r) {
             if (!r.name) return;
@@ -2490,12 +2532,33 @@
 
     function semanticRouterToYaml(lines) {
         var sr = state.semantic_router;
-        var isDefault = !sr.disabled && sr.threshold === 0.85 && sr.enable_caching;
-        if (isDefault) return;
+        var l0 = sr.l0_regex || {};
+        var fub = sr.follow_up_bypass || {};
+        var isDefault = !sr.disabled && sr.threshold === 0.85 && sr.enable_caching && (sr.cache_ttl === '5m' || !sr.cache_ttl);
+        var hasL0 = l0.disabled || hasItems(l0.extra_patterns);
+        var hasFub = fub.disabled;
+        if (isDefault && !hasL0 && !hasFub && !hasItems(sr.routes)) return;
         lines.push('semantic_router:');
         if (sr.disabled) lines.push('  disabled: true');
         if (sr.threshold !== 0.85) lines.push('  threshold: ' + sr.threshold);
         if (!sr.enable_caching) lines.push('  enable_caching: false');
+        if (sr.cache_ttl && sr.cache_ttl !== '5m') lines.push('  cache_ttl: ' + yq(sr.cache_ttl));
+
+        if (hasL0) {
+            lines.push('  l0_regex:');
+            if (l0.disabled) lines.push('    disabled: true');
+            if (hasItems(l0.extra_patterns)) {
+                lines.push('    extra_patterns:');
+                l0.extra_patterns.filter(Boolean).forEach(function (p) {
+                    lines.push('      - ' + yq(p));
+                });
+            }
+        }
+
+        if (hasFub) {
+            lines.push('  follow_up_bypass:');
+            lines.push('    disabled: true');
+        }
 
         if (hasItems(sr.routes)) {
             lines.push('  routes:');

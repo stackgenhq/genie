@@ -1008,21 +1008,43 @@ config_sections:
     sidebar_desc: Semantic Router
     detail_title: "🚦 semantic_router"
     detail_desc: >
-      <strong>Embedding-based Intent Routing and LLM Bypassing.</strong><br>
-      The Semantic Router acts as a lightweight gatekeeper in front of the main orchestration flow.
-      Instead of invoking an expensive LLM to determine intent or detect jailbreaks, Genie embeds
-      the user's request using a fast embedding model (e.g. OpenAI text-embedding-3 or Gemini) and
-      matches it against predefined vector routes.<br><br>
-      Features include <strong>L1 Bypass</strong> for instant classification of paths like `jailbreak` or `salutation`,
-      and <strong>Semantic Caching</strong> to immediately return previously generated responses for highly
-      similar queries (syntactical or vector-matched), completely avoiding generation latency.
+      <strong>Tiered Middleware Chain — L0 Regex → L1 Vector → L2 LLM.</strong><br>
+      The Semantic Router acts as a composable middleware chain that classifies every user message
+      <em>before</em> the orchestrator runs. It uses a layered approach to minimize expensive LLM calls: an
+      L0 regex pre-filter catches conversational follow-ups instantly, L1 vector similarity matches
+      against predefined intent routes (jailbreak, salutation, operational queries), and L2 uses a
+      capped-token LLM call only when needed.<br><br>
+      <strong>Semantic Caching</strong> stores previous responses keyed by vector similarity, so identical
+      or near-identical questions get instant answers. Cache entries expire after a configurable TTL
+      (default 5 minutes) to prevent stale data. A built-in <code>PruneStaleCacheEntries</code> method
+      actively cleans up expired entries.<br><br>
+      <strong>Resilience:</strong> L2 enforces a 5-second timeout and degrades gracefully to COMPLEX on any
+      error — the agent never fails just because the classification LLM is slow or unavailable.
     tables:
       - columns: [Key, Type, Default, Description]
         rows:
           - ["disabled", "bool", "`false`", "Turn off embedding-based intent routing entirely"]
           - ["threshold", "float", "`0.85`", "Vector search threshold (0.0 to 1.0) above which routes match"]
           - ["enable_caching", "bool", "`true`", "Cache successful responses to bypass generating identical intent replies"]
+          - ["cache_ttl", "duration", "`5m`", "How long cached responses remain valid. Expired entries are ignored on read and pruned by `PruneStaleCacheEntries`. Use Go duration syntax (e.g. `5m`, `1h`)"]
           - ["routes", "array", "`[]`", "Custom semantic routes to add or extend built-in routes (like `jailbreak` or `salutation`)"]
+    subsections:
+      - label: "🔤 L0 Regex Pre-Filter ([semantic_router.l0_regex])"
+        columns: [Key, Type, Default, Description]
+        rows:
+          - ["disabled", "bool", "`false`", "Turn off the regex pre-filter. When disabled, follow-up detection relies entirely on L1 vector matching"]
+          - ["extra_patterns", "string[]", "`[]`", "Additional regex patterns that flag messages as conversational follow-ups. Each string is compiled at startup; invalid patterns are logged and skipped"]
+      - label: "⏩ Follow-Up Bypass ([semantic_router.follow_up_bypass])"
+        columns: [Key, Type, Default, Description]
+        rows:
+          - ["disabled", "bool", "`false`", "Turn off the follow-up bypass middleware. When disabled, follow-up messages always reach L2 for LLM classification"]
+      - label: Middleware Chain Execution Order
+        columns: [Position, Layer, Action, Cost]
+        rows:
+          - ["1", "L0 Regex", "Flags conversational follow-ups (try again, retry, but I wanted...) using compiled regex patterns. Enriches context only — does not decide.", "⚡ Zero"]
+          - ["2", "L1 Vector", "Searches the route vector store for semantic similarity. Short-circuits if a route matches above threshold. Enriches context with near-miss matches for L2.", "💨 Embedding only"]
+          - ["3", "Follow-Up Bypass", "Short-circuits to COMPLEX if L0 flagged the message as a follow-up and L1 didn't match. Saves the L2 LLM call.", "⚡ Zero"]
+          - ["4", "L2 LLM", "Terminal classifier. Uses a capped-token LLM call (MaxTokens=60, 5s timeout) to classify as REFUSE, SALUTATION, OUT_OF_SCOPE, or COMPLEX. Degrades to COMPLEX on error.", "💰 LLM call"]
     code_example:
       label: Example TOML
       code: |
@@ -1030,6 +1052,18 @@ config_sections:
         disabled = false
         threshold = 0.85
         enable_caching = true
+        cache_ttl = "5m"
+
+        # L0: Fast regex detection of follow-ups (optional tuning)
+        [semantic_router.l0_regex]
+        extra_patterns = [
+            '(?i)^(ok\s+)?(please\s+)?rerun',
+            '(?i)^same\s+as\s+before'
+        ]
+
+        # Follow-up bypass: skip L2 for flagged follow-ups
+        [semantic_router.follow_up_bypass]
+        disabled = false
 
         # Add custom utterances to the built-in jailbreak route
         [[semantic_router.routes]]
@@ -1497,7 +1531,7 @@ architecture:
         ReAcTree engine.
       columns: [Step, Detail]
       rows:
-        - ["1. Classify", "Front-desk expert (fast model) labels the request: `REFUSE`, `SALUTATION`, `OUT_OF_SCOPE`, or `COMPLEX`"]
+        - ["1. Classify", "Semantic Router middleware chain (L0 Regex → L1 Vector → Follow-Up Bypass → L2 LLM) labels the request: `REFUSE`, `SALUTATION`, `OUT_OF_SCOPE`, or `COMPLEX`. Most requests are handled without an LLM call."]
         - ["2. Recall", "Search `memory.Service` for past turns relevant to the question (sender-scoped)"]
         - ["3. Execute", "For `COMPLEX` — run through the ReAcTree with working memory and tools"]
         - ["4. Store", "Persist the Q&A turn back into memory for future recall"]
