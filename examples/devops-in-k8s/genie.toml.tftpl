@@ -331,6 +331,7 @@ allowed_domains = ["stackgen.com"]
 # Without this, sub-agents block for their entire timeout (180s) waiting for
 # human approval that never comes in headless sessions.
 always_allowed = ["graph_*", "scm_*", "notify"]
+background_behavior = "approve"
 
 # ── PII Redaction ───────────────────────────────────────────────────
 # Tuned for DevOps agents: infrastructure output is full of mixed-case
@@ -403,7 +404,7 @@ pattern = '(?i)\b(VirtualMachines|VMScaleSets|virtualNetworks|storageAccounts|co
 name = "provisioning_state"
 pattern = '(?i)\b(Succeeded|Failed|Creating|Updating|Deleting|Canceled|InProgress|Registered|NotRegistered)\b'
 
-[notify]
+[notification]
 
-[[notify.slack]]
+[[notification.slack]]
 webhook_url = "$${SLACK_WEBHOOK_URL}"
