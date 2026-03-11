@@ -207,4 +207,3 @@ var _ = Describe("scoreEpisodeImportance", func() {
 		Expect(req.Status).To(Equal(memory.EpisodeSuccess))
 	})
 })
-

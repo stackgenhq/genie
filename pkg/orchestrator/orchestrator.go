@@ -292,6 +292,12 @@ func NewOrchestrator(
 		halguard.WithConfig(oo.halGuardConfig),
 	)
 
+	// Wire failure learning into sub-agents. Without this, sub-agent
+	// failures are stored as raw error text without verbal reflections
+	// or importance scores, limiting episodic memory effectiveness.
+	failureReflector := reactree.NewExpertFailureReflector(exp)
+	importanceScorer := reactree.NewExpertImportanceScorer(exp)
+
 	createAgentTool := reactree.NewCreateAgentTool(
 		modelProvider, exp, summarizer, availableTools,
 		wm, episodicMem,
@@ -299,6 +305,8 @@ func NewOrchestrator(
 		vectorStore,
 		halGuard,
 		reactree.WithSkipSummarizeMarker(true),
+		reactree.WithFailureReflector(failureReflector),
+		reactree.WithImportanceScorer(importanceScorer),
 	)
 	createAgentTool.SetHalGuardThreshold(oo.halGuardConfig.PreCheckThreshold)
 	// Log tool counts so operators can verify email, gmail, etc. are wired for sub-agents.

@@ -166,7 +166,7 @@ func NewTreeExecutor(
 	}
 	// Resolve enterprise dependencies.
 	var reflector ActionReflector = &NoOpReflector{}
-	if config.Toggles.EnableActionReflection && config.Toggles.Reflector != nil {
+	if config.Toggles.Reflector != nil {
 		reflector = config.Toggles.Reflector
 	}
 
@@ -191,11 +191,8 @@ func NewTreeExecutor(
 		"max_total_nodes", config.MaxTotalNodes,
 		"max_iterations", config.MaxIterations,
 		"stages", len(config.Stages),
-		"enterprise.critic", config.Toggles.EnableCriticMiddleware,
-		"enterprise.reflection", config.Toggles.EnableActionReflection,
-		"enterprise.dry_run", config.Toggles.EnableDryRunSimulation,
-		"enterprise.mcp", config.Toggles.EnableMCPServerAccess,
-		"enterprise.audit", config.Toggles.EnableAuditDashboard,
+		"enterprise.reflection", config.Toggles.Reflector != nil,
+		"enterprise.dry_run", config.Toggles.Features.DryRun.Enabled,
 		"enterprise.hooks", execHooks != nil,
 		"enterprise.failure_reflector", failureReflector != nil,
 		"enterprise.importance_scorer", importanceScorer != nil,
@@ -262,18 +259,8 @@ func (t *tree) runSingleNode(ctx context.Context, req TreeRequest) (TreeResult, 
 
 	toolsToUse := req.Tools
 
-	// Enterprise: wrap tools with critic middleware if enabled.
-	if t.config.Toggles.EnableCriticMiddleware {
-		validator := NewDeterministicValidator(nil)
-		wrapped := make([]tool.Tool, len(toolsToUse))
-		for i, tl := range toolsToUse {
-			wrapped[i] = WrapWithValidator(tl, validator)
-		}
-		toolsToUse = wrapped
-	}
-
 	// Enterprise: wrap tools for dry run simulation if enabled.
-	if t.config.Toggles.EnableDryRunSimulation {
+	if t.config.Toggles.Features.DryRun.Enabled {
 		wrapped, _ := WrapToolsForDryRun(toolsToUse)
 		toolsToUse = wrapped
 	}
@@ -388,18 +375,8 @@ func (t *tree) runMultiStage(ctx context.Context, req TreeRequest) (TreeResult, 
 			toolsToUse = req.ToolGetter()
 		}
 
-		// Enterprise: wrap tools with critic middleware if enabled.
-		if t.config.Toggles.EnableCriticMiddleware {
-			validator := NewDeterministicValidator(nil)
-			wrapped := make([]tool.Tool, len(toolsToUse))
-			for j, tl := range toolsToUse {
-				wrapped[j] = WrapWithValidator(tl, validator)
-			}
-			toolsToUse = wrapped
-		}
-
 		// Enterprise: wrap tools for dry run simulation if enabled.
-		if t.config.Toggles.EnableDryRunSimulation {
+		if t.config.Toggles.Features.DryRun.Enabled {
 			wrapped, _ := WrapToolsForDryRun(toolsToUse)
 			toolsToUse = wrapped
 		}

@@ -282,21 +282,6 @@ var _ = Describe("Tree internals", func() {
 			Expect(result.Status).To(Equal(Failure))
 		})
 
-		It("runs with critic middleware", func() {
-			fakeExpert := &expertfakes.FakeExpert{}
-			fakeExpert.DoReturns(expert.Response{
-				Choices: []model.Choice{
-					{Message: model.Message{Role: "assistant", Content: "Critic result"}},
-				},
-			}, nil)
-			result, err := NewTreeExecutor(fakeExpert, nil, nil,
-				TreeConfig{MaxIterations: 0, MaxDecisionsPerNode: 5, MaxTotalNodes: 10,
-					Toggles: Toggles{EnableCriticMiddleware: true}}).
-				Run(context.Background(), TreeRequest{Goal: "critic"})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result.Status).To(Equal(Success))
-		})
-
 		It("runs with dry-run simulation", func() {
 			fakeExpert := &expertfakes.FakeExpert{}
 			fakeExpert.DoReturns(expert.Response{
@@ -304,9 +289,9 @@ var _ = Describe("Tree internals", func() {
 					{Message: model.Message{Role: "assistant", Content: "Dry-run result"}},
 				},
 			}, nil)
-			result, err := NewTreeExecutor(fakeExpert, nil, nil,
-				TreeConfig{MaxIterations: 0, MaxDecisionsPerNode: 5, MaxTotalNodes: 10,
-					Toggles: Toggles{EnableDryRunSimulation: true}}).
+			cfg := TreeConfig{MaxIterations: 0, MaxDecisionsPerNode: 5, MaxTotalNodes: 10}
+			cfg.Toggles.Features.DryRun.Enabled = true
+			result, err := NewTreeExecutor(fakeExpert, nil, nil, cfg).
 				Run(context.Background(), TreeRequest{Goal: "dry-run"})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.Status).To(Equal(Success))

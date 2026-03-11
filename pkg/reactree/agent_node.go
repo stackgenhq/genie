@@ -70,7 +70,7 @@ type AgentNodeConfig struct {
 	// FailureReflector generates verbal reflections on agent failures.
 	// When set, failed episodes are stored with a reflection explaining
 	// what went wrong and what to try differently. When nil, failures
-	// are stored with just the raw error output.
+	// are stored with a generic reflection derived from the raw error output.
 	FailureReflector memory.FailureReflector
 
 	// ImportanceScorer assigns 1-10 importance scores to episodes.
@@ -229,12 +229,29 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 			// This is the key change — instead of discarding failures, we learn
 			// from them via the Reflexion pattern (verbal reinforcement).
 			reflection := generateFailureReflection(ctx, goal, output, cfg.FailureReflector)
+
+			// Cap failure trajectory similarly to the success path to prevent large
+			// tool/error outputs from bloating future prompts and memory.
+			trajectory := output
+			const maxFailureTrajectoryRunes = 500
+			failureRunes := []rune(trajectory)
+			if len(failureRunes) > maxFailureTrajectoryRunes {
+				trajectory = string(failureRunes[:maxFailureTrajectoryRunes]) + "... (truncated)"
+			}
+
+			// When no reflection is available, fall back to scoring importance
+			// based on the (truncated) trajectory.
+			importanceInput := reflection
+			if importanceInput == "" {
+				importanceInput = trajectory
+			}
+
 			episode := memory.Episode{
 				Goal:       goal,
-				Trajectory: output,
+				Trajectory: trajectory,
 				Status:     memory.EpisodeFailure,
 				Reflection: reflection,
-				Importance: scoreEpisodeImportance(ctx, cfg.ImportanceScorer, goal, reflection, memory.EpisodeFailure),
+				Importance: scoreEpisodeImportance(ctx, cfg.ImportanceScorer, goal, importanceInput, memory.EpisodeFailure),
 			}
 			ep.Store(ctx, episode)
 			logr.Info("stored failure episode with reflection",
@@ -405,8 +422,9 @@ func buildAgentPrompt(
 	}
 
 	// Include episodic memory (past similar experiences) with weighted retrieval.
-	// RetrieveWeighted ranks by recency (exponential decay) × importance,
-	// so recent lessons surface first and old ones naturally fade away.
+	// RetrieveWeighted combines recency (exponential decay) and importance using
+	// a weighted sum (e.g., 0.6 * recency + 0.4 * importance), so recent and
+	// important lessons surface first and old ones naturally fade away.
 	episodes := ep.RetrieveWeighted(ctx, goal, 3)
 	if len(episodes) > 0 {
 		sb.WriteString("## Relevant Past Experiences\n")

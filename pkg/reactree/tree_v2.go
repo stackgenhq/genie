@@ -90,7 +90,7 @@ func (t *tree) runAdaptiveLoop_v2(ctx context.Context, req TreeRequest) (TreeRes
 		})
 
 		// Enterprise: run RAR reflection if enabled.
-		if t.config.Toggles.EnableActionReflection {
+		if t.config.Toggles.Reflector != nil {
 			// Derive the list of tools actually called during this iteration.
 			var toolsCalled []string
 			for name, count := range ls.toolCallCounts {
@@ -305,18 +305,8 @@ func (t *tree) prepareGraph(req TreeRequest, ls *loopState) (*graph.Graph, error
 	}
 	toolsToUse := ls.toolsForIteration(baseTools)
 
-	// Enterprise: wrap tools with critic middleware if enabled.
-	if t.config.Toggles.EnableCriticMiddleware {
-		validator := NewDeterministicValidator(nil)
-		wrapped := make([]tool.Tool, len(toolsToUse))
-		for i, tl := range toolsToUse {
-			wrapped[i] = WrapWithValidator(tl, validator)
-		}
-		toolsToUse = wrapped
-	}
-
 	// Enterprise: wrap tools for dry run simulation if enabled.
-	if t.config.Toggles.EnableDryRunSimulation {
+	if t.config.Toggles.Features.DryRun.Enabled {
 		wrapped, _ := WrapToolsForDryRun(toolsToUse)
 		toolsToUse = wrapped
 	}
@@ -482,10 +472,28 @@ func (t *tree) emitIterationProgress(ctx context.Context, ls *loopState) {
 func (t *tree) storeLoopFailureEpisode(ctx context.Context, req TreeRequest, errorOutput string) {
 	ep := t.resolveEpisodic(req)
 	reflection := generateFailureReflection(ctx, req.Goal, errorOutput, t.failureReflector)
+
+	// Cap failure trajectory similarly to agent nodes to prevent large
+	// tool/error outputs from bloating future prompts and memory.
+	trajectory := errorOutput
+	const maxFailureTrajectoryRunes = 500
+	failureRunes := []rune(trajectory)
+	if len(failureRunes) > maxFailureTrajectoryRunes {
+		trajectory = string(failureRunes[:maxFailureTrajectoryRunes]) + "... (truncated)"
+	}
+
+	// When no reflection is available, fall back to scoring importance
+	// based on the (truncated) trajectory.
+	importanceInput := reflection
+	if importanceInput == "" {
+		importanceInput = trajectory
+	}
+
 	ep.Store(ctx, memory.Episode{
 		Goal:       req.Goal,
-		Trajectory: errorOutput,
+		Trajectory: trajectory,
 		Status:     memory.EpisodeFailure,
 		Reflection: reflection,
+		Importance: scoreEpisodeImportance(ctx, t.importanceScorer, req.Goal, importanceInput, memory.EpisodeFailure),
 	})
 }

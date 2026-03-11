@@ -162,7 +162,8 @@ func (s *serviceEpisodicMemory) RetrieveWeighted(ctx context.Context, goal strin
 }
 
 // retrieveEpisodes is the shared implementation for Retrieve and RetrieveWeighted.
-// When weighted is true, episodes are scored and sorted by recency × importance.
+// When weighted is true, episodes are scored and sorted using a weighted sum
+// (0.6*recency + 0.4*importance).
 func (s *serviceEpisodicMemory) retrieveEpisodes(ctx context.Context, goal string, k int, weighted bool) []Episode {
 	entries, err := s.svc.SearchMemories(ctx, s.userKey, goal)
 	if err != nil || len(entries) == 0 {
@@ -202,7 +203,7 @@ func (s *serviceEpisodicMemory) retrieveEpisodes(ctx context.Context, goal strin
 		return episodes
 	}
 
-	// Weighted scoring: sort by recency × importance, return top-k.
+	// Weighted scoring: sort using a weighted sum of recency and importance, return top-k.
 	now := time.Now()
 	scoreEpisode := func(ep Episode) float64 {
 		recency := recencyScore(now, ep.CreatedAt)

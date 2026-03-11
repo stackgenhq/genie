@@ -100,6 +100,10 @@ func (s *serviceWisdomStore) StoreWisdom(ctx context.Context, note WisdomNote) {
 
 // RetrieveWisdom reads the most recent wisdom notes.
 func (s *serviceWisdomStore) RetrieveWisdom(ctx context.Context, limit int) []WisdomNote {
+	if limit <= 0 {
+		return nil
+	}
+
 	logr := logger.GetLogger(ctx).With("fn", "WisdomStore.RetrieveWisdom")
 
 	entries, err := s.svc.ReadMemories(ctx, s.userKey, limit*3) // Over-read to filter by topic

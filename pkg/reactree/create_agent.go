@@ -193,6 +193,17 @@ type createAgentTool struct {
 	// When set, each sub-agent creation emits an audit event recording
 	// the agent name, goal, delegated tools, and budget parameters.
 	auditor audit.Auditor
+
+	// failureReflector generates verbal reflections on sub-agent failures.
+	// When set, failed episodes are stored with a reflection explaining
+	// what went wrong and what to try differently. When nil, failures
+	// are stored with just the raw error output.
+	failureReflector memory.FailureReflector
+
+	// importanceScorer assigns 1-10 importance scores to episodes.
+	// When set, the score is stored on the episode and influences
+	// weighted retrieval. When nil, episodes use a neutral default.
+	importanceScorer memory.ImportanceScorer
 }
 
 // CreateAgentOption configures the create_agent tool.
@@ -210,6 +221,18 @@ func WithSkipSummarizeMarker(skip bool) CreateAgentOption {
 // to the durable audit trail.
 func WithAuditor(a audit.Auditor) CreateAgentOption {
 	return func(t *createAgentTool) { t.auditor = a }
+}
+
+// WithFailureReflector injects a failure reflector so sub-agent failures
+// are stored with actionable verbal reflections instead of raw error output.
+func WithFailureReflector(fr memory.FailureReflector) CreateAgentOption {
+	return func(t *createAgentTool) { t.failureReflector = fr }
+}
+
+// WithImportanceScorer injects an importance scorer so sub-agent episodes
+// receive 1-10 importance scores that influence weighted retrieval.
+func WithImportanceScorer(is memory.ImportanceScorer) CreateAgentOption {
+	return func(t *createAgentTool) { t.importanceScorer = is }
 }
 
 // orchestrationOnlyTools lists tool names that are available to the main agent
@@ -821,12 +844,36 @@ func (t *createAgentTool) storeResults(ctx context.Context, req CreateAgentReque
 		if sar.timedOut || sar.status == "error" || sar.status == "partial" {
 			episodeStatus = memory.EpisodeFailure
 		}
+
+		// For failure episodes, generate a verbal reflection and importance
+		// score — matching the agent_node.go pattern. Without this, failures
+		// are stored as raw trajectories that don't surface actionable lessons.
+		var reflection string
+		var importance int
+		if episodeStatus == memory.EpisodeFailure {
+			reflection = generateFailureReflection(ctx, req.Goal, trajectory, t.failureReflector)
+			scoringInput := reflection
+			if scoringInput == "" {
+				scoringInput = trajectory
+			}
+			importance = scoreEpisodeImportance(ctx, t.importanceScorer, req.Goal, scoringInput, episodeStatus)
+		} else {
+			importance = scoreEpisodeImportance(ctx, t.importanceScorer, req.Goal, trajectory, episodeStatus)
+		}
+
 		t.episodic.Store(ctx, memory.Episode{
 			Goal:       req.Goal,
 			Trajectory: trajectory,
 			Status:     episodeStatus,
+			Reflection: reflection,
+			Importance: importance,
 		})
-		logr.Info("sub-agent result stored in episodic memory", "goal", toolwrap.TruncateForAudit(req.Goal, 60), "episode_status", episodeStatus)
+		logr.Info("sub-agent result stored in episodic memory",
+			"goal", toolwrap.TruncateForAudit(req.Goal, 60),
+			"episode_status", episodeStatus,
+			"has_reflection", reflection != "",
+			"importance", importance,
+		)
 	}
 }
 

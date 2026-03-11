@@ -18,9 +18,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/reactree/memory"
 	"github.com/stackgenhq/genie/pkg/reactree/memory/memoryfakes"
 	"github.com/stackgenhq/genie/pkg/tools"
-	"github.com/stackgenhq/genie/pkg/tools/toolsfakes"
 	"trpc.group/trpc-go/trpc-agent-go/model"
-	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
 var _ = Describe("Orchestrator", func() {
@@ -164,20 +162,6 @@ var _ = Describe("Orchestrator", func() {
 					MaxDecisions: 5, ToolRegistry: registry})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(fakeEp.StoreCallCount()).To(BeNumerically(">=", 1))
-		})
-
-		It("wraps tools with critic middleware", func() {
-			fakeExpert.DoReturns(successResponse(), nil)
-			fakeTool := &toolsfakes.FakeCallableTool{}
-			fakeTool.DeclarationReturns(&tool.Declaration{Name: "read_file"})
-			reg := tools.NewRegistry(context.Background(), &testToolProvider{t: []tool.Tool{fakeTool}})
-
-			result, err := ExecutePlan(context.Background(),
-				Plan{Flow: ControlFlowSequence, Steps: []PlanStep{{Name: "s", Goal: "critic"}}},
-				OrchestratorConfig{Expert: fakeExpert, ToolRegistry: reg, MaxDecisions: 5,
-					Toggles: Toggles{EnableCriticMiddleware: true}})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result.Status).To(Equal(Success))
 		})
 
 		It("handles step with context field", func() {
