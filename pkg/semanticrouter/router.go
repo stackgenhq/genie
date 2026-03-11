@@ -257,6 +257,12 @@ func (r *Router) Classify(ctx context.Context, question, resume string) (Classif
 		return ClassificationResult{}, err
 	}
 
+	span.SetAttributes(
+		attribute.String("semanticrouter.decision_level", res.Level),
+		attribute.String("semanticrouter.decision_category", res.Category),
+		attribute.Bool("semanticrouter.decision_bypassed_llm", res.BypassedLLM),
+	)
+
 	return ClassificationResult{
 		Category:    Category(res.Category),
 		Reason:      res.Reason,
@@ -516,8 +522,6 @@ func builtinRoutes() []Route {
 				"Thanks for the help!",
 				"Thank you, appreciate it.",
 				"Goodbye, see you later.",
-				"What can you do?",
-				"Help me understand your capabilities.",
 			},
 		},
 		{

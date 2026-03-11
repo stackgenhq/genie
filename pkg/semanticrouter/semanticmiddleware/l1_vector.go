@@ -27,7 +27,7 @@ type L1VectorConfig struct {
 
 	// EnrichBelowThreshold controls whether near-miss matches (above 0.5
 	// but below Threshold) are added to the ClassifyContext for downstream
-	// middlewares to use as routing hints. Default: true.
+	// middlewares to use as routing hints. Default: false.
 	EnrichBelowThreshold bool `yaml:"enrich_below_threshold,omitempty" toml:"enrich_below_threshold,omitempty"`
 }
 

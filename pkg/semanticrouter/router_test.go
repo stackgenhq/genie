@@ -10,7 +10,9 @@ package semanticrouter
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -318,6 +320,46 @@ var _ = Describe("SemanticRouter", func() {
 
 				_, ok := rt.CheckCache(ctx, "cache query")
 				Expect(ok).To(BeFalse())
+			})
+
+			It("should return false when cache entry has expired", func() {
+				expiredTime := strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10)
+				fakeCacheStore.SearchReturns([]vector.SearchResult{
+					{Score: 0.95, Metadata: map[string]string{
+						"response":  "stale answer",
+						"cached_at": expiredTime,
+					}},
+				}, nil)
+				rt.cfg.CacheTTL = 5 * time.Minute
+
+				_, ok := rt.CheckCache(ctx, "cache query")
+				Expect(ok).To(BeFalse())
+			})
+
+			It("should accept cache entry within TTL", func() {
+				recentTime := strconv.FormatInt(time.Now().Add(-1*time.Minute).Unix(), 10)
+				fakeCacheStore.SearchReturns([]vector.SearchResult{
+					{Score: 0.95, Metadata: map[string]string{
+						"response":  "fresh answer",
+						"cached_at": recentTime,
+					}},
+				}, nil)
+				rt.cfg.CacheTTL = 5 * time.Minute
+
+				resp, ok := rt.CheckCache(ctx, "cache query")
+				Expect(ok).To(BeTrue())
+				Expect(resp).To(Equal("fresh answer"))
+			})
+
+			It("should accept cache entry when cached_at is missing (pre-existing entries)", func() {
+				fakeCacheStore.SearchReturns([]vector.SearchResult{
+					{Score: 0.95, Metadata: map[string]string{"response": "legacy answer"}},
+				}, nil)
+				rt.cfg.CacheTTL = 5 * time.Minute
+
+				resp, ok := rt.CheckCache(ctx, "cache query")
+				Expect(ok).To(BeTrue())
+				Expect(resp).To(Equal("legacy answer"))
 			})
 		})
 

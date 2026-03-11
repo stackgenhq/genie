@@ -37,14 +37,13 @@ var _ = Describe("L0 Regex Middleware", func() {
 			mw = semanticmiddleware.NewL0Regex(semanticmiddleware.L0RegexConfig{})
 		})
 
-		DescribeTable("should match follow-up patterns",
+		DescribeTable("should flag follow-up patterns and pass through",
 			func(input string) {
 				cc := &semanticmiddleware.ClassifyContext{Question: input}
 				res, err := mw(ctx, cc, next)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(res.Category).To(Equal("COMPLEX"))
-				Expect(res.BypassedLLM).To(BeTrue())
-				Expect(res.Level).To(Equal("L0"))
+				Expect(res.Category).To(Equal("TERMINAL")) // from next
+				Expect(res.Level).To(Equal("next"))        // from next
 				Expect(cc.IsFollowUp).To(BeTrue())
 			},
 			Entry("try again", "try again"),
@@ -95,8 +94,8 @@ var _ = Describe("L0 Regex Middleware", func() {
 			cc := &semanticmiddleware.ClassifyContext{Question: "status check please"}
 			res, err := mw(ctx, cc, next)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(res.Category).To(Equal("COMPLEX"))
-			Expect(res.BypassedLLM).To(BeTrue())
+			Expect(cc.IsFollowUp).To(BeTrue())
+			Expect(res.Category).To(Equal("TERMINAL")) // from next
 		})
 
 		It("should ignore invalid regex patterns gracefully", func() {

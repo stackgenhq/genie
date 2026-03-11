@@ -56,7 +56,8 @@ type ClassifyResult struct {
 	// BypassedLLM is true if classification was decided without an LLM call.
 	BypassedLLM bool
 
-	// Level indicates which middleware tier made the decision (L0, L1, L2).
+	// Level indicates which middleware tier or internal handler made the decision
+	// (e.g. "L0", "L1", "L2", "terminal", "follow_up_bypass").
 	Level string
 }
 

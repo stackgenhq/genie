@@ -27,9 +27,10 @@ type L0RegexConfig struct {
 	ExtraPatterns []string `yaml:"extra_patterns,omitempty" toml:"extra_patterns,omitempty"`
 }
 
-// defaultL0Patterns are compiled patterns for ultra-fast pre-classification
-// of conversational follow-ups and corrections. These bypass both L1 and L2
-// entirely, saving embedding + LLM costs for trivial continuation messages.
+// defaultL0Patterns are compiled patterns for ultra-fast detection
+// of conversational follow-ups and corrections. When matched, the middleware
+// flags cc.IsFollowUp and passes downstream — it does NOT short-circuit.
+// The follow-up bypass middleware downstream handles the actual decision.
 var defaultL0Patterns = []*regexp.Regexp{
 	// Retry / repeat requests
 	regexp.MustCompile(`(?i)^(pls\s+|please\s+)?(try|do\s+it|retry)\s+(again|once\s+more)`),
@@ -49,8 +50,8 @@ var defaultL0Patterns = []*regexp.Regexp{
 
 // NewL0Regex returns a middleware that checks the question against compiled
 // regex patterns for common conversational follow-ups. If matched, it
-// short-circuits to COMPLEX with BypassedLLM=true. It also sets
-// cc.IsFollowUp so downstream middlewares can benefit.
+// enriches cc.IsFollowUp=true and passes to the next middleware. The actual
+// short-circuit to COMPLEX is handled by the follow-up bypass downstream.
 func NewL0Regex(cfg L0RegexConfig) Middleware {
 	if cfg.Disabled {
 		return passthrough
@@ -61,31 +62,31 @@ func NewL0Regex(cfg L0RegexConfig) Middleware {
 	copy(patterns, defaultL0Patterns)
 	for _, p := range cfg.ExtraPatterns {
 		compiled, err := regexp.Compile(p)
-		if err == nil {
-			patterns = append(patterns, compiled)
+		if err != nil {
+			logger.GetLogger(context.Background()).Warn(
+				"ignoring invalid L0 extra regex pattern",
+				"pattern", p,
+				"error", err,
+			)
+			continue
 		}
+		patterns = append(patterns, compiled)
 	}
 
 	return func(ctx context.Context, cc *ClassifyContext, next ClassifyFunc) (ClassifyResult, error) {
 		q := strings.TrimSpace(cc.Question)
 		for _, pat := range patterns {
 			if pat.MatchString(q) {
-				logger.GetLogger(ctx).Info("L0 regex matched follow-up pattern, bypassing L1+L2",
+				logger.GetLogger(ctx).Info("L0 regex flagged follow-up pattern",
 					"pattern", pat.String())
 				cc.IsFollowUp = true
 
 				span := oteltrace.SpanFromContext(ctx)
 				span.SetAttributes(
-					attribute.String("semanticrouter.level", "L0"),
-					attribute.String("semanticrouter.category", "COMPLEX"),
-					attribute.Bool("semanticrouter.bypassed_llm", true),
+					attribute.String("semanticrouter.l0_match", pat.String()),
 					attribute.Bool("semanticrouter.is_follow_up", true),
 				)
-				return ClassifyResult{
-					Category:    "COMPLEX",
-					BypassedLLM: true,
-					Level:       "L0",
-				}, nil
+				break
 			}
 		}
 		return next(ctx, cc)
