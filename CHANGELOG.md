@@ -23,6 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Early-return guard in `RetrieveWisdom` when `limit ≤ 0` to prevent unnecessary processing.
 - QA test plan for agent learning features (`qa/20260310_failure_learning.md`) — 10 manual acceptance tests plus 96 automated Ginkgo/Gomega specs.
 - 96 Ginkgo/Gomega test specs across `memory/failure_learning_test.go`, `memory/consolidation_test.go`, `memory/plan_advisor_test.go`, `failure_reflector_test.go`, `importance_and_consolidation_test.go`, and `agent_node_pvt_test.go`.
+- **Semantic router middleware chain** (`pkg/semanticrouter/semanticmiddleware/`) — composable classification pipeline where each tier enriches a shared `ClassifyContext` and can either decide or pass downstream. Tiers: **L0 Regex** → **L1 Vector** → **Follow-Up Bypass** → **L2 LLM**.
+- **L0 regex pre-filter** — catches conversational follow-ups ("try again", "same thing", "but I wanted") at ~0 cost (<1ms, no embedding or LLM). Configurable via `semantic_router.l0_regex` with support for custom patterns.
+- **L1 vector near-miss enrichment** — when a route match is below threshold but above 0.5, the closest route and score are injected into the `ClassifyContext` so the L2 LLM can use the signal as a routing hint.
+- **Follow-up bypass middleware** — ensures messages flagged as follow-ups by L0 skip the expensive L2 LLM call, even when L1 doesn't match (e.g. dummy embedder).
+- **`follow_up` L1 route** — new built-in route with 10 utterances for common continuation patterns, expanded from the original 2 routes (jailbreak + salutation) to 3.
+- **Semantic cache TTL** — `CacheTTL` config field (default 5m) enforces temporal decay on cached responses. Operational queries (health checks, pod listings) no longer return stale data.
+- 34 Ginkgo/Gomega test specs for the `semanticmiddleware` package covering chain building, L0 regex matching, L1 vector routing, and follow-up bypass behavior.
 
 ### Changed
 
@@ -31,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ActionReflector` is now activated purely by setting `Toggles.Reflector` (non-nil); the redundant `EnableActionReflection` boolean guard was removed.
 - `ImportanceScorer` and `WisdomStore` are now propagated through `Toggles` → `tree` → `AgentNodeConfig`, consistent with `FailureReflector` and other injectables.
 - `docs/config-builder.html` and `docs/js/config-builder.js` updated to reflect removal of deprecated feature-flag fields from the config schema.
+- **Semantic router refactored from monolithic `Classify` method to a composable middleware chain** — L0/L1/L2 logic moved from hardcoded if/else branches into separate, testable `semanticmiddleware.Middleware` functions composed via `BuildChain`.
+- **L2 classification optimized**: streaming disabled and `MaxTokens` capped at 30 for a response expected to be a single word, eliminating streaming overhead on ~2500-token prompts.
+- **L2 prompt enriched with upstream signals**: `buildL2Message` now includes near-miss route hints from L1 and follow-up context from L0, enabling better-informed classification decisions.
+- `semanticrouter.Config` extended with `CacheTTL`, `L0Regex`, and `FollowUpBypass` middleware config structs, all exposed through the agent config chain (`config.go` → `semanticrouter.Config` → `mw.*Config`).
 
 ### Removed
 

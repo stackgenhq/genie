@@ -14,14 +14,18 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
+	mw "github.com/stackgenhq/genie/pkg/semanticrouter/semanticmiddleware"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	oteltrace "go.opentelemetry.io/otel/trace"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/telemetry/trace"
 )
@@ -41,10 +45,11 @@ const (
 	CategoryComplex    Category = "COMPLEX"
 )
 
-// Route types for L1 vector matching
+// Route types for L1 vector matching (re-exported from semanticmiddleware).
 const (
-	RouteJailbreak  = "jailbreak"
-	RouteSalutation = "salutation"
+	RouteJailbreak  = mw.RouteJailbreak
+	RouteSalutation = mw.RouteSalutation
+	RouteFollowUp   = mw.RouteFollowUp
 )
 
 // ClassificationResult carries the category together with an optional reason.
@@ -66,12 +71,15 @@ type IRouter interface {
 
 // Router provides semantic routing (intent classification), semantic caching,
 // and safety checks using a vector store for fast, embedding-based comparisons
-// and acts as the gatekeeper applying L1 Semantic rules and L2 LLM frontdesk rules.
+// and acts as the gatekeeper applying L0 Regex → L1 Semantic → L2 LLM middleware chain.
 type Router struct {
 	cfg        Config
 	routeStore vector.IStore
 	cacheStore vector.IStore
 	provider   modelprovider.ModelProvider
+
+	// classifyChain is built once during New() and executed per Classify call.
+	classifyChain mw.ClassifyFunc
 }
 
 // Route defines a semantic category alongside example utterances.
@@ -81,17 +89,23 @@ type Route struct {
 }
 
 // New creates a new Semantic Router. It initializes isolated vector stores
-// for caching and routing to prevent collision.
+// for caching and routing to prevent collision, and builds the classify
+// middleware chain: L0 (regex) → L1 (vector) → follow-up bypass → L2 (LLM).
 func New(ctx context.Context, cfg Config, provider modelprovider.ModelProvider) (*Router, error) {
 	if cfg.Threshold == 0 {
 		cfg.Threshold = defaultThreshold
 	}
+	if cfg.CacheTTL == 0 {
+		cfg.CacheTTL = defaultCacheTTL
+	}
 
 	if cfg.Disabled {
-		return &Router{
+		r := &Router{
 			cfg:      cfg,
 			provider: provider,
-		}, nil
+		}
+		r.classifyChain = r.buildClassifyChain()
+		return r, nil
 	}
 
 	routeStore, cacheStore, err := initializeStores(ctx, cfg)
@@ -103,12 +117,40 @@ func New(ctx context.Context, cfg Config, provider modelprovider.ModelProvider) 
 		return nil, err
 	}
 
-	return &Router{
+	r := &Router{
 		cfg:        cfg,
 		routeStore: routeStore,
 		cacheStore: cacheStore,
 		provider:   provider,
-	}, nil
+	}
+	r.classifyChain = r.buildClassifyChain()
+	return r, nil
+}
+
+// buildClassifyChain assembles the middleware chain based on router configuration.
+// The chain is: L0 (regex) → L1 (vector, if enabled) → follow-up bypass → L2 (LLM).
+func (r *Router) buildClassifyChain() mw.ClassifyFunc {
+	var middlewares []mw.Middleware
+
+	// L0: Regex-based pre-filter (always active, ~0 cost).
+	middlewares = append(middlewares, mw.NewL0Regex(r.cfg.L0Regex))
+
+	// L1: Vector-based semantic routing (skipped for dummy embedder).
+	if !r.cfg.Disabled && !r.isDummyEmbedder() {
+		middlewares = append(middlewares, mw.NewL1Vector(mw.L1VectorConfig{
+			Threshold:            r.cfg.Threshold,
+			EnrichBelowThreshold: true,
+		}, r.routeStore))
+	}
+
+	// Follow-up bypass: if L0 flagged a follow-up but L1 didn't match,
+	// still skip L2 to avoid wasting an LLM call on "pls try again".
+	middlewares = append(middlewares, mw.NewFollowUpBypass(r.cfg.FollowUpBypass))
+
+	// L2: LLM-based classification (terminal, most expensive).
+	middlewares = append(middlewares, r.newL2LLMMiddleware())
+
+	return mw.BuildChain(middlewares...)
 }
 
 // isDummyEmbedder returns true when the router's vector store is backed by the
@@ -187,9 +229,13 @@ func indexRoutes(ctx context.Context, routeStore vector.IStore, customRoutes []R
 	return nil
 }
 
-// Classify acts as the unified gatekeeper.
+// Classify acts as the unified gatekeeper using a middleware chain.
+// L0 Check: Regex patterns for common follow-ups (free, <1ms).
 // L1 Check: Checks semantic vector distance and bypasses LLM if intent matches.
-// L2 Check: Proxies to the LLM-based frontDeskExpert if no L1 matches are found.
+// L2 Check: Proxies to the LLM-based frontDeskExpert if no earlier layer decides.
+//
+// Each middleware enriches a shared ClassifyContext so downstream layers can
+// make better-informed decisions (e.g. L1's near-miss route score informs L2).
 //
 // The method creates an OTel span ("semanticrouter.classify") that appears as a
 // child of the caller's active span (typically "codeowner.chat"). This ensures
@@ -201,76 +247,80 @@ func (r *Router) Classify(ctx context.Context, question, resume string) (Classif
 	)
 	defer span.End()
 
-	// L1: Vector-based Semantic Routing (bypasses LLM)
-	// Skip L1 when using the dummy embedder — it produces non-semantic
-	// embeddings (FNV hash + PRNG) whose cosine similarity between
-	// unrelated texts is always ~0.5, far below the 0.85 threshold,
-	// so no route would ever match and the L1 check is a no-op.
-	if !r.cfg.Disabled && !r.isDummyEmbedder() {
-		if route, ok := r.route(ctx, question); ok {
-			logger.GetLogger(ctx).Info("semantic route matched, bypassing LLM front-desk", "route", route)
-			res := ClassificationResult{
-				BypassedLLM: true,
-			}
-			switch route {
-			case RouteJailbreak:
-				res.Category = CategoryRefuse
-			case RouteSalutation:
-				res.Category = CategorySalutation
-			default:
-				res.Category = CategoryComplex
-			}
-			span.SetAttributes(
-				attribute.String("semanticrouter.level", "L1"),
-				attribute.String("semanticrouter.route", route),
-				attribute.String("semanticrouter.category", string(res.Category)),
-				attribute.Bool("semanticrouter.bypassed_llm", true),
-			)
-			return res, nil
-		}
+	cc := &mw.ClassifyContext{
+		Question: question,
+		Resume:   resume,
 	}
 
-	// L2: LLM-based Classification (Frontdesk)
-	if r.provider == nil {
-		// Degrade gracefully if no frontdesk expert provider exists
-		res := ClassificationResult{Category: CategoryComplex}
+	res, err := r.classifyChain(ctx, cc)
+	if err != nil {
+		return ClassificationResult{}, err
+	}
+
+	return ClassificationResult{
+		Category:    Category(res.Category),
+		Reason:      res.Reason,
+		BypassedLLM: res.BypassedLLM,
+	}, nil
+}
+
+// newL2LLMMiddleware returns the terminal classification middleware that uses
+// a generative LLM to classify the request. This is the most expensive tier
+// and is only reached when L0 and L1 did not produce a decision.
+//
+// Optimization (R0): Uses non-streaming mode with MaxTokens=30 since the
+// expected response is a single word (COMPLEX, REFUSE, SALUTATION, OUT_OF_SCOPE).
+// This avoids the overhead of streaming a 1-word response.
+func (r *Router) newL2LLMMiddleware() mw.Middleware {
+	return func(ctx context.Context, cc *mw.ClassifyContext, _ mw.ClassifyFunc) (mw.ClassifyResult, error) {
+		if r.provider == nil {
+			// Degrade gracefully if no frontdesk expert provider exists.
+			span := oteltrace.SpanFromContext(ctx)
+			span.SetAttributes(
+				attribute.String("semanticrouter.level", "L2"),
+				attribute.String("semanticrouter.category", string(CategoryComplex)),
+				attribute.Bool("semanticrouter.bypassed_llm", false),
+				attribute.String("semanticrouter.note", "no_provider"),
+			)
+			return mw.ClassifyResult{Category: string(CategoryComplex), Level: "L2"}, nil
+		}
+
+		res, err := r.classifyL2(ctx, cc)
+		if err != nil {
+			span := oteltrace.SpanFromContext(ctx)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			return res, err
+		}
+		span := oteltrace.SpanFromContext(ctx)
 		span.SetAttributes(
 			attribute.String("semanticrouter.level", "L2"),
-			attribute.String("semanticrouter.category", string(res.Category)),
+			attribute.String("semanticrouter.category", res.Category),
 			attribute.Bool("semanticrouter.bypassed_llm", false),
-			attribute.String("semanticrouter.note", "no_provider"),
 		)
 		return res, nil
 	}
-
-	res, err := r.classifyL2(ctx, question, resume)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return res, err
-	}
-	span.SetAttributes(
-		attribute.String("semanticrouter.level", "L2"),
-		attribute.String("semanticrouter.category", string(res.Category)),
-		attribute.Bool("semanticrouter.bypassed_llm", false),
-	)
-	return res, nil
 }
 
-func (r *Router) classifyL2(ctx context.Context, question, resume string) (ClassificationResult, error) {
-	message := buildL2Message(question, resume)
+// classifyL2 performs LLM-based classification. It builds a prompt that includes
+// any enrichment from upstream middlewares (e.g. L1 near-miss route info).
+//
+// R0 fix: Stream is disabled and MaxTokens is capped at 30 for a response
+// that is expected to be a single category word.
+func (r *Router) classifyL2(ctx context.Context, cc *mw.ClassifyContext) (mw.ClassifyResult, error) {
+	message := buildL2Message(cc.Question, cc.Resume, cc.ClosestRoute, cc.RouteScore, cc.IsFollowUp)
 
 	models, err := r.provider.GetModel(ctx, modelprovider.TaskEfficiency)
 	if err != nil {
-		return ClassificationResult{Category: CategoryComplex}, fmt.Errorf("failed to get model for classification: %w", err)
+		return mw.ClassifyResult{Category: string(CategoryComplex)}, fmt.Errorf("failed to get model for classification: %w", err)
 	}
 	llm := models.GetAny()
 	if llm == nil {
-		return ClassificationResult{Category: CategoryComplex}, fmt.Errorf("no model available for classification")
+		return mw.ClassifyResult{Category: string(CategoryComplex)}, fmt.Errorf("no model available for classification")
 	}
 
 	agentName := ""
-	if agentCtx := ctx.Value("agent_name"); agentCtx != nil {
+	if agentCtx := ctx.Value("agent_name"); agentCtx != nil { //nolint:staticcheck // legacy context key
 		agentName, _ = agentCtx.(string)
 	}
 	if agentName == "" {
@@ -278,35 +328,49 @@ func (r *Router) classifyL2(ctx context.Context, question, resume string) (Class
 	}
 
 	sysPrompt := strings.ReplaceAll(classifyPrompt, AgentNamePlaceholder, agentName)
+
+	// R0 optimization: non-streaming with MaxTokens=30. The expected response
+	// is a single word (COMPLEX, REFUSE, SALUTATION) or "OUT_OF_SCOPE | reason"
+	// which fits well within 30 tokens.
+	maxTokens := 30
 	req := &model.Request{
 		Messages: []model.Message{
 			model.NewSystemMessage(sysPrompt),
 			model.NewUserMessage(message),
 		},
 		GenerationConfig: model.GenerationConfig{
-			Stream: true,
+			Stream:    false,
+			MaxTokens: &maxTokens,
 		},
 	}
 
 	ch, err := llm.GenerateContent(ctx, req)
 	if err != nil {
-		return ClassificationResult{Category: CategoryComplex}, fmt.Errorf("classification call failed: %w", err)
+		return mw.ClassifyResult{Category: string(CategoryComplex)}, fmt.Errorf("classification call failed: %w", err)
 	}
 
 	var builder strings.Builder
 	for resp := range ch {
 		if resp.Error != nil {
 			errStr := fmt.Errorf("classification generation error: %s", resp.Error.Message)
-			return ClassificationResult{Category: CategoryComplex}, errStr
+			return mw.ClassifyResult{Category: string(CategoryComplex)}, errStr
 		}
 		builder.WriteString(extractTextFromChoices(resp.Choices))
 	}
 
 	raw := strings.TrimSpace(builder.String())
-	return parseL2Response(raw), nil
+	parsed := parseL2Response(raw)
+	return mw.ClassifyResult{
+		Category:    string(parsed.Category),
+		Reason:      parsed.Reason,
+		BypassedLLM: false,
+		Level:       "L2",
+	}, nil
 }
 
-func buildL2Message(question, resume string) string {
+// buildL2Message constructs the user message for L2 classification.
+// It includes the question, resume, and any enrichment from upstream middlewares.
+func buildL2Message(question, resume, closestRoute string, routeScore float64, isFollowUp bool) string {
 	resumeSection := resume
 	if resumeSection == "" {
 		resumeSection = "(Resume not yet available. Treat any task-oriented or actionable request as COMPLEX.)"
@@ -320,7 +384,19 @@ func buildL2Message(question, resume string) string {
 			resumeSection = resumeSection[:cut] + "\n...(truncated)"
 		}
 	}
-	return fmt.Sprintf("## User Message\n%s\n\n## Agent Resume\n%s", question, resumeSection)
+
+	msg := fmt.Sprintf("## User Message\n%s\n\n## Agent Resume\n%s", question, resumeSection)
+
+	// Append upstream enrichment so L2 benefits from L1 signals.
+	if closestRoute != "" {
+		msg += fmt.Sprintf("\n\n## Routing Hint\nClosest semantic route: %s (score: %.2f)",
+			closestRoute, routeScore)
+	}
+	if isFollowUp {
+		msg += "\n\n## Context\nThis message appears to be a conversational follow-up or correction."
+	}
+
+	return msg
 }
 
 func parseL2Response(raw string) ClassificationResult {
@@ -350,27 +426,8 @@ func GetClassifyPrompt() string {
 	return classifyPrompt
 }
 
-// route checks the input query against predefined routes and returns the name
-// of the matching route, or empty string if no route exceeds the threshold.
-func (r *Router) route(ctx context.Context, query string) (string, bool) {
-	if r.cfg.Disabled {
-		return "", false
-	}
-	results, err := r.routeStore.Search(ctx, query, 1)
-	if err != nil || len(results) == 0 {
-		if err != nil {
-			logger.GetLogger(ctx).Warn("semantic route search query failed", "error", err)
-		}
-		return "", false
-	}
-
-	if results[0].Score >= r.cfg.Threshold {
-		return results[0].Metadata["route"], true
-	}
-	return "", false
-}
-
 // CheckCache looks up the input query in the semantic cache.
+// Cache entries are subject to TTL: entries older than Config.CacheTTL are ignored.
 func (r *Router) CheckCache(ctx context.Context, query string) (string, bool) {
 	if r.cfg.Disabled || !r.cfg.EnableCaching {
 		return "", false
@@ -384,13 +441,32 @@ func (r *Router) CheckCache(ctx context.Context, query string) (string, bool) {
 		return "", false
 	}
 
-	if results[0].Score >= r.cfg.Threshold {
-		return results[0].Metadata["response"], true
+	if results[0].Score < r.cfg.Threshold {
+		return "", false
 	}
-	return "", false
+
+	// TTL enforcement: ignore stale entries.
+	ttl := r.cfg.CacheTTL
+	if ttl == 0 {
+		ttl = defaultCacheTTL
+	}
+	if ts, ok := results[0].Metadata["cached_at"]; ok {
+		cachedAt, parseErr := strconv.ParseInt(ts, 10, 64)
+		if parseErr == nil {
+			age := time.Since(time.Unix(cachedAt, 0))
+			if age > ttl {
+				logger.GetLogger(ctx).Debug("semantic cache entry expired",
+					"age", age, "ttl", ttl)
+				return "", false
+			}
+		}
+	}
+
+	return results[0].Metadata["response"], true
 }
 
 // SetCache stores the query and response pair for future semantic hits.
+// A timestamp is stored alongside the response for TTL enforcement.
 func (r *Router) SetCache(ctx context.Context, query string, response string) error {
 	if r.cfg.Disabled || !r.cfg.EnableCaching {
 		return nil
@@ -404,7 +480,8 @@ func (r *Router) SetCache(ctx context.Context, query string, response string) er
 		ID:   "cache_" + id,
 		Text: query,
 		Metadata: map[string]string{
-			"response": response,
+			"response":  response,
+			"cached_at": strconv.FormatInt(time.Now().Unix(), 10),
 		},
 	})
 	if err != nil {
@@ -414,6 +491,8 @@ func (r *Router) SetCache(ctx context.Context, query string, response string) er
 }
 
 // builtinRoutes returns sensible defaults to replicate vllm-semantic-router out of the box.
+// R2: Expanded with follow-up and operational patterns so L1 can match
+// common DevOps queries without falling through to L2.
 func builtinRoutes() []Route {
 	return []Route{
 		{
@@ -434,6 +513,26 @@ func builtinRoutes() []Route {
 				"Good morning!",
 				"What's up?",
 				"Yo, hello.",
+				"Thanks for the help!",
+				"Thank you, appreciate it.",
+				"Goodbye, see you later.",
+				"What can you do?",
+				"Help me understand your capabilities.",
+			},
+		},
+		{
+			Name: RouteFollowUp,
+			Utterances: []string{
+				"Please try again.",
+				"Can you retry that?",
+				"Do it again.",
+				"That's not what I asked for.",
+				"But I wanted something else.",
+				"You already have access to that.",
+				"No, I meant the other thing.",
+				"Same thing but for a different namespace.",
+				"Try the same query again.",
+				"Repeat the last action.",
 			},
 		},
 	}
