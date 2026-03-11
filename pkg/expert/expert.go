@@ -332,7 +332,7 @@ func (e *expert) Do(ctx context.Context, req Request) (Response, error) {
 		// Debug: log agent thought preview (short to avoid log spam)
 		for _, choice := range ev.Choices {
 			if choice.Message.Content != "" {
-				logr.Debug("agent thought", "content", toolwrap.TruncateForAudit(choice.Message.Content, 80))
+				logr.Debug("agent thought", "content", choice.Message.Content)
 			}
 		}
 	}

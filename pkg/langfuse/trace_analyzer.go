@@ -141,7 +141,9 @@ type TraceDetail struct {
 	// Output is the agent's final response (nil if no output).
 	Output *string `json:"output"`
 
-	// ToolCalls lists every tool invocation in this trace.
+	// ToolCalls lists every top-level tool invocation in this trace.
+	// Tool calls made within sub-agents (i.e., spans that are descendants of a sub-agent)
+	// are not included here.
 	ToolCalls []ToolCallDetail `json:"tool_calls"`
 
 	// SubAgents lists every sub-agent that was created.

@@ -33,6 +33,8 @@ func sendSlack(ctx context.Context, webhookURL string, notifyReq NotifyRequest) 
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	_ = resp.Header // read headers
+
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("slack returned status code %d", resp.StatusCode)
 	}

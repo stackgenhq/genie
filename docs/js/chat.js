@@ -441,6 +441,10 @@
                             notifications.forEach(function (notification) {
                                 notification.close();
                             });
+                        }).catch(function (e) {
+                            if (console && typeof console.debug === 'function') {
+                                console.debug('getNotifications failed', e);
+                            }
                         });
                     }, 60000);
                 }).catch(function (e) {

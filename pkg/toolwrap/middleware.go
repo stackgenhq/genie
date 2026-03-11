@@ -8,7 +8,15 @@
 // The Service assembles the default middleware chain via DefaultMiddlewares
 package toolwrap
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrToolCallRejected indicates that a tool call was intentionally rejected
+// by policy, user interaction (HITL), or configuration, rather than failing
+// due to an unexpected system error.
+var ErrToolCallRejected = errors.New("tool call rejected")
 
 // ToolCallContext carries per-call state through the middleware chain.
 // Middlewares read and write fields to communicate with each other

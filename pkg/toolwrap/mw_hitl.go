@@ -208,16 +208,6 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 
 		logr := logger.GetLogger(ctx).With("fn", "HITLApprovalMiddleware", "tool", tc.ToolName)
 
-		// Check if this is a background task (e.g. cron trigger).
-		// If so, there is no user attached to the session to approve it.
-		// Handle according to the backgroundBehavior configuration.
-		if orchestratorcontext.IsInternalTask(ctx) {
-			handled, res, err := m.handleBackgroundTask(ctx, tc, next)
-			if handled {
-				return res, err
-			}
-		}
-
 		// Skip if tool is in allowlist.
 		if m.store.IsAllowed(tc.ToolName) {
 			m.emitAutoApproved(ctx, tc.ToolName, string(tc.Args), tc.Justification)
@@ -243,6 +233,16 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 			m.emitAutoApproved(ctx, tc.ToolName, string(tc.Args), tc.Justification)
 			m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "auto_approved", "cache_hit", "")
 			return next(ctx, tc)
+		}
+
+		// Check if this is a background task (e.g. cron trigger).
+		// If so, there is no user attached to the session to approve it.
+		// Handle according to the backgroundBehavior configuration.
+		if orchestratorcontext.IsInternalTask(ctx) {
+			handled, res, err := m.handleBackgroundTask(ctx, tc, next)
+			if handled {
+				return res, err
+			}
 		}
 
 		logr.Info("HITL approval gate entered",
@@ -285,19 +285,19 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 			m.storeFeedback(tc.ToolName, resolved.Feedback)
 			logr.Info("tool call rejected with feedback", "feedback", resolved.Feedback)
 			m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "rejected", "", resolved.Feedback)
-			return nil, fmt.Errorf("tool call %s rejected by user: %s", tc.ToolName, resolved.Feedback)
+			return nil, fmt.Errorf("%w by user: %s", ErrToolCallRejected, resolved.Feedback)
 
 		case resolved.Status == hitl.StatusRejected:
 			logr.Info("tool call rejected by user")
 			m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "rejected", "", "")
-			return nil, fmt.Errorf("tool call %s rejected by user", tc.ToolName)
+			return nil, fmt.Errorf("%w by user", ErrToolCallRejected)
 
 		case resolved.Feedback != "":
 			m.storeFeedback(tc.ToolName, resolved.Feedback)
 			logr.Info("tool call approved with feedback — returning to LLM for re-planning",
 				"feedback", resolved.Feedback)
-			return nil, fmt.Errorf("tool call %s: user requested changes — %s — please adjust your approach and try again",
-				tc.ToolName, resolved.Feedback)
+			return nil, fmt.Errorf("%w: user requested changes — %s — please adjust your approach and try again",
+				ErrToolCallRejected, resolved.Feedback)
 		}
 
 		logr.Info("tool call approved by user")
@@ -327,7 +327,7 @@ func (m *hitlApprovalMiddleware) handleBackgroundTask(ctx context.Context, tc *T
 	default: // "reject" (or any unrecognized value)
 		logr.Warn("background task requested an unapproved tool call, rejecting via config", "HITLBackgroundBehavior", m.backgroundBehavior)
 		m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "rejected", "background_task", "")
-		return true, nil, fmt.Errorf("tool call %s requires human approval, which is not supported in background tasks (HITLBackgroundBehavior=%v)", tc.ToolName, m.backgroundBehavior)
+		return true, nil, fmt.Errorf("%w: requires human approval, which is not supported in background tasks (HITLBackgroundBehavior=%v)", ErrToolCallRejected, m.backgroundBehavior)
 	}
 }
 
