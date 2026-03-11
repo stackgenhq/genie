@@ -1,9 +1,9 @@
-# DevOps Copilot Configuration
+# Cloud Discovery Configuration
 # Configure the MCP servers and skills relevant to your infrastructure.
 # Comment out or remove sections you don't need.
 
 skills_roots = ["./skills"]
-agent_name  = "devops-copilot"
+agent_name  = "cloud-discovery"
 [persona]
 file = "./AGENTS.md"
 disable_resume = true
@@ -103,92 +103,6 @@ transport = "stdio"
 command = "/Users/sabithks/src/github.com/appcd-dev/stackgen-cli/build/stackgen"
 args = ["mcp"]
 
-
-# Datadog: metrics, logs, traces, incidents, dashboards, monitors
-# [[mcp.servers]]
-# name = "datadog"
-# transport = "stdio"
-# command = "npx"
-# args = ["-y", "@anthropic/datadog-mcp-server"]
-# env = { DD_API_KEY = "${DD_API_KEY}", DD_APP_KEY = "${DD_APP_KEY}" }
-
-# Sentry: error tracking, issues, events
-# [[mcp.servers]]
-# name = "sentry"
-# transport = "stdio"
-# command = "npx"
-# args = ["-y", "@anthropic/sentry-mcp-server"]
-# env = { SENTRY_AUTH_TOKEN = "${SENTRY_AUTH_TOKEN}" }
-
-# ── Source Control & CI/CD ──────────────────────────────────────────
-
-# GitHub: repos, PRs, issues, actions, code search
-[[mcp.servers]]
-name = "github"
-transport = "stdio"
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-github"]
-env = { GITHUB_TOKEN = "${GITHUB_TOKEN}" }
-
-# GitLab (uncomment if using GitLab instead)
-# [[mcp.servers]]
-# name = "gitlab"
-# transport = "stdio"
-# command = "npx"
-# args = ["-y", "@anthropic/gitlab-mcp-server"]
-# env = { GITLAB_TOKEN = "${GITLAB_TOKEN}" }
-
-# ── Infrastructure ──────────────────────────────────────────────────
-
-# Terraform: validate, plan, state inspection
-# [[mcp.servers]]
-# name = "terraform"
-# transport = "stdio"
-# command = "npx"
-# args = ["-y", "@anthropic/terraform-mcp-server"]
-
-# Kubernetes: pods, services, deployments, namespaces
-# [[mcp.servers]]
-# name = "kubernetes"
-# transport = "stdio"
-# command = "npx"
-# args = ["-y", "@anthropic/kubernetes-mcp-server"]
-# env = { KUBECONFIG = "${KUBECONFIG}" }
-
-# ── Collaboration ───────────────────────────────────────────────────
-
-# Atlassian (Jira + Confluence)
-# [[mcp.servers]]
-# name = "atlassian"
-# transport = "stdio"
-# command = "npx"
-# args = ["-y", "@anthropic/atlassian-mcp-server"]
-# env = { ATLASSIAN_URL = "${ATLASSIAN_URL}", ATLASSIAN_EMAIL = "${ATLASSIAN_EMAIL}", ATLASSIAN_API_TOKEN = "${ATLASSIAN_API_TOKEN}" }
-
-# PagerDuty: incidents, services, escalation policies
-# [[mcp.servers]]
-# name = "pagerduty"
-# transport = "stdio"
-# command = "npx"
-# args = ["-y", "@anthropic/pagerduty-mcp-server"]
-# env = { PAGERDUTY_API_KEY = "${PAGERDUTY_API_KEY}" }
-
-# ── Databases ───────────────────────────────────────────────────────
-
-# PostgreSQL: query execution, schema inspection
-# [[mcp.servers]]
-# name = "postgres"
-# transport = "stdio"
-# command = "npx"
-# args = ["-y", "@anthropic/postgres-mcp-server"]
-# env = { DATABASE_URL = "${DATABASE_URL}" }
-
-# ── Application Settings ────────────────────────────────────────────
-
-[ops]
-max_pages = 5
-enable_verification = true
-max_verification_runs = 3
 
 # ── GitHub (SCM) ────────────────────────────────────────────────────
 [scm]
