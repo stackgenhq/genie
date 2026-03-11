@@ -194,6 +194,75 @@ var _ = Describe("TraceAnalyzer", func() {
 			})
 		})
 
+		Context("when tool calls are deeply nested under a sub-agent", func() {
+			BeforeEach(func() {
+				server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch {
+					case r.URL.Path == "/api/public/traces":
+						resp := tracesResponse{
+							Data: []Trace{
+								{ID: "t1", Timestamp: parseTime("2026-03-11T13:00:00Z"), Name: "main-agent", UserID: "user@test.com", Input: "Deep analysis"},
+							},
+						}
+						w.WriteHeader(http.StatusOK)
+						data, _ := json.Marshal(resp)
+						_, _ = w.Write(data)
+
+					case r.URL.Path == "/api/public/observations":
+						resp := observationsResponse{
+							Data: []Observation{
+								{ID: "root", TraceID: "t1", Type: "SPAN", Name: "main-run", StartTime: parseTime("2026-03-11T13:00:00Z")},
+								// Sub-agent with a child generation
+								{ID: "sub1", TraceID: "t1", Type: "SPAN", Name: "deep-subagent", ParentObservationID: strPtr("root"), StartTime: parseTime("2026-03-11T13:00:01Z")},
+								{ID: "gen1", TraceID: "t1", Type: "GENERATION", Name: "llm-1", ParentObservationID: strPtr("sub1"), StartTime: parseTime("2026-03-11T13:00:02Z")},
+								// Container span under sub-agent (not itself a tool call)
+								{ID: "container", TraceID: "t1", Type: "SPAN", Name: "processing-step", ParentObservationID: strPtr("sub1"), StartTime: parseTime("2026-03-11T13:00:03Z")},
+								// Tool call under the container (grandchild of sub-agent)
+								{ID: "deep-tool", TraceID: "t1", Type: "SPAN", Name: "db_query", ParentObservationID: strPtr("container"), StartTime: parseTime("2026-03-11T13:00:04Z")},
+								// Vector store op under sub-agent
+								{ID: "vs-op", TraceID: "t1", Type: "SPAN", Name: "addMemory", ParentObservationID: strPtr("sub1"), StartTime: parseTime("2026-03-11T13:00:05Z")},
+								// Top-level tool call (direct child of root)
+								{ID: "top-tool", TraceID: "t1", Type: "SPAN", Name: "notify_slack", ParentObservationID: strPtr("root"), StartTime: parseTime("2026-03-11T13:00:06Z")},
+							},
+						}
+						w.WriteHeader(http.StatusOK)
+						data, _ := json.Marshal(resp)
+						_, _ = w.Write(data)
+					}
+				}))
+
+				cfg := Config{PublicKey: "pk", SecretKey: "sk", Host: server.URL}
+				analyzer = &TraceAnalyzer{config: cfg, httpClient: server.Client()}
+			})
+
+			It("attributes deeply nested tool calls to the sub-agent", func() {
+				result, err := analyzer.Analyze(context.Background(), AnalyzeTracesRequest{
+					Duration: 24 * time.Hour,
+				})
+				Expect(err).NotTo(HaveOccurred())
+				detail := result.TraceDetails[0]
+
+				// Sub-agent should have all descendant tool calls counted.
+				Expect(detail.SubAgents).To(HaveLen(1))
+				Expect(detail.SubAgents[0].Name).To(Equal("deep-subagent"))
+				// processing-step, db_query, addMemory = 3 tool calls under sub-agent
+				Expect(detail.SubAgents[0].ToolCalls).To(Equal(3))
+
+				// Top-level should only have notify_slack.
+				Expect(detail.ToolCalls).To(HaveLen(1))
+				Expect(detail.ToolCalls[0].Name).To(Equal("notify_slack"))
+			})
+
+			It("counts vector store ops from both top-level and sub-agent", func() {
+				result, err := analyzer.Analyze(context.Background(), AnalyzeTracesRequest{
+					Duration: 24 * time.Hour,
+				})
+				Expect(err).NotTo(HaveOccurred())
+				// addMemory is under sub-agent but still counted at trace level.
+				Expect(result.TraceDetails[0].VectorStoreOps).To(Equal(1))
+			})
+		})
+
 		Context("with vector store operations", func() {
 			BeforeEach(func() {
 				server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

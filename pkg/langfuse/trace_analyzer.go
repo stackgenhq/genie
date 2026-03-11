@@ -228,9 +228,7 @@ func (a *TraceAnalyzer) Analyze(ctx context.Context, req AnalyzeTracesRequest) (
 		"agent_name", req.AgentName,
 	)
 
-	result := TraceAnalysisResult{
-		TracesAnalyzed: len(traces),
-	}
+	var result TraceAnalysisResult
 
 	for _, t := range traces {
 		observations, fetchErr := a.fetchObservations(ctx, t.ID)
@@ -241,6 +239,7 @@ func (a *TraceAnalyzer) Analyze(ctx context.Context, req AnalyzeTracesRequest) (
 		}
 		detail := buildTraceDetail(t, observations)
 		result.TraceDetails = append(result.TraceDetails, detail)
+		result.TracesAnalyzed++
 	}
 
 	result.aggregate()
@@ -299,25 +298,39 @@ func (a *TraceAnalyzer) fetchTraces(ctx context.Context, req AnalyzeTracesReques
 }
 
 // fetchObservations queries GET /api/public/observations?traceId=xxx.
+// It paginates through all pages to collect the complete set of observations.
 func (a *TraceAnalyzer) fetchObservations(ctx context.Context, traceID string) ([]Observation, error) {
-	params := url.Values{}
-	params.Set("traceId", traceID)
-	params.Set("limit", "500")
+	const pageSize = 500
+	var all []Observation
 
-	apiURL := fmt.Sprintf("%s/api/public/observations?%s",
-		a.config.langfuseHost(), params.Encode())
+	for page := 1; ; page++ {
+		params := url.Values{}
+		params.Set("traceId", traceID)
+		params.Set("limit", fmt.Sprintf("%d", pageSize))
+		params.Set("page", fmt.Sprintf("%d", page))
 
-	body, err := a.fetchJSON(ctx, apiURL)
-	if err != nil {
-		return nil, err
+		apiURL := fmt.Sprintf("%s/api/public/observations?%s",
+			a.config.langfuseHost(), params.Encode())
+
+		body, err := a.fetchJSON(ctx, apiURL)
+		if err != nil {
+			return nil, err
+		}
+
+		var resp observationsResponse
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return nil, fmt.Errorf("failed to parse observations response: %w", err)
+		}
+
+		all = append(all, resp.Data...)
+
+		// Stop when we've fetched all items or this page was incomplete.
+		if len(resp.Data) < pageSize || len(all) >= resp.Meta.TotalItems {
+			break
+		}
 	}
 
-	var resp observationsResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("failed to parse observations response: %w", err)
-	}
-
-	return resp.Data, nil
+	return all, nil
 }
 
 // fetchJSON performs an authed GET, reads the body, and returns it as raw bytes.
@@ -399,19 +412,14 @@ func buildTraceDetail(t Trace, observations []Observation) TraceDetail {
 
 	// Identify sub-agents: spans that have child generations.
 	childGenerations := make(map[string]int) // parentID → count of GENERATION children
-	childToolCalls := make(map[string]int)   // parentID → count of tool-call SPAN children
 	subAgentSpans := make(map[string]bool)   // observation IDs that are sub-agent roots
 
 	for _, obs := range observations {
 		if obs.ParentObservationID == nil {
 			continue
 		}
-		parentID := *obs.ParentObservationID
 		if obs.Type == "GENERATION" {
-			childGenerations[parentID]++
-		}
-		if obs.Type == "SPAN" && obs.Name != "" {
-			childToolCalls[parentID]++
+			childGenerations[*obs.ParentObservationID]++
 		}
 	}
 
@@ -425,8 +433,54 @@ func buildTraceDetail(t Trace, observations []Observation) TraceDetail {
 		}
 	}
 
+	// isDescendantOfSubAgent walks the ancestor chain via obsMap to check
+	// if any ancestor is a sub-agent root.
+	isDescendantOfSubAgent := func(obs Observation) bool {
+		parentID := obs.ParentObservationID
+		for parentID != nil {
+			if subAgentSpans[*parentID] {
+				return true
+			}
+			parentObs, ok := obsMap[*parentID]
+			if !ok {
+				return false
+			}
+			parentID = parentObs.ParentObservationID
+		}
+		return false
+	}
+
+	// Count tool calls (all SPAN descendants of each sub-agent, recursively).
+	subAgentToolCounts := make(map[string]int)
+	for _, obs := range observations {
+		if obs.Type != "SPAN" || obs.Name == "" {
+			continue
+		}
+		if subAgentSpans[obs.ID] {
+			continue // Don't count the sub-agent root itself.
+		}
+		// Walk up to find the nearest sub-agent ancestor.
+		parentID := obs.ParentObservationID
+		for parentID != nil {
+			if subAgentSpans[*parentID] {
+				subAgentToolCounts[*parentID]++
+				break
+			}
+			parentObs, ok := obsMap[*parentID]
+			if !ok {
+				break
+			}
+			parentID = parentObs.ParentObservationID
+		}
+	}
+
 	// Process observations.
 	for _, obs := range observations {
+		// Count vector store ops for ALL spans (including those under sub-agents).
+		if obs.Type == "SPAN" && isVectorStoreOp(obs.Name) {
+			detail.VectorStoreOps++
+		}
+
 		switch obs.Type {
 		case "GENERATION":
 			detail.LLMCalls++
@@ -444,7 +498,7 @@ func buildTraceDetail(t Trace, observations []Observation) TraceDetail {
 					Input:     truncateAny(obs.Input, 500),
 					Output:    truncateAny(obs.Output, 500),
 					LLMCalls:  childGenerations[obs.ID],
-					ToolCalls: childToolCalls[obs.ID],
+					ToolCalls: subAgentToolCounts[obs.ID],
 				}
 				detail.SubAgents = append(detail.SubAgents, sa)
 				continue
@@ -455,9 +509,9 @@ func buildTraceDetail(t Trace, observations []Observation) TraceDetail {
 				continue
 			}
 
-			// Skip spans whose parent is a sub-agent (they belong to
+			// Skip spans that are descendants of a sub-agent (they belong to
 			// the sub-agent's execution tree, not top-level).
-			if subAgentSpans[*obs.ParentObservationID] {
+			if isDescendantOfSubAgent(obs) {
 				continue
 			}
 
@@ -474,10 +528,6 @@ func buildTraceDetail(t Trace, observations []Observation) TraceDetail {
 					ParentName: parentName,
 				}
 				detail.ToolCalls = append(detail.ToolCalls, tc)
-			}
-
-			if isVectorStoreOp(obs.Name) {
-				detail.VectorStoreOps++
 			}
 		}
 	}
