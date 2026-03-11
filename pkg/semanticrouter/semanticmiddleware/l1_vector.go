@@ -61,7 +61,14 @@ func NewL1Vector(cfg L1VectorConfig, routeStore vector.IStore) Middleware {
 			return next(ctx, cc)
 		}
 
-		bestRoute := results[0].Metadata["route"]
+		// Guard against nil or missing metadata — treat as non-decisive.
+		if results[0].Metadata == nil {
+			return next(ctx, cc)
+		}
+		bestRoute, ok := results[0].Metadata["route"]
+		if !ok || bestRoute == "" {
+			return next(ctx, cc)
+		}
 		bestScore := results[0].Score
 
 		// Enrich context for downstream middlewares (even below threshold).

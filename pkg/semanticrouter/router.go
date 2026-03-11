@@ -513,6 +513,7 @@ func (r *Router) SetCache(ctx context.Context, query string, response string) er
 		Metadata: map[string]string{
 			"response":  response,
 			"cached_at": strconv.FormatInt(time.Now().Unix(), 10),
+			"type":      "semantic_cache",
 		},
 	})
 	if err != nil {
@@ -536,9 +537,12 @@ func (r *Router) PruneStaleCacheEntries(ctx context.Context) (int, error) {
 		ttl = defaultCacheTTL
 	}
 
-	// Search with a broad query to find cache entries.
-	// We use a high limit to catch as many entries as possible.
-	results, err := r.cacheStore.Search(ctx, "cache", 100)
+	// Use filter-only mode (empty query + metadata filter) to reliably
+	// enumerate cache entries rather than relying on semantic similarity
+	// to the word "cache", which could miss entries.
+	results, err := r.cacheStore.SearchWithFilter(ctx, "", 200, map[string]string{
+		"type": "semantic_cache",
+	})
 	if err != nil {
 		return 0, fmt.Errorf("cache pruning search failed: %w", err)
 	}

@@ -170,4 +170,38 @@ var _ = Describe("L1 Vector Middleware", func() {
 			Expect(nextCalled).To(BeTrue())
 		})
 	})
+
+	Describe("with nil or missing metadata", func() {
+		It("should pass through when metadata is nil", func() {
+			fakeStore.SearchReturns([]vector.SearchResult{
+				{Score: 0.95, Metadata: nil},
+			}, nil)
+
+			mw := semanticmiddleware.NewL1Vector(semanticmiddleware.L1VectorConfig{
+				Threshold: 0.9,
+			}, fakeStore)
+
+			cc := &semanticmiddleware.ClassifyContext{Question: "anything"}
+			res, err := mw(ctx, cc, next)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(res.Category).To(Equal("TERMINAL"))
+			Expect(nextCalled).To(BeTrue())
+		})
+
+		It("should pass through when route key is missing from metadata", func() {
+			fakeStore.SearchReturns([]vector.SearchResult{
+				{Score: 0.95, Metadata: map[string]string{"other": "value"}},
+			}, nil)
+
+			mw := semanticmiddleware.NewL1Vector(semanticmiddleware.L1VectorConfig{
+				Threshold: 0.9,
+			}, fakeStore)
+
+			cc := &semanticmiddleware.ClassifyContext{Question: "anything"}
+			res, err := mw(ctx, cc, next)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(res.Category).To(Equal("TERMINAL"))
+			Expect(nextCalled).To(BeTrue())
+		})
+	})
 })

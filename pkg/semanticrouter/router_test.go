@@ -420,7 +420,7 @@ var _ = Describe("SemanticRouter", func() {
 			expiredTime := strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10)
 			freshTime := strconv.FormatInt(time.Now().Add(-1*time.Minute).Unix(), 10)
 
-			fakeStore.SearchReturns([]vector.SearchResult{
+			fakeStore.SearchWithFilterReturns([]vector.SearchResult{
 				{ID: "cache_abc", Score: 0.5, Metadata: map[string]string{
 					"response": "stale", "cached_at": expiredTime,
 				}},
@@ -449,7 +449,7 @@ var _ = Describe("SemanticRouter", func() {
 			fakeStore := &vectorfakes.FakeIStore{}
 			freshTime := strconv.FormatInt(time.Now().Add(-1*time.Minute).Unix(), 10)
 
-			fakeStore.SearchReturns([]vector.SearchResult{
+			fakeStore.SearchWithFilterReturns([]vector.SearchResult{
 				{ID: "cache_abc", Score: 0.5, Metadata: map[string]string{
 					"response": "fresh", "cached_at": freshTime,
 				}},
