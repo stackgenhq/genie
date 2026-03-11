@@ -352,10 +352,10 @@ func NewOrchestrator(
 	if t, err := availableTools.GetTool(cron.ToolName); err == nil {
 		orchestratorToolSlice = append(orchestratorToolSlice, t)
 	}
-	// Lift Pensieve note tools so the orchestrator can write/read persistent
-	// notes across its own turns and distil sub-agent results into concise
-	// summaries before composing a final answer.
-	for _, toolName := range []string{"note", "read_notes", "delete_context", "check_budget"} {
+	// Lift Pensieve note tools and notify so the orchestrator can write/read persistent
+	// notes across its own turns, distil sub-agent results into concise
+	// summaries before composing a final answer, and send notifications.
+	for _, toolName := range []string{"note", "read_notes", "delete_context", "check_budget", "notify"} {
 		if t, err := availableTools.GetTool(toolName); err == nil {
 			orchestratorToolSlice = append(orchestratorToolSlice, t)
 		} else {
@@ -694,8 +694,11 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	logr := logger.GetLogger(ctx).With("fn", "codeExpert.Chat")
 	logr.Info("codeOwner.Chat invoked", "question", toolwrap.TruncateForAudit(req.Question, 100))
 
-	// Semantic router check for cache hit
-	if c.router != nil {
+	// Semantic router check for cache hit.
+	// Internal tasks (cron triggers, heartbeats) skip the cache entirely:
+	// cron actions must always execute fresh, and their results should not
+	// pollute the cache for future user queries.
+	if c.router != nil && !req.SkipClassification {
 		if cachedResult, hit := c.router.CheckCache(ctx, req.Question); hit {
 			logr.Info("semantic cache hit", "question", toolwrap.TruncateForAudit(req.Question, 50))
 			// Emit via AG-UI event bus so streaming clients (web UI) see the
@@ -786,8 +789,11 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	// until a user reaction (👍/👎) upgrades or downgrades it.
 	c.storeEpisode(ctx, req.Question, res)
 
-	// Persist the result to semantic cache
-	if c.router != nil {
+	// Persist the result to semantic cache.
+	// Skip for internal tasks so cron/heartbeat results don't pollute
+	// the cache — they'd cause false cache hits for unrelated user queries
+	// that happen to be semantically similar.
+	if c.router != nil && !req.SkipClassification {
 		if err := c.router.SetCache(ctx, req.Question, res.Output); err != nil {
 			logr.Warn("failed to set semantic cache", "error", err)
 		}

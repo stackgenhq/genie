@@ -96,7 +96,7 @@ generate: ## Generate code (if needed)
 test: test/unit ## Run tests
 
 test/unit: ## Run unit tests
-	GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn go tool ginkgo ${ARGS} -mod=mod --race -r --junit-report=testreports/report.xml --cover --coverprofile=coverage.out
+	go tool ginkgo ${ARGS} -mod=mod --race -r --junit-report=testreports/report.xml --cover --coverprofile=coverage.out
 
 # ------------------------------ lint commands ------------------------------
 

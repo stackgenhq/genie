@@ -370,6 +370,7 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 		orchestrator.WithToolwrapOptions(
 			toolwrap.WithApprovalCacheTTL(a.cfg.HITL.CacheTTL),
 			toolwrap.WithApproveList(a.approveList),
+			toolwrap.WithBackgroundBehavior(a.cfg.HITL.BackgroundBehavior),
 		),
 		orchestrator.WithDisableResume(a.cfg.Persona.DisableResume),
 		orchestrator.WithHalGuardConfig(a.cfg.HalGuard),
@@ -749,9 +750,10 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 			}
 
 			if err := a.codeOwner.Chat(ctx, orchestrator.CodeQuestion{
-				Question:    message,
-				BrowserTab:  tabCtx,
-				Attachments: messengeragui.AttachmentsFromContext(ctx),
+				Question:           message,
+				SkipClassification: orchestratorcontext.IsInternalTask(ctx),
+				BrowserTab:         tabCtx,
+				Attachments:        messengeragui.AttachmentsFromContext(ctx),
 			}, outputChan); err != nil {
 				agui.EmitError(ctx, err, "while processing AG-UI chat message")
 			}
@@ -802,6 +804,8 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 	// Add notification tool if configured
 	if !a.cfg.Notification.IsEmpty() {
 		providers = append(providers, tools.Tools{notification.NewNotifyTool(a.cfg.Notification)})
+	} else {
+		log.Warn("Notification tool not configured")
 	}
 
 	// --- Google Contacts (conditional — only when OAuth credentials are available) ---

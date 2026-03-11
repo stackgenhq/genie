@@ -183,6 +183,12 @@ func (w *BackgroundWorker) runAgent(ctx context.Context, req aguitypes.EventRequ
 		Sender:   messenger.Sender{ID: "system", DisplayName: req.Source},
 	})
 
+	// Mark as internal task so the orchestrator skips the semantic cache
+	// and front-desk classification. Without this, cron action text could
+	// get a cache hit (returning a stale response instead of executing)
+	// or be misclassified as SALUTATION/OUT_OF_SCOPE.
+	ctx = orchestratorcontext.WithInternalTask(ctx)
+
 	message := fmt.Sprintf("System Event [%s from %s]: %s",
 		req.Type, req.Source, string(req.Payload))
 

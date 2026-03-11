@@ -23,7 +23,7 @@ var _ = Describe("Slack Notification", func() {
 
 		server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			Expect(r.Method).To(Equal("POST"))
-			Expect(r.Header.Get("Content-Type")).To(Equal("application/json"))
+			Expect(r.Header.Get("Content-Type")).To(Equal("application/json; charset=utf-8"))
 
 			defer GinkgoRecover()
 			var payload map[string]string

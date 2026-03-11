@@ -47,6 +47,13 @@ func WithApproveList(list *ApproveList) ServiceOption {
 	return func(s *Service) { s.approveList = list }
 }
 
+// WithBackgroundBehavior configures how the HITL middleware handles tool calls
+// when they originate from an internal background task (e.g. cron triggers).
+// Valid options: "reject", "approve", "block".
+func WithBackgroundBehavior(b string) ServiceOption {
+	return func(s *Service) { s.bgBehavior = ParseBackgroundBehavior(b) }
+}
+
 // WithExtraMiddleware appends caller-supplied middleware to the default
 // chain. These run after the built-in middlewares (audit, cache, HITL,
 // etc.) and just before the terminal tool-execution handler.
@@ -97,11 +104,12 @@ type Service struct {
 	approvalStore    hitl.ApprovalStore
 	summarize        SummarizeFunc
 	config           MiddlewareConfig
-	circuitBreaker   *CircuitBreakerMW // singleton, shared across all agents
-	hitlCache        *approvalCache    // shared across all sub-agents so same tool+args isn't re-prompted
-	approveList      *ApproveList      // optional in-memory temporary allowlist (shared with AG-UI server)
-	cacheTTL         time.Duration     // TTL for hitlCache entries; 0 uses defaultCacheTTL
-	extraMiddlewares []Middleware      // caller-injected middleware (e.g. policy enforcement)
+	circuitBreaker   *CircuitBreakerMW  // singleton, shared across all agents
+	hitlCache        *approvalCache     // shared across all sub-agents so same tool+args isn't re-prompted
+	approveList      *ApproveList       // optional in-memory temporary allowlist (shared with AG-UI server)
+	cacheTTL         time.Duration      // TTL for hitlCache entries; 0 uses defaultCacheTTL
+	bgBehavior       BackgroundBehavior // policy for background internal tasks
+	extraMiddlewares []Middleware       // caller-injected middleware (e.g. policy enforcement)
 }
 
 // CircuitBreaker returns the shared circuit breaker instance, or nil if
@@ -132,6 +140,7 @@ func (s *Service) Wrap(tools []tool.Tool, req WrapRequest) []tool.Tool {
 			WithSharedApprovalCache(s.hitlCache),
 			WithHITLAuditor(s.auditor),
 			WithApproveListOption(s.approveList),
+			WithHITLBackgroundBehavior(s.bgBehavior),
 		}
 		otherMws = append(otherMws, HITLApprovalMiddleware(
 			s.approvalStore,

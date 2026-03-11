@@ -19,13 +19,18 @@ func sendSlack(ctx context.Context, webhookURL string, notifyReq NotifyRequest) 
 		"agentName":     notifyReq.AgentName,
 		"justification": notifyReq.Justification,
 	}
-	body, _ := json.Marshal(payload)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewBuffer(body))
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal slack payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 
 	resp, err := httputil.GetClient().Do(req)
 	if err != nil {

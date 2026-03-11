@@ -5,6 +5,7 @@ package toolwrap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -167,9 +168,17 @@ func (m *CircuitBreakerMW) Wrap(next Handler) Handler {
 		}
 
 		output, callErr := next(ctx, tc)
-		done(callErr)
 
-		if callErr != nil {
+		if callErr != nil && errors.Is(callErr, ErrToolCallRejected) {
+			// Do not record a failure for a policy/HITL rejection.
+			// Passing nil counts as a success, which avoids tripping the circuit breaker
+			// for legitimate user rejections or requests for changes.
+			done(nil)
+		} else {
+			done(callErr)
+		}
+
+		if callErr != nil && !errors.Is(callErr, ErrToolCallRejected) {
 			counts := cb.Counts()
 			logr.Debug("circuit breaker recorded failure",
 				"consecutive_failures", counts.ConsecutiveFailures,

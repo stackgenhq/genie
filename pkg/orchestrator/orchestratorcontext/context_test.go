@@ -93,4 +93,28 @@ var _ = Describe("OrchestratorContext", func() {
 			Expect(orchestratorcontext.DefaultAgentName).To(Equal("Genie"))
 		})
 	})
+
+	Describe("WithInternalTask / IsInternalTask", func() {
+		It("should return false when not set", func(ctx context.Context) {
+			Expect(orchestratorcontext.IsInternalTask(ctx)).To(BeFalse())
+		})
+
+		It("should return true after WithInternalTask", func(ctx context.Context) {
+			ctx = orchestratorcontext.WithInternalTask(ctx)
+			Expect(orchestratorcontext.IsInternalTask(ctx)).To(BeTrue())
+		})
+
+		It("should propagate through child contexts", func(ctx context.Context) {
+			ctx = orchestratorcontext.WithInternalTask(ctx)
+			childCtx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			Expect(orchestratorcontext.IsInternalTask(childCtx)).To(BeTrue())
+		})
+
+		It("should not affect sibling contexts", func(ctx context.Context) {
+			internalCtx := orchestratorcontext.WithInternalTask(ctx)
+			Expect(orchestratorcontext.IsInternalTask(internalCtx)).To(BeTrue())
+			Expect(orchestratorcontext.IsInternalTask(ctx)).To(BeFalse())
+		})
+	})
 })
