@@ -749,9 +749,10 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 			}
 
 			if err := a.codeOwner.Chat(ctx, orchestrator.CodeQuestion{
-				Question:    message,
-				BrowserTab:  tabCtx,
-				Attachments: messengeragui.AttachmentsFromContext(ctx),
+				Question:           message,
+				SkipClassification: orchestratorcontext.IsInternalTask(ctx),
+				BrowserTab:         tabCtx,
+				Attachments:        messengeragui.AttachmentsFromContext(ctx),
 			}, outputChan); err != nil {
 				agui.EmitError(ctx, err, "while processing AG-UI chat message")
 			}

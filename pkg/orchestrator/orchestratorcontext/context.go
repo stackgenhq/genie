@@ -23,6 +23,23 @@ import "context"
 const DefaultAgentName = "Genie"
 
 type contextKey struct{}
+type internalTaskKey struct{}
+
+// WithInternalTask marks the context as carrying an internal task
+// (cron trigger, heartbeat, webhook event). Downstream code uses
+// IsInternalTask to bypass the semantic cache and classification
+// pipeline, which would otherwise block or misclassify system events.
+func WithInternalTask(ctx context.Context) context.Context {
+	return context.WithValue(ctx, internalTaskKey{}, true)
+}
+
+// IsInternalTask returns true if the context was marked with
+// WithInternalTask. Used by the orchestrator to skip the semantic
+// cache and classification for background system events.
+func IsInternalTask(ctx context.Context) bool {
+	v, _ := ctx.Value(internalTaskKey{}).(bool)
+	return v
+}
 
 // Agent holds the identity of the currently running agent.
 // For now it only carries a Name; additional fields (e.g. Version,

@@ -503,6 +503,125 @@ var _ = Describe("CodeOwner", func() {
 
 			Expect(fakeRouter.ClassifyCallCount()).To(Equal(1))
 		})
+
+		It("should skip classification when SkipClassification is true", func() {
+			outChan := make(chan string, 1)
+			req := CodeQuestion{
+				Question:           "Cron task: check pod status",
+				SkipClassification: true,
+			}
+
+			handled, err := co.classifyAndMaybeShortCircuit(ctx, req, outChan)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(handled).To(BeFalse()) // Should pass through as complex
+
+			// Classify should NOT have been called
+			Expect(fakeRouter.ClassifyCallCount()).To(Equal(0))
+		})
+	})
+
+	Describe("Chat cache bypass for internal tasks", func() {
+		var fakeRouter *semanticrouterfakes.FakeIRouter
+
+		BeforeEach(func() {
+			fakeRouter = &semanticrouterfakes.FakeIRouter{}
+			co.router = fakeRouter
+			co.episodicMemoryCfg = rtmemory.DefaultEpisodicMemoryConfig()
+		})
+
+		It("should skip CheckCache when SkipClassification is true", func() {
+			// Set up a cache hit that would normally short-circuit
+			fakeRouter.CheckCacheReturns("cached response", true)
+			fakeRouter.ClassifyReturns(semanticrouter.ClassificationResult{
+				Category: semanticrouter.CategoryComplex,
+			}, nil)
+
+			fakeTreeExecutor.RunReturns(reactree.TreeResult{
+				Output: "fresh execution result",
+				Status: reactree.Success,
+			}, nil)
+
+			outChan := make(chan string, 10)
+			req := CodeQuestion{
+				Question:           "Cron task: run health check",
+				SkipClassification: true,
+			}
+
+			err := co.Chat(ctx, req, outChan)
+			Expect(err).NotTo(HaveOccurred())
+
+			// CheckCache should NOT have been called
+			Expect(fakeRouter.CheckCacheCallCount()).To(Equal(0))
+
+			// The tree executor should have been called (no cache short-circuit)
+			Expect(fakeTreeExecutor.RunCallCount()).To(Equal(1))
+		})
+
+		It("should skip SetCache when SkipClassification is true", func() {
+			fakeRouter.ClassifyReturns(semanticrouter.ClassificationResult{
+				Category: semanticrouter.CategoryComplex,
+			}, nil)
+
+			fakeTreeExecutor.RunReturns(reactree.TreeResult{
+				Output: "cron task output",
+				Status: reactree.Success,
+			}, nil)
+
+			outChan := make(chan string, 10)
+			req := CodeQuestion{
+				Question:           "Cron task: generate report",
+				SkipClassification: true,
+			}
+
+			err := co.Chat(ctx, req, outChan)
+			Expect(err).NotTo(HaveOccurred())
+
+			// SetCache should NOT have been called (no cache pollution)
+			Expect(fakeRouter.SetCacheCallCount()).To(Equal(0))
+		})
+
+		It("should use CheckCache for normal user requests", func() {
+			fakeRouter.CheckCacheReturns("cached response", true)
+
+			outChan := make(chan string, 10)
+			req := CodeQuestion{
+				Question:           "check pod health in staging",
+				SkipClassification: false,
+			}
+
+			err := co.Chat(ctx, req, outChan)
+			Expect(err).NotTo(HaveOccurred())
+
+			// CheckCache SHOULD have been called
+			Expect(fakeRouter.CheckCacheCallCount()).To(Equal(1))
+
+			// Tree executor should NOT have been called (cache hit)
+			Expect(fakeTreeExecutor.RunCallCount()).To(Equal(0))
+		})
+
+		It("should use SetCache for normal user requests", func() {
+			fakeRouter.CheckCacheReturns("", false)
+			fakeRouter.ClassifyReturns(semanticrouter.ClassificationResult{
+				Category: semanticrouter.CategoryComplex,
+			}, nil)
+
+			fakeTreeExecutor.RunReturns(reactree.TreeResult{
+				Output: "user result",
+				Status: reactree.Success,
+			}, nil)
+
+			outChan := make(chan string, 10)
+			req := CodeQuestion{
+				Question:           "deploy to production",
+				SkipClassification: false,
+			}
+
+			err := co.Chat(ctx, req, outChan)
+			Expect(err).NotTo(HaveOccurred())
+
+			// SetCache SHOULD have been called
+			Expect(fakeRouter.SetCacheCallCount()).To(Equal(1))
+		})
 	})
 })
 

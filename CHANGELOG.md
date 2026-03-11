@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Semantic cache TTL** — `CacheTTL` config field (default 5m) enforces temporal decay on cached responses. Operational queries (health checks, pod listings) no longer return stale data.
 - 34 Ginkgo/Gomega test specs for the `semanticmiddleware` package covering chain building, L0 regex matching, L1 vector routing, and follow-up bypass behavior.
 - **Langfuse trace analyzer** (`pkg/langfuse/trace_analyzer.go`) — queries the Langfuse API to produce per-trace execution breakdowns: user request, tool calls (with parent), sub-agent detection (spans with child generations), LLM call counts, vector store operation counts, token usage, cost, and duration. Filterable by user, session, agent name, tags, and time window. Includes `FormatReport()` for human-readable markdown reports.
+- **Internal task context marker** (`orchestratorcontext.WithInternalTask`) — background events (cron triggers, heartbeats, webhooks) bypass the semantic cache and classification pipeline entirely. Prevents cron tasks from receiving stale cached responses and keeps cron results from polluting the cache for future user queries.
 
 ### Changed
 
