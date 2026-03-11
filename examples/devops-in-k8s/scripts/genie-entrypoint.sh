@@ -87,7 +87,7 @@ export TMPDIR=/tmp
 # Ensure all user directories are writable by the genie user (gh cli, aws cli caches, etc.)
 mkdir -p /home/stackgen/.aws
 mkdir -p /home/stackgen/work
-chown -R 65532:65532 /home/stackgen
+chown -R 65532:65532 /home/stackgen/.aws /home/stackgen/.kube /home/stackgen/work 2>/dev/null || true
 
 exec su-exec 65532:65532 env HOME=/home/stackgen TMPDIR=/tmp /usr/local/bin/genie \
   --config /shared-credentials/genie.toml \

@@ -804,6 +804,8 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 	// Add notification tool if configured
 	if !a.cfg.Notification.IsEmpty() {
 		providers = append(providers, tools.Tools{notification.NewNotifyTool(a.cfg.Notification)})
+	} else {
+		log.Warn("Notification tool not configured")
 	}
 
 	// --- Google Contacts (conditional — only when OAuth credentials are available) ---

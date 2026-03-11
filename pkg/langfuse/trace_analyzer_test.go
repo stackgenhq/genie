@@ -215,7 +215,7 @@ var _ = Describe("TraceAnalyzer", func() {
 								// Sub-agent with a child generation
 								{ID: "sub1", TraceID: "t1", Type: "SPAN", Name: "deep-subagent", ParentObservationID: strPtr("root"), StartTime: parseTime("2026-03-11T13:00:01Z")},
 								{ID: "gen1", TraceID: "t1", Type: "GENERATION", Name: "llm-1", ParentObservationID: strPtr("sub1"), StartTime: parseTime("2026-03-11T13:00:02Z")},
-								// Container span under sub-agent (not itself a tool call)
+								// Container/tool-call span under sub-agent (counts as a tool call)
 								{ID: "container", TraceID: "t1", Type: "SPAN", Name: "processing-step", ParentObservationID: strPtr("sub1"), StartTime: parseTime("2026-03-11T13:00:03Z")},
 								// Tool call under the container (grandchild of sub-agent)
 								{ID: "deep-tool", TraceID: "t1", Type: "SPAN", Name: "db_query", ParentObservationID: strPtr("container"), StartTime: parseTime("2026-03-11T13:00:04Z")},

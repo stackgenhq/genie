@@ -577,15 +577,6 @@ resource "kubernetes_deployment" "genie" {
             value = "regional"
           }
 
-          # Suppress the protobuf registration conflict between Qdrant and
-          # Milvus gRPC clients — both register "common.proto" but with
-          # different (unrelated) message types.  The "warn" policy logs it
-          # instead of panicking.
-          env {
-            name  = "GOLANG_PROTOBUF_REGISTRATION_CONFLICT"
-            value = "warn"
-          }
-
           # NOTE: NO env_from blocks — API keys are NOT in env vars.
           # They are resolved into genie.toml by the init container.
 

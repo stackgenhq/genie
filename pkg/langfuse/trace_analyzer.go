@@ -26,8 +26,8 @@ type Trace struct {
 	Name      string    `json:"name"`
 	UserID    string    `json:"userId"`
 	SessionID *string   `json:"sessionId"`
-	Input     string    `json:"input"`
-	Output    *string   `json:"output"`
+	Input     any       `json:"input"`
+	Output    any       `json:"output"`
 	Tags      []string  `json:"tags"`
 	Version   string    `json:"version,omitempty"`
 }
@@ -324,8 +324,13 @@ func (a *TraceAnalyzer) fetchObservations(ctx context.Context, traceID string) (
 
 		all = append(all, resp.Data...)
 
-		// Stop when we've fetched all items or this page was incomplete.
-		if len(resp.Data) < pageSize || len(all) >= resp.Meta.TotalItems {
+		// Stop when this page was incomplete.
+		if len(resp.Data) < pageSize {
+			break
+		}
+
+		// If TotalItems is provided and positive, also stop once we've fetched all items.
+		if resp.Meta.TotalItems > 0 && len(all) >= resp.Meta.TotalItems {
 			break
 		}
 	}
@@ -390,14 +395,20 @@ func buildTraceDetail(t Trace, observations []Observation) TraceDetail {
 		sessionID = *t.SessionID
 	}
 
+	var outputPtr *string
+	if t.Output != nil {
+		s := truncateAny(t.Output, 50000)
+		outputPtr = &s
+	}
+
 	detail := TraceDetail{
 		TraceID:   t.ID,
 		AgentName: t.Name,
 		UserID:    t.UserID,
 		SessionID: sessionID,
 		Timestamp: t.Timestamp,
-		Input:     t.Input,
-		Output:    t.Output,
+		Input:     truncateAny(t.Input, 50000),
+		Output:    outputPtr,
 	}
 
 	if len(observations) == 0 {

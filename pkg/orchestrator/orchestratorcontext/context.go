@@ -26,16 +26,20 @@ type contextKey struct{}
 type internalTaskKey struct{}
 
 // WithInternalTask marks the context as carrying an internal task
-// (cron trigger, heartbeat, webhook event). Downstream code uses
-// IsInternalTask to bypass the semantic cache and classification
-// pipeline, which would otherwise block or misclassify system events.
+// (cron trigger, heartbeat, webhook event). Callers can use
+// IsInternalTask to detect these system-initiated requests and, for
+// example, set CodeQuestion.SkipClassification so the orchestrator
+// bypasses the semantic cache and classification pipeline when
+// appropriate.
 func WithInternalTask(ctx context.Context) context.Context {
 	return context.WithValue(ctx, internalTaskKey{}, true)
 }
 
 // IsInternalTask returns true if the context was marked with
-// WithInternalTask. Used by the orchestrator to skip the semantic
-// cache and classification for background system events.
+// WithInternalTask. This is intended as a marker that upstream code
+// (e.g. the app layer) can inspect to adjust behavior for background
+// system events, such as configuring the orchestrator to skip semantic
+// cache and classification when needed.
 func IsInternalTask(ctx context.Context) bool {
 	v, _ := ctx.Value(internalTaskKey{}).(bool)
 	return v
