@@ -11,6 +11,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/slack-go/slack"
 	"github.com/stackgenhq/genie/pkg/notification"
 )
 
@@ -26,11 +27,17 @@ var _ = Describe("Slack Notification", func() {
 			Expect(r.Header.Get("Content-Type")).To(Equal("application/json"))
 
 			defer GinkgoRecover()
-			var payload map[string]string
+			var payload slack.WebhookMessage
 			Expect(json.NewDecoder(r.Body).Decode(&payload)).To(Succeed())
-			Expect(payload["justification"]).To(ContainSubstring("Stuck"))
-			Expect(payload["agentName"]).To(Equal("Debugger"))
-			Expect(payload["message"]).To(Equal("Cannot find syntax error"))
+			Expect(payload.Text).To(ContainSubstring("Debugger"))
+			Expect(len(payload.Attachments)).To(Equal(1))
+			blocks := payload.Attachments[0].Blocks.BlockSet
+			Expect(len(blocks)).To(Equal(3))
+			// First block is Reason/Justification, second is Message ... actually the order we used: From, Reason, Message
+			// We can just textually search the JSON since the blocks are deeply nested
+			payloadBytes, _ := json.Marshal(payload)
+			Expect(string(payloadBytes)).To(ContainSubstring("Stuck"))
+			Expect(string(payloadBytes)).To(ContainSubstring("Cannot find syntax error"))
 
 			w.WriteHeader(http.StatusOK)
 		}))

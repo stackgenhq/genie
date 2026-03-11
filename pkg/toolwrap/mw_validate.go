@@ -54,7 +54,7 @@ func validateArgs(declFn func(string) *tool.Declaration, toolName string, args [
 	// Verify valid JSON.
 	var parsed map[string]any
 	if err := json.Unmarshal(args, &parsed); err != nil {
-		return fmt.Errorf("tool %s: invalid JSON arguments: %w", toolName, err)
+		return fmt.Errorf("%w: tool %s: invalid JSON arguments: %w", ErrToolCallRejected, toolName, err)
 	}
 
 	if declFn == nil {
@@ -68,7 +68,7 @@ func validateArgs(declFn func(string) *tool.Declaration, toolName string, args [
 	// Check required fields.
 	for _, req := range decl.InputSchema.Required {
 		if _, ok := parsed[req]; !ok {
-			return fmt.Errorf("tool %s: missing required argument %q", toolName, req)
+			return fmt.Errorf("%w: tool %s: missing required argument %q", ErrToolCallRejected, toolName, req)
 		}
 	}
 

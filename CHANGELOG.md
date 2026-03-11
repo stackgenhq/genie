@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **L2 classification optimized**: streaming disabled and `MaxTokens` capped at 30 for a response expected to be a single word, eliminating streaming overhead on ~2500-token prompts.
 - **L2 prompt enriched with upstream signals**: `buildL2Message` now includes near-miss route hints from L1 and follow-up context from L0, enabling better-informed classification decisions.
 - `semanticrouter.Config` extended with `CacheTTL`, `L0Regex`, and `FollowUpBypass` middleware config structs, all exposed through the agent config chain (`config.go` → `semanticrouter.Config` → `mw.*Config`).
+- `ErrToolCallRejected` introduced so that intentional tool call rejections (e.g., from user rejections, HITL re-planning feedback, or validation/schema rechecks) do not trigger the circuit breaker and inappropriately penalize healthy tools.
 
 ### Removed
 

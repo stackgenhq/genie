@@ -4,39 +4,29 @@
 package notification
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
+
+	"github.com/slack-go/slack"
 
 	"github.com/stackgenhq/genie/pkg/httputil"
 )
 
 func sendSlack(ctx context.Context, webhookURL string, notifyReq NotifyRequest) error {
-	payload := map[string]string{
-		"message":       notifyReq.Message,
-		"agentName":     notifyReq.AgentName,
-		"justification": notifyReq.Justification,
+	msg := &slack.WebhookMessage{
+		Text: fmt.Sprintf("*%s* needs attention.", notifyReq.AgentName),
+		Attachments: []slack.Attachment{
+			{
+				Color: "#36a64f",
+				Blocks: slack.Blocks{
+					BlockSet: []slack.Block{
+						slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", fmt.Sprintf("*From:* %s", notifyReq.AgentName), false, false), nil, nil),
+						slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", fmt.Sprintf("*Reason:* %s", notifyReq.Justification), false, false), nil, nil),
+						slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", fmt.Sprintf("*Message:* %s", notifyReq.Message), false, false), nil, nil),
+					},
+				},
+			},
+		},
 	}
-	body, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewBuffer(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := httputil.GetClient().Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	_ = resp.Header // read headers
-
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("slack returned status code %d", resp.StatusCode)
-	}
-	return nil
+	return slack.PostWebhookCustomHTTPContext(ctx, webhookURL, httputil.GetClient(), msg)
 }
