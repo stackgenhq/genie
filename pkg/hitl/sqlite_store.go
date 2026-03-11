@@ -19,10 +19,11 @@ import (
 const allTools = "*"
 
 type Config struct {
-	AlwaysAllowed []string      `yaml:"always_allowed,omitempty" toml:"always_allowed,omitempty" json:"always_allowed"`
-	DeniedTools   []string      `yaml:"denied_tools,omitempty" toml:"denied_tools,omitempty" json:"denied_tools"`
-	ApprovalTTL   time.Duration `yaml:"approval_ttl,omitempty" toml:"approval_ttl,omitempty" json:"approval_ttl"`
-	CacheTTL      time.Duration `yaml:"cache_ttl,omitempty" toml:"cache_ttl,omitempty" json:"cache_ttl"`
+	AlwaysAllowed      []string      `yaml:"always_allowed,omitempty" toml:"always_allowed,omitempty" json:"always_allowed"`
+	DeniedTools        []string      `yaml:"denied_tools,omitempty" toml:"denied_tools,omitempty" json:"denied_tools"`
+	ApprovalTTL        time.Duration `yaml:"approval_ttl,omitempty" toml:"approval_ttl,omitempty" json:"approval_ttl"`
+	CacheTTL           time.Duration `yaml:"cache_ttl,omitempty" toml:"cache_ttl,omitempty" json:"cache_ttl"`
+	BackgroundBehavior string        `yaml:"background_behavior,omitempty" toml:"background_behavior,omitempty" json:"background_behavior"` // "reject", "approve", "block"
 }
 
 // DefaultConfig returns sensible defaults.
@@ -30,12 +31,14 @@ type Config struct {
 // are automatically expired by the background reaper.
 // CacheTTL defaults to 10 minutes — approved tool+args combinations are
 // auto-approved for this duration before requiring fresh human approval.
+// BackgroundBehavior defaults to "reject" to fail-fast on cron triggers.
 func DefaultConfig() Config {
 	return Config{
-		AlwaysAllowed: []string{},
-		DeniedTools:   []string{},
-		ApprovalTTL:   30 * time.Minute,
-		CacheTTL:      10 * time.Minute,
+		AlwaysAllowed:      []string{},
+		DeniedTools:        []string{},
+		ApprovalTTL:        30 * time.Minute,
+		CacheTTL:           10 * time.Minute,
+		BackgroundBehavior: "reject",
 	}
 }
 

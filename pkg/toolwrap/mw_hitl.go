@@ -16,6 +16,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/interrupt"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
 	"github.com/stackgenhq/genie/pkg/security/authcontext"
 	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
@@ -78,12 +79,13 @@ func (c *approvalCache) add(key string) {
 // It shares a session-scoped approval cache (owned by the Service) and
 // handles justification extraction, approval creation, and feedback storage.
 type hitlApprovalMiddleware struct {
-	store       hitl.ApprovalStore
-	wm          *rtmemory.WorkingMemory
-	blocking    bool // true = block in WaitForResolution; false = return interrupt.Error
-	cache       *approvalCache
-	approveList *ApproveList  // optional in-memory temporary allowlist (blind or args-filter)
-	auditor     audit.Auditor // optional durable auditor for HITL decisions
+	store              hitl.ApprovalStore
+	wm                 *rtmemory.WorkingMemory
+	blocking           bool // true = block in WaitForResolution; false = return interrupt.Error
+	cache              *approvalCache
+	approveList        *ApproveList  // optional in-memory temporary allowlist (blind or args-filter)
+	auditor            audit.Auditor // optional durable auditor for HITL decisions
+	backgroundBehavior string        // "reject", "approve", "block" (default: "reject")
 }
 
 // HITLOption configures the behaviour of the HITL approval middleware.
@@ -100,6 +102,17 @@ type HITLOption func(*hitlApprovalMiddleware)
 // Default: blocking (the current in-process behaviour).
 func WithNonBlockingHITL() HITLOption {
 	return func(m *hitlApprovalMiddleware) { m.blocking = false }
+}
+
+// WithHITLBackgroundBehavior configures how the middleware handles tool calls
+// when they originate from an internal background task (e.g. cron triggers).
+// Valid options: "reject", "approve", "block".
+func WithHITLBackgroundBehavior(b string) HITLOption {
+	return func(m *hitlApprovalMiddleware) {
+		if b != "" {
+			m.backgroundBehavior = b
+		}
+	}
 }
 
 // HITLApprovalMiddleware creates a new HITL approval middleware.
@@ -165,6 +178,31 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 		}
 
 		logr := logger.GetLogger(ctx).With("fn", "HITLApprovalMiddleware", "tool", tc.ToolName)
+
+		// Check if this is a background task (e.g. cron trigger).
+		// If so, there is no user attached to the session to approve it.
+		// Handle according to the backgroundBehavior configuration.
+		if orchestratorcontext.IsInternalTask(ctx) {
+			bgBehavior := "reject"
+			if m.backgroundBehavior != "" {
+				bgBehavior = m.backgroundBehavior
+			}
+
+			switch bgBehavior {
+			case "approve":
+				logr.Info("background task tool call auto-approved via config")
+				m.emitAutoApproved(ctx, tc.ToolName, string(tc.Args), tc.Justification)
+				m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "auto_approved", "background_task", "")
+				return next(ctx, tc)
+			case "block":
+				logr.Info("background task tool call blocked awaiting approval via config")
+				// Fall through to normal HITL approval flow
+			default: // "reject"
+				logr.Warn("background task requested an unapproved tool call, rejecting via config")
+				m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "rejected", "background_task", "")
+				return nil, fmt.Errorf("tool call %s requires human approval, which is not supported in background tasks (HITLBackgroundBehavior=reject)", tc.ToolName)
+			}
+		}
 
 		// Skip if tool is in allowlist.
 		if m.store.IsAllowed(tc.ToolName) {

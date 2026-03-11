@@ -370,6 +370,7 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 		orchestrator.WithToolwrapOptions(
 			toolwrap.WithApprovalCacheTTL(a.cfg.HITL.CacheTTL),
 			toolwrap.WithApproveList(a.approveList),
+			toolwrap.WithBackgroundBehavior(a.cfg.HITL.BackgroundBehavior),
 		),
 		orchestrator.WithDisableResume(a.cfg.Persona.DisableResume),
 		orchestrator.WithHalGuardConfig(a.cfg.HalGuard),
