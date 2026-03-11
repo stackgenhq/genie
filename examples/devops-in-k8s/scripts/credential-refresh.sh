@@ -18,5 +18,6 @@ while true; do
     --name "$EKS_CLUSTER_NAME" \
     --kubeconfig /shared-credentials/kubeconfig \
     --cli-connect-timeout 10 || echo "[credential-refresh] WARNING: refresh failed, will retry."
-  chmod 0600 /shared-credentials/kubeconfig
+  chown 65532:65532 /shared-credentials/kubeconfig
+  chmod 0640 /shared-credentials/kubeconfig
 done
