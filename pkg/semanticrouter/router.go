@@ -67,6 +67,7 @@ type IRouter interface {
 	Classify(ctx context.Context, question, resume string) (ClassificationResult, error)
 	CheckCache(ctx context.Context, query string) (string, bool)
 	SetCache(ctx context.Context, query string, response string) error
+	PruneStaleCacheEntries(ctx context.Context) (int, error)
 }
 
 // Router provides semantic routing (intent classification), semantic caching,
@@ -270,13 +271,20 @@ func (r *Router) Classify(ctx context.Context, question, resume string) (Classif
 	}, nil
 }
 
+// defaultL2Timeout is the maximum time allowed for an L2 LLM classification call.
+// Classification expects a single-word response, so 5 seconds is generous.
+const defaultL2Timeout = 5 * time.Second
+
 // newL2LLMMiddleware returns the terminal classification middleware that uses
 // a generative LLM to classify the request. This is the most expensive tier
 // and is only reached when L0 and L1 did not produce a decision.
 //
-// Optimization (R0): Uses non-streaming mode with MaxTokens=30 since the
-// expected response is a single word (COMPLEX, REFUSE, SALUTATION, OUT_OF_SCOPE).
-// This avoids the overhead of streaming a 1-word response.
+// The middleware enforces a 5-second timeout and degrades gracefully to COMPLEX
+// on any error (timeout, provider failure, generation error) rather than
+// propagating failures to the caller.
+//
+// Optimization (R0): Uses non-streaming mode with MaxTokens=60 since the
+// expected response is a single word or "OUT_OF_SCOPE | reason".
 func (r *Router) newL2LLMMiddleware() mw.Middleware {
 	return func(ctx context.Context, cc *mw.ClassifyContext, _ mw.ClassifyFunc) (mw.ClassifyResult, error) {
 		if r.provider == nil {
@@ -291,12 +299,29 @@ func (r *Router) newL2LLMMiddleware() mw.Middleware {
 			return mw.ClassifyResult{Category: string(CategoryComplex), Level: "L2"}, nil
 		}
 
-		res, err := r.classifyL2(ctx, cc)
+		// Enforce a timeout so a degraded LLM provider doesn't block
+		// classification indefinitely.
+		l2Ctx, cancel := context.WithTimeout(ctx, defaultL2Timeout)
+		defer cancel()
+
+		res, err := r.classifyL2(l2Ctx, cc)
 		if err != nil {
 			span := oteltrace.SpanFromContext(ctx)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
-			return res, err
+			// Degrade to COMPLEX instead of propagating the error.
+			// The caller should not fail just because L2 is unavailable.
+			logger.GetLogger(ctx).Warn("L2 classification failed, degrading to COMPLEX",
+				"error", err)
+			span.SetAttributes(
+				attribute.String("semanticrouter.level", "L2"),
+				attribute.String("semanticrouter.category", string(CategoryComplex)),
+				attribute.String("semanticrouter.note", "degraded"),
+			)
+			return mw.ClassifyResult{
+				Category: string(CategoryComplex),
+				Level:    "L2",
+			}, nil
 		}
 		span := oteltrace.SpanFromContext(ctx)
 		span.SetAttributes(
@@ -311,8 +336,8 @@ func (r *Router) newL2LLMMiddleware() mw.Middleware {
 // classifyL2 performs LLM-based classification. It builds a prompt that includes
 // any enrichment from upstream middlewares (e.g. L1 near-miss route info).
 //
-// R0 fix: Stream is disabled and MaxTokens is capped at 30 for a response
-// that is expected to be a single category word.
+// R0 fix: Stream is disabled and MaxTokens is capped at 60 for a response
+// that is expected to be a single category word or "OUT_OF_SCOPE | reason".
 func (r *Router) classifyL2(ctx context.Context, cc *mw.ClassifyContext) (mw.ClassifyResult, error) {
 	message := buildL2Message(cc.Question, cc.Resume, cc.ClosestRoute, cc.RouteScore, cc.IsFollowUp)
 
@@ -335,10 +360,10 @@ func (r *Router) classifyL2(ctx context.Context, cc *mw.ClassifyContext) (mw.Cla
 
 	sysPrompt := strings.ReplaceAll(classifyPrompt, AgentNamePlaceholder, agentName)
 
-	// R0 optimization: non-streaming with MaxTokens=30. The expected response
-	// is a single word (COMPLEX, REFUSE, SALUTATION) or "OUT_OF_SCOPE | reason"
-	// which fits well within 30 tokens.
-	maxTokens := 30
+	// R0 optimization: non-streaming with MaxTokens=60. The expected response
+	// is a single word (COMPLEX, REFUSE, SALUTATION) or "OUT_OF_SCOPE | reason".
+	// 60 tokens allows room for reason strings without truncation.
+	maxTokens := 60
 	req := &model.Request{
 		Messages: []model.Message{
 			model.NewSystemMessage(sysPrompt),
@@ -494,6 +519,57 @@ func (r *Router) SetCache(ctx context.Context, query string, response string) er
 		return fmt.Errorf("semantic cache upsert failed: %w", err)
 	}
 	return nil
+}
+
+// PruneStaleCacheEntries removes expired cache entries from the vector store.
+// It searches for a broad set of cache entries and deletes any whose
+// cached_at timestamp is older than the configured CacheTTL.
+// This should be called periodically (e.g. via a background goroutine)
+// to prevent unbounded cache growth.
+func (r *Router) PruneStaleCacheEntries(ctx context.Context) (int, error) {
+	if r.cfg.Disabled || !r.cfg.EnableCaching || r.cacheStore == nil {
+		return 0, nil
+	}
+
+	ttl := r.cfg.CacheTTL
+	if ttl == 0 {
+		ttl = defaultCacheTTL
+	}
+
+	// Search with a broad query to find cache entries.
+	// We use a high limit to catch as many entries as possible.
+	results, err := r.cacheStore.Search(ctx, "cache", 100)
+	if err != nil {
+		return 0, fmt.Errorf("cache pruning search failed: %w", err)
+	}
+
+	var staleIDs []string
+	now := time.Now()
+	for _, result := range results {
+		ts, ok := result.Metadata["cached_at"]
+		if !ok {
+			continue
+		}
+		cachedAt, parseErr := strconv.ParseInt(ts, 10, 64)
+		if parseErr != nil {
+			continue
+		}
+		if now.Sub(time.Unix(cachedAt, 0)) > ttl {
+			staleIDs = append(staleIDs, result.ID)
+		}
+	}
+
+	if len(staleIDs) == 0 {
+		return 0, nil
+	}
+
+	if err := r.cacheStore.Delete(ctx, staleIDs...); err != nil {
+		return 0, fmt.Errorf("cache pruning delete failed: %w", err)
+	}
+
+	logger.GetLogger(ctx).Info("pruned stale cache entries",
+		"count", len(staleIDs), "ttl", ttl)
+	return len(staleIDs), nil
 }
 
 // builtinRoutes returns sensible defaults to replicate vllm-semantic-router out of the box.

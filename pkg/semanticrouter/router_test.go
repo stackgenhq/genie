@@ -223,6 +223,20 @@ var _ = Describe("SemanticRouter", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.Category).To(Equal(CategoryComplex)) // defaults without L2 provider
 		})
+
+		It("should degrade to COMPLEX when L2 provider returns error", func() {
+			fakeProvider.GetModelReturns(nil, errors.New("provider down"))
+
+			rt := &Router{
+				cfg:      Config{Disabled: true},
+				provider: fakeProvider,
+			}
+			rt.classifyChain = rt.buildClassifyChain()
+
+			res, err := rt.Classify(ctx, "deploy the app", "resume")
+			Expect(err).NotTo(HaveOccurred()) // error is NOT propagated
+			Expect(res.Category).To(Equal(CategoryComplex))
+		})
 	})
 
 	Describe("builtinRoutes and Initialization", func() {
@@ -398,6 +412,71 @@ var _ = Describe("SemanticRouter", func() {
 			}
 			Expect(extractTextFromChoices(choices)).To(Equal("extracted text"))
 		})
+	})
 
+	Describe("PruneStaleCacheEntries", func() {
+		It("should delete expired cache entries", func() {
+			fakeStore := &vectorfakes.FakeIStore{}
+			expiredTime := strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10)
+			freshTime := strconv.FormatInt(time.Now().Add(-1*time.Minute).Unix(), 10)
+
+			fakeStore.SearchReturns([]vector.SearchResult{
+				{ID: "cache_abc", Score: 0.5, Metadata: map[string]string{
+					"response": "stale", "cached_at": expiredTime,
+				}},
+				{ID: "cache_def", Score: 0.5, Metadata: map[string]string{
+					"response": "fresh", "cached_at": freshTime,
+				}},
+			}, nil)
+
+			rt := &Router{
+				cfg: Config{
+					EnableCaching: true,
+					CacheTTL:      5 * time.Minute,
+				},
+				cacheStore: fakeStore,
+			}
+
+			count, err := rt.PruneStaleCacheEntries(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(count).To(Equal(1)) // only the expired one
+			Expect(fakeStore.DeleteCallCount()).To(Equal(1))
+			_, deletedIDs := fakeStore.DeleteArgsForCall(0)
+			Expect(deletedIDs).To(ConsistOf("cache_abc"))
+		})
+
+		It("should return 0 when no entries are stale", func() {
+			fakeStore := &vectorfakes.FakeIStore{}
+			freshTime := strconv.FormatInt(time.Now().Add(-1*time.Minute).Unix(), 10)
+
+			fakeStore.SearchReturns([]vector.SearchResult{
+				{ID: "cache_abc", Score: 0.5, Metadata: map[string]string{
+					"response": "fresh", "cached_at": freshTime,
+				}},
+			}, nil)
+
+			rt := &Router{
+				cfg: Config{
+					EnableCaching: true,
+					CacheTTL:      5 * time.Minute,
+				},
+				cacheStore: fakeStore,
+			}
+
+			count, err := rt.PruneStaleCacheEntries(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(count).To(Equal(0))
+			Expect(fakeStore.DeleteCallCount()).To(Equal(0))
+		})
+
+		It("should return 0 when caching is disabled", func() {
+			rt := &Router{
+				cfg: Config{EnableCaching: false},
+			}
+
+			count, err := rt.PruneStaleCacheEntries(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(count).To(Equal(0))
+		})
 	})
 })
