@@ -355,7 +355,7 @@ func NewOrchestrator(
 	// Lift Pensieve note tools and notify so the orchestrator can write/read persistent
 	// notes across its own turns, distil sub-agent results into concise
 	// summaries before composing a final answer, and send notifications.
-	for _, toolName := range []string{"note", "read_notes", "delete_context", "check_budget", "notify"} {
+	for _, toolName := range []string{"note", "read_notes", "delete_context", "check_budget", "notify", "memory_search", "memory_store"} {
 		if t, err := availableTools.GetTool(toolName); err == nil {
 			orchestratorToolSlice = append(orchestratorToolSlice, t)
 		} else {
