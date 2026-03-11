@@ -66,10 +66,10 @@ var _ = Describe("PromptRepository", func() {
 		It("should return prefixed summaries from all servers", func() {
 			summaries := repo.Summaries()
 			Expect(summaries).To(HaveLen(2))
-			
+
 			Expect(summaries[0].Name).To(Equal("serverA_prompt1"))
 			Expect(summaries[0].Description).To(Equal("Description 1"))
-			
+
 			Expect(summaries[1].Name).To(Equal("serverB_prompt2"))
 			Expect(summaries[1].Description).To(Equal("Description 2"))
 		})

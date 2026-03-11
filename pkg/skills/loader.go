@@ -84,7 +84,7 @@ func LoadSkillsFromConfig(ctx context.Context, roots []string, additionalRepos .
 	}
 
 	reposToMerge = append(reposToMerge, additionalRepos...)
-	
+
 	// Create the composite repository
 	repo := NewCompositeRepository(reposToMerge...)
 
