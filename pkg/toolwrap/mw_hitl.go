@@ -285,19 +285,19 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 			m.storeFeedback(tc.ToolName, resolved.Feedback)
 			logr.Info("tool call rejected with feedback", "feedback", resolved.Feedback)
 			m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "rejected", "", resolved.Feedback)
-			return nil, fmt.Errorf("%w by user: %s", ErrToolCallRejected, resolved.Feedback)
+			return nil, fmt.Errorf("%w: tool call %s rejected by user: %s", ErrToolCallRejected, tc.ToolName, resolved.Feedback)
 
 		case resolved.Status == hitl.StatusRejected:
 			logr.Info("tool call rejected by user")
 			m.auditHITLDecision(ctx, tc.ToolName, string(tc.Args), tc.Justification, "rejected", "", "")
-			return nil, fmt.Errorf("%w by user", ErrToolCallRejected)
+			return nil, fmt.Errorf("%w: tool call %s rejected by user", ErrToolCallRejected, tc.ToolName)
 
 		case resolved.Feedback != "":
 			m.storeFeedback(tc.ToolName, resolved.Feedback)
 			logr.Info("tool call approved with feedback — returning to LLM for re-planning",
 				"feedback", resolved.Feedback)
-			return nil, fmt.Errorf("%w: user requested changes — %s — please adjust your approach and try again",
-				ErrToolCallRejected, resolved.Feedback)
+			return nil, fmt.Errorf("%w: tool call %s: user requested changes — %s — please adjust your approach and try again",
+				ErrToolCallRejected, tc.ToolName, resolved.Feedback)
 		}
 
 		logr.Info("tool call approved by user")
