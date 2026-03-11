@@ -75,30 +75,6 @@ var _ = Describe("AuditHook", func() {
 		})
 	})
 
-	Context("OnToolValidation (critic rejection)", func() {
-		It("should log a critic rejection event", func() {
-			hook.OnToolValidation(ctx, hooks.ToolValidationEvent{
-				ToolName: "dangerous_tool",
-				Allowed:  false,
-				Reason:   "blocked by policy",
-			})
-			Expect(fakeAuditor.LogCallCount()).To(Equal(1))
-
-			_, req := fakeAuditor.LogArgsForCall(0)
-			Expect(string(req.EventType)).To(Equal("reactree_critic_rejection"))
-			Expect(req.Metadata["tool"]).To(Equal("dangerous_tool"))
-			Expect(req.Metadata["reason"]).To(Equal("blocked by policy"))
-		})
-
-		It("should not log when tool is allowed", func() {
-			hook.OnToolValidation(ctx, hooks.ToolValidationEvent{
-				ToolName: "safe_tool",
-				Allowed:  true,
-			})
-			Expect(fakeAuditor.LogCallCount()).To(Equal(0))
-		})
-	})
-
 	Context("OnReflection", func() {
 		It("should log a reflection result", func() {
 			hook.OnReflection(ctx, hooks.ReflectionEvent{

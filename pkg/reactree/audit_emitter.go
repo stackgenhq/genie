@@ -14,14 +14,12 @@ import (
 
 	"github.com/stackgenhq/genie/pkg/audit"
 	"github.com/stackgenhq/genie/pkg/hooks"
-	"github.com/stackgenhq/genie/pkg/logger"
 )
 
 // AuditEventType constants for ReAcTree-specific audit events.
 const (
 	AuditEventIterationStart  audit.EventType = "reactree_iteration_start"
 	AuditEventIterationEnd    audit.EventType = "reactree_iteration_end"
-	AuditEventCriticRejection audit.EventType = "reactree_critic_rejection"
 	AuditEventReflection      audit.EventType = "reactree_reflection"
 	AuditEventDryRun          audit.EventType = "reactree_dry_run"
 	AuditEventPlanExecution   audit.EventType = "reactree_plan_execution"
@@ -86,23 +84,6 @@ func (h *AuditHook) OnReflection(ctx context.Context, event hooks.ReflectionEven
 			"monologue":      event.Monologue,
 			"should_proceed": event.ShouldProceed,
 			"timestamp":      time.Now().UTC().Format(time.RFC3339),
-		},
-	})
-}
-
-func (h *AuditHook) OnToolValidation(ctx context.Context, event hooks.ToolValidationEvent) {
-	if event.Allowed {
-		return // only log rejections
-	}
-	logger.GetLogger(ctx).Info("audit: critic rejected tool", "tool", event.ToolName, "reason", event.Reason)
-	h.auditor.Log(ctx, audit.LogRequest{
-		EventType: AuditEventCriticRejection,
-		Actor:     "reactree-critic",
-		Action:    "tool_rejected",
-		Metadata: map[string]any{
-			"tool":      event.ToolName,
-			"reason":    event.Reason,
-			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		},
 	})
 }
