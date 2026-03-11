@@ -14,6 +14,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/hitl"
 	"github.com/stackgenhq/genie/pkg/hitl/hitlfakes"
 	"github.com/stackgenhq/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
 )
@@ -261,5 +262,50 @@ var _ = Describe("HITLApprovalMiddleware", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result2).To(Equal("ok-2"))
 		Expect(store.CreateCallCount()).To(Equal(1)) // still 1 — cache hit across middlewares
+	})
+
+	Describe("Background Task Handling", func() {
+		var ctx context.Context
+
+		BeforeEach(func() {
+			ctx = orchestratorcontext.WithInternalTask(context.Background())
+		})
+
+		It("should reject background tasks by default", func() {
+			mw := toolwrap.HITLApprovalMiddleware(store, nil)
+			handler := mw.Wrap(passthrough("executed"))
+
+			result, err := handler(ctx, tc("write_file"))
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("requires human approval, which is not supported in background tasks"))
+			Expect(result).To(BeNil())
+			Expect(store.CreateCallCount()).To(Equal(0))
+		})
+
+		It("should approve background tasks when configured to approve", func() {
+			mw := toolwrap.HITLApprovalMiddleware(store, nil, toolwrap.WithHITLBackgroundBehavior(toolwrap.BackgroundBehaviorApprove))
+			handler := mw.Wrap(passthrough("executed"))
+
+			result, err := handler(ctx, tc("write_file"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal("executed"))
+			Expect(store.CreateCallCount()).To(Equal(0))
+		})
+
+		It("should block and send to HITL when configured to block", func() {
+			store.IsAllowedReturns(false)
+			store.CreateReturns(hitl.ApprovalRequest{ID: "bg1"}, nil)
+			store.WaitForResolutionReturns(hitl.ApprovalRequest{
+				Status: hitl.StatusApproved,
+			}, nil)
+
+			mw := toolwrap.HITLApprovalMiddleware(store, nil, toolwrap.WithHITLBackgroundBehavior(toolwrap.BackgroundBehaviorBlock))
+			handler := mw.Wrap(passthrough("executed"))
+
+			result, err := handler(ctx, tc("write_file"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal("executed"))
+			Expect(store.CreateCallCount()).To(Equal(1))
+		})
 	})
 })

@@ -51,7 +51,7 @@ func WithApproveList(list *ApproveList) ServiceOption {
 // when they originate from an internal background task (e.g. cron triggers).
 // Valid options: "reject", "approve", "block".
 func WithBackgroundBehavior(b string) ServiceOption {
-	return func(s *Service) { s.bgBehavior = b }
+	return func(s *Service) { s.bgBehavior = ParseBackgroundBehavior(b) }
 }
 
 // WithExtraMiddleware appends caller-supplied middleware to the default
@@ -104,12 +104,12 @@ type Service struct {
 	approvalStore    hitl.ApprovalStore
 	summarize        SummarizeFunc
 	config           MiddlewareConfig
-	circuitBreaker   *CircuitBreakerMW // singleton, shared across all agents
-	hitlCache        *approvalCache    // shared across all sub-agents so same tool+args isn't re-prompted
-	approveList      *ApproveList      // optional in-memory temporary allowlist (shared with AG-UI server)
-	cacheTTL         time.Duration     // TTL for hitlCache entries; 0 uses defaultCacheTTL
-	bgBehavior       string            // "reject", "approve", "block"
-	extraMiddlewares []Middleware      // caller-injected middleware (e.g. policy enforcement)
+	circuitBreaker   *CircuitBreakerMW  // singleton, shared across all agents
+	hitlCache        *approvalCache     // shared across all sub-agents so same tool+args isn't re-prompted
+	approveList      *ApproveList       // optional in-memory temporary allowlist (shared with AG-UI server)
+	cacheTTL         time.Duration      // TTL for hitlCache entries; 0 uses defaultCacheTTL
+	bgBehavior       BackgroundBehavior // policy for background internal tasks
+	extraMiddlewares []Middleware       // caller-injected middleware (e.g. policy enforcement)
 }
 
 // CircuitBreaker returns the shared circuit breaker instance, or nil if
