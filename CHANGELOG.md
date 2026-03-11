@@ -15,7 +15,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Daily wisdom consolidation (`EpisodeConsolidator`) — reads recent episodes, summarizes them into concise bullet-point lessons via LLM, and stores as `WisdomNote`s. Idempotent per period; ready to be wired into a cron job.
 - Wisdom notes injected into agent prompts as a `## Consolidated Lessons` section, providing distilled experience alongside raw episodic memories.
 - Loop-level failure capture — adaptive loop terminations (repetition, errors, failure status) now stored as failure episodes with reflections via `storeLoopFailureEpisode`.
+- `FailureReflector` interface + `ExpertFailureReflector` implementation (uses cheapest `TaskEfficiency` model) for LLM-generated actionable failure summaries.
+- `ImportanceScorer` interface + `ExpertImportanceScorer` implementation; robust parsing handles noisy LLM output with integer cleansing and clamping to 1–10.
+- `WisdomStore` interface + `EpisodeSummarizer` interface with `ExpertEpisodeSummarizer` implementation backed by `memory.Service`.
+- `RetrieveWeighted` method on episodic memory — scores episodes as a weighted sum (0.6 × recency + 0.4 × importance) for balanced retrieval.
+- Failure episodes display with ⚠️ prefix and verbal reflection in agent prompts; capped at 500 runes to prevent prompt bloat.
+- Early-return guard in `RetrieveWisdom` when `limit ≤ 0` to prevent unnecessary processing.
 - QA test plan for agent learning features (`qa/20260310_failure_learning.md`) — 6 manual test scenarios plus inventory of 46 automated Ginkgo/Gomega tests.
+- 46 new Ginkgo/Gomega tests across `memory/failure_learning_test.go`, `memory/consolidation_test.go`, `failure_reflector_test.go`, and `importance_and_consolidation_test.go`.
+
+### Changed
+
+- `Toggles` struct refactored: boolean feature flags (`EnableCriticMiddleware`, `EnableActionReflection`, `EnableDryRunSimulation`, `EnableMCPServerAccess`, `EnableAuditDashboard`) removed; only `DryRun.Enabled` (via `FeaturesConfig`) and runtime-injected dependencies remain.
+- `FeaturesConfig` simplified from 5 boolean flags to a single `DryRun DryRunConfig` struct; config files use `[features.dry_run] enabled = true` instead of individual flags.
+- `ActionReflector` is now activated purely by setting `Toggles.Reflector` (non-nil); the redundant `EnableActionReflection` boolean guard was removed.
+- `ImportanceScorer` and `WisdomStore` are now propagated through `Toggles` → `tree` → `AgentNodeConfig`, consistent with `FailureReflector` and other injectables.
+- `docs/config-builder.html` and `docs/js/config-builder.js` updated to reflect removal of deprecated feature-flag fields from the config schema.
+
+### Removed
+
+- Critic middleware (`middleware.go`) — `NewDeterministicValidator`, `WrapWithValidator` and associated test files removed; tool blocking is handled exclusively by HITL.
+- `AuditEventCriticRejection` audit event constant and `AuditHook.OnToolValidation` implementation removed (hook interface still defined in `hooks.go` for future use; `NoOpHook` satisfies it).
+- `EnableCriticMiddleware`, `EnableActionReflection`, `EnableDryRunSimulation`, `EnableMCPServerAccess`, and `EnableAuditDashboard` boolean fields removed from `FeaturesConfig`.
 
 
 ## [0.1.7] - 2026-03-10
