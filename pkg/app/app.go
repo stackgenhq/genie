@@ -64,7 +64,6 @@ import (
 	"github.com/stackgenhq/genie/pkg/tools/doctool"
 	"github.com/stackgenhq/genie/pkg/tools/email"
 	"github.com/stackgenhq/genie/pkg/tools/encodetool"
-	"github.com/stackgenhq/genie/pkg/tools/ghcli"
 	"github.com/stackgenhq/genie/pkg/tools/google/calendar"
 	"github.com/stackgenhq/genie/pkg/tools/google/contacts"
 	"github.com/stackgenhq/genie/pkg/tools/google/gdrive"
@@ -87,6 +86,7 @@ import (
 	"go.opentelemetry.io/otel/baggage"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"gorm.io/gorm"
+	"trpc.group/trpc-go/trpc-agent-go/skill"
 	"trpc.group/trpc-go/trpc-agent-go/telemetry/trace"
 )
 
@@ -827,7 +827,12 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 
 	// --- Skills ---
 	if len(a.cfg.SkillLoadConfig.SkillsRoots) != 0 {
-		skillProvider, err := tools.NewSkillToolProvider(a.workingDir, a.cfg.SkillLoadConfig)
+		var additionalRepos []skill.Repository
+		if mcpClient != nil {
+			additionalRepos = append(additionalRepos, mcpClient.GetPromptRepository())
+		}
+
+		skillProvider, err := tools.NewSkillToolProvider(a.workingDir, a.cfg.SkillLoadConfig, additionalRepos...)
 		if err != nil {
 			log.Warn("failed to initialize skills tool provider", "error", err)
 		} else {
@@ -871,10 +876,10 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 		log.Warn("failed to initialize SCM service, skipping SCM tools", "provider", a.cfg.SCM.Provider, "error", err)
 	}
 
-	// --- GitHub CLI (gh) tool ---
-	if ghProvider := ghcli.New(ctx, a.cfg.GHCli); ghProvider != nil {
-		providers = append(providers, ghProvider)
-		log.Info("gh CLI tool provider added")
+	// --- Executable tools ---
+	if len(a.cfg.ExecutableTools) > 0 {
+		providers = append(providers, tools.Tools(a.cfg.ExecutableTools.Tools(ctx, sp)))
+		log.Info("Executable tools provider added", "count", len(a.cfg.ExecutableTools))
 	}
 
 	// --- PM tools ---

@@ -32,7 +32,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/semanticrouter"
 	"github.com/stackgenhq/genie/pkg/tools/email"
-	"github.com/stackgenhq/genie/pkg/tools/ghcli"
+	"github.com/stackgenhq/genie/pkg/tools/executable"
 	"github.com/stackgenhq/genie/pkg/tools/google/gdrive"
 	"github.com/stackgenhq/genie/pkg/tools/pm"
 	"github.com/stackgenhq/genie/pkg/tools/scm"
@@ -76,7 +76,7 @@ type GenieConfig struct {
 	Messenger       messenger.Config          `yaml:"messenger,omitempty" toml:"messenger,omitempty"`
 	Browser         browser.Config            `yaml:"browser,omitempty" toml:"browser,omitempty"`
 	SCM             scm.Config                `yaml:"scm,omitempty" toml:"scm,omitempty"`
-	GHCli           ghcli.Config              `yaml:"ghcli,omitempty" toml:"ghcli,omitempty"`
+	ExecutableTools executable.Configs        `yaml:"executable_tools,omitempty" toml:"executable_tools,omitempty"`
 
 	ProjectManagement pm.Config `yaml:"project_management,omitempty" toml:"project_management,omitempty"`
 

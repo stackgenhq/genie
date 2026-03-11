@@ -19,12 +19,13 @@ import (
 // This function exists to initialize the skills system based on the Genie configuration.
 // Without this function, we could not load skills from the config file.
 // It supports multiple skills roots including local paths and remote HTTPS URLs.
-func LoadSkillsFromConfig(ctx context.Context, roots ...string) ([]tool.Tool, error) {
+// It also accepts additional repositories (like an MCP PromptRepository) to be merged.
+func LoadSkillsFromConfig(ctx context.Context, roots []string, additionalRepos ...skill.Repository) ([]tool.Tool, error) {
 	logr := logger.GetLogger(ctx).With("fn", "LoadSkillsFromConfig")
 
-	// If no skills roots configured, return empty tools list
-	if len(roots) == 0 {
-		logr.Debug("no skills roots configured, skills disabled")
+	// If no skills roots configured and no additional repos, return empty tools list
+	if len(roots) == 0 && len(additionalRepos) == 0 {
+		logr.Debug("no skills roots or additional repos configured, skills disabled")
 		return nil, nil
 	}
 
@@ -67,16 +68,25 @@ func LoadSkillsFromConfig(ctx context.Context, roots ...string) ([]tool.Tool, er
 		validRoots = append(validRoots, absPath)
 	}
 
-	if len(validRoots) == 0 {
-		logr.Warn("no valid skills roots found, skills disabled")
+	if len(validRoots) == 0 && len(additionalRepos) == 0 {
+		logr.Warn("no valid skills roots or additional repos found, skills disabled")
 		return nil, nil
 	}
 
-	// Create skill repository using trpc-agent-go/skill package with multiple roots
-	repo, err := skill.NewFSRepository(validRoots...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create skills repository: %w", err)
+	var reposToMerge []skill.Repository
+	if len(validRoots) > 0 {
+		// Create skill repository using trpc-agent-go/skill package with multiple roots
+		fsRepo, err := skill.NewFSRepository(validRoots...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create skills repository: %w", err)
+		}
+		reposToMerge = append(reposToMerge, fsRepo)
 	}
+
+	reposToMerge = append(reposToMerge, additionalRepos...)
+	
+	// Create the composite repository
+	repo := NewCompositeRepository(reposToMerge...)
 
 	// Log discovered skills
 	summaries := repo.Summaries()

@@ -40,7 +40,15 @@ type Client struct {
 	config         MCPConfig
 	clients        []*client.Client
 	tools          []tool.Tool
+	prompts        []namespacedPrompt
 	secretProvider security.SecretProvider
+}
+
+// namespacedPrompt holds a prompt associated with the server that provided it.
+type namespacedPrompt struct {
+	serverName string
+	prompt     mcp.Prompt
+	caller     MCPPromptCaller
 }
 
 // NewClient creates a new MCP client from the provided configuration.
@@ -63,6 +71,7 @@ func NewClient(ctx context.Context, config MCPConfig, opts ...ClientOption) (*Cl
 		config:  config,
 		clients: make([]*client.Client, 0),
 		tools:   make([]tool.Tool, 0),
+		prompts: make([]namespacedPrompt, 0),
 	}
 	for _, opt := range opts {
 		opt(mcpClient)
@@ -126,6 +135,20 @@ func (c *Client) initializeServer(ctx context.Context, config MCPServerConfig) (
 
 	// Store client for cleanup
 	c.clients = append(c.clients, mcpClient)
+
+	// Fetch Prompts
+	promptsResponse, err := mcpClient.ListPrompts(ctx, mcp.ListPromptsRequest{})
+	if err == nil {
+		for _, p := range promptsResponse.Prompts {
+			c.prompts = append(c.prompts, namespacedPrompt{
+				serverName: config.Name,
+				prompt:     p,
+				caller:     mcpClient,
+			})
+		}
+	} else {
+		logger.GetLogger(ctx).With("fn", "mcp.initializeServer").Warn("failed to list prompts, prompts will be unavailable", "server", config.Name, "err", err)
+	}
 
 	// Convert and filter tools
 	return c.convertAndFilterTools(ctx, mcpClient, toolsResponse.Tools, config)
@@ -231,6 +254,12 @@ func (c *Client) shouldIncludeTool(toolName string, config MCPServerConfig) bool
 // The tools implement the tool.Tool interface and can be used with trpc-agent-go agents.
 func (c *Client) GetTools() []tool.Tool {
 	return c.tools
+}
+
+// GetPromptRepository returns a skill.Repository adapter that allows
+// the agent to discover and read MCP Prompts as if they were Genie Skills.
+func (c *Client) GetPromptRepository() *PromptRepository {
+	return NewPromptRepository(c)
 }
 
 // Close closes all MCP server connections and releases resources.

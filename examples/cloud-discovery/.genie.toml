@@ -1,0 +1,282 @@
+# DevOps Copilot Configuration
+# Configure the MCP servers and skills relevant to your infrastructure.
+# Comment out or remove sections you don't need.
+
+skills_roots = ["./skills"]
+agent_name  = "devops-copilot"
+[persona]
+file = "./AGENTS.md"
+disable_resume = true
+
+[db_config]
+db_file = "${PWD}/.genie.db"
+
+# ── Model Configuration ─────────────────────────────────────────────
+[model_config]
+
+[[model_config.providers]]
+provider = "anthropic"
+model_name = "claude-opus-4-5"
+token = "${ANTHROPIC_API_KEY}"
+good_for_task = "planning"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "tool_calling"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-pro-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "summarizer"
+
+[[model_config.providers]]
+provider = "anthropic"
+model_name = "claude-sonnet-4-5-20250929"
+token = "${ANTHROPIC_API_KEY}"
+good_for_task = "terminal_calling"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "frontdesk"
+
+[[model_config.providers]]
+provider = "openai"
+model_name = "gpt-4.1"
+token = "${OPENAI_API_KEY}"
+good_for_task = "general_task"
+
+# ── Efficiency models (used by halguard for cross-model verification) ──
+# These fast/cheap models from 3 different providers give halguard
+# diverse cross-model samples for hallucination detection.
+
+[[model_config.providers]]
+provider = "openai"
+model_name = "gpt-4.1-mini"
+token = "${OPENAI_API_KEY}"
+good_for_task = "efficiency"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-2.0-flash"
+token = "${GEMINI_API_KEY}"
+good_for_task = "efficiency"
+
+[[model_config.providers]]
+provider = "anthropic"
+model_name = "claude-haiku-4-5"
+token = "${ANTHROPIC_API_KEY}"
+good_for_task = "efficiency"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "efficiency"
+
+# ── Hallucination Guard ─────────────────────────────────────────────
+# Pre-check scores sub-agent goals for fabrication risk (role-play,
+# invented metrics, etc.). Post-check uses cross-model verification
+# on outputs using the efficiency models above.
+[halguard]
+enable_pre_check = true
+enable_post_check = true
+pre_check_threshold = 0.4
+cross_model_samples = 3
+
+# ── MCP Servers ─────────────────────────────────────────────────────
+# Each MCP server gives Genie structured access to a DevOps platform.
+# Enable only the servers you have credentials for.
+
+[mcp]
+
+# ── Observability ───────────────────────────────────────────────────
+
+# Grafana: dashboards, alerts, datasources, explore queries
+[[mcp.servers]]
+name = "stackgen"
+transport = "stdio"
+command = "/Users/sabithks/src/github.com/appcd-dev/stackgen-cli/build/stackgen"
+args = ["mcp"]
+
+
+# Datadog: metrics, logs, traces, incidents, dashboards, monitors
+# [[mcp.servers]]
+# name = "datadog"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@anthropic/datadog-mcp-server"]
+# env = { DD_API_KEY = "${DD_API_KEY}", DD_APP_KEY = "${DD_APP_KEY}" }
+
+# Sentry: error tracking, issues, events
+# [[mcp.servers]]
+# name = "sentry"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@anthropic/sentry-mcp-server"]
+# env = { SENTRY_AUTH_TOKEN = "${SENTRY_AUTH_TOKEN}" }
+
+# ── Source Control & CI/CD ──────────────────────────────────────────
+
+# GitHub: repos, PRs, issues, actions, code search
+[[mcp.servers]]
+name = "github"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+env = { GITHUB_TOKEN = "${GITHUB_TOKEN}" }
+
+# GitLab (uncomment if using GitLab instead)
+# [[mcp.servers]]
+# name = "gitlab"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@anthropic/gitlab-mcp-server"]
+# env = { GITLAB_TOKEN = "${GITLAB_TOKEN}" }
+
+# ── Infrastructure ──────────────────────────────────────────────────
+
+# Terraform: validate, plan, state inspection
+# [[mcp.servers]]
+# name = "terraform"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@anthropic/terraform-mcp-server"]
+
+# Kubernetes: pods, services, deployments, namespaces
+# [[mcp.servers]]
+# name = "kubernetes"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@anthropic/kubernetes-mcp-server"]
+# env = { KUBECONFIG = "${KUBECONFIG}" }
+
+# ── Collaboration ───────────────────────────────────────────────────
+
+# Atlassian (Jira + Confluence)
+# [[mcp.servers]]
+# name = "atlassian"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@anthropic/atlassian-mcp-server"]
+# env = { ATLASSIAN_URL = "${ATLASSIAN_URL}", ATLASSIAN_EMAIL = "${ATLASSIAN_EMAIL}", ATLASSIAN_API_TOKEN = "${ATLASSIAN_API_TOKEN}" }
+
+# PagerDuty: incidents, services, escalation policies
+# [[mcp.servers]]
+# name = "pagerduty"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@anthropic/pagerduty-mcp-server"]
+# env = { PAGERDUTY_API_KEY = "${PAGERDUTY_API_KEY}" }
+
+# ── Databases ───────────────────────────────────────────────────────
+
+# PostgreSQL: query execution, schema inspection
+# [[mcp.servers]]
+# name = "postgres"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@anthropic/postgres-mcp-server"]
+# env = { DATABASE_URL = "${DATABASE_URL}" }
+
+# ── Application Settings ────────────────────────────────────────────
+
+[ops]
+max_pages = 5
+enable_verification = true
+max_verification_runs = 3
+
+# ── GitHub (SCM) ────────────────────────────────────────────────────
+[scm]
+provider = "github"
+token = "${GITHUB_TOKEN}"
+
+# ── Vector Memory ───────────────────────────────────────────────────
+[vector_memory]
+embedding_provider = "ollama"
+ollama_url = "http://localhost:11434"
+ollama_model = "nomic-embed-text"
+persistence_dir = "${PWD}/.genie/vector_store"
+
+# ── AG-UI Server ────────────────────────────────────────────────────
+[messenger.agui]
+port = 9876
+cors_origins = ["https://stackgenhq.github.io", "http://localhost:9877"]
+
+[hitl]
+always_allowed = ["run_shell", "stackgen_*"]
+
+# ── PII Redaction ───────────────────────────────────────────────────
+# Tuned for DevOps agents: infrastructure output is full of mixed-case
+# identifiers, resource names, and table data that trigger false positives
+# at the default threshold. We raise entropy_threshold and min_secret_length,
+# and add safe_regexes for AWS and Azure resource patterns.
+[pii]
+entropy_threshold = 4.8    # Default 4.2 is too aggressive for infra output
+min_secret_length = 16     # Default 6 catches resource names; real secrets are longer
+
+# ── AWS Safe Patterns ───────────────────────────────────────────────
+
+[[pii.safe_regexes]]
+name = "aws_profile"
+pattern = '\b[0-9]{12}_[A-Za-z0-9_-]+\b'
+
+[[pii.safe_regexes]]
+name = "aws_arn"
+pattern = '(?i)arn:aws:[a-z0-9-]+:[a-z0-9-]*:[0-9]{12}:[a-zA-Z0-9-/_]+'
+
+[[pii.safe_regexes]]
+name = "aws_resource_id"
+pattern = '(?i)(i|vol|snap|ami|subnet|vpc|igw|nat|eni|sg|rtb|eipalloc)-[0-9a-f]{8,17}'
+
+[[pii.safe_regexes]]
+name = "s3_bucket"
+pattern = '(?i)[a-z0-9.-]+\.s3\.[a-z0-9-]+\.amazonaws\.com'
+
+# ── Azure Safe Patterns ─────────────────────────────────────────────
+
+[[pii.safe_regexes]]
+name = "azure_subscription_id"
+pattern = '(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+
+[[pii.safe_regexes]]
+name = "azure_resource_id"
+pattern = '(?i)/subscriptions/[0-9a-f-]+/resourceGroups/[A-Za-z0-9_.-]+(/providers/[A-Za-z0-9._-]+)*'
+
+[[pii.safe_regexes]]
+name = "azure_resource_group"
+pattern = '(?i)\b[a-z][a-z0-9_-]{2,63}\b'
+
+[[pii.safe_regexes]]
+name = "azure_vm_size"
+pattern = '(?i)Standard_[A-Za-z0-9_]+[sv][0-9]+'
+
+[[pii.safe_regexes]]
+name = "azure_disk_state"
+pattern = '(?i)\b(Attached|Unattached|Reserved|ActiveSAS|ReadyToUpload)\b'
+
+[[pii.safe_regexes]]
+name = "azure_region"
+pattern = '(?i)\b(eastus|eastus2|westus|westus2|westus3|centralus|northcentralus|southcentralus|westcentralus|canadacentral|canadaeast|northeurope|westeurope|uksouth|ukwest|francecentral|francesouth|germanywestcentral|norwayeast|swedencentral|switzerlandnorth|australiaeast|australiasoutheast|eastasia|southeastasia|japaneast|japanwest|koreacentral|koreasouth|centralindia|southindia|westindia|brazilsouth|uaenorth|southafricanorth|qatarcentral)\b'
+
+[[pii.safe_regexes]]
+name = "azure_power_state"
+pattern = '(?i)\bVM (running|deallocated|stopped|starting|deallocating)\b'
+
+# ── General Cloud Infrastructure Patterns ───────────────────────────
+
+[[pii.safe_regexes]]
+name = "kubernetes_version"
+pattern = '(?i)\bv?[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.]+)?\b'
+
+[[pii.safe_regexes]]
+name = "cloud_resource_type"
+pattern = '(?i)\b(VirtualMachines|VMScaleSets|virtualNetworks|storageAccounts|containerRegistries|aksCluster|managedClusters|networkSecurityGroups|publicIPAddresses|loadBalancers|keyVaults|disks|snapshots|networkInterfaces)\b'
+
+[[pii.safe_regexes]]
+name = "provisioning_state"
+pattern = '(?i)\b(Succeeded|Failed|Creating|Updating|Deleting|Canceled|InProgress|Registered|NotRegistered)\b'

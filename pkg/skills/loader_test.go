@@ -36,7 +36,7 @@ var _ = Describe("LoadSkillsFromConfig", func() {
 
 	Context("with valid skills path", func() {
 		It("should load skills and create tools", func() {
-			tools, err := skills.LoadSkillsFromConfig(context.Background(), skillsDir)
+			tools, err := skills.LoadSkillsFromConfig(context.Background(), []string{skillsDir})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tools).NotTo(BeEmpty())
 			Expect(len(tools)).To(Equal(3)) // list_skills, skill_load, skill_run
@@ -55,7 +55,7 @@ var _ = Describe("LoadSkillsFromConfig", func() {
 
 	Context("with empty skills path", func() {
 		It("should return nil tools without error", func() {
-			tools, err := skills.LoadSkillsFromConfig(context.Background())
+			tools, err := skills.LoadSkillsFromConfig(context.Background(), nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tools).To(BeNil())
 		})
@@ -63,7 +63,7 @@ var _ = Describe("LoadSkillsFromConfig", func() {
 
 	Context("with non-existent skills path", func() {
 		It("should return nil tools without error", func() {
-			tools, err := skills.LoadSkillsFromConfig(context.Background(), "/nonexistent/path")
+			tools, err := skills.LoadSkillsFromConfig(context.Background(), []string{"/nonexistent/path"})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tools).To(BeNil())
 		})
@@ -76,7 +76,7 @@ var _ = Describe("LoadSkillsFromConfig", func() {
 			err := os.WriteFile(tempFile, []byte("test"), 0644)
 			Expect(err).NotTo(HaveOccurred())
 
-			tools, err := skills.LoadSkillsFromConfig(context.Background(), tempFile)
+			tools, err := skills.LoadSkillsFromConfig(context.Background(), []string{tempFile})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tools).To(BeNil()) // Invalid paths are skipped gracefully
 		})
@@ -89,7 +89,7 @@ var _ = Describe("LoadSkillsFromConfig", func() {
 			os.Setenv(testEnvVar, skillsDir)
 			defer os.Unsetenv(testEnvVar)
 
-			tools, err := skills.LoadSkillsFromConfig(context.Background(), "${"+testEnvVar+"}")
+			tools, err := skills.LoadSkillsFromConfig(context.Background(), []string{"${" + testEnvVar + "}"})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tools).NotTo(BeEmpty())
 		})

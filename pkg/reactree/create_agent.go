@@ -1138,7 +1138,7 @@ func (t *createAgentTool) auditSubAgentCreation(ctx context.Context, req CreateA
 	}
 	metadata := map[string]any{
 		"agent_name":          req.AgentName,
-		"goal":                toolwrap.TruncateForAudit(req.Goal, 200),
+		"goal":                req.Goal,
 		"tool_names":          req.ToolNames,
 		"task_type":           string(req.TaskType),
 		"max_tool_iterations": req.clampedMaxToolIterations(),
