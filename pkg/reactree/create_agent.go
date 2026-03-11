@@ -755,7 +755,7 @@ type subAgentResult struct {
 // zero tool calls, producing text-only output. This indicates the sub-agent
 // echoed commands as text or refused the task. It annotates the output and
 // sets status to "tool_use_failure" so the caller can auto-retry.
-func (t *createAgentTool) applyZeroToolUseGuard(_ context.Context, req CreateAgentRequest, sar subAgentResult) subAgentResult {
+func (t *createAgentTool) applyZeroToolUseGuard(_ context.Context, _ CreateAgentRequest, sar subAgentResult) subAgentResult {
 	if sar.toolCallCount == 0 && sar.output != "" && sar.status != "error" && !sar.timedOut && sar.numTools > 0 {
 		sar.output = fmt.Sprintf(
 			"⚠️ SUB-AGENT DID NOT USE TOOLS: The sub-agent produced a text-only response "+
