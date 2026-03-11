@@ -110,6 +110,7 @@ require (
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
+	github.com/creack/pty v1.1.24 // indirect
 	github.com/danieljoos/wincred v1.2.2 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
@@ -120,6 +121,7 @@ require (
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
+	github.com/go-ego/gse v1.0.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
 	github.com/go-json-experiment/json v0.0.0-20250725192818-e39067aee2d2 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
@@ -184,6 +186,7 @@ require (
 	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
+	github.com/vcaesar/cedar v0.20.2 // indirect
 	github.com/vektah/gqlparser/v2 v2.5.27 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
@@ -229,12 +232,10 @@ tool (
 
 replace github.com/drone/go-scm => github.com/appcd-dev/go-scm v0.0.0-20251204195827-1d9c5431af88
 
-replace trpc.group/trpc-go/trpc-agent-go => github.com/sks/trpc-agent-go v0.0.0-20260303144342-9805e6b926ca
+replace trpc.group/trpc-go/trpc-agent-go => github.com/sks/trpc-agent-go v0.0.0-20260311003658-fa8335505e01
 
-replace trpc.group/trpc-go/trpc-agent-go/model/gemini => github.com/sks/trpc-agent-go/model/gemini v0.0.0-20260303144342-9805e6b926ca
+replace trpc.group/trpc-go/trpc-agent-go/model/gemini => github.com/sks/trpc-agent-go/model/gemini v0.0.0-20260311003658-fa8335505e01
 
-replace trpc.group/trpc-go/trpc-agent-go/model/ollama => github.com/sks/trpc-agent-go/model/ollama v0.0.0-20260303144342-9805e6b926ca
+replace trpc.group/trpc-go/trpc-agent-go/model/ollama => github.com/sks/trpc-agent-go/model/ollama v0.0.0-20260311003658-fa8335505e01
 
-replace trpc.group/trpc-go/trpc-agent-go/model/anthropic => github.com/sks/trpc-agent-go/model/anthropic v0.0.0-20260305014050-c428b840afa2
-
-replace trpc.group/trpc-go/trpc-agent-go/model/openai => github.com/sks/trpc-agent-go/model/openai v0.0.0-20260303144342-9805e6b926ca
+replace trpc.group/trpc-go/trpc-agent-go/model/anthropic => github.com/sks/trpc-agent-go/model/anthropic v0.0.0-20260311003658-fa8335505e01

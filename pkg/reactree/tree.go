@@ -139,12 +139,15 @@ type TreeRequest struct {
 
 // tree is the default TreeExecutor implementation backed by graph.StateGraph.
 type tree struct {
-	expert        expert.Expert
-	workingMemory *memory.WorkingMemory
-	episodic      memory.EpisodicMemory
-	config        TreeConfig
-	reflector     ActionReflector
-	hooks         hooks.ExecutionHook
+	expert           expert.Expert
+	workingMemory    *memory.WorkingMemory
+	episodic         memory.EpisodicMemory
+	config           TreeConfig
+	reflector        ActionReflector
+	hooks            hooks.ExecutionHook
+	failureReflector memory.FailureReflector
+	importanceScorer memory.ImportanceScorer
+	wisdomStore      memory.WisdomStore
 }
 
 // NewTreeExecutor creates a TreeExecutor configured with the given expert and options.
@@ -163,7 +166,7 @@ func NewTreeExecutor(
 	}
 	// Resolve enterprise dependencies.
 	var reflector ActionReflector = &NoOpReflector{}
-	if config.Toggles.EnableActionReflection && config.Toggles.Reflector != nil {
+	if config.Toggles.Reflector != nil {
 		reflector = config.Toggles.Reflector
 	}
 
@@ -172,26 +175,38 @@ func NewTreeExecutor(
 		execHooks = hooks.NoOpHook{}
 	}
 
+	var failureReflector memory.FailureReflector
+	if config.Toggles.FailureReflector != nil {
+		failureReflector = config.Toggles.FailureReflector
+	}
+
+	var importanceScorer memory.ImportanceScorer
+	if config.Toggles.ImportanceScorer != nil {
+		importanceScorer = config.Toggles.ImportanceScorer
+	}
+
 	logger.GetLogger(context.Background()).Info("TreeExecutor created",
 		"max_depth", config.MaxDepth,
 		"max_decisions_per_node", config.MaxDecisionsPerNode,
 		"max_total_nodes", config.MaxTotalNodes,
 		"max_iterations", config.MaxIterations,
 		"stages", len(config.Stages),
-		"enterprise.critic", config.Toggles.EnableCriticMiddleware,
-		"enterprise.reflection", config.Toggles.EnableActionReflection,
-		"enterprise.dry_run", config.Toggles.EnableDryRunSimulation,
-		"enterprise.mcp", config.Toggles.EnableMCPServerAccess,
-		"enterprise.audit", config.Toggles.EnableAuditDashboard,
+		"enterprise.reflection", config.Toggles.Reflector != nil,
+		"enterprise.dry_run", config.Toggles.Features.DryRun.Enabled,
 		"enterprise.hooks", execHooks != nil,
+		"enterprise.failure_reflector", failureReflector != nil,
+		"enterprise.importance_scorer", importanceScorer != nil,
 	)
 	return &tree{
-		expert:        exp,
-		workingMemory: workingMem,
-		episodic:      episodic,
-		config:        config,
-		reflector:     reflector,
-		hooks:         execHooks,
+		expert:           exp,
+		workingMemory:    workingMem,
+		episodic:         episodic,
+		config:           config,
+		reflector:        reflector,
+		hooks:            execHooks,
+		failureReflector: failureReflector,
+		importanceScorer: importanceScorer,
+		wisdomStore:      config.Toggles.WisdomStore,
 	}
 }
 
@@ -244,31 +259,24 @@ func (t *tree) runSingleNode(ctx context.Context, req TreeRequest) (TreeResult, 
 
 	toolsToUse := req.Tools
 
-	// Enterprise: wrap tools with critic middleware if enabled.
-	if t.config.Toggles.EnableCriticMiddleware {
-		validator := NewDeterministicValidator(nil)
-		wrapped := make([]tool.Tool, len(toolsToUse))
-		for i, tl := range toolsToUse {
-			wrapped[i] = WrapWithValidator(tl, validator)
-		}
-		toolsToUse = wrapped
-	}
-
 	// Enterprise: wrap tools for dry run simulation if enabled.
-	if t.config.Toggles.EnableDryRunSimulation {
+	if t.config.Toggles.Features.DryRun.Enabled {
 		wrapped, _ := WrapToolsForDryRun(toolsToUse)
 		toolsToUse = wrapped
 	}
 
 	innerFunc := NewAgentNodeFunc(AgentNodeConfig{
-		Goal:          req.Goal,
-		Expert:        t.expert,
-		WorkingMemory: t.resolveWorkingMemory(req),
-		Episodic:      t.resolveEpisodic(req),
-		MaxDecisions:  t.config.MaxDecisionsPerNode,
-		Tools:         toolsToUse,
-		Attachments:   req.Attachments,
-		Hooks:         t.hooks,
+		Goal:             req.Goal,
+		Expert:           t.expert,
+		WorkingMemory:    t.resolveWorkingMemory(req),
+		Episodic:         t.resolveEpisodic(req),
+		MaxDecisions:     t.config.MaxDecisionsPerNode,
+		Tools:            toolsToUse,
+		Attachments:      req.Attachments,
+		Hooks:            t.hooks,
+		FailureReflector: t.failureReflector,
+		ImportanceScorer: t.importanceScorer,
+		WisdomStore:      t.wisdomStore,
 	})
 
 	wrappedFunc := func(ctx context.Context, state graph.State) (any, error) {
@@ -367,32 +375,25 @@ func (t *tree) runMultiStage(ctx context.Context, req TreeRequest) (TreeResult, 
 			toolsToUse = req.ToolGetter()
 		}
 
-		// Enterprise: wrap tools with critic middleware if enabled.
-		if t.config.Toggles.EnableCriticMiddleware {
-			validator := NewDeterministicValidator(nil)
-			wrapped := make([]tool.Tool, len(toolsToUse))
-			for j, tl := range toolsToUse {
-				wrapped[j] = WrapWithValidator(tl, validator)
-			}
-			toolsToUse = wrapped
-		}
-
 		// Enterprise: wrap tools for dry run simulation if enabled.
-		if t.config.Toggles.EnableDryRunSimulation {
+		if t.config.Toggles.Features.DryRun.Enabled {
 			wrapped, _ := WrapToolsForDryRun(toolsToUse)
 			toolsToUse = wrapped
 		}
 
 		innerFunc := NewAgentNodeFunc(AgentNodeConfig{
-			Goal:          stageGoal,
-			Expert:        t.expert,
-			WorkingMemory: t.resolveWorkingMemory(req),
-			Episodic:      t.resolveEpisodic(req),
-			MaxDecisions:  t.config.MaxDecisionsPerNode,
-			Tools:         toolsToUse,
-			TaskType:      stage.TaskType,
-			Attachments:   req.Attachments,
-			Hooks:         t.hooks,
+			Goal:             stageGoal,
+			Expert:           t.expert,
+			WorkingMemory:    t.resolveWorkingMemory(req),
+			Episodic:         t.resolveEpisodic(req),
+			MaxDecisions:     t.config.MaxDecisionsPerNode,
+			Tools:            toolsToUse,
+			TaskType:         stage.TaskType,
+			Attachments:      req.Attachments,
+			Hooks:            t.hooks,
+			FailureReflector: t.failureReflector,
+			ImportanceScorer: t.importanceScorer,
+			WisdomStore:      t.wisdomStore,
 		})
 
 		// Wrap the node func to emit stage events and capture the last output

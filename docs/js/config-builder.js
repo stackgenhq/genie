@@ -48,6 +48,7 @@
         email: { provider: '', host: '', port: 587, username: '', password: '', imap_host: '', imap_port: 993 },
         hitl: { always_allowed: [], denied_tools: [], cache_ttl: '' },
         shell_tool: { allowed_env: [], timeout: '' },
+        features: { dry_run: { enabled: false } },
         toolwrap: {
             context_mode: { enabled: false, threshold: 20000, max_chunks: 10, chunk_size: 800, min_term_len: 3, per_tool: '' },
             timeout: { enabled: false, default_timeout: '30s', per_tool: '' },
@@ -229,6 +230,7 @@
         renderEmail();
         renderHITL();
         renderShellTool();
+        renderFeatures();
         renderToolwrap();
         renderSecurity();
         renderPII();
@@ -743,6 +745,17 @@
             fieldText('Timeout', st.timeout || '', function (v) { st.timeout = v; renderOutput(); }, '10m',
                 'Maximum execution time for a single shell command. Use Go duration syntax (e.g. 30s, 5m, 1h). Default: 10m'),
             el('p', { className: 'text-xs text-gray-400 mt-1' }, 'PATH is always included automatically. Environment variables are resolved via the SecretProvider at runtime.')
+        ]));
+    }
+
+    // ── Features ──
+    function renderFeatures() {
+        var c = $('features-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var f = state.features;
+        c.appendChild(el('div', { className: 'space-y-4' }, [
+            fieldToggle('Dry-Run Simulation', f.dry_run.enabled, function (v) { f.dry_run.enabled = v; renderOutput(); }, 'If enabled, Genie runs as normal but wraps tools in a simulation layer: tool calls are logged and validated without performing real side effects (no files, network, or shell are actually touched).'),
         ]));
     }
 
@@ -1295,6 +1308,7 @@
         emailToToml(lines);
         hitlToToml(lines);
         shellToolToToml(lines);
+        featuresToToml(lines);
         toolwrapToToml(lines);
         dbConfigToToml(lines);
 
@@ -1435,6 +1449,14 @@
         lines.push('[shell_tool]');
         if (hasItems(st.allowed_env)) lines.push('allowed_env = [' + st.allowed_env.filter(Boolean).map(q).join(', ') + ']');
         if (st.timeout) lines.push('timeout = ' + q(st.timeout));
+        lines.push('');
+    }
+
+    function featuresToToml(lines) {
+        var f = state.features;
+        if (!f.dry_run.enabled) return;
+        lines.push('[features.dry_run]');
+        lines.push('enabled = true');
         lines.push('');
     }
 
@@ -1964,6 +1986,7 @@
         emailToYaml(lines);
         hitlToYaml(lines);
         shellToolToYaml(lines);
+        featuresToYaml(lines);
         toolwrapToYaml(lines);
         dbConfigToYaml(lines);
 
@@ -2196,9 +2219,18 @@
         lines.push('shell_tool:');
         if (hasItems(st.allowed_env)) {
             lines.push('  allowed_env:');
-            st.allowed_env.filter(Boolean).forEach(function (e) { lines.push('    - ' + e); });
+            st.allowed_env.filter(Boolean).forEach(function (e) { lines.push('    - ' + yq(e)); });
         }
         if (st.timeout) lines.push('  timeout: ' + st.timeout);
+        lines.push('');
+    }
+
+    function featuresToYaml(lines) {
+        var f = state.features;
+        if (!f.dry_run.enabled) return;
+        lines.push('features:');
+        lines.push('  dry_run:');
+        lines.push('    enabled: true');
         lines.push('');
     }
 

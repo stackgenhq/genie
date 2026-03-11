@@ -269,7 +269,7 @@ func NewOrchestrator(
 	// Use provided memory.Service for conversation history persistence.
 	logger.GetLogger(ctx).Info("Using persistent memory service")
 	memoryUserKey := memory.UserKey{
-		AppName: "genie-orchestrator",
+		AppName: "genie:" + strings.ToLower(agentName),
 		UserID:  "default",
 	}
 
@@ -292,6 +292,23 @@ func NewOrchestrator(
 		halguard.WithConfig(oo.halGuardConfig),
 	)
 
+	// Wire failure learning into sub-agents. Without this, sub-agent
+	// failures are stored as raw error text without verbal reflections
+	// or importance scores, limiting episodic memory effectiveness.
+	failureReflector := reactree.NewExpertFailureReflector(exp)
+	importanceScorer := reactree.NewExpertImportanceScorer(exp)
+
+	// Wire pre-planning wisdom consultation. This creates a PlanAdvisor
+	// that queries episodic memory and wisdom for relevant past experiences
+	// BEFORE executing multi-step plans, enriching each step's context
+	// with prior successes, failures, and consolidated lessons.
+	wisdomStore := rtmemory.WisdomStoreConfig{
+		Service: memorySvc,
+		AppName: memoryUserKey.AppName,
+		UserID:  memoryUserKey.UserID,
+	}.NewWisdomStore()
+	planAdvisor := rtmemory.NewPlanAdvisor(episodicMem, wisdomStore)
+
 	createAgentTool := reactree.NewCreateAgentTool(
 		modelProvider, exp, summarizer, availableTools,
 		wm, episodicMem,
@@ -299,6 +316,9 @@ func NewOrchestrator(
 		vectorStore,
 		halGuard,
 		reactree.WithSkipSummarizeMarker(true),
+		reactree.WithFailureReflector(failureReflector),
+		reactree.WithImportanceScorer(importanceScorer),
+		reactree.WithPlanAdvisor(planAdvisor),
 	)
 	createAgentTool.SetHalGuardThreshold(oo.halGuardConfig.PreCheckThreshold)
 	// Log tool counts so operators can verify email, gmail, etc. are wired for sub-agents.

@@ -187,15 +187,7 @@ func ExecutePlan(ctx context.Context, plan Plan, cfg OrchestratorConfig) (Orches
 		// Otherwise, all tools are available.
 		tools := cfg.ToolRegistry.Include(stepCopy.Tools...).AllTools()
 
-		// 1. Enterprise Bounding: wrap tools with middleware if enabled.
-		if cfg.Toggles.EnableCriticMiddleware {
-			validator := NewDeterministicValidator(nil) // Block none as default for now
-			for i, tl := range tools {
-				tools[i] = WrapWithValidator(tl, validator)
-			}
-		}
-
-		// 2. Wrap tools with HITL approval, audit logging, and caching.
+		// Wrap tools with HITL approval, audit logging, and caching.
 		// This ensures plan step agents go through the same approval gate
 		// as single sub-agent tools (fixes HITL bypass bug).
 		if cfg.ToolWrapSvc != nil {
@@ -375,14 +367,6 @@ func executeSingleStep(ctx context.Context, step PlanStep, cfg OrchestratorConfi
 	var capturedStatus NodeStatus
 
 	toolsToUse := cfg.ToolRegistry.AllTools()
-
-	// Enterprise Bounding: wrap tools with middleware if enabled.
-	if cfg.Toggles.EnableCriticMiddleware {
-		validator := NewDeterministicValidator(nil) // Block none as default for now
-		for i, tl := range toolsToUse {
-			toolsToUse[i] = WrapWithValidator(tl, validator)
-		}
-	}
 
 	// Working memory is injected into the prompt automatically
 	// (read) and stored back after agent completion (write).

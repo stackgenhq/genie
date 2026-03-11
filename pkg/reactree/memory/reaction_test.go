@@ -286,6 +286,10 @@ func (f *fakeEpisodicMemory) Retrieve(_ context.Context, _ string, _ int) []reac
 	return nil
 }
 
+func (f *fakeEpisodicMemory) RetrieveWeighted(_ context.Context, _ string, _ int) []reactreeMemory.Episode {
+	return nil
+}
+
 // newReactionMsg creates a messenger.IncomingMessage with reaction fields set.
 func newReactionMsg(emoji, reactedMsgID string) messenger.IncomingMessage {
 	return messenger.IncomingMessage{

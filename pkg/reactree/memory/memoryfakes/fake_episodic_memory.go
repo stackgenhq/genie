@@ -22,6 +22,19 @@ type FakeEpisodicMemory struct {
 	retrieveReturnsOnCall map[int]struct {
 		result1 []memory.Episode
 	}
+	RetrieveWeightedStub        func(context.Context, string, int) []memory.Episode
+	retrieveWeightedMutex       sync.RWMutex
+	retrieveWeightedArgsForCall []struct {
+		arg1 context.Context
+		arg2 string
+		arg3 int
+	}
+	retrieveWeightedReturns struct {
+		result1 []memory.Episode
+	}
+	retrieveWeightedReturnsOnCall map[int]struct {
+		result1 []memory.Episode
+	}
 	StoreStub        func(context.Context, memory.Episode)
 	storeMutex       sync.RWMutex
 	storeArgsForCall []struct {
@@ -91,6 +104,69 @@ func (fake *FakeEpisodicMemory) RetrieveReturnsOnCall(i int, result1 []memory.Ep
 		})
 	}
 	fake.retrieveReturnsOnCall[i] = struct {
+		result1 []memory.Episode
+	}{result1}
+}
+
+func (fake *FakeEpisodicMemory) RetrieveWeighted(arg1 context.Context, arg2 string, arg3 int) []memory.Episode {
+	fake.retrieveWeightedMutex.Lock()
+	ret, specificReturn := fake.retrieveWeightedReturnsOnCall[len(fake.retrieveWeightedArgsForCall)]
+	fake.retrieveWeightedArgsForCall = append(fake.retrieveWeightedArgsForCall, struct {
+		arg1 context.Context
+		arg2 string
+		arg3 int
+	}{arg1, arg2, arg3})
+	stub := fake.RetrieveWeightedStub
+	fakeReturns := fake.retrieveWeightedReturns
+	fake.recordInvocation("RetrieveWeighted", []interface{}{arg1, arg2, arg3})
+	fake.retrieveWeightedMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeEpisodicMemory) RetrieveWeightedCallCount() int {
+	fake.retrieveWeightedMutex.RLock()
+	defer fake.retrieveWeightedMutex.RUnlock()
+	return len(fake.retrieveWeightedArgsForCall)
+}
+
+func (fake *FakeEpisodicMemory) RetrieveWeightedCalls(stub func(context.Context, string, int) []memory.Episode) {
+	fake.retrieveWeightedMutex.Lock()
+	defer fake.retrieveWeightedMutex.Unlock()
+	fake.RetrieveWeightedStub = stub
+}
+
+func (fake *FakeEpisodicMemory) RetrieveWeightedArgsForCall(i int) (context.Context, string, int) {
+	fake.retrieveWeightedMutex.RLock()
+	defer fake.retrieveWeightedMutex.RUnlock()
+	argsForCall := fake.retrieveWeightedArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeEpisodicMemory) RetrieveWeightedReturns(result1 []memory.Episode) {
+	fake.retrieveWeightedMutex.Lock()
+	defer fake.retrieveWeightedMutex.Unlock()
+	fake.RetrieveWeightedStub = nil
+	fake.retrieveWeightedReturns = struct {
+		result1 []memory.Episode
+	}{result1}
+}
+
+func (fake *FakeEpisodicMemory) RetrieveWeightedReturnsOnCall(i int, result1 []memory.Episode) {
+	fake.retrieveWeightedMutex.Lock()
+	defer fake.retrieveWeightedMutex.Unlock()
+	fake.RetrieveWeightedStub = nil
+	if fake.retrieveWeightedReturnsOnCall == nil {
+		fake.retrieveWeightedReturnsOnCall = make(map[int]struct {
+			result1 []memory.Episode
+		})
+	}
+	fake.retrieveWeightedReturnsOnCall[i] = struct {
 		result1 []memory.Episode
 	}{result1}
 }

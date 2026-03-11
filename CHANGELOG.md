@@ -9,6 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Agent learning from failures — previously, failed task outputs were discarded; the agent now stores them as episodic memories with LLM-generated verbal reflections, enabling it to avoid repeating the same mistakes.
+- Recency-weighted episodic memory retrieval using exponential decay (`e^(-0.01 × hours)`), so recent lessons surface first and old episodes naturally fade over ~2 weeks without manual pruning.
+- Importance scoring for episodic memories — each stored episode receives a 1-10 importance score via a cheap LLM call (`TaskEfficiency`), boosting critical lessons in weighted retrieval.
+- Daily wisdom consolidation (`EpisodeConsolidator`) — reads recent episodes, summarizes them into concise bullet-point lessons via LLM, and stores as `WisdomNote`s. Idempotent per period; ready to be wired into a cron job.
+- Wisdom notes injected into agent prompts as a `## Consolidated Lessons` section, providing distilled experience alongside raw episodic memories.
+- Loop-level failure capture — adaptive loop terminations (repetition, errors, failure status) now stored as failure episodes with reflections via `storeLoopFailureEpisode`.
+- `FailureReflector` interface + `ExpertFailureReflector` implementation (uses cheapest `TaskEfficiency` model) for LLM-generated actionable failure summaries.
+- `ImportanceScorer` interface + `ExpertImportanceScorer` implementation; robust parsing handles noisy LLM output with integer cleansing and clamping to 1–10.
+- `WisdomStore` interface + `EpisodeSummarizer` interface with `ExpertEpisodeSummarizer` implementation backed by `memory.Service`.
+- `RetrieveWeighted` method on episodic memory — scores episodes as a weighted sum (0.6 × recency + 0.4 × importance) for balanced retrieval.
+- Failure episodes display with ⚠️ prefix and verbal reflection in agent prompts; capped at 500 runes to prevent prompt bloat.
+- Early-return guard in `RetrieveWisdom` when `limit ≤ 0` to prevent unnecessary processing.
+- QA test plan for agent learning features (`qa/20260310_failure_learning.md`) — 10 manual acceptance tests plus 96 automated Ginkgo/Gomega specs.
+- 96 Ginkgo/Gomega test specs across `memory/failure_learning_test.go`, `memory/consolidation_test.go`, `memory/plan_advisor_test.go`, `failure_reflector_test.go`, `importance_and_consolidation_test.go`, and `agent_node_pvt_test.go`.
+
+### Changed
+
+- `Toggles` struct refactored: boolean feature flags (`EnableCriticMiddleware`, `EnableActionReflection`, `EnableDryRunSimulation`, `EnableMCPServerAccess`, `EnableAuditDashboard`) removed; only `DryRun.Enabled` (via `FeaturesConfig`) and runtime-injected dependencies remain.
+- `FeaturesConfig` simplified from 5 boolean flags to a single `DryRun DryRunConfig` struct; config files use `[features.dry_run] enabled = true` instead of individual flags.
+- `ActionReflector` is now activated purely by setting `Toggles.Reflector` (non-nil); the redundant `EnableActionReflection` boolean guard was removed.
+- `ImportanceScorer` and `WisdomStore` are now propagated through `Toggles` → `tree` → `AgentNodeConfig`, consistent with `FailureReflector` and other injectables.
+- `docs/config-builder.html` and `docs/js/config-builder.js` updated to reflect removal of deprecated feature-flag fields from the config schema.
+
+### Removed
+
+- Critic middleware (`middleware.go`) — `NewDeterministicValidator`, `WrapWithValidator` and associated test files removed; tool blocking is handled exclusively by HITL.
+- `AuditEventCriticRejection` audit event constant and `AuditHook.OnToolValidation` implementation removed (hook interface still defined in `hooks.go` for future use; `NoOpHook` satisfies it).
+- `EnableCriticMiddleware`, `EnableActionReflection`, `EnableDryRunSimulation`, `EnableMCPServerAccess`, and `EnableAuditDashboard` boolean fields removed from `FeaturesConfig`.
+
+
+## [0.1.7] - 2026-03-10
+
+### Added
+
 - Added `notification` tool with support for sending alerts and messages via Slack, Webhooks, Discord, and Twilio, enabling both orchestrator and sub-agents to trigger external notifications.
 - New `coding` task type (`TaskCoding`) for pure code generation, algorithmic problem solving, and script writing — benchmarked via HumanEval / MBPP / LiveCodeBench. Orchestrator `create_agent` tool description and JSON schema updated to surface the new option alongside `planning`, `tool_calling`, `terminal_calling`, and `efficiency`.
 - Hallucination guard module (`halguard`) providing a two-phase check: a pre-execution multi-signal verification using weighted signals (e.g., Role-Play detection, Information Density) and a post-execution multi-model consistency checker based on Finch-Zk to catch potential LLM hallucinations.

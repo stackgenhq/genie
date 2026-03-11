@@ -106,7 +106,6 @@ var _ = Describe("TreeExecutor", func() {
 			config := reactree.DefaultTreeConfig()
 			config.MaxIterations = 5
 			config.Stages = nil
-			config.Toggles.EnableActionReflection = true
 			config.Toggles.Reflector = &fakeActionReflector{
 				result: reactree.ReflectionResult{ShouldProceed: false, Monologue: "Dangerous. Halt."},
 			}
@@ -122,7 +121,6 @@ var _ = Describe("TreeExecutor", func() {
 			config := reactree.DefaultTreeConfig()
 			config.MaxIterations = 2
 			config.Stages = nil
-			config.Toggles.EnableActionReflection = true
 			config.Toggles.Reflector = &fakeActionReflector{
 				result: reactree.ReflectionResult{ShouldProceed: true},
 			}
@@ -136,23 +134,20 @@ var _ = Describe("TreeExecutor", func() {
 	})
 
 	Describe("Enterprise Toggles", func() {
-		DescribeTable("toggle combinations",
-			func(critic, dryRun bool) {
+		DescribeTable("dry-run toggle",
+			func(dryRun bool) {
 				config := reactree.DefaultTreeConfig()
 				config.MaxIterations = 1
 				config.Stages = nil
-				config.Toggles.EnableCriticMiddleware = critic
-				config.Toggles.EnableDryRunSimulation = dryRun
+				config.Toggles.Features.DryRun.Enabled = dryRun
 				fakeExpert.DoReturns(textResponse("toggled result"), nil)
 
 				result, err := run(config, reactree.TreeRequest{Goal: "toggle task"})
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result.Status).To(Equal(reactree.Success))
 			},
-			Entry("critic only", true, false),
-			Entry("dry-run only", false, true),
-			Entry("both", true, true),
-			Entry("nil reflector", false, false),
+			Entry("dry-run enabled", true),
+			Entry("dry-run disabled", false),
 		)
 	})
 
@@ -185,21 +180,20 @@ var _ = Describe("TreeExecutor", func() {
 			Expect(result.Status).To(Equal(reactree.Success))
 		})
 
-		DescribeTable("with enterprise toggles",
-			func(critic, dryRun bool) {
+		DescribeTable("with dry-run toggle",
+			func(dryRun bool) {
 				config := reactree.DefaultTreeConfig()
 				config.MaxIterations = 0
 				config.Stages = []reactree.StageConfig{{Name: "Investigate"}}
-				config.Toggles.EnableCriticMiddleware = critic
-				config.Toggles.EnableDryRunSimulation = dryRun
+				config.Toggles.Features.DryRun.Enabled = dryRun
 				fakeExpert.DoReturns(textResponse("Stage toggled"), nil)
 
 				result, err := run(config, reactree.TreeRequest{Goal: "multi-stage toggle"})
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result.Status).To(Equal(reactree.Success))
 			},
-			Entry("critic", true, false),
-			Entry("dry-run", false, true),
+			Entry("dry-run enabled", true),
+			Entry("dry-run disabled", false),
 		)
 	})
 

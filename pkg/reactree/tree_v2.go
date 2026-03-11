@@ -17,6 +17,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/hooks"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
+	"github.com/stackgenhq/genie/pkg/reactree/memory"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"trpc.group/trpc-go/trpc-agent-go/agent"
@@ -69,6 +70,8 @@ func (t *tree) runAdaptiveLoop_v2(ctx context.Context, req TreeRequest) (TreeRes
 
 		err := t.executeIteration(ctxWithTracker, req, ls)
 		if err != nil {
+			// Store a failure episode for the overall loop error.
+			t.storeLoopFailureEpisode(ctx, req, fmt.Sprintf("Iteration %d error: %v", ls.iteration, err))
 			parentSpan.RecordError(err)
 			parentSpan.SetStatus(codes.Error, err.Error())
 			return TreeResult{Status: Failure}, err
@@ -87,7 +90,7 @@ func (t *tree) runAdaptiveLoop_v2(ctx context.Context, req TreeRequest) (TreeRes
 		})
 
 		// Enterprise: run RAR reflection if enabled.
-		if t.config.Toggles.EnableActionReflection {
+		if t.config.Toggles.Reflector != nil {
 			// Derive the list of tools actually called during this iteration.
 			var toolsCalled []string
 			for name, count := range ls.toolCallCounts {
@@ -125,6 +128,7 @@ func (t *tree) runAdaptiveLoop_v2(ctx context.Context, req TreeRequest) (TreeRes
 		}
 		if ls.capturedStatus == Failure {
 			logr.Warn("adaptive loop: iteration failed, stopping", "iteration", ls.iteration)
+			t.storeLoopFailureEpisode(ctx, req, fmt.Sprintf("Agent failed at iteration %d: %s", ls.iteration, ls.capturedOutput))
 			break
 		}
 		if ls.checkRepetition() {
@@ -153,6 +157,7 @@ func (t *tree) runAdaptiveLoop_v2(ctx context.Context, req TreeRequest) (TreeRes
 
 			ls.lastStatus = Failure
 			ls.lastOutput = "I got stuck repeating the same approach. Please try rephrasing your request."
+			t.storeLoopFailureEpisode(ctx, req, fmt.Sprintf("Agent stuck in repetition loop after %d iterations", ls.iteration))
 			break
 		}
 	}
@@ -300,18 +305,8 @@ func (t *tree) prepareGraph(req TreeRequest, ls *loopState) (*graph.Graph, error
 	}
 	toolsToUse := ls.toolsForIteration(baseTools)
 
-	// Enterprise: wrap tools with critic middleware if enabled.
-	if t.config.Toggles.EnableCriticMiddleware {
-		validator := NewDeterministicValidator(nil)
-		wrapped := make([]tool.Tool, len(toolsToUse))
-		for i, tl := range toolsToUse {
-			wrapped[i] = WrapWithValidator(tl, validator)
-		}
-		toolsToUse = wrapped
-	}
-
 	// Enterprise: wrap tools for dry run simulation if enabled.
-	if t.config.Toggles.EnableDryRunSimulation {
+	if t.config.Toggles.Features.DryRun.Enabled {
 		wrapped, _ := WrapToolsForDryRun(toolsToUse)
 		toolsToUse = wrapped
 	}
@@ -327,6 +322,9 @@ func (t *tree) prepareGraph(req TreeRequest, ls *loopState) (*graph.Graph, error
 		Attachments:          req.Attachments,
 		BudgetExhaustedTools: ls.budgetExhaustedTools(),
 		Hooks:                t.hooks,
+		FailureReflector:     t.failureReflector,
+		ImportanceScorer:     t.importanceScorer,
+		WisdomStore:          t.wisdomStore,
 	})
 
 	wrappedFunc := func(ctx context.Context, state graph.State) (any, error) {
@@ -465,4 +463,37 @@ func (t *tree) emitIterationProgress(ctx context.Context, ls *loopState) {
 	}
 	agui.EmitStageProgress(ctx, fmt.Sprintf("Iteration %d", ls.iteration), ls.iteration-1, ls.maxIterations)
 	agui.EmitThinking(ctx, "orchestrator", fmt.Sprintf("Thinking (%d/%d)...", ls.iteration, ls.maxIterations))
+}
+
+// storeLoopFailureEpisode stores a failure episode when the adaptive loop
+// terminates due to an error, failure status, or repetition. This captures
+// loop-level failures that may not be captured by individual agent nodes
+// (e.g., when the loop itself detects stuck behavior).
+func (t *tree) storeLoopFailureEpisode(ctx context.Context, req TreeRequest, errorOutput string) {
+	ep := t.resolveEpisodic(req)
+	reflection := generateFailureReflection(ctx, req.Goal, errorOutput, t.failureReflector)
+
+	// Cap failure trajectory similarly to agent nodes to prevent large
+	// tool/error outputs from bloating future prompts and memory.
+	trajectory := errorOutput
+	const maxFailureTrajectoryRunes = 500
+	failureRunes := []rune(trajectory)
+	if len(failureRunes) > maxFailureTrajectoryRunes {
+		trajectory = string(failureRunes[:maxFailureTrajectoryRunes]) + "... (truncated)"
+	}
+
+	// When no reflection is available, fall back to scoring importance
+	// based on the (truncated) trajectory.
+	importanceInput := reflection
+	if importanceInput == "" {
+		importanceInput = trajectory
+	}
+
+	ep.Store(ctx, memory.Episode{
+		Goal:       req.Goal,
+		Trajectory: trajectory,
+		Status:     memory.EpisodeFailure,
+		Reflection: reflection,
+		Importance: scoreEpisodeImportance(ctx, t.importanceScorer, req.Goal, importanceInput, memory.EpisodeFailure),
+	})
 }

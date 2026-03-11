@@ -625,6 +625,77 @@ var _ = Describe("storeResults", func() {
 		_, episode := fakeEpisodic.StoreArgsForCall(0)
 		Expect(episode.Status).To(Equal(memory.EpisodeSuccess))
 	})
+
+	It("stores failure episode with verbal reflection when reflector is configured", func() {
+		fakeEpisodic := &memoryfakes.FakeEpisodicMemory{}
+		fakeReflector := &memoryfakes.FakeFailureReflector{}
+		fakeReflector.ReflectReturns("Try running gcloud auth login first")
+		cat := &createAgentTool{
+			episodic:         fakeEpisodic,
+			failureReflector: fakeReflector,
+		}
+		req := CreateAgentRequest{AgentName: "gcp-checker", Goal: "check GCP instances"}
+
+		cat.storeResults(context.Background(), req, subAgentResult{
+			output: "error: gcloud authentication tokens have expired",
+			status: "error",
+		})
+
+		Expect(fakeEpisodic.StoreCallCount()).To(Equal(1))
+		_, episode := fakeEpisodic.StoreArgsForCall(0)
+		Expect(episode.Status).To(Equal(memory.EpisodeFailure))
+		Expect(episode.Reflection).To(Equal("Try running gcloud auth login first"))
+		Expect(fakeReflector.ReflectCallCount()).To(Equal(1))
+	})
+
+	It("stores failure episode with importance score when scorer is configured", func() {
+		fakeEpisodic := &memoryfakes.FakeEpisodicMemory{}
+		fakeScorer := &memoryfakes.FakeImportanceScorer{}
+		fakeScorer.ScoreReturns(8)
+		cat := &createAgentTool{
+			episodic:         fakeEpisodic,
+			importanceScorer: fakeScorer,
+		}
+		req := CreateAgentRequest{AgentName: "gcp-checker", Goal: "check GCP instances"}
+
+		cat.storeResults(context.Background(), req, subAgentResult{
+			output:   "sub-agent error: connection refused",
+			status:   "error",
+			timedOut: false,
+		})
+
+		Expect(fakeEpisodic.StoreCallCount()).To(Equal(1))
+		_, episode := fakeEpisodic.StoreArgsForCall(0)
+		Expect(episode.Status).To(Equal(memory.EpisodeFailure))
+		Expect(episode.Importance).To(Equal(8))
+		Expect(fakeScorer.ScoreCallCount()).To(Equal(1))
+	})
+
+	It("scores success episodes with importance but no reflection", func() {
+		fakeEpisodic := &memoryfakes.FakeEpisodicMemory{}
+		fakeReflector := &memoryfakes.FakeFailureReflector{}
+		fakeScorer := &memoryfakes.FakeImportanceScorer{}
+		fakeScorer.ScoreReturns(5)
+		cat := &createAgentTool{
+			episodic:         fakeEpisodic,
+			failureReflector: fakeReflector,
+			importanceScorer: fakeScorer,
+		}
+		req := CreateAgentRequest{AgentName: "test-agent", Goal: "list files"}
+
+		cat.storeResults(context.Background(), req, subAgentResult{
+			output: "found 3 files",
+			status: "success",
+		})
+
+		Expect(fakeEpisodic.StoreCallCount()).To(Equal(1))
+		_, episode := fakeEpisodic.StoreArgsForCall(0)
+		Expect(episode.Status).To(Equal(memory.EpisodeSuccess))
+		Expect(episode.Reflection).To(BeEmpty())
+		Expect(episode.Importance).To(Equal(5))
+		Expect(fakeReflector.ReflectCallCount()).To(Equal(0))
+		Expect(fakeScorer.ScoreCallCount()).To(Equal(1))
+	})
 })
 
 var _ = Describe("summarizeOutput", func() {

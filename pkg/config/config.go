@@ -118,6 +118,27 @@ type GenieConfig struct {
 	// SemanticRouter configures the fast embedding-based intent routing,
 	// jailbreak detection, and response semantic caching.
 	SemanticRouter semanticrouter.Config `yaml:"semantic_router,omitempty" toml:"semantic_router,omitempty"`
+
+	// Features holds opt-in feature toggles for enterprise capabilities
+	// such as dry-run simulation. Tool blocking is handled by HITL.
+	Features FeaturesConfig `yaml:"features,omitempty" toml:"features,omitempty"`
+}
+
+// FeaturesConfig holds opt-in feature configurations that control enterprise
+// capabilities. Tool blocking is handled by HITL (see hitl package); these
+// settings cover features that are orthogonal to tool approval.
+type FeaturesConfig struct {
+	// DryRun enables dry-run simulation mode. When true, write tools are
+	// wrapped to simulate execution without side-effects. Useful for
+	// testing and auditing agent behavior before going live.
+	DryRun DryRunConfig `yaml:"dry_run,omitempty" toml:"dry_run,omitempty"`
+}
+
+// DryRunConfig configures dry-run simulation mode.
+type DryRunConfig struct {
+	// Enabled activates dry-run simulation. When true, write tools are
+	// wrapped to simulate execution without side-effects.
+	Enabled bool `yaml:"enabled,omitempty" toml:"enabled,omitempty"`
 }
 
 // LoadGenieConfig loads the Genie configuration from a file, resolving
