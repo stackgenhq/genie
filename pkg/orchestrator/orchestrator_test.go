@@ -19,7 +19,6 @@ import (
 	"github.com/stackgenhq/genie/pkg/agentutils/agentutilsfakes"
 	"github.com/stackgenhq/genie/pkg/agui"
 	"github.com/stackgenhq/genie/pkg/audit/auditfakes"
-	"github.com/stackgenhq/genie/pkg/expert"
 	"github.com/stackgenhq/genie/pkg/expert/expertfakes"
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider/modelproviderfakes"
 	"github.com/stackgenhq/genie/pkg/hitl/hitlfakes"
@@ -32,32 +31,13 @@ import (
 	"github.com/stackgenhq/genie/pkg/semanticrouter"
 	"github.com/stackgenhq/genie/pkg/semanticrouter/semanticrouterfakes"
 	"github.com/stackgenhq/genie/pkg/tools"
-	"github.com/stackgenhq/genie/pkg/tools/toolsfakes"
 	"github.com/stackgenhq/genie/pkg/ttlcache"
 	"go.opentelemetry.io/otel/baggage"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 	"trpc.group/trpc-go/trpc-agent-go/memory"
 	"trpc.group/trpc-go/trpc-agent-go/memory/inmemory"
-	"trpc.group/trpc-go/trpc-agent-go/model"
-	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
-
-// newFakeCallableTool creates a FakeCallableTool with the given name.
-func newFakeCallableTool(name string) *toolsfakes.FakeCallableTool {
-	ft := &toolsfakes.FakeCallableTool{}
-	ft.DeclarationReturns(&tool.Declaration{Name: name})
-	return ft
-}
-
-// fakeExpertResponse builds a fake expert response with the given text content.
-func fakeExpertResponse(text string) expert.Response {
-	return expert.Response{
-		Choices: []model.Choice{
-			{Message: model.Message{Content: text}},
-		},
-	}
-}
 
 var _ = Describe("CodeOwner", func() {
 	var (

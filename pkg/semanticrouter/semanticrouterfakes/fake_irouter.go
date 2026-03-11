@@ -38,6 +38,19 @@ type FakeIRouter struct {
 		result1 semanticrouter.ClassificationResult
 		result2 error
 	}
+	PruneStaleCacheEntriesStub        func(context.Context) (int, error)
+	pruneStaleCacheEntriesMutex       sync.RWMutex
+	pruneStaleCacheEntriesArgsForCall []struct {
+		arg1 context.Context
+	}
+	pruneStaleCacheEntriesReturns struct {
+		result1 int
+		result2 error
+	}
+	pruneStaleCacheEntriesReturnsOnCall map[int]struct {
+		result1 int
+		result2 error
+	}
 	SetCacheStub        func(context.Context, string, string) error
 	setCacheMutex       sync.RWMutex
 	setCacheArgsForCall []struct {
@@ -182,6 +195,70 @@ func (fake *FakeIRouter) ClassifyReturnsOnCall(i int, result1 semanticrouter.Cla
 	}
 	fake.classifyReturnsOnCall[i] = struct {
 		result1 semanticrouter.ClassificationResult
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeIRouter) PruneStaleCacheEntries(arg1 context.Context) (int, error) {
+	fake.pruneStaleCacheEntriesMutex.Lock()
+	ret, specificReturn := fake.pruneStaleCacheEntriesReturnsOnCall[len(fake.pruneStaleCacheEntriesArgsForCall)]
+	fake.pruneStaleCacheEntriesArgsForCall = append(fake.pruneStaleCacheEntriesArgsForCall, struct {
+		arg1 context.Context
+	}{arg1})
+	stub := fake.PruneStaleCacheEntriesStub
+	fakeReturns := fake.pruneStaleCacheEntriesReturns
+	fake.recordInvocation("PruneStaleCacheEntries", []interface{}{arg1})
+	fake.pruneStaleCacheEntriesMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeIRouter) PruneStaleCacheEntriesCallCount() int {
+	fake.pruneStaleCacheEntriesMutex.RLock()
+	defer fake.pruneStaleCacheEntriesMutex.RUnlock()
+	return len(fake.pruneStaleCacheEntriesArgsForCall)
+}
+
+func (fake *FakeIRouter) PruneStaleCacheEntriesCalls(stub func(context.Context) (int, error)) {
+	fake.pruneStaleCacheEntriesMutex.Lock()
+	defer fake.pruneStaleCacheEntriesMutex.Unlock()
+	fake.PruneStaleCacheEntriesStub = stub
+}
+
+func (fake *FakeIRouter) PruneStaleCacheEntriesArgsForCall(i int) context.Context {
+	fake.pruneStaleCacheEntriesMutex.RLock()
+	defer fake.pruneStaleCacheEntriesMutex.RUnlock()
+	argsForCall := fake.pruneStaleCacheEntriesArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeIRouter) PruneStaleCacheEntriesReturns(result1 int, result2 error) {
+	fake.pruneStaleCacheEntriesMutex.Lock()
+	defer fake.pruneStaleCacheEntriesMutex.Unlock()
+	fake.PruneStaleCacheEntriesStub = nil
+	fake.pruneStaleCacheEntriesReturns = struct {
+		result1 int
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeIRouter) PruneStaleCacheEntriesReturnsOnCall(i int, result1 int, result2 error) {
+	fake.pruneStaleCacheEntriesMutex.Lock()
+	defer fake.pruneStaleCacheEntriesMutex.Unlock()
+	fake.PruneStaleCacheEntriesStub = nil
+	if fake.pruneStaleCacheEntriesReturnsOnCall == nil {
+		fake.pruneStaleCacheEntriesReturnsOnCall = make(map[int]struct {
+			result1 int
+			result2 error
+		})
+	}
+	fake.pruneStaleCacheEntriesReturnsOnCall[i] = struct {
+		result1 int
 		result2 error
 	}{result1, result2}
 }
