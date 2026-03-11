@@ -205,7 +205,7 @@ var _ = Describe("PlanAdvisoryResult", func() {
 var _ = Describe("PlanAdvisor", func() {
 	Describe("NewPlanAdvisor", func() {
 		It("returns no-op when episodic is nil", func() {
-			advisor := reactreeMemory.NewPlanAdvisor(reactreeMemory.PlanAdvisorConfig{})
+			advisor := reactreeMemory.NewPlanAdvisor(nil, nil)
 			result := advisor.Advise(context.Background(), reactreeMemory.PlanAdvisoryRequest{
 				StepGoals: map[string]string{"step1": "do something"},
 			})
@@ -230,10 +230,7 @@ var _ = Describe("PlanAdvisor", func() {
 			fakeEp.RetrieveWeightedReturns(nil)
 			fakeWs.RetrieveWisdomReturns(nil)
 
-			advisor := reactreeMemory.NewPlanAdvisor(reactreeMemory.PlanAdvisorConfig{
-				Episodic: fakeEp,
-				Wisdom:   fakeWs,
-			})
+			advisor := reactreeMemory.NewPlanAdvisor(fakeEp, fakeWs)
 
 			result := advisor.Advise(ctx, reactreeMemory.PlanAdvisoryRequest{
 				OverallGoal: "deploy app",
@@ -259,10 +256,7 @@ var _ = Describe("PlanAdvisor", func() {
 			})
 			fakeWs.RetrieveWisdomReturns(nil)
 
-			advisor := reactreeMemory.NewPlanAdvisor(reactreeMemory.PlanAdvisorConfig{
-				Episodic: fakeEp,
-				Wisdom:   fakeWs,
-			})
+			advisor := reactreeMemory.NewPlanAdvisor(fakeEp, fakeWs)
 
 			result := advisor.Advise(ctx, reactreeMemory.PlanAdvisoryRequest{
 				OverallGoal: "deploy app",
@@ -286,10 +280,7 @@ var _ = Describe("PlanAdvisor", func() {
 			})
 			fakeWs.RetrieveWisdomReturns(nil)
 
-			advisor := reactreeMemory.NewPlanAdvisor(reactreeMemory.PlanAdvisorConfig{
-				Episodic: fakeEp,
-				Wisdom:   fakeWs,
-			})
+			advisor := reactreeMemory.NewPlanAdvisor(fakeEp, fakeWs)
 
 			result := advisor.Advise(ctx, reactreeMemory.PlanAdvisoryRequest{
 				OverallGoal: "deploy service",
@@ -318,10 +309,7 @@ var _ = Describe("PlanAdvisor", func() {
 				},
 			})
 
-			advisor := reactreeMemory.NewPlanAdvisor(reactreeMemory.PlanAdvisorConfig{
-				Episodic: fakeEp,
-				Wisdom:   fakeWs,
-			})
+			advisor := reactreeMemory.NewPlanAdvisor(fakeEp, fakeWs)
 
 			result := advisor.Advise(ctx, reactreeMemory.PlanAdvisoryRequest{
 				OverallGoal: "scale application",
@@ -344,10 +332,7 @@ var _ = Describe("PlanAdvisor", func() {
 			})
 			fakeWs.RetrieveWisdomReturns(nil)
 
-			advisor := reactreeMemory.NewPlanAdvisor(reactreeMemory.PlanAdvisorConfig{
-				Episodic: fakeEp,
-				Wisdom:   fakeWs,
-			})
+			advisor := reactreeMemory.NewPlanAdvisor(fakeEp, fakeWs)
 
 			result := advisor.Advise(ctx, reactreeMemory.PlanAdvisoryRequest{
 				OverallGoal: "CI pipeline",
@@ -366,9 +351,7 @@ var _ = Describe("PlanAdvisor", func() {
 				{Goal: "check", Trajectory: "ok", Status: reactreeMemory.EpisodeSuccess, CreatedAt: time.Now()},
 			})
 
-			advisor := reactreeMemory.NewPlanAdvisor(reactreeMemory.PlanAdvisorConfig{
-				Episodic: fakeEp,
-			})
+			advisor := reactreeMemory.NewPlanAdvisor(fakeEp, nil)
 
 			result := advisor.Advise(ctx, reactreeMemory.PlanAdvisoryRequest{
 				StepGoals: map[string]string{"s1": "check"},

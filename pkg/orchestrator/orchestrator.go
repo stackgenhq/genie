@@ -269,7 +269,7 @@ func NewOrchestrator(
 	// Use provided memory.Service for conversation history persistence.
 	logger.GetLogger(ctx).Info("Using persistent memory service")
 	memoryUserKey := memory.UserKey{
-		AppName: "genie-orchestrator",
+		AppName: "genie:" + strings.ToLower(agentName),
 		UserID:  "default",
 	}
 
@@ -302,9 +302,12 @@ func NewOrchestrator(
 	// that queries episodic memory and wisdom for relevant past experiences
 	// BEFORE executing multi-step plans, enriching each step's context
 	// with prior successes, failures, and consolidated lessons.
-	planAdvisor := rtmemory.NewPlanAdvisor(rtmemory.PlanAdvisorConfig{
-		Episodic: episodicMem,
-	})
+	wisdomStore := rtmemory.WisdomStoreConfig{
+		Service: memorySvc,
+		AppName: memoryUserKey.AppName,
+		UserID:  memoryUserKey.UserID,
+	}.NewWisdomStore()
+	planAdvisor := rtmemory.NewPlanAdvisor(episodicMem, wisdomStore)
 
 	createAgentTool := reactree.NewCreateAgentTool(
 		modelProvider, exp, summarizer, availableTools,

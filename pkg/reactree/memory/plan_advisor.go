@@ -185,23 +185,19 @@ type episodicPlanAdvisor struct {
 
 // PlanAdvisorConfig holds dependencies for creating a PlanAdvisor.
 type PlanAdvisorConfig struct {
-	// Episodic is the episode store to query for per-step experiences.
-	Episodic EpisodicMemory
-
-	// Wisdom is the consolidated wisdom store to query for high-level lessons.
-	// Optional — when nil, no wisdom notes are included.
-	Wisdom WisdomStore
 }
 
 // NewPlanAdvisor creates a PlanAdvisor backed by episodic memory and
 // an optional wisdom store. Returns a no-op advisor if episodic is nil.
-func NewPlanAdvisor(cfg PlanAdvisorConfig) PlanAdvisor {
-	if cfg.Episodic == nil {
-		return noOpPlanAdvisor{}
-	}
+func NewPlanAdvisor(
+	// Episodic is the episode store to query for per-step experiences.
+	episodic EpisodicMemory,
+	// Wisdom is the consolidated wisdom store to query for high-level lessons.
+	// Optional — when nil, no wisdom notes are included.
+	wisdom WisdomStore) PlanAdvisor {
 	return &episodicPlanAdvisor{
-		episodic: cfg.Episodic,
-		wisdom:   cfg.Wisdom,
+		episodic: episodic,
+		wisdom:   wisdom,
 	}
 }
 
