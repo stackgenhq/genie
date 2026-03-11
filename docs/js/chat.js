@@ -435,7 +435,15 @@
                         { action: 'recheck', title: '🔄 Recheck' }
                     ];
                 }
-                reg.showNotification(title, options).catch(function (e) {
+                reg.showNotification(title, options).then(function () {
+                    setTimeout(function () {
+                        reg.getNotifications({ tag: options.tag }).then(function (notifications) {
+                            notifications.forEach(function (notification) {
+                                notification.close();
+                            });
+                        });
+                    }, 60000);
+                }).catch(function (e) {
                     fallbackNotification(title, body, tag);
                 });
             }).catch(e => {
@@ -454,6 +462,9 @@
                 icon: '/favicon.ico'
             });
             n.onclick = () => { window.focus(); n.close(); };
+            setTimeout(() => {
+                try { n.close(); } catch (e) { /* ignore */ }
+            }, 60000);
         } catch (e) {
             console.warn('Notification failed:', e);
         }
