@@ -183,10 +183,6 @@ type episodicPlanAdvisor struct {
 	wisdom   WisdomStore
 }
 
-// PlanAdvisorConfig holds dependencies for creating a PlanAdvisor.
-type PlanAdvisorConfig struct {
-}
-
 // NewPlanAdvisor creates a PlanAdvisor backed by episodic memory and
 // an optional wisdom store. Returns a no-op advisor if episodic is nil.
 func NewPlanAdvisor(
@@ -195,6 +191,9 @@ func NewPlanAdvisor(
 	// Wisdom is the consolidated wisdom store to query for high-level lessons.
 	// Optional — when nil, no wisdom notes are included.
 	wisdom WisdomStore) PlanAdvisor {
+	if episodic == nil {
+		return noOpPlanAdvisor{}
+	}
 	return &episodicPlanAdvisor{
 		episodic: episodic,
 		wisdom:   wisdom,

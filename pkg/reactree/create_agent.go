@@ -195,9 +195,10 @@ type createAgentTool struct {
 	auditor audit.Auditor
 
 	// failureReflector generates verbal reflections on sub-agent failures.
-	// When set, failed episodes are stored with a reflection explaining
-	// what went wrong and what to try differently. When nil, failures
-	// are stored with just the raw error output.
+	// When set, failed episodes are stored with a detailed reflection
+	// explaining what went wrong and what to try differently. When nil,
+	// failures fall back to a generic reflection derived from the raw
+	// trajectory and error output.
 	failureReflector memory.FailureReflector
 
 	// importanceScorer assigns 1-10 importance scores to episodes.

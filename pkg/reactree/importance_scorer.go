@@ -59,9 +59,9 @@ func (s *ExpertImportanceScorer) Score(ctx context.Context, req memory.Importanc
 
 	// Cap output to prevent large content from bloating the prompt.
 	output := req.Output
-	const maxOutputChars = 300
-	if len(output) > maxOutputChars {
-		output = output[:maxOutputChars] + "..."
+	const maxOutputRunes = 300
+	if runes := []rune(output); len(runes) > maxOutputRunes {
+		output = string(runes[:maxOutputRunes]) + "..."
 	}
 
 	prompt := fmt.Sprintf(importanceScoringPrompt, req.Goal, req.Status, output)

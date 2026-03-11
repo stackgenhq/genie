@@ -57,9 +57,9 @@ func (r *ExpertFailureReflector) Reflect(ctx context.Context, req memory.Failure
 
 	// Cap error output to prevent large errors from bloating the reflection prompt.
 	errorOutput := req.ErrorOutput
-	const maxErrorChars = 500
-	if len(errorOutput) > maxErrorChars {
-		errorOutput = errorOutput[:maxErrorChars] + "... (truncated)"
+	const maxErrorRunes = 500
+	if runes := []rune(errorOutput); len(runes) > maxErrorRunes {
+		errorOutput = string(runes[:maxErrorRunes]) + "... (truncated)"
 	}
 
 	prompt := fmt.Sprintf(reflectionPromptTemplate, req.Goal, errorOutput)
@@ -104,10 +104,10 @@ func (r *ExpertFailureReflector) Reflect(ctx context.Context, req memory.Failure
 func generateFailureReflection(ctx context.Context, goal, errorOutput string, reflector memory.FailureReflector) string {
 	if reflector == nil {
 		// No reflector available — return a basic fallback.
-		const maxFallbackLen = 200
+		const maxFallbackRunes = 200
 		t := errorOutput
-		if len(t) > maxFallbackLen {
-			t = t[:maxFallbackLen] + "..."
+		if runes := []rune(errorOutput); len(runes) > maxFallbackRunes {
+			t = string(runes[:maxFallbackRunes]) + "..."
 		}
 		return fmt.Sprintf("Task failed with output: %s", t)
 	}

@@ -755,7 +755,7 @@
         c.innerHTML = '';
         var f = state.features;
         c.appendChild(el('div', { className: 'space-y-4' }, [
-            fieldToggle('Dry-Run Simulation', f.dry_run.enabled, function (v) { f.dry_run.enabled = v; renderOutput(); }, 'If enabled, Genie plans its execution entirely upfront and estimates token cost, without executing external tasks.'),
+            fieldToggle('Dry-Run Simulation', f.dry_run.enabled, function (v) { f.dry_run.enabled = v; renderOutput(); }, 'If enabled, Genie runs as normal but wraps tools in a simulation layer: tool calls are logged and validated without performing real side effects (no files, network, or shell are actually touched).'),
         ]));
     }
 

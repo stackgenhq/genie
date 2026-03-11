@@ -170,8 +170,14 @@ func (s *serviceEpisodicMemory) retrieveEpisodes(ctx context.Context, goal strin
 		return nil
 	}
 
-	// Parse all matching entries into episodes (don't limit yet for weighted scoring).
-	episodes := make([]Episode, 0, len(entries))
+	// For non-weighted retrieval, limit entries to k before decoding
+	// so the decode loop stays O(k) instead of O(N).
+	if !weighted && len(entries) > k {
+		entries = entries[:k]
+	}
+
+	// Parse matching entries into episodes.
+	episodes := make([]Episode, 0, min(len(entries), k))
 	for _, entry := range entries {
 		if entry == nil || entry.Memory == nil {
 			continue
@@ -197,9 +203,6 @@ func (s *serviceEpisodicMemory) retrieveEpisodes(ctx context.Context, goal strin
 	}
 
 	if !weighted {
-		if len(episodes) > k {
-			episodes = episodes[:k]
-		}
 		return episodes
 	}
 

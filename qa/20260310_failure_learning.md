@@ -176,6 +176,131 @@ Best-effort learning — the system records what it can, but never sacrifices th
 
 ---
 
+## 7 — Wisdom Notes Are Stored from Consolidation
+
+### Why
+Raw episodes are verbose — injecting 20 episodes into every prompt would bloat context and reduce LLM efficiency. The EpisodeConsolidator batches recent episodes into concise wisdom notes (via `WisdomStore`), so the agent sees distilled lessons instead of raw trajectories.
+
+### Problem
+Without consolidation, the agent either ignores past experiences (too many to inject) or injects raw episodes that consume excessive context window budget.
+
+### Benefit
+The agent receives 1-2 concise lessons per day instead of 20+ raw episode strings, keeping prompts focused and cost-effective.
+
+### Arrange
+- Connected to the server
+- Send several different tasks (both success and failure) to build up a corpus of episodes
+- Tail the server logs: `tail -f genie.log | grep -i "wisdom\|consolidat"`
+
+### Act
+1. Send 3-5 varied tasks that exercise different tools:
+   - `What time is it?` (simple, likely success)
+   - `Search the web for the latest Go release notes` (tool-using, may succeed or fail)
+   - `Use JIRA to list tickets` (likely failure if JIRA not configured)
+2. Wait for the EpisodeConsolidator to run (triggered periodically or on-demand)
+3. Check logs for wisdom note storage
+
+### Assert
+- In the server logs, you see `"wisdom note stored"` with a `"period"` matching today's date
+- The `"episode_count"` reflects the number of episodes consolidated
+- The `"summary_length"` shows a concise summary (not raw trajectories)
+- Subsequent consolidation attempts for the same period are skipped (idempotent): `"wisdom note already exists for period, skipping"`
+
+---
+
+## 8 — Wisdom Notes Appear in Agent Prompts
+
+### Why
+Stored wisdom is only useful if it surfaces in the agent's prompt. When `WisdomStore` is configured, `buildAgentPrompt` injects consolidated lessons under "Consolidated Lessons".
+
+### Problem
+Without wisdom injection, the consolidation system is write-only — lessons are stored but never used.
+
+### Benefit
+The agent sees high-level distilled lessons (not raw episodes) in its prompt, making it more likely to apply past learning without prompt bloat.
+
+### Arrange
+- Connected to the server
+- The agent has at least one wisdom note stored (from Test 7 or a previous session)
+- Tail the server logs with debug level for prompt contents
+
+### Act
+1. Send a task that's related to one of the consolidated wisdom areas:
+   `Search the web for Go release notes` (if web search was part of consolidated wisdom)
+2. Observe the agent's response
+
+### Assert
+- The agent's behavior reflects past lessons (e.g., if wisdom says "web search times out frequently, use http_request as fallback," the agent may try alternative approaches)
+- In debug logs, the prompt includes a "Consolidated Lessons" section with the wisdom summary
+- The agent does NOT receive 20+ raw episodes — only the concise wisdom note
+
+---
+
+## 9 — PlanAdvisor Enriches Multi-Step Plans with Past Experiences
+
+### Why
+When the agent decomposes a task into multiple steps (via `create_agent` with `Steps`), each step previously ran "blind" to past outcomes. The PlanAdvisor now queries episodic memory and wisdom for each step's goal and injects advisory context BEFORE the plan executes.
+
+### Problem
+Without pre-planning consultation, the agent would decompose a task into the same steps that previously failed, wasting time and compute. For example, if "deploy to staging" failed 3 times because of stale kubeconfig, the agent would still create the same failing plan.
+
+### Benefit
+Each plan step sees a "Pre-Execution Advisory" section with:
+- ⚠️ warnings about similar past failures and their reflections
+- ✅ references to similar past successes
+- Consolidated wisdom lessons relevant to the step
+
+### Arrange
+- Connected to the server via chat UI at `http://localhost:9876/ui/chat.html`
+- The agent has some stored episodes (from previous tests)
+- Tail the server logs: `tail -f genie.log | grep -i "plan advisory\|pre-planning\|steps_advised"`
+
+### Act
+1. Send a complex task that triggers multi-step plan creation:
+   `Research the top 3 Go web frameworks, compare their performance benchmarks, and summarize findings`
+2. This should trigger `create_agent` with multiple steps (research step per framework + comparison step)
+3. Watch the logs for pre-planning advisory
+
+### Assert
+- In the server logs, you see `"pre-planning advisory complete"` with `"steps_advised"` > 0 (if past episodes exist for similar goals)
+- If no past episodes match, `"steps_advised": 0` is expected (first run)
+- Each advised step's context now includes `--- Begin Advisory ---` and `--- End Advisory ---` delimiters
+- The advisory contains episode summaries (success ✅ or failure ⚠️ headers) and/or consolidated wisdom
+- On a subsequent identical request, the agent should adapt its approach based on the first attempt's outcome
+
+### Smoke Test (quick verification)
+1. Send: `What can you help me with?` (builds up a success episode)
+2. Then send an identical or very similar request
+3. Check logs for `"pre-planning advisory complete"` — if the second request triggers a plan, steps should now see the advisory from the first run
+
+---
+
+## 10 — PlanAdvisor Works Without Wisdom Store (Episodic Only)
+
+### Why
+The WisdomStore is optional — when not configured, the PlanAdvisor should still work using only episodic memory.
+
+### Problem
+A nil WisdomStore must not cause panics, errors, or skip advisory entirely.
+
+### Benefit
+The system degrades gracefully — even without wisdom consolidation, per-step episodic advisory still provides value.
+
+### Arrange
+- Connected to the server (wisdom store may or may not be configured)
+- At least one episode stored from a previous task
+
+### Act
+1. Send a multi-step task
+2. Check logs for advisory behavior
+
+### Assert
+- The advisory still runs and reports `"steps_advised"` count
+- No errors related to nil wisdom store in logs
+- Episodes are still retrieved per step, just without the "Consolidated Lessons" section
+
+---
+
 ## Unit Test Coverage (Automated)
 
 The following scenarios are covered by automated Ginkgo/Gomega tests:
@@ -184,6 +309,7 @@ The following scenarios are covered by automated Ginkgo/Gomega tests:
 |-----------|-------|-------|
 | `pkg/reactree/memory/failure_learning_test.go` | Memory Suite | 12 tests |
 | `pkg/reactree/memory/consolidation_test.go` | Memory Suite | 14 tests |
+| `pkg/reactree/memory/plan_advisor_test.go` | Memory Suite | 18 tests |
 | `pkg/reactree/failure_reflector_test.go` | Reactree Suite | 6 tests |
 | `pkg/reactree/importance_and_consolidation_test.go` | Reactree Suite | 15 tests |
 | `pkg/reactree/agent_node_pvt_test.go` | Reactree Suite | 3 updated tests |
@@ -242,15 +368,36 @@ The following scenarios are covered by automated Ginkgo/Gomega tests:
 45. **ExpertImportanceScorer** returns 0 for unparseable response
 46. **ExpertImportanceScorer** uses TaskEfficiency model
 
+**Phase 5: Pre-Planning Advisory (PlanAdvisor)**
+47. **Episodes.HasFailures** returns false for empty, true for failures
+48. **Episodes.HasSuccesses** returns true for success/pending, false for failure-only
+49. **Episodes.Summarize** returns empty for empty, formats via String()
+50. **Episodes.Header** returns ⚠️ for failures, ✅ for successes, empty otherwise
+51. **Episodes.Header** prioritizes failure header when both exist
+52. **StepAdvisory.Format** returns empty when no episodes and no wisdom
+53. **StepAdvisory.Format** includes episode summary, header, and wisdom
+54. **StepAdvisory.Format** truncates excessively long advisory
+55. **PlanAdvisoryResult.ForStep** returns empty for nil/missing steps
+56. **PlanAdvisoryResult.ForStep** wraps advisory in delimiters
+57. **PlanAdvisoryResult.StepsAdvised** counts steps with non-empty advisory
+58. **NewPlanAdvisor** with nil episodic returns no-op
+59. **PlanAdvisor.Advise** returns empty when no episodes/wisdom match
+60. **PlanAdvisor.Advise** includes failure episodes with ⚠️ warning
+61. **PlanAdvisor.Advise** includes success episodes with ✅ prefix
+62. **PlanAdvisor.Advise** includes wisdom notes alongside episodes
+63. **PlanAdvisor.Advise** advises multiple steps independently
+64. **PlanAdvisor.Advise** works without wisdom store (nil)
+
 ### Running Tests
 ```bash
-# Memory-only tests (64 specs)
+# Memory-only tests (94 specs)
 go test -mod=mod ./pkg/reactree/memory/... -v -count=1
 
-# Full reactree tests (337 specs)
+# Full reactree tests
 go test -mod=mod ./pkg/reactree/... -count=1 --ginkgo.label-filter='!integration'
 
 # All tests (81 suites)
 make test
 ```
+
 
