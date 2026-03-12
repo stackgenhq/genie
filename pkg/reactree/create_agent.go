@@ -791,6 +791,7 @@ func (t *createAgentTool) runHalGuardPostCheck(ctx context.Context, req CreateAg
 		Context:         req.Context,
 		Output:          sar.output,
 		ToolCallsMade:   sar.toolCallCount,
+		ToolSummary:     strings.Join(sar.toolNameList, ", "),
 		GenerationModel: modelToUse,
 	})
 	if verifyErr != nil {

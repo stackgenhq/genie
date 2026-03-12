@@ -37,7 +37,7 @@ var _ = Describe("PanicRecoveryMiddleware", func() {
 })
 
 var _ = Describe("LoopDetectionMiddleware", func() {
-	It("should block after 2 identical consecutive calls", func() {
+	It("should block after 3 identical consecutive calls", func() {
 		mw := toolwrap.LoopDetectionMiddleware()
 		next, count := counting(passthrough("ok"))
 		handler := mw.Wrap(next)
@@ -46,9 +46,11 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 		_, err := handler(context.Background(), tc)
 		Expect(err).NotTo(HaveOccurred())
 		_, err = handler(context.Background(), tc)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = handler(context.Background(), tc)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("loop detected"))
-		Expect(atomic.LoadInt32(count)).To(Equal(int32(1)))
+		Expect(atomic.LoadInt32(count)).To(Equal(int32(2)))
 	})
 
 	It("should allow different args without triggering loop", func() {
@@ -75,6 +77,8 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 		_, err := handler(ctx, tc)
 		Expect(err).NotTo(HaveOccurred())
 		_, err = handler(ctx, tc)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = handler(ctx, tc)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("loop detected"))
 
@@ -91,6 +95,8 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 		tc := &toolwrap.ToolCallContext{ToolName: "run_shell", Args: []byte(`{"cmd":"ls"}`)}
 
 		_, err := handler(ctx, tc)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = handler(ctx, tc)
 		Expect(err).NotTo(HaveOccurred())
 		_, err = handler(ctx, tc)
 		Expect(err).To(HaveOccurred())

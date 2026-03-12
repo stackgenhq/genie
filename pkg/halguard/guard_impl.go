@@ -221,22 +221,39 @@ func (g *guard) verifyLight(ctx context.Context, req PostCheckRequest) (Verifica
 		goalText = fmt.Sprintf("Context:\n%s\n\nGoal:\n%s", req.Context, req.Goal)
 	}
 
+	// Build tool context section for the prompt. When the sub-agent made
+	// tool calls, the verifier needs to know so it doesn't flag tool-returned
+	// data (e.g. AWS resource IDs from run_shell) as hallucinated.
+	toolSection := "No tools were called."
+	if req.ToolCallsMade > 0 && req.ToolSummary != "" {
+		toolSection = fmt.Sprintf("The sub-agent made %d tool call(s): %s\nData in the output that originates from these tool results is grounded and should NOT be flagged as fabricated.",
+			req.ToolCallsMade, req.ToolSummary)
+	} else if req.ToolCallsMade > 0 {
+		toolSection = fmt.Sprintf("The sub-agent made %d tool call(s). Data derived from tool results is grounded and should NOT be flagged as fabricated.",
+			req.ToolCallsMade)
+	}
+
 	prompt := fmt.Sprintf(`You are a factual consistency checker. Analyze the following sub-agent output and determine if it contains hallucinated or fabricated content.
 
 ORIGINAL GOAL: %s
+
+TOOL CONTEXT: %s
 
 SUB-AGENT OUTPUT:
 %s
 
 Check for:
 1. Does the output contain fabricated data (invented metrics, fake incidents, role-play scenarios)?
-2. Does the output make specific claims that could not have been verified by the tools available?
-3. Does the output describe a hypothetical scenario as if it were real?
+2. Does the output describe a hypothetical scenario as if it were real?
+
+IMPORTANT: The sub-agent used tools to gather data. Specific values like resource IDs, names,
+configurations, or command output that come from tool results are GROUNDED and must NOT be
+flagged as fabricated. Only flag content that appears invented and NOT traceable to tool output.
 
 Respond with a JSON object:
 {"is_factual": true/false, "reason": "brief explanation"}
 
-Output ONLY the JSON, no other text.`, goalText, req.Output)
+Output ONLY the JSON, no other text.`, goalText, toolSection, req.Output)
 
 	result, genErr := g.generateText(ctx, models[0].model, prompt)
 	if genErr != nil {

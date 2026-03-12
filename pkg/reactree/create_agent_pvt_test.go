@@ -398,11 +398,14 @@ var _ = Describe("runHalGuardPostCheck", func() {
 		fakeGuard.PostCheckReturns(halguard.VerificationResult{IsFactual: true, Tier: halguard.TierLight}, nil)
 
 		sar := cat.runHalGuardPostCheck(context.Background(), req, subAgentResult{
-			output: "PR data here",
-			status: "success",
+			output:       "PR data here",
+			status:       "success",
+			toolNameList: []string{"run_shell", "read_file"},
 		}, nil)
 
 		Expect(fakeGuard.PostCheckCallCount()).To(Equal(1))
+		_, postReq := fakeGuard.PostCheckArgsForCall(0)
+		Expect(postReq.ToolSummary).To(Equal("run_shell, read_file"))
 		Expect(sar.status).To(Equal("success"))
 		Expect(sar.output).To(Equal("PR data here"))
 	})
