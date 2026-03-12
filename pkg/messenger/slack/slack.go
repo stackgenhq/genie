@@ -45,10 +45,20 @@ import (
 
 func init() {
 	messenger.RegisterAdapter(messenger.PlatformSlack, func(params map[string]string, opts ...messenger.Option) (messenger.Messenger, error) {
+		// Extract allowed_sender_* entries from params.
+		var allowedUsers []string
+		for i := 0; ; i++ {
+			key := fmt.Sprintf("allowed_sender_%d", i)
+			val, ok := params[key]
+			if !ok {
+				break
+			}
+			allowedUsers = append(allowedUsers, val)
+		}
 		return New(Config{
 			AppToken: params["app_token"],
 			BotToken: params["bot_token"],
-		}, opts...), nil
+		}, params["respond_to"], allowedUsers, opts...), nil
 	})
 }
 
@@ -66,6 +76,10 @@ type Config struct {
 	// See: https://api.slack.com/authentication/verifying-requests-from-slack
 	SigningSecret string
 }
+
+// respondToAll is the value for respondTo that disables mention filtering.
+// When respondTo is empty or any other value, mention-only mode is active (the default).
+const respondToAll = "all"
 
 // Messenger implements the [messenger.Messenger] interface for Slack.
 // It supports two transport modes:
@@ -86,14 +100,31 @@ type Messenger struct {
 	connCtx       context.Context
 	wg            sync.WaitGroup
 	mu            sync.RWMutex
+
+	// respondTo controls message filtering: "all" processes everything,
+	// "" or "mentions" (default) only processes messages where the bot
+	// is @mentioned or messages in threads where the bot was previously mentioned.
+	respondTo string
+	// allowedUsers is an optional allowlist of Slack user IDs. When non-empty,
+	// only messages from these users are processed (even if mentioned).
+	allowedUsers []string
+	// botUserID is the Slack user ID of the bot, resolved via auth.test at
+	// connect time. Used to detect <@BOT_USER_ID> mentions in message text.
+	botUserID string
+	// mentionedThreads tracks threads where the bot was @mentioned.
+	// Key format: "channelID:threadTS". Subsequent messages in these threads
+	// are processed without requiring another @mention.
+	mentionedThreads sync.Map
 }
 
 // New creates a new Slack Messenger with the given config and options.
-func New(cfg Config, opts ...messenger.Option) *Messenger {
+func New(cfg Config, respondTo string, allowedUsers []string, opts ...messenger.Option) *Messenger {
 	adapterCfg := messenger.ApplyOptions(opts...)
 	return &Messenger{
-		cfg:        cfg,
-		adapterCfg: adapterCfg,
+		cfg:          cfg,
+		adapterCfg:   adapterCfg,
+		respondTo:    respondTo,
+		allowedUsers: allowedUsers,
 	}
 }
 
@@ -126,6 +157,16 @@ func (m *Messenger) Connect(ctx context.Context) (http.Handler, error) {
 		slack.OptionAppLevelToken(m.cfg.AppToken),
 	)
 
+	// Resolve the bot's own Slack user ID so we can detect @mentions.
+	// auth.test returns the bot user associated with the token.
+	authResp, err := m.api.AuthTestContext(ctx)
+	if err != nil {
+		log.Warn("failed to resolve bot user ID via auth.test — mention filtering may not work", "error", err)
+	} else {
+		m.botUserID = authResp.UserID
+		log.Info("resolved bot user ID", "botUserID", m.botUserID)
+	}
+
 	m.incoming = make(chan messenger.IncomingMessage, m.adapterCfg.MessageBufferSize)
 
 	connCtx, cancel := context.WithCancel(ctx)
@@ -135,8 +176,12 @@ func (m *Messenger) Connect(ctx context.Context) (http.Handler, error) {
 	if m.useHTTPEventsAPI() {
 		// HTTP Events API mode: return handler for caller to mount.
 		m.eventsHandler = &eventsHTTPHandler{
-			signingSecret: m.cfg.SigningSecret,
-			incoming:      m.incoming,
+			signingSecret:    m.cfg.SigningSecret,
+			incoming:         m.incoming,
+			botUserID:        m.botUserID,
+			respondTo:        m.respondTo,
+			allowedUsers:     m.allowedUsers,
+			mentionedThreads: &m.mentionedThreads,
 		}
 		m.connected = true
 		log.Info("connected to Slack via HTTP Events API")
@@ -407,6 +452,70 @@ func (m *Messenger) handleInteractive(ctx context.Context, evt socketmode.Event)
 	}
 }
 
+// shouldProcess determines whether an incoming message should be forwarded to
+// the app layer. It implements mention-only filtering and allowed-user checks.
+//
+// Rules:
+//   - respondTo == "" or "all": always process (backwards compatible)
+//   - respondTo == "mentions":
+//     1. DMs (channel type "D" prefix) are always processed
+//     2. Messages containing <@botUserID> are processed; the thread is tracked
+//     3. Messages in a previously-mentioned thread are processed
+//     4. All other messages are silently dropped
+//   - If allowedUsers is non-empty, sender must be in the list
+func (m *Messenger) shouldProcess(channelID, userID, text, threadTS string) bool {
+	// Allowed-user check (independent of mention mode).
+	if len(m.allowedUsers) > 0 {
+		allowed := false
+		for _, u := range m.allowedUsers {
+			if u == userID {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return false
+		}
+	}
+
+	// respondTo == "all" disables mention filtering.
+	if m.respondTo == respondToAll {
+		return true
+	}
+
+	// DMs always pass (channel IDs starting with "D" are direct messages).
+	if strings.HasPrefix(channelID, "D") {
+		return true
+	}
+
+	// Check for explicit @mention.
+	if m.containsBotMention(text) {
+		// Track this thread so subsequent messages are processed too.
+		if threadTS != "" {
+			m.mentionedThreads.Store(channelID+":"+threadTS, true)
+		}
+		return true
+	}
+
+	// Check if this message is in a thread where the bot was previously mentioned.
+	if threadTS != "" {
+		if _, ok := m.mentionedThreads.Load(channelID + ":" + threadTS); ok {
+			return true
+		}
+	}
+
+	return false
+}
+
+// containsBotMention returns true if the message text contains a Slack
+// user mention for this bot (e.g., <@U12345>).
+func (m *Messenger) containsBotMention(text string) bool {
+	if m.botUserID == "" {
+		return false
+	}
+	return strings.Contains(text, "<@"+m.botUserID+">")
+}
+
 func (m *Messenger) handleEventsAPI(ctx context.Context, event slackevents.EventsAPIEvent) {
 	switch event.Type {
 	case slackevents.CallbackEvent:
@@ -417,6 +526,12 @@ func (m *Messenger) handleEventsAPI(ctx context.Context, event slackevents.Event
 			if ev.BotID != "" {
 				return
 			}
+
+			// Apply mention-only and allowed-user filtering.
+			if !m.shouldProcess(ev.Channel, ev.User, ev.Text, ev.ThreadTimeStamp) {
+				return
+			}
+
 			msg := messenger.IncomingMessage{
 				ID:       ev.TimeStamp,
 				Platform: messenger.PlatformSlack,

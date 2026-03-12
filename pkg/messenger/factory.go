@@ -26,7 +26,7 @@ func (cfg Config) newFromConfig(ctx context.Context, opts ...Option) (Messenger,
 	logger.GetLogger(ctx).Info("Initializing Messenger", "platform", cfg.Platform)
 	switch cfg.Platform {
 	case PlatformSlack:
-		return newSlackFromConfig(cfg.Slack, opts...)
+		return newSlackFromConfig(cfg.Slack, cfg.AllowedSenders, opts...)
 	case PlatformDiscord:
 		return newDiscordFromConfig(cfg.Discord, opts...)
 	case PlatformTelegram:
@@ -47,7 +47,7 @@ func (cfg Config) newFromConfig(ctx context.Context, opts ...Option) (Messenger,
 // newSlackFromConfig validates Slack config and creates a Slack messenger.
 // Uses lazy import pattern to avoid importing adapter packages at the
 // interface level — callers must register adapters or use direct imports.
-func newSlackFromConfig(cfg SlackConfig, opts ...Option) (Messenger, error) {
+func newSlackFromConfig(cfg SlackConfig, allowedSenders []string, opts ...Option) (Messenger, error) {
 	if cfg.AppToken == "" || cfg.BotToken == "" {
 		return nil, fmt.Errorf("messenger: slack requires app_token and bot_token")
 	}
@@ -57,10 +57,15 @@ func newSlackFromConfig(cfg SlackConfig, opts ...Option) (Messenger, error) {
 	if !ok {
 		return nil, fmt.Errorf("messenger: slack adapter not registered (import _ \"...messenger/slack\")")
 	}
-	return f(map[string]string{
-		"app_token": cfg.AppToken,
-		"bot_token": cfg.BotToken,
-	}, opts...)
+	params := map[string]string{
+		"app_token":  cfg.AppToken,
+		"bot_token":  cfg.BotToken,
+		"respond_to": cfg.RespondTo,
+	}
+	for i, s := range allowedSenders {
+		params[fmt.Sprintf("allowed_sender_%d", i)] = s
+	}
+	return f(params, opts...)
 }
 
 func newDiscordFromConfig(cfg DiscordConfig, opts ...Option) (Messenger, error) {

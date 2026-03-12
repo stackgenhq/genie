@@ -25,6 +25,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/slack-go/slack/slackevents"
@@ -45,6 +46,12 @@ import (
 type eventsHTTPHandler struct {
 	signingSecret string
 	incoming      chan messenger.IncomingMessage
+
+	// Filtering fields — shared with the parent Messenger.
+	botUserID        string
+	respondTo        string
+	allowedUsers     []string
+	mentionedThreads *sync.Map
 }
 
 // urlVerificationBody is the JSON payload Slack sends for URL verification.
@@ -129,6 +136,51 @@ func (h *eventsHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// shouldProcess determines whether a message should be forwarded based on
+// mention-only mode and allowed-user filtering. Uses the same algorithm
+// as Messenger.shouldProcess.
+func (h *eventsHTTPHandler) shouldProcess(channelID, userID, text, threadTS string) bool {
+	// Allowed-user check.
+	if len(h.allowedUsers) > 0 {
+		allowed := false
+		for _, u := range h.allowedUsers {
+			if u == userID {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return false
+		}
+	}
+
+	if h.respondTo == respondToAll {
+		return true
+	}
+
+	// DMs always pass.
+	if strings.HasPrefix(channelID, "D") {
+		return true
+	}
+
+	// Explicit @mention.
+	if h.botUserID != "" && strings.Contains(text, "<@"+h.botUserID+">") {
+		if threadTS != "" && h.mentionedThreads != nil {
+			h.mentionedThreads.Store(channelID+":"+threadTS, true)
+		}
+		return true
+	}
+
+	// Thread where bot was previously mentioned.
+	if threadTS != "" && h.mentionedThreads != nil {
+		if _, ok := h.mentionedThreads.Load(channelID + ":" + threadTS); ok {
+			return true
+		}
+	}
+
+	return false
+}
+
 // handleCallback processes a callback event from the Slack Events API.
 func (h *eventsHTTPHandler) handleCallback(ctx context.Context, event slackevents.EventsAPIEvent) {
 	log := logger.GetLogger(ctx).With("platform", "slack", "fn", "eventsHTTPHandler.handleCallback")
@@ -138,6 +190,11 @@ func (h *eventsHTTPHandler) handleCallback(ctx context.Context, event slackevent
 	case *slackevents.MessageEvent:
 		// Skip bot messages to avoid echo loops.
 		if ev.BotID != "" {
+			return
+		}
+
+		// Apply mention-only and allowed-user filtering.
+		if !h.shouldProcess(ev.Channel, ev.User, ev.Text, ev.ThreadTimeStamp) {
 			return
 		}
 
