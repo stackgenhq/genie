@@ -72,6 +72,11 @@ func (t *ClientTool) Call(ctx context.Context, jsonArgs []byte) (any, error) {
 		args = make(map[string]interface{})
 	}
 
+	// Strip _justification — LLMs inject this field based on sub-agent
+	// instructions but MCP servers don't expect it and may reject it
+	// as an unknown field (e.g. "error converting arguments: input is invalid").
+	delete(args, "_justification")
+
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
 			Name:      t.tool.Name, // Use the original MCP tool name, not the namespaced one

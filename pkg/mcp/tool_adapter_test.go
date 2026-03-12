@@ -119,6 +119,29 @@ var _ = Describe("ClientTool Adapter", func() {
 			})
 		})
 
+		Context("with _justification field", func() {
+			It("should strip _justification before forwarding to MCP server", func(ctx context.Context) {
+				// Arrange
+				fakeCaller.CallToolReturns(&mcplib.CallToolResult{
+					Content: []mcplib.Content{
+						mcplib.TextContent{Type: "text", Text: "ok"},
+					},
+				}, nil)
+
+				// Act — LLMs inject _justification into tool args
+				result, err := tool.Call(ctx, []byte(`{"arg1":"value","_justification":"needed for search"}`))
+
+				// Assert
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal("ok\n"))
+
+				_, req := fakeCaller.CallToolArgsForCall(0)
+				Expect(req.Params.Arguments).To(HaveKeyWithValue("arg1", "value"))
+				Expect(req.Params.Arguments).NotTo(HaveKey("_justification"),
+					"_justification should be stripped before forwarding to MCP server")
+			})
+		})
+
 		Context("with empty arguments", func() {
 			It("should pass empty map to CallTool", func(ctx context.Context) {
 				// Arrange

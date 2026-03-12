@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stackgenhq/genie/pkg/security"
+	"github.com/stackgenhq/genie/pkg/skills"
 	"github.com/stackgenhq/genie/pkg/tools/skills/dynamicskills"
 	"github.com/stackgenhq/genie/pkg/tools/unix"
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor"
@@ -125,11 +126,14 @@ type SkillToolProvider struct {
 }
 
 // NewSkillToolProvider creates a ToolProvider containing skill discovery tools.
-func NewSkillToolProvider(workingDir string, config SkillLoadConfig) (*SkillToolProvider, error) {
-	repo, err := skill.NewFSRepository(config.SkillsRoots...)
+func NewSkillToolProvider(workingDir string, config SkillLoadConfig, additionalRepos ...skill.Repository) (*SkillToolProvider, error) {
+	fsRepo, err := skill.NewFSRepository(config.SkillsRoots...)
 	if err != nil {
 		return nil, fmt.Errorf("error creating skill repository: %w", err)
 	}
+	reposToMerge := []skill.Repository{fsRepo}
+	reposToMerge = append(reposToMerge, additionalRepos...)
+	repo := skills.NewCompositeRepository(reposToMerge...)
 	exec := local.New(
 		local.WithWorkDir(workingDir),
 		local.WithTimeout(10*time.Minute),

@@ -32,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 34 Ginkgo/Gomega test specs for the `semanticmiddleware` package covering chain building, L0 regex matching, L1 vector routing, and follow-up bypass behavior.
 - **Langfuse trace analyzer** (`pkg/langfuse/trace_analyzer.go`) — queries the Langfuse API to produce per-trace execution breakdowns: user request, tool calls (with parent), sub-agent detection (spans with child generations), LLM call counts, vector store operation counts, token usage, cost, and duration. Filterable by user, session, agent name, tags, and time window. Includes `FormatReport()` for human-readable markdown reports.
 - **Internal task context marker** (`orchestratorcontext.WithInternalTask`) — background events (cron triggers, heartbeats, webhooks) bypass the semantic cache and classification pipeline entirely. Prevents cron tasks from receiving stale cached responses and keeps cron results from polluting the cache for future user queries.
+- **MCP prompts as skills** — MCP server prompts are now discoverable and loadable as Genie skills via `PromptRepository` adapter (`pkg/mcp/prompt_repo.go`). MCP prompts appear in `discover_skills` and can be loaded via `load_skill`, prefixed with the server name (e.g. `stackgen_cloud_discovery_playbook`).
+- **Composite skill repository** (`pkg/skills/composite_repo.go`) — merges multiple `skill.Repository` sources (local FS + MCP prompts) into a unified, deduplicated, sorted skill index.
+- **Generic executable tool** (`pkg/tools/executable/`) — config-driven tool wrapper for arbitrary binaries with secret validation, minimal environment isolation (`PATH`, `HOME` + configured vars only), and shell metacharacter injection prevention. Replaces the hardcoded `ghcli` tool.
+- **Cloud discovery example** (`examples/cloud-discovery/`) — full `.genie.toml` config, `AGENTS.md` persona, and `cloud-discovery` skill for AWS resource scanning and StackGen AppStack generation.
+- Orchestrator now has access to `memory_search` and `memory_store` tools, allowing it to query vector memory at session start instead of relying on `read_notes` (which is empty at the start of a conversation).
 
 ### Changed
 
@@ -45,12 +50,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **L2 prompt enriched with upstream signals**: `buildL2Message` now includes near-miss route hints from L1 and follow-up context from L0, enabling better-informed classification decisions.
 - `semanticrouter.Config` extended with `CacheTTL`, `L0Regex`, and `FollowUpBypass` middleware config structs, all exposed through the agent config chain (`config.go` → `semanticrouter.Config` → `mw.*Config`).
 - `ErrToolCallRejected` introduced so that intentional tool call rejections (e.g., from user rejections, HITL re-planning feedback, or validation/schema rechecks) do not trigger the circuit breaker and inappropriately penalize healthy tools.
+- HalGuard `verifyLight` prompt now includes tool call context (`ToolSummary` field on `PostCheckRequest`) — the verifier is told which tools the sub-agent called, preventing false-positive hallucination flags on tool-sourced data (e.g. AWS VPC IDs from `run_shell`).
+- Loop detection threshold (`maxConsecutiveRepeatCalls`) increased from 2 → 3 to tolerate one accidental retry (common with Gemini Flash) while still catching true infinite loops.
+- `SkillToolProvider` and `LoadSkillsFromConfig` now accept additional `skill.Repository` sources (e.g. MCP `PromptRepository`) via variadic `additionalRepos` parameters.
+- Orchestrator Phase 1 (ANALYZE) prompt updated to prefer `memory_search` (vector memory) over `read_notes` at session start.
+- Sub-agent audit metadata now stores the full goal string instead of truncating to 200 chars.
+
+### Fixed
+
+- MCP tool adapter now strips `_justification` field from tool call arguments before forwarding to MCP servers — LLMs inject this field based on sub-agent instructions, but MCP servers reject it as an unknown field (`"error converting arguments: input is invalid"`).
 
 ### Removed
 
 - Critic middleware (`middleware.go`) — `NewDeterministicValidator`, `WrapWithValidator` and associated test files removed; tool blocking is handled exclusively by HITL.
 - `AuditEventCriticRejection` audit event constant and `AuditHook.OnToolValidation` implementation removed (hook interface still defined in `hooks.go` for future use; `NoOpHook` satisfies it).
 - `EnableCriticMiddleware`, `EnableActionReflection`, `EnableDryRunSimulation`, `EnableMCPServerAccess`, and `EnableAuditDashboard` boolean fields removed from `FeaturesConfig`.
+- `pkg/tools/ghcli/` package — replaced by generic `pkg/tools/executable/` tool with config-driven binary wrapping.
+- `GHCli` field removed from `GenieConfig`; replaced by `ExecutableTools executable.Configs` with `[executable_tools]` config section.
 
 
 ## [0.1.7] - 2026-03-10

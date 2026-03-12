@@ -137,6 +137,11 @@ type PostCheckRequest struct {
 	// A higher count suggests the output is more grounded in real data.
 	ToolCallsMade int
 
+	// ToolSummary is a brief summary of tool calls made (tool names, arg hints).
+	// When non-empty, it is included in the verification prompt so the verifier
+	// knows which data came from tool results and should not flag it as fabricated.
+	ToolSummary string
+
 	// GenerationModel identifies the model that generated the output
 	// (e.g. "claude-sonnet-4-6"). Used to select a different model family
 	// for cross-model verification per Finch-Zk §2.5.

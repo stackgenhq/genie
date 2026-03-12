@@ -270,12 +270,18 @@ host       = "$${LANGFUSE_HOST}"
 provider = "github"
 token = "$${GITHUB_TOKEN}"
 
-# ── GitHub CLI (gh_cli tool) ────────────────────────────────────────
-# Bootstraps the gh_cli agent tool only when the gh binary is on PATH
-# AND a token is configured. The token is injected per-subprocess via
-# GH_TOKEN — never persisted to disk or shell config.
-[ghcli]
-token = "$${GITHUB_TOKEN}"
+# ── GitHub CLI (executable tool) ────────────────────────────────────
+# Generic executable tool wrapping the `gh` binary. The tool is only
+# available when `gh` is on PATH and the GITHUB_TOKEN secret resolves.
+# GH_TOKEN is injected per-subprocess — never persisted to disk.
+[[executable_tools]]
+name        = "github_cli"
+binary      = "gh"
+description = "Run GitHub CLI (gh) commands. Provide the subcommand and arguments, e.g. 'pr list --repo OWNER/REPO --state open'."
+
+[[executable_tools.env]]
+key    = "GH_TOKEN"
+secret = "GITHUB_TOKEN"
 
 # ── Knowledge Graph ─────────────────────────────────────────────────
 # Store entities and relations in the same Qdrant collection as vector memory.
