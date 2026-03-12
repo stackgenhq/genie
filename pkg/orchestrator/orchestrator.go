@@ -40,6 +40,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 	"github.com/stackgenhq/genie/pkg/pii"
+	"github.com/stackgenhq/genie/pkg/rbac"
 	"github.com/stackgenhq/genie/pkg/reactree"
 	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
 	"github.com/stackgenhq/genie/pkg/semanticrouter"
@@ -155,6 +156,7 @@ type orchestratorOpts struct {
 	halGuardConfig                    halguard.Config
 	semanticRouter                    semanticrouter.IRouter
 	accomplishmentConfidenceThreshold float64
+	rbac                              *rbac.RBAC
 }
 
 // WithToolwrapOptions passes per-agent middleware configuration to the
@@ -196,6 +198,14 @@ func WithSemanticRouter(router semanticrouter.IRouter) OrchestratorOption {
 func WithAccomplishmentConfidenceThreshold(threshold float64) OrchestratorOption {
 	return func(o *orchestratorOpts) {
 		o.accomplishmentConfidenceThreshold = threshold
+	}
+}
+
+// WithRBAC sets the RBAC instance used to authorize destructive tool
+// actions (e.g. cache clearing). When nil, all actions are unrestricted.
+func WithRBAC(r *rbac.RBAC) OrchestratorOption {
+	return func(o *orchestratorOpts) {
+		o.rbac = r
 	}
 }
 
@@ -385,7 +395,7 @@ func NewOrchestrator(
 	// Register semantic cache management tool so the orchestrator can
 	// search, delete, and clear cached Q&A entries when needed.
 	if oo.semanticRouter != nil {
-		if cacheTool := semanticrouter.NewCacheTool(oo.semanticRouter); cacheTool != nil {
+		if cacheTool := semanticrouter.NewCacheTool(oo.semanticRouter, oo.rbac); cacheTool != nil {
 			orchestratorToolSlice = append(orchestratorToolSlice, cacheTool)
 		}
 	}

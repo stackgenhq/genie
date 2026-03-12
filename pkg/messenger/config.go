@@ -115,6 +115,12 @@ type AGUIConfig struct {
 	// Auth holds authentication settings (password, JWT/OIDC).
 	// See auth.Config for all available options.
 	Auth auth.Config `yaml:"auth,omitempty" toml:"auth,omitempty"`
+
+	// AdminUsers is a list of user IDs (email, username, etc.) granted admin
+	// privileges for destructive operations such as cache clearing.
+	// When authentication is disabled (demo mode), all users have admin access.
+	// Example: ["alice@company.com", "bob@company.com"]
+	AdminUsers []string `yaml:"admin_users,omitempty" toml:"admin_users,omitempty"`
 }
 
 // DefaultAGUIConfig returns sensible defaults for the AG-UI server.

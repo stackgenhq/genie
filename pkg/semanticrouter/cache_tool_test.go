@@ -16,6 +16,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/stackgenhq/genie/pkg/identity"
+	"github.com/stackgenhq/genie/pkg/rbac"
 	"github.com/stackgenhq/genie/pkg/semanticrouter"
 	"github.com/stackgenhq/genie/pkg/semanticrouter/semanticrouterfakes"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
@@ -25,13 +27,31 @@ var _ = Describe("cacheTool", func() {
 	var (
 		fakeRouter *semanticrouterfakes.FakeIRouter
 		cacheTool  tool.Tool
+		testRBAC   *rbac.RBAC
 	)
 
 	BeforeEach(func() {
 		fakeRouter = &semanticrouterfakes.FakeIRouter{}
-		cacheTool = semanticrouter.NewCacheTool(fakeRouter)
+		testRBAC = rbac.New(rbac.Config{AdminUsers: []string{"admin@co.com"}})
+		cacheTool = semanticrouter.NewCacheTool(fakeRouter, testRBAC)
 		Expect(cacheTool).NotTo(BeNil())
 	})
+
+	// adminCtx returns a context with an admin sender.
+	adminCtx := func() context.Context {
+		return identity.WithSender(context.Background(), identity.Sender{
+			ID:   "admin@co.com",
+			Role: "user",
+		})
+	}
+
+	// regularCtx returns a context with a non-admin user.
+	regularCtx := func() context.Context {
+		return identity.WithSender(context.Background(), identity.Sender{
+			ID:   "regular@co.com",
+			Role: "user",
+		})
+	}
 
 	// callTool is a test helper that marshals req to JSON, calls the tool, and
 	// unmarshals the result into a CacheToolResponse.
@@ -47,8 +67,6 @@ var _ = Describe("cacheTool", func() {
 			return semanticrouter.CacheToolResponse{}, err
 		}
 
-		// The function tool returns the struct directly; marshal then unmarshal
-		// to get a clean CacheToolResponse.
 		resultJSON, marshalErr := json.Marshal(result)
 		Expect(marshalErr).NotTo(HaveOccurred())
 
@@ -58,7 +76,8 @@ var _ = Describe("cacheTool", func() {
 	}
 
 	Describe("search", func() {
-		It("should return matching cache entries", func(ctx context.Context) {
+		It("should return matching cache entries", func() {
+			ctx := regularCtx() // search is open to all
 			fakeRouter.SearchCacheReturns([]semanticrouter.CacheEntry{
 				{ID: "cache_abc", Query: "deploy app", Response: "deployed", Score: 0.95, CachedAt: time.Now()},
 				{ID: "cache_def", Query: "pod status", Response: "all healthy", Score: 0.88, CachedAt: time.Now()},
@@ -80,8 +99,8 @@ var _ = Describe("cacheTool", func() {
 			Expect(limit).To(Equal(10))
 		})
 
-		It("should require query for search", func(ctx context.Context) {
-			_, err := callTool(ctx, semanticrouter.CacheToolRequest{
+		It("should require query for search", func() {
+			_, err := callTool(regularCtx(), semanticrouter.CacheToolRequest{
 				Action: "search",
 				Query:  "",
 			})
@@ -89,10 +108,10 @@ var _ = Describe("cacheTool", func() {
 			Expect(err.Error()).To(ContainSubstring("query is required"))
 		})
 
-		It("should default limit to 20", func(ctx context.Context) {
+		It("should default limit to 20", func() {
 			fakeRouter.SearchCacheReturns(nil, nil)
 
-			_, err := callTool(ctx, semanticrouter.CacheToolRequest{
+			_, err := callTool(regularCtx(), semanticrouter.CacheToolRequest{
 				Action: "search",
 				Query:  "test",
 			})
@@ -102,10 +121,10 @@ var _ = Describe("cacheTool", func() {
 			Expect(limit).To(Equal(20))
 		})
 
-		It("should cap limit at 50", func(ctx context.Context) {
+		It("should cap limit at 50", func() {
 			fakeRouter.SearchCacheReturns(nil, nil)
 
-			_, err := callTool(ctx, semanticrouter.CacheToolRequest{
+			_, err := callTool(regularCtx(), semanticrouter.CacheToolRequest{
 				Action: "search",
 				Query:  "test",
 				Limit:  100,
@@ -116,10 +135,10 @@ var _ = Describe("cacheTool", func() {
 			Expect(limit).To(Equal(50))
 		})
 
-		It("should propagate search errors", func(ctx context.Context) {
+		It("should propagate search errors", func() {
 			fakeRouter.SearchCacheReturns(nil, errors.New("search failed"))
 
-			_, err := callTool(ctx, semanticrouter.CacheToolRequest{
+			_, err := callTool(regularCtx(), semanticrouter.CacheToolRequest{
 				Action: "search",
 				Query:  "test",
 			})
@@ -129,10 +148,10 @@ var _ = Describe("cacheTool", func() {
 	})
 
 	Describe("delete", func() {
-		It("should delete entries by IDs", func(ctx context.Context) {
+		It("should delete entries by IDs when admin", func() {
 			fakeRouter.DeleteCacheEntriesReturns(3, nil)
 
-			resp, err := callTool(ctx, semanticrouter.CacheToolRequest{
+			resp, err := callTool(adminCtx(), semanticrouter.CacheToolRequest{
 				Action: "delete",
 				IDs:    []string{"id1", "id2", "id3"},
 			})
@@ -145,8 +164,30 @@ var _ = Describe("cacheTool", func() {
 			Expect(ids).To(ConsistOf("id1", "id2", "id3"))
 		})
 
-		It("should require IDs for delete", func(ctx context.Context) {
-			_, err := callTool(ctx, semanticrouter.CacheToolRequest{
+		It("should deny delete for non-admin users", func() {
+			_, err := callTool(regularCtx(), semanticrouter.CacheToolRequest{
+				Action: "delete",
+				IDs:    []string{"id1"},
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("permission denied"))
+			Expect(fakeRouter.DeleteCacheEntriesCallCount()).To(Equal(0))
+		})
+
+		It("should allow demo user (no auth)", func() {
+			// context.Background() → GetSender returns DemoSender (role="demo")
+			fakeRouter.DeleteCacheEntriesReturns(1, nil)
+
+			resp, err := callTool(context.Background(), semanticrouter.CacheToolRequest{
+				Action: "delete",
+				IDs:    []string{"id1"},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Count).To(Equal(1))
+		})
+
+		It("should require IDs for delete", func() {
+			_, err := callTool(adminCtx(), semanticrouter.CacheToolRequest{
 				Action: "delete",
 				IDs:    nil,
 			})
@@ -154,10 +195,10 @@ var _ = Describe("cacheTool", func() {
 			Expect(err.Error()).To(ContainSubstring("ids array is required"))
 		})
 
-		It("should propagate delete errors", func(ctx context.Context) {
+		It("should propagate delete errors", func() {
 			fakeRouter.DeleteCacheEntriesReturns(0, errors.New("delete failed"))
 
-			_, err := callTool(ctx, semanticrouter.CacheToolRequest{
+			_, err := callTool(adminCtx(), semanticrouter.CacheToolRequest{
 				Action: "delete",
 				IDs:    []string{"id1"},
 			})
@@ -166,10 +207,10 @@ var _ = Describe("cacheTool", func() {
 	})
 
 	Describe("clear_all", func() {
-		It("should clear all cache entries", func(ctx context.Context) {
+		It("should clear all cache entries when admin", func() {
 			fakeRouter.ClearCacheReturns(4, nil)
 
-			resp, err := callTool(ctx, semanticrouter.CacheToolRequest{Action: "clear_all"})
+			resp, err := callTool(adminCtx(), semanticrouter.CacheToolRequest{Action: "clear_all"})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Count).To(Equal(4))
 			Expect(resp.Message).To(ContainSubstring("Cleared all 4"))
@@ -177,18 +218,25 @@ var _ = Describe("cacheTool", func() {
 			Expect(fakeRouter.ClearCacheCallCount()).To(Equal(1))
 		})
 
-		It("should handle empty cache gracefully", func(ctx context.Context) {
+		It("should deny clear_all for non-admin users", func() {
+			_, err := callTool(regularCtx(), semanticrouter.CacheToolRequest{Action: "clear_all"})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("permission denied"))
+			Expect(fakeRouter.ClearCacheCallCount()).To(Equal(0))
+		})
+
+		It("should handle empty cache gracefully", func() {
 			fakeRouter.ClearCacheReturns(0, nil)
 
-			resp, err := callTool(ctx, semanticrouter.CacheToolRequest{Action: "clear_all"})
+			resp, err := callTool(adminCtx(), semanticrouter.CacheToolRequest{Action: "clear_all"})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Count).To(Equal(0))
 		})
 	})
 
 	Describe("invalid action", func() {
-		It("should return error for unknown action", func(ctx context.Context) {
-			_, err := callTool(ctx, semanticrouter.CacheToolRequest{Action: "unknown"})
+		It("should return error for unknown action", func() {
+			_, err := callTool(adminCtx(), semanticrouter.CacheToolRequest{Action: "unknown"})
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("unknown"))
 		})
@@ -196,7 +244,7 @@ var _ = Describe("cacheTool", func() {
 
 	Describe("NewCacheTool", func() {
 		It("should return nil when router is nil", func() {
-			t := semanticrouter.NewCacheTool(nil)
+			t := semanticrouter.NewCacheTool(nil, nil)
 			Expect(t).To(BeNil())
 		})
 

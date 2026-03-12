@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/stackgenhq/genie/pkg/rbac"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )
@@ -40,15 +41,18 @@ type CacheToolResponse struct {
 // cacheTool wraps an IRouter to provide cache management functionality.
 type cacheTool struct {
 	router IRouter
+	rbac   *rbac.RBAC
 }
 
 // NewCacheTool creates the semantic_cache management tool.
 // Pass a non-nil IRouter; returns nil when router is nil.
-func NewCacheTool(router IRouter) tool.Tool {
+// The rbac parameter controls which users can perform destructive actions
+// (delete, clear_all). When nil, all actions are unrestricted.
+func NewCacheTool(router IRouter, rbac *rbac.RBAC) tool.Tool {
 	if router == nil {
 		return nil
 	}
-	t := &cacheTool{router: router}
+	t := &cacheTool{router: router, rbac: rbac}
 	return function.NewFunctionTool(
 		t.execute,
 		function.WithName(CacheToolName),
@@ -56,8 +60,8 @@ func NewCacheTool(router IRouter) tool.Tool {
 			"Manage the semantic cache. The semantic cache stores previous Q&A pairs "+
 				"and uses them as hints for future similar questions. "+
 				"Use action='search' with a query to find cached entries. "+
-				"Use action='delete' with IDs to remove specific entries. "+
-				"Use action='clear_all' to remove all cached entries. "+
+				"Use action='delete' with IDs to remove specific entries (admin only). "+
+				"Use action='clear_all' to remove all cached entries (admin only). "+
 				"Example: {\"action\":\"search\",\"query\":\"container image report\",\"limit\":10}",
 		),
 	)
@@ -77,6 +81,14 @@ func (t *cacheTool) execute(ctx context.Context, req CacheToolRequest) (CacheToo
 	default:
 		return CacheToolResponse{}, fmt.Errorf("action must be 'search', 'delete', or 'clear_all', got %q", req.Action)
 	}
+}
+
+// requireAdmin checks RBAC and returns an error if the user is not an admin.
+func (t *cacheTool) requireAdmin(ctx context.Context, action string) error {
+	if t.rbac != nil && !t.rbac.IsAdmin(ctx) {
+		return fmt.Errorf("permission denied: action %q requires admin privileges", action)
+	}
+	return nil
 }
 
 func (t *cacheTool) search(ctx context.Context, req CacheToolRequest) (CacheToolResponse, error) {
@@ -105,6 +117,10 @@ func (t *cacheTool) search(ctx context.Context, req CacheToolRequest) (CacheTool
 }
 
 func (t *cacheTool) deleteCacheEntries(ctx context.Context, req CacheToolRequest) (CacheToolResponse, error) {
+	if err := t.requireAdmin(ctx, "delete"); err != nil {
+		return CacheToolResponse{}, err
+	}
+
 	if len(req.IDs) == 0 {
 		return CacheToolResponse{}, fmt.Errorf("ids array is required and must not be empty for action=delete")
 	}
@@ -121,6 +137,10 @@ func (t *cacheTool) deleteCacheEntries(ctx context.Context, req CacheToolRequest
 }
 
 func (t *cacheTool) clearAll(ctx context.Context) (CacheToolResponse, error) {
+	if err := t.requireAdmin(ctx, "clear_all"); err != nil {
+		return CacheToolResponse{}, err
+	}
+
 	count, err := t.router.ClearCache(ctx)
 	if err != nil {
 		return CacheToolResponse{}, err

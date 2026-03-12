@@ -54,6 +54,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/orchestrator"
 	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 	"github.com/stackgenhq/genie/pkg/pii"
+	"github.com/stackgenhq/genie/pkg/rbac"
 	"github.com/stackgenhq/genie/pkg/report/activityreport"
 	"github.com/stackgenhq/genie/pkg/semanticrouter"
 
@@ -423,6 +424,7 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 		orchestrator.WithHalGuardConfig(a.cfg.HalGuard),
 		orchestrator.WithSemanticRouter(semRouter),
 		orchestrator.WithAccomplishmentConfidenceThreshold(a.cfg.Persona.AccomplishmentConfidenceThreshold),
+		orchestrator.WithRBAC(rbac.New(rbac.Config{AdminUsers: a.cfg.Messenger.AGUI.AdminUsers})),
 	}
 
 	// If a skill provider exists, we allow dynamic skills
