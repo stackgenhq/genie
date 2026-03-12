@@ -375,6 +375,7 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 		orchestrator.WithDisableResume(a.cfg.Persona.DisableResume),
 		orchestrator.WithHalGuardConfig(a.cfg.HalGuard),
 		orchestrator.WithSemanticRouter(semRouter),
+		orchestrator.WithAccomplishmentConfidenceThreshold(a.cfg.Persona.AccomplishmentConfidenceThreshold),
 	}
 
 	// If a skill provider exists, we allow dynamic skills
