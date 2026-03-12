@@ -241,7 +241,7 @@ func NewOrchestrator(
 	// Create a parent span so every downstream vector-store, graph-store and
 	// memory operation during bootstrap is grouped into a single trace rather
 	// than appearing as orphaned root-level spans in Langfuse.
-	ctx, bootstrapSpan := trace.Tracer.Start(ctx, orchestratorcontext.AgentNameFromContext(ctx)+".bootstrap")
+	ctx, bootstrapSpan := trace.Tracer.Start(ctx, orchestratorcontext.AgentNameFromContext(ctx)+".bootstrap.init")
 	defer bootstrapSpan.End()
 	// Resolve agent name from context (set by app.Bootstrap via
 	// orchestratorcontext.WithAgent).

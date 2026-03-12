@@ -604,7 +604,7 @@ var _ = Describe("storeResults", func() {
 
 	It("stores in episodic memory with success status", func() {
 		fakeEpisodic := &memoryfakes.FakeEpisodicMemory{}
-		cat := &createAgentTool{episodic: fakeEpisodic}
+		cat := &createAgentTool{episodic: fakeEpisodic, workingMemory: memory.NewWorkingMemory()}
 		req := CreateAgentRequest{AgentName: "test-agent", Goal: "find files"}
 
 		cat.storeResults(context.Background(), req, subAgentResult{
@@ -620,7 +620,7 @@ var _ = Describe("storeResults", func() {
 
 	It("stores in episodic memory with failure status when timed out", func() {
 		fakeEpisodic := &memoryfakes.FakeEpisodicMemory{}
-		cat := &createAgentTool{episodic: fakeEpisodic}
+		cat := &createAgentTool{episodic: fakeEpisodic, workingMemory: memory.NewWorkingMemory()}
 		req := CreateAgentRequest{AgentName: "test-agent", Goal: "find files"}
 
 		cat.storeResults(context.Background(), req, subAgentResult{
@@ -635,7 +635,7 @@ var _ = Describe("storeResults", func() {
 
 	It("stores in episodic memory with failure status when status is error", func() {
 		fakeEpisodic := &memoryfakes.FakeEpisodicMemory{}
-		cat := &createAgentTool{episodic: fakeEpisodic}
+		cat := &createAgentTool{episodic: fakeEpisodic, workingMemory: memory.NewWorkingMemory()}
 		req := CreateAgentRequest{AgentName: "test-agent", Goal: "scan repos"}
 
 		cat.storeResults(context.Background(), req, subAgentResult{
@@ -653,7 +653,7 @@ var _ = Describe("storeResults", func() {
 
 	It("stores in episodic memory with failure status when status is partial", func() {
 		fakeEpisodic := &memoryfakes.FakeEpisodicMemory{}
-		cat := &createAgentTool{episodic: fakeEpisodic}
+		cat := &createAgentTool{episodic: fakeEpisodic, workingMemory: memory.NewWorkingMemory()}
 		req := CreateAgentRequest{AgentName: "budget-agent", Goal: "list PRs"}
 
 		cat.storeResults(context.Background(), req, subAgentResult{
@@ -706,6 +706,7 @@ var _ = Describe("storeResults", func() {
 		cat := &createAgentTool{
 			episodic:         fakeEpisodic,
 			failureReflector: fakeReflector,
+			workingMemory:    memory.NewWorkingMemory(),
 		}
 		req := CreateAgentRequest{AgentName: "gcp-checker", Goal: "check GCP instances"}
 
@@ -728,6 +729,7 @@ var _ = Describe("storeResults", func() {
 		cat := &createAgentTool{
 			episodic:         fakeEpisodic,
 			importanceScorer: fakeScorer,
+			workingMemory:    memory.NewWorkingMemory(),
 		}
 		req := CreateAgentRequest{AgentName: "gcp-checker", Goal: "check GCP instances"}
 
@@ -753,6 +755,7 @@ var _ = Describe("storeResults", func() {
 			episodic:         fakeEpisodic,
 			failureReflector: fakeReflector,
 			importanceScorer: fakeScorer,
+			workingMemory:    memory.NewWorkingMemory(),
 		}
 		req := CreateAgentRequest{AgentName: "test-agent", Goal: "list files"}
 
