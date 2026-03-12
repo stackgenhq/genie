@@ -42,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Generic executable tool** (`pkg/tools/executable/`) — config-driven tool wrapper for arbitrary binaries with secret validation, minimal environment isolation (`PATH`, `HOME` + configured vars only), and shell metacharacter injection prevention. Replaces the hardcoded `ghcli` tool.
 - **Cloud discovery example** (`examples/cloud-discovery/`) — full `.genie.toml` config, `AGENTS.md` persona, and `cloud-discovery` skill for AWS resource scanning and StackGen AppStack generation.
 - Orchestrator now has access to `memory_search` and `memory_store` tools, allowing it to query vector memory at session start instead of relying on `read_notes` (which is empty at the start of a conversation).
+- **Graph memory deletion** — `DeleteEntity`, `DeleteRelation`, and `DeleteAll` methods on `IStore` interface with implementations in `InMemoryStore` (vertex + incident edge removal, graph reinit) and `VectorBackedStore` (cascading relation doc cleanup, batch delete). `graph_store` tool now supports `delete_entity`, `delete_relation`, and `delete_all` actions, including bulk operations via `action=batch`.
+- **Semantic cache management tool** (`semantic_cache`) — orchestrator-level tool for searching, inspecting, and deleting cached Q&A entries. Registered automatically when the semantic router is enabled.
+- `SearchCache` and `DeleteCacheEntries` methods on `IRouter` interface for programmatic cache management.
 
 ### Changed
 
@@ -65,10 +68,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - HITL `CreatedBy` and `CanResolve` now source user identity from `identity.GetSender(ctx)` instead of `authcontext.GetPrincipal(ctx)`. Identical string values flow through; no behavioral change.
 - Langfuse tracing (`withPrincipalBaggage`) reads user identity from `identity.GetSender(ctx)` and maps `DisplayName` (was `Name`) to `langfuse.trace.metadata.user_name`.
 - **`IStore` interface refactored to 2-parameter pattern** — `Search` and `SearchWithFilter` unified into `Search(ctx, SearchRequest)` with optional `Filter`; `Add`, `Upsert`, `Delete` now accept `AddRequest`, `UpsertRequest`, `DeleteRequest` structs. All callers across `orchestrator`, `semanticrouter`, `graph`, `reactree`, `report`, and `app` packages updated.
+- **Semantic cache changed from direct answer to context hint** — cached responses are no longer returned verbatim as short-circuit answers. Instead, the cached response is injected as a `## Prior Cached Answer (Reference Only)` section in the agent prompt, so the agent always re-executes tools for fresh data while using the cached answer as a guideline. Prevents stale `kubectl` output and similar operational data from being served verbatim.
 
 ### Fixed
 
 - MCP tool adapter now strips `_justification` field from tool call arguments before forwarding to MCP servers — LLMs inject this field based on sub-agent instructions, but MCP servers reject it as an unknown field (`"error converting arguments: input is invalid"`).
+- **Graph docs filtered from `memory_search` and `memory_list`** — documents tagged with `__graph_type` metadata (graph entities and relations stored in the shared vector collection) are now excluded from user-facing memory tool results. This prevents the agent from discovering graph docs via `memory_search` and attempting to delete them via `memory_delete` (which would orphan graph state), directing graph operations to the dedicated `graph_store`/`graph_query` tools instead.
 
 ### Removed
 
