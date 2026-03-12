@@ -100,7 +100,7 @@ cross_model_samples = 3
 [[mcp.servers]]
 name = "stackgen"
 transport = "stdio"
-command = "stackgen"
+command = "stackgen-beta"
 args = ["mcp"]
 
 
