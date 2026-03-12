@@ -11,8 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Unified identity model** — Removed the `authcontext` package and consolidated user identity into a single `identity.Sender` type in `pkg/identity`. This eliminates the dual-identity system where `authcontext.Principal` and `messenger.Sender` carried overlapping information through separate context paths. `messenger.Sender` is now a type alias for `identity.Sender`.
 - **BREAKING**: `Authenticator.Authenticate` returns `*identity.Sender` instead of `*authcontext.Principal`. The `Name` field is now `DisplayName`.
+- **Semantic tool discovery** — Orchestrator resume generation now uses `SearchToolsWithContext` (vector semantic search + co-occurrence re-ranking) instead of dumping all tool names into the prompt, reducing prompt bloat and hallucination.
+- **Dynamic tool descriptions** — `create_agent` description no longer embeds a static tool list; when a `VectorToolProvider` is available it instructs the LLM to specify tools by capability, with a fallback to listing tool names when no index exists.
+- **Categorized orchestrator direct tools** — Consolidated ad-hoc tool lifting into a single `orchestratorDirectTools` slice organized by category (clarification, scheduling, context management, communication, knowledge management).
 
 ### Added
+
+- **VectorToolProvider** — New `pkg/tools/VectorToolProvider` indexes tool declarations into a vector store and provides semantic search (`SearchTools`) for goal-based tool discovery, replacing hardcoded tool name lists.
+- **Co-occurrence graph** — `VectorToolProvider` maintains an in-memory pairwise co-occurrence graph (AutoTool-style) that learns which tools are commonly used together. `RecordToolUsage` records edges from each sub-agent run; `CooccurrenceScore` returns log-normalized [0,1] affinity.
+- **`SearchToolsWithContext`** — Blended 70% semantic + 30% co-occurrence scoring for context-aware tool recommendations. Cold-start safe: falls back to pure semantic ranking when the graph is empty.
+- **Tool co-occurrence tracking in sub-agents** — `create_agent` captures `usedToolNames` from streaming `ToolCalls` events and feeds them to `recordToolCooccurrence` post-execution, building the co-occurrence graph incrementally.
 
 - **Confidence-gated accomplishment storage** — `TreeResult` now carries a `Confidence` score (0.0–1.0) computed from execution signals (task completion, status, iteration efficiency, repetition, output presence). Only results above a configurable threshold (default 0.5) are stored, preventing failed/garbage outputs from polluting memory.
 - **`AccomplishmentConfidenceThreshold`** config field in `[persona]` — controls the minimum confidence required to store an accomplishment (default 0.5 / 50%). Exposed in Config Builder UI under the Persona section with TOML/YAML serialization.

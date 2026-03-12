@@ -35,7 +35,7 @@ var _ = Describe("CreateAgentTool", func() {
 			registry := tools.NewRegistry(context.Background(), &testToolProvider{t: []tool.Tool{fakeTool}})
 
 			cat := NewCreateAgentTool(
-				nil, fakeExpert, fakeSummarizer, registry, wm, fakeEpisodic, nil, nil, nil,
+				nil, fakeExpert, fakeSummarizer, registry, wm, fakeEpisodic, nil, nil, nil, nil,
 			)
 			Expect(cat).NotTo(BeNil())
 			Expect(cat.expert).To(Equal(fakeExpert))
@@ -44,7 +44,7 @@ var _ = Describe("CreateAgentTool", func() {
 
 		It("applies options", func() {
 			cat := NewCreateAgentTool(nil, nil, nil,
-				tools.NewRegistry(context.Background()), nil, nil, nil, nil, nil,
+				tools.NewRegistry(context.Background()), nil, nil, nil, nil, nil, nil,
 				WithSkipSummarizeMarker(true))
 			Expect(cat.skipSummarize).To(BeTrue())
 		})
@@ -56,7 +56,7 @@ var _ = Describe("CreateAgentTool", func() {
 			ca.DeclarationReturns(&tool.Declaration{Name: "create_agent"})
 			reg := tools.NewRegistry(context.Background(), &testToolProvider{t: []tool.Tool{run, ca}})
 
-			cat := NewCreateAgentTool(nil, nil, nil, reg, nil, nil, nil, nil, nil)
+			cat := NewCreateAgentTool(nil, nil, nil, reg, nil, nil, nil, nil, nil, nil)
 			Expect(cat.subAgentRegistry.ToolNames()).To(ContainElement("run_shell"))
 			Expect(cat.subAgentRegistry.ToolNames()).NotTo(ContainElement("create_agent"))
 		})
@@ -65,7 +65,7 @@ var _ = Describe("CreateAgentTool", func() {
 	Describe("GetTool", func() {
 		It("returns tool with correct name", func() {
 			cat := NewCreateAgentTool(nil, nil, nil,
-				tools.NewRegistry(context.Background()), nil, nil, nil, nil, nil)
+				tools.NewRegistry(context.Background()), nil, nil, nil, nil, nil, nil)
 			Expect(cat.GetTool().Declaration().Name).To(Equal("create_agent"))
 		})
 	})
@@ -85,7 +85,7 @@ var _ = Describe("CreateAgentTool", func() {
 	Describe("SetHalGuardThreshold", func() {
 		It("sets the threshold", func() {
 			cat := NewCreateAgentTool(nil, nil, nil,
-				tools.NewRegistry(context.Background()), nil, nil, nil, nil, nil)
+				tools.NewRegistry(context.Background()), nil, nil, nil, nil, nil, nil)
 			cat.SetHalGuardThreshold(0.7)
 			Expect(cat.halGuardThreshold).To(Equal(0.7))
 		})
