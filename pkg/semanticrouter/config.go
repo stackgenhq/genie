@@ -21,6 +21,10 @@ const defaultThreshold = 0.85
 // so this is kept intentionally short.
 const defaultCacheTTL = 5 * time.Minute
 
+// defaultPruneInterval is how often the background goroutine prunes stale
+// cache entries. Override via Config.PruneInterval.
+const defaultPruneInterval = 1 * time.Hour
+
 // Config configures the semantic routing engine.
 type Config struct {
 	// Disabled determines whether semantic routing features are active.
@@ -36,6 +40,10 @@ type Config struct {
 	// CacheTTL controls how long cached responses remain valid.
 	// Expired entries are ignored on read. Default is 5 minutes.
 	CacheTTL time.Duration `yaml:"cache_ttl,omitempty" toml:"cache_ttl,omitempty"`
+
+	// PruneInterval controls how often the background goroutine prunes stale
+	// cache entries. Default is 1 hour. Set to 0 to disable background pruning.
+	PruneInterval time.Duration `yaml:"prune_interval,omitempty" toml:"prune_interval,omitempty"`
 
 	// VectorStore defines the embedding and storage backend used for
 	// the semantic routing and caching. If empty, uses dummy embedder.
@@ -61,5 +69,6 @@ func DefaultConfig() Config {
 		Threshold:     defaultThreshold,
 		EnableCaching: true,
 		CacheTTL:      defaultCacheTTL,
+		PruneInterval: defaultPruneInterval,
 	}
 }

@@ -51,6 +51,12 @@ type PersonaConfig struct {
 	// DisableResume makes the generation of the agent's resume optional.
 	// If disabled, the persona file is used as is.
 	DisableResume bool `yaml:"disable_resume,omitempty" toml:"disable_resume,omitempty"`
+
+	// AccomplishmentConfidenceThreshold is the minimum confidence score
+	// (0.0–1.0) required for a tree result to be stored as an accomplishment.
+	// Results below this threshold are discarded to prevent storing
+	// error outputs or low-quality responses. Default is 0.5.
+	AccomplishmentConfidenceThreshold float64 `yaml:"accomplishment_confidence_threshold,omitempty" toml:"accomplishment_confidence_threshold,omitempty"`
 }
 
 type GenieConfig struct {

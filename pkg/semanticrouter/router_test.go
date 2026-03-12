@@ -47,13 +47,11 @@ func fakeErrorResponse(err error) <-chan *model.Response {
 
 var _ = Describe("SemanticRouter", func() {
 	var (
-		ctx          context.Context
 		fakeProvider *modelproviderfakes.FakeModelProvider
 		router       *Router
 	)
 
 	BeforeEach(func() {
-		ctx = context.Background()
 		fakeProvider = &modelproviderfakes.FakeModelProvider{}
 		router = &Router{
 			provider: fakeProvider,
@@ -135,7 +133,7 @@ var _ = Describe("SemanticRouter", func() {
 	})
 
 	Describe("classifyL2", func() {
-		It("should yield SALUTATION on successful classification", func() {
+		It("should yield SALUTATION on successful classification", func(ctx context.Context) {
 			fakeModel := &modelproviderfakes.FakeModel{}
 			fakeModel.GenerateContentReturns(fakeResponse("SALUTATION"), nil)
 
@@ -148,7 +146,7 @@ var _ = Describe("SemanticRouter", func() {
 			Expect(res.Category).To(Equal(string(CategorySalutation)))
 		})
 
-		It("should fallback to COMPLEX when provider returns error", func() {
+		It("should fallback to COMPLEX when provider returns error", func(ctx context.Context) {
 			fakeProvider.GetModelReturns(nil, errors.New("no model"))
 
 			cc := &mw.ClassifyContext{Question: "hi", Resume: "resume"}
@@ -157,7 +155,7 @@ var _ = Describe("SemanticRouter", func() {
 			Expect(res.Category).To(Equal(string(CategoryComplex)))
 		})
 
-		It("should fallback to COMPLEX when model generation fails outright", func() {
+		It("should fallback to COMPLEX when model generation fails outright", func(ctx context.Context) {
 			fakeModel := &modelproviderfakes.FakeModel{}
 			fakeModel.GenerateContentReturns(nil, errors.New("generation failed"))
 
@@ -170,7 +168,7 @@ var _ = Describe("SemanticRouter", func() {
 			Expect(res.Category).To(Equal(string(CategoryComplex)))
 		})
 
-		It("should fallback to COMPLEX when model generation yields an error in stream", func() {
+		It("should fallback to COMPLEX when model generation yields an error in stream", func(ctx context.Context) {
 			fakeModel := &modelproviderfakes.FakeModel{}
 			fakeModel.GenerateContentReturns(fakeErrorResponse(errors.New("stream error")), nil)
 
@@ -185,7 +183,7 @@ var _ = Describe("SemanticRouter", func() {
 	})
 
 	Describe("Classify (L1 Behavior)", func() {
-		It("should bypass LLM if intent matches via L1 semantic cache/route", func() {
+		It("should bypass LLM if intent matches via L1 semantic cache/route", func(ctx context.Context) {
 			// Fake out the underlying vector store logic for Route() by making it "match"
 			fakeStore := &vectorfakes.FakeIStore{}
 			fakeStore.SearchReturns([]vector.SearchResult{
@@ -213,7 +211,7 @@ var _ = Describe("SemanticRouter", func() {
 			Expect(res.Category).To(Equal(CategoryRefuse))
 		})
 
-		It("should degrade gracefully if no provider exists", func() {
+		It("should degrade gracefully if no provider exists", func(ctx context.Context) {
 			rt := &Router{
 				cfg: Config{Disabled: true}, // skip L1
 			}
@@ -224,7 +222,7 @@ var _ = Describe("SemanticRouter", func() {
 			Expect(res.Category).To(Equal(CategoryComplex)) // defaults without L2 provider
 		})
 
-		It("should degrade to COMPLEX when L2 provider returns error", func() {
+		It("should degrade to COMPLEX when L2 provider returns error", func(ctx context.Context) {
 			fakeProvider.GetModelReturns(nil, errors.New("provider down"))
 
 			rt := &Router{
@@ -240,12 +238,12 @@ var _ = Describe("SemanticRouter", func() {
 	})
 
 	Describe("builtinRoutes and Initialization", func() {
-		It("should return expected builtin routes", func() {
+		It("should return expected builtin routes", func(ctx context.Context) {
 			routes := builtinRoutes()
 			Expect(len(routes)).To(BeNumerically(">", 0))
 		})
 
-		It("should successfully initialize New router", func() {
+		It("should successfully initialize New router", func(ctx context.Context) {
 			fakeCfg := Config{
 				VectorStore: vector.Config{},
 				Disabled:    false,
@@ -281,7 +279,7 @@ var _ = Describe("SemanticRouter", func() {
 		})
 
 		Describe("Route via Classify", func() {
-			It("should return SALUTATION when L1 score meets threshold", func() {
+			It("should return SALUTATION when L1 score meets threshold", func(ctx context.Context) {
 				fakeRouteStore.SearchReturns([]vector.SearchResult{
 					{Score: 0.95, Metadata: map[string]string{"route": RouteSalutation}},
 				}, nil)
@@ -295,7 +293,7 @@ var _ = Describe("SemanticRouter", func() {
 				Expect(res.BypassedLLM).To(BeTrue())
 			})
 
-			It("should fall through when score is below threshold", func() {
+			It("should fall through when score is below threshold", func(ctx context.Context) {
 				fakeRouteStore.SearchReturns([]vector.SearchResult{
 					{Score: 0.5, Metadata: map[string]string{"route": RouteSalutation}},
 				}, nil)
@@ -311,7 +309,7 @@ var _ = Describe("SemanticRouter", func() {
 		})
 
 		Describe("CheckCache", func() {
-			It("should return cached response when matched", func() {
+			It("should return cached response when matched", func(ctx context.Context) {
 				fakeCacheStore.SearchReturns([]vector.SearchResult{
 					{Score: 0.95, Metadata: map[string]string{"response": "cached answer"}},
 				}, nil)
@@ -321,13 +319,13 @@ var _ = Describe("SemanticRouter", func() {
 				Expect(resp).To(Equal("cached answer"))
 			})
 
-			It("should return false when disabled or cache disabled", func() {
+			It("should return false when disabled or cache disabled", func(ctx context.Context) {
 				rt.cfg.EnableCaching = false
 				_, ok := rt.CheckCache(ctx, "cache query")
 				Expect(ok).To(BeFalse())
 			})
 
-			It("should return false when score below threshold", func() {
+			It("should return false when score below threshold", func(ctx context.Context) {
 				fakeCacheStore.SearchReturns([]vector.SearchResult{
 					{Score: 0.1, Metadata: map[string]string{"response": "cached answer"}},
 				}, nil)
@@ -336,7 +334,7 @@ var _ = Describe("SemanticRouter", func() {
 				Expect(ok).To(BeFalse())
 			})
 
-			It("should return false when cache entry has expired", func() {
+			It("should return false when cache entry has expired", func(ctx context.Context) {
 				expiredTime := strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10)
 				fakeCacheStore.SearchReturns([]vector.SearchResult{
 					{Score: 0.95, Metadata: map[string]string{
@@ -350,7 +348,7 @@ var _ = Describe("SemanticRouter", func() {
 				Expect(ok).To(BeFalse())
 			})
 
-			It("should accept cache entry within TTL", func() {
+			It("should accept cache entry within TTL", func(ctx context.Context) {
 				recentTime := strconv.FormatInt(time.Now().Add(-1*time.Minute).Unix(), 10)
 				fakeCacheStore.SearchReturns([]vector.SearchResult{
 					{Score: 0.95, Metadata: map[string]string{
@@ -365,7 +363,7 @@ var _ = Describe("SemanticRouter", func() {
 				Expect(resp).To(Equal("fresh answer"))
 			})
 
-			It("should accept cache entry when cached_at is missing (pre-existing entries)", func() {
+			It("should accept cache entry when cached_at is missing (pre-existing entries)", func(ctx context.Context) {
 				fakeCacheStore.SearchReturns([]vector.SearchResult{
 					{Score: 0.95, Metadata: map[string]string{"response": "legacy answer"}},
 				}, nil)
@@ -378,13 +376,13 @@ var _ = Describe("SemanticRouter", func() {
 		})
 
 		Describe("SetCache", func() {
-			It("should store the response to cache memory", func() {
+			It("should store the response to cache memory", func(ctx context.Context) {
 				err := rt.SetCache(ctx, "query", "answer")
 				Expect(err).NotTo(HaveOccurred())
 				Expect(fakeCacheStore.UpsertCallCount()).To(Equal(1))
 			})
 
-			It("should hash keys in SetCache", func() {
+			It("should hash keys in SetCache", func(ctx context.Context) {
 				longQuery := strings.Repeat("A", 100)
 				err := rt.SetCache(ctx, longQuery, "answer")
 				Expect(err).NotTo(HaveOccurred())
@@ -396,7 +394,7 @@ var _ = Describe("SemanticRouter", func() {
 				Expect(upsertedItems[0].ID).To(HavePrefix("cache_"))
 			})
 
-			It("should return nil immediately if caching disabled", func() {
+			It("should return nil immediately if caching disabled", func(ctx context.Context) {
 				rt.cfg.EnableCaching = false
 				err := rt.SetCache(ctx, "query", "answer")
 				Expect(err).NotTo(HaveOccurred())
@@ -415,7 +413,7 @@ var _ = Describe("SemanticRouter", func() {
 	})
 
 	Describe("PruneStaleCacheEntries", func() {
-		It("should delete expired cache entries", func() {
+		It("should delete expired cache entries", func(ctx context.Context) {
 			fakeStore := &vectorfakes.FakeIStore{}
 			expiredTime := strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10)
 			freshTime := strconv.FormatInt(time.Now().Add(-1*time.Minute).Unix(), 10)
@@ -445,7 +443,7 @@ var _ = Describe("SemanticRouter", func() {
 			Expect(deletedIDs).To(ConsistOf("cache_abc"))
 		})
 
-		It("should return 0 when no entries are stale", func() {
+		It("should return 0 when no entries are stale", func(ctx context.Context) {
 			fakeStore := &vectorfakes.FakeIStore{}
 			freshTime := strconv.FormatInt(time.Now().Add(-1*time.Minute).Unix(), 10)
 
@@ -469,7 +467,7 @@ var _ = Describe("SemanticRouter", func() {
 			Expect(fakeStore.DeleteCallCount()).To(Equal(0))
 		})
 
-		It("should return 0 when caching is disabled", func() {
+		It("should return 0 when caching is disabled", func(ctx context.Context) {
 			rt := &Router{
 				cfg: Config{EnableCaching: false},
 			}
@@ -477,6 +475,141 @@ var _ = Describe("SemanticRouter", func() {
 			count, err := rt.PruneStaleCacheEntries(ctx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(count).To(Equal(0))
+		})
+	})
+
+	Describe("startPruneTicker", func() {
+		It("should not start ticker when caching is disabled", func() {
+			rt := &Router{
+				cfg: Config{Disabled: true, EnableCaching: true, PruneInterval: 50 * time.Millisecond},
+			}
+			rt.startPruneTicker()
+			Expect(rt.stopPrune).To(BeNil())
+		})
+
+		It("should not start ticker when EnableCaching is false", func() {
+			fakeStore := &vectorfakes.FakeIStore{}
+			rt := &Router{
+				cfg:        Config{EnableCaching: false, PruneInterval: 50 * time.Millisecond},
+				cacheStore: fakeStore,
+			}
+			rt.startPruneTicker()
+			Expect(rt.stopPrune).To(BeNil())
+		})
+
+		It("should not start ticker when cacheStore is nil", func() {
+			rt := &Router{
+				cfg: Config{EnableCaching: true, PruneInterval: 50 * time.Millisecond},
+			}
+			rt.startPruneTicker()
+			Expect(rt.stopPrune).To(BeNil())
+		})
+
+		It("should not start ticker when PruneInterval is 0", func() {
+			fakeStore := &vectorfakes.FakeIStore{}
+			rt := &Router{
+				cfg:        Config{EnableCaching: true, PruneInterval: 0},
+				cacheStore: fakeStore,
+			}
+			rt.startPruneTicker()
+			Expect(rt.stopPrune).To(BeNil())
+		})
+
+		It("should start ticker and prune stale entries periodically", func() {
+			fakeStore := &vectorfakes.FakeIStore{}
+			expiredTime := strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10)
+
+			fakeStore.SearchWithFilterReturns([]vector.SearchResult{
+				{ID: "cache_stale", Score: 0.5, Metadata: map[string]string{
+					"response": "old", "cached_at": expiredTime, "type": "semantic_cache",
+				}},
+			}, nil)
+
+			rt := &Router{
+				cfg: Config{
+					EnableCaching: true,
+					CacheTTL:      5 * time.Minute,
+					PruneInterval: 50 * time.Millisecond, // fast tick for testing
+				},
+				cacheStore: fakeStore,
+			}
+			rt.startPruneTicker()
+			Expect(rt.stopPrune).NotTo(BeNil())
+
+			// Wait enough for at least one tick to fire.
+			Eventually(func() int {
+				return fakeStore.SearchWithFilterCallCount()
+			}, 500*time.Millisecond, 10*time.Millisecond).Should(BeNumerically(">=", 1))
+
+			// Verify that Delete was called for the stale entry.
+			Eventually(func() int {
+				return fakeStore.DeleteCallCount()
+			}, 500*time.Millisecond, 10*time.Millisecond).Should(BeNumerically(">=", 1))
+
+			rt.Close()
+		})
+	})
+
+	Describe("Close", func() {
+		It("should stop the prune ticker", func() {
+			fakeStore := &vectorfakes.FakeIStore{}
+			// Return no results so prune is a no-op.
+			fakeStore.SearchWithFilterReturns(nil, nil)
+
+			rt := &Router{
+				cfg: Config{
+					EnableCaching: true,
+					CacheTTL:      5 * time.Minute,
+					PruneInterval: 50 * time.Millisecond,
+				},
+				cacheStore: fakeStore,
+			}
+			rt.startPruneTicker()
+			Expect(rt.stopPrune).NotTo(BeNil())
+
+			// Wait for at least one tick to prove the ticker is running.
+			Eventually(func() int {
+				return fakeStore.SearchWithFilterCallCount()
+			}, 500*time.Millisecond, 10*time.Millisecond).Should(BeNumerically(">=", 1))
+
+			rt.Close()
+			// The channel should be closed (not nil) after Close().
+			_, open := <-rt.stopPrune
+			Expect(open).To(BeFalse())
+
+			// Snapshot after a brief settle to let any in-flight call finish.
+			time.Sleep(100 * time.Millisecond)
+			countAfterClose := fakeStore.SearchWithFilterCallCount()
+
+			// No more ticks should fire after Close.
+			Consistently(func() int {
+				return fakeStore.SearchWithFilterCallCount()
+			}, 200*time.Millisecond, 25*time.Millisecond).Should(Equal(countAfterClose))
+		})
+
+		It("should be safe to call multiple times", func() {
+			fakeStore := &vectorfakes.FakeIStore{}
+			fakeStore.SearchWithFilterReturns(nil, nil)
+
+			rt := &Router{
+				cfg: Config{
+					EnableCaching: true,
+					CacheTTL:      5 * time.Minute,
+					PruneInterval: 50 * time.Millisecond,
+				},
+				cacheStore: fakeStore,
+			}
+			rt.startPruneTicker()
+
+			rt.Close()
+			Expect(func() { rt.Close() }).NotTo(Panic())
+		})
+
+		It("should be safe when ticker was never started", func() {
+			rt := &Router{
+				cfg: Config{Disabled: true},
+			}
+			Expect(func() { rt.Close() }).NotTo(Panic())
 		})
 	})
 })

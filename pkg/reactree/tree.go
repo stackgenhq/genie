@@ -24,6 +24,37 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
+// Confidence scoring weights. These control how much each execution signal
+// contributes to the overall confidence score (0.0–1.0) that gates
+// accomplishment storage.
+const (
+	// confidenceWeightTaskCompleted is awarded when the agent signals natural
+	// task completion (the strongest indicator of a useful result).
+	confidenceWeightTaskCompleted = 0.4
+
+	// confidenceWeightStatusSuccess is awarded when the tree status is Success.
+	confidenceWeightStatusSuccess = 0.2
+
+	// confidenceWeightIterationEfficiency is the maximum bonus for solving
+	// a task in fewer iterations. Scaled linearly:
+	// bonus = (1 - iterations/maxIterations) * weight.
+	confidenceWeightIterationEfficiency = 0.2
+
+	// confidenceWeightNoRepetition is awarded when no stuck-loop repetition
+	// was detected during execution.
+	confidenceWeightNoRepetition = 0.1
+
+	// confidenceWeightNonEmptyOutput is awarded when the agent produced
+	// non-empty output text.
+	confidenceWeightNonEmptyOutput = 0.1
+
+	// DefaultAccomplishmentConfidenceThreshold is the default minimum
+	// confidence required to store a tree result as an accomplishment.
+	// Results below this are discarded to prevent storing error/low-quality
+	// outputs. Can be overridden via WithAccomplishmentConfidenceThreshold.
+	DefaultAccomplishmentConfidenceThreshold = 0.5
+)
+
 // StageConfig defines a named stage in a multi-stage ReAcTree.
 // Each stage becomes an agent node in a sequence graph. The stage instruction
 // is appended to the goal to guide the LLM's focus for that stage.
@@ -102,6 +133,13 @@ type TreeResult struct {
 	Output        string
 	NodeCount     int
 	ContextBudget hooks.ContextBudgetEvent
+
+	// Confidence is a heuristic score (0.0–1.0) derived from execution signals
+	// that indicates how reliable the output is. Used to gate accomplishment
+	// storage: outputs below the threshold are not persisted as accomplishments.
+	// Signals: task completion (0.4), success status (0.2), iteration efficiency (0.2),
+	// no repetition (0.1), non-empty output (0.1).
+	Confidence float64
 }
 
 //go:generate go tool counterfeiter -generate
@@ -326,10 +364,21 @@ func (t *tree) runSingleNode(ctx context.Context, req TreeRequest) (TreeResult, 
 		// Drain graph lifecycle events to let execution finish
 	}
 
+	// Compute confidence from a minimal loopState to reuse the same logic
+	// as the adaptive loop path.
+	ls := &loopState{
+		capturedTaskCompleted: capturedStatus == Success && capturedOutput != "",
+		lastStatus:            capturedStatus,
+		lastOutput:            capturedOutput,
+		iteration:             1,
+		maxIterations:         1,
+	}
+
 	result := TreeResult{
-		Status:    capturedStatus,
-		Output:    capturedOutput,
-		NodeCount: 1,
+		Status:     capturedStatus,
+		Output:     capturedOutput,
+		NodeCount:  1,
+		Confidence: ls.computeConfidence(),
 	}
 
 	logr.Info("ReAcTree execution completed", "status", result.Status, "output_length", len(result.Output))
@@ -460,10 +509,21 @@ func (t *tree) runMultiStage(ctx context.Context, req TreeRequest) (TreeResult, 
 		// Drain graph lifecycle events to let execution finish
 	}
 
+	// Compute confidence from a minimal loopState to reuse the same logic
+	// as the adaptive loop path.
+	ls := &loopState{
+		capturedTaskCompleted: capturedStatus == Success && capturedOutput != "",
+		lastStatus:            capturedStatus,
+		lastOutput:            capturedOutput,
+		iteration:             totalStages,
+		maxIterations:         totalStages,
+	}
+
 	result := TreeResult{
-		Status:    capturedStatus,
-		Output:    capturedOutput,
-		NodeCount: totalStages,
+		Status:     capturedStatus,
+		Output:     capturedOutput,
+		NodeCount:  totalStages,
+		Confidence: ls.computeConfidence(),
 	}
 
 	logr.Info("multi-stage ReAcTree execution completed",

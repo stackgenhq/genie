@@ -72,7 +72,7 @@
         audit_path: '',
         persona_token_threshold: 2000,
         disable_pensieve: false,
-        persona: { file: '', disable_resume: false },
+        persona: { file: '', disable_resume: false, accomplishment_confidence_threshold: 0.5 },
         halguard: { enable_pre_check: true, enable_post_check: true, light_threshold_chars: 200, full_threshold_chars: 500, cross_model_samples: 3, max_blocks_to_judge: 20, pre_check_threshold: 0.4 },
         semantic_router: { disabled: false, threshold: 0.85, enable_caching: true, cache_ttl: '5m', l0_regex: { disabled: false, extra_patterns: [] }, follow_up_bypass: { disabled: false }, routes: [] }
     };
@@ -779,6 +779,9 @@
             fieldToggle('Disable Pensieve Tools', state.disable_pensieve, function (v) { state.disable_pensieve = v; renderOutput(); },
                 'Disable context self-management tools (delete_context, check_budget, note, read_notes). ' +
                 'delete_context and note require HITL approval. Based on the StateLM paper (arXiv:2602.12108).'),
+            fieldNumber('Accomplishment Confidence Threshold', state.persona.accomplishment_confidence_threshold * 100, function (v) { state.persona.accomplishment_confidence_threshold = (parseInt(v, 10) || 50) / 100; renderOutput(); }, 0, 100,
+                'Minimum confidence % (0-100) for storing a result as an accomplishment in vector memory. ' +
+                'Lower values store more results; higher values only store high-quality completions. Default: 50%.'),
         ];
         var fragment = document.createDocumentFragment();
         fields.forEach(function (f) { if (f) fragment.appendChild(f); });
@@ -1688,10 +1691,11 @@
     }
 
     function personaToToml(lines) {
-        if (!state.persona.file && !state.persona.disable_resume) return;
+        if (!state.persona.file && !state.persona.disable_resume && state.persona.accomplishment_confidence_threshold === 0.5) return;
         lines.push('[persona]');
         if (state.persona.file) lines.push('file = ' + q(state.persona.file));
         if (state.persona.disable_resume) lines.push('disable_resume = true');
+        if (state.persona.accomplishment_confidence_threshold !== 0.5) lines.push('accomplishment_confidence_threshold = ' + state.persona.accomplishment_confidence_threshold);
         lines.push('');
     }
 
@@ -2488,7 +2492,7 @@
         lines.push('pii:');
         if (p.salt) lines.push('  salt: ' + yq(p.salt));
         if (p.entropy_threshold !== 4.2) lines.push('  entropy_threshold: ' + p.entropy_threshold);
-        if (p.min_secret_length !== 6) lines.push('  min_secret_length: ' + p.min_secret_length);
+        if (p.min_secret_length !== 12) lines.push('  min_secret_length: ' + p.min_secret_length);
         if (hasItems(p.sensitive_keys)) {
             lines.push('  sensitive_keys:');
             p.sensitive_keys.filter(Boolean).forEach(function (k) {
@@ -2499,10 +2503,11 @@
     }
 
     function personaToYaml(lines) {
-        if (!state.persona.file && !state.persona.disable_resume) return;
+        if (!state.persona.file && !state.persona.disable_resume && state.persona.accomplishment_confidence_threshold === 0.5) return;
         lines.push('persona:');
         if (state.persona.file) lines.push('  file: ' + yq(state.persona.file));
         if (state.persona.disable_resume) lines.push('  disable_resume: true');
+        if (state.persona.accomplishment_confidence_threshold !== 0.5) lines.push('  accomplishment_confidence_threshold: ' + state.persona.accomplishment_confidence_threshold);
         lines.push('');
     }
 

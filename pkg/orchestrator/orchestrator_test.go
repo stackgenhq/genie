@@ -27,6 +27,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/reactree"
 	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
+	"github.com/stackgenhq/genie/pkg/reactree/memory/memoryfakes"
 	"github.com/stackgenhq/genie/pkg/reactree/reactreefakes"
 	"github.com/stackgenhq/genie/pkg/semanticrouter"
 	"github.com/stackgenhq/genie/pkg/semanticrouter/semanticrouterfakes"
@@ -59,8 +60,10 @@ var _ = Describe("CodeOwner", func() {
 				AppName: "test",
 				UserID:  "test",
 			},
-			auditor:      &auditfakes.FakeAuditor{},
-			toolRegistry: tools.NewRegistry(ctx),
+			auditor:           &auditfakes.FakeAuditor{},
+			toolRegistry:      tools.NewRegistry(ctx),
+			importanceScorer:  rtmemory.NewNoOpImportanceScorer(),
+			episodicMemoryCfg: rtmemory.DefaultEpisodicMemoryConfig(),
 			resume: ttlcache.NewItem(func(_ context.Context) (string, error) {
 				return "Kubernetes triage specialist with shell and kubectl tools.", nil
 			}, 5*time.Minute),
@@ -108,137 +111,177 @@ var _ = Describe("CodeOwner", func() {
 	})
 
 	Describe("recallAccomplishments", func() {
-		It("should return empty string when vectorStore is nil", func() {
-			co.vectorStore = nil
-			result := co.recallAccomplishments(ctx)
-			Expect(result).To(BeEmpty())
-		})
+		Context("episodic memory primary path", func() {
+			var fakeEpisodicMem *memoryfakes.FakeEpisodicMemory
 
-		It("should return empty string when search returns no results", func() {
-			fakeStore := &vectorfakes.FakeIStore{}
-			fakeStore.SearchWithFilterReturns([]vector.SearchResult{}, nil)
-			co.vectorStore = fakeStore
+			BeforeEach(func() {
+				fakeEpisodicMem = &memoryfakes.FakeEpisodicMemory{}
+				co.episodicMemories.Store("global", fakeEpisodicMem)
+			})
 
-			result := co.recallAccomplishments(ctx)
-			Expect(result).To(BeEmpty())
-			// recallAccomplishments calls SearchWithFilter twice: once with visibility
-			// filter, then a fallback with sender_id when results are sparse (<2).
-			Expect(fakeStore.SearchWithFilterCallCount()).To(Equal(2))
-			_, query, limit, filter := fakeStore.SearchWithFilterArgsForCall(0)
-			Expect(query).To(Equal(rtmemory.AccomplishmentType))
-			Expect(limit).To(Equal(50))
-			Expect(filter).To(HaveKeyWithValue("type", rtmemory.AccomplishmentType))
-		})
-
-		It("should return empty string when search errors", func() {
-			fakeStore := &vectorfakes.FakeIStore{}
-			fakeStore.SearchWithFilterReturns(nil, errors.New("search failed"))
-			co.vectorStore = fakeStore
-
-			result := co.recallAccomplishments(ctx)
-			Expect(result).To(BeEmpty())
-		})
-
-		It("should format accomplishments as a bulleted list", func() {
-			fakeStore := &vectorfakes.FakeIStore{}
-			fakeStore.SearchWithFilterReturns([]vector.SearchResult{
-				{Content: "Q: deploy app\nA: deployed successfully", Score: 0.9, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
-				{Content: "Q: fix bug\nA: fixed the null pointer", Score: 0.8, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
-			}, nil)
-			co.vectorStore = fakeStore
-
-			result := co.recallAccomplishments(ctx)
-			Expect(result).To(ContainSubstring("- Q: deploy app"))
-			Expect(result).To(ContainSubstring("- Q: fix bug"))
-		})
-
-		It("should filter by type via metadata (non-accomplishments excluded at vector store level)", func() {
-			fakeStore := &vectorfakes.FakeIStore{}
-			// SearchWithFilter now receives the type filter, so the vector store
-			// only returns accomplishments. We verify the filter is passed correctly.
-			fakeStore.SearchWithFilterReturns([]vector.SearchResult{
-				{Content: "accomplishment entry", Score: 0.9, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
-			}, nil)
-			co.vectorStore = fakeStore
-
-			result := co.recallAccomplishments(ctx)
-			Expect(result).To(ContainSubstring("- accomplishment entry"))
-			// recallAccomplishments calls SearchWithFilter twice: once with visibility
-			// filter, then a fallback with sender_id when results are sparse (<2).
-			Expect(fakeStore.SearchWithFilterCallCount()).To(Equal(2))
-			_, _, _, filter := fakeStore.SearchWithFilterArgsForCall(0)
-			Expect(filter).To(HaveKeyWithValue("type", rtmemory.AccomplishmentType))
-		})
-
-		It("should limit to top 5 accomplishments", func() {
-			var results []vector.SearchResult
-			for i := 0; i < 8; i++ {
-				results = append(results, vector.SearchResult{
-					Content:  fmt.Sprintf("task %d", i),
-					Score:    float64(8-i) / 10.0,
-					Metadata: map[string]string{"type": rtmemory.AccomplishmentType},
+			It("should return episodes from episodic memory", func() {
+				fakeEpisodicMem.RetrieveWeightedReturns([]rtmemory.Episode{
+					{Goal: "deploy app", Trajectory: "Q: deploy app\nA: deployed successfully", Status: rtmemory.EpisodeSuccess, Importance: 8},
+					{Goal: "fix bug", Trajectory: "Q: fix bug\nA: fixed the null pointer", Status: rtmemory.EpisodeSuccess, Importance: 6},
 				})
-			}
-			fakeStore := &vectorfakes.FakeIStore{}
-			fakeStore.SearchWithFilterReturns(results, nil)
-			co.vectorStore = fakeStore
 
-			result := co.recallAccomplishments(ctx)
-			// Should contain first 5 (highest scoring) but not the rest
-			for i := 0; i < 5; i++ {
-				Expect(result).To(ContainSubstring(fmt.Sprintf("task %d", i)))
-			}
-			for i := 5; i < 8; i++ {
-				Expect(result).NotTo(ContainSubstring(fmt.Sprintf("task %d", i)))
-			}
+				result := co.recallAccomplishments(ctx)
+				Expect(result).To(ContainSubstring("- Q: deploy app"))
+				Expect(result).To(ContainSubstring("- Q: fix bug"))
+				Expect(fakeEpisodicMem.RetrieveWeightedCallCount()).To(Equal(1))
+			})
+
+			It("should not fall back to vector store when episodic memory has results", func() {
+				fakeEpisodicMem.RetrieveWeightedReturns([]rtmemory.Episode{
+					{Goal: "task", Trajectory: "episodic result", Status: rtmemory.EpisodeSuccess, Importance: 7},
+				})
+				fakeStore := &vectorfakes.FakeIStore{}
+				fakeStore.SearchWithFilterReturns([]vector.SearchResult{
+					{Content: "legacy result", Score: 0.9},
+				}, nil)
+				co.vectorStore = fakeStore
+
+				result := co.recallAccomplishments(ctx)
+				Expect(result).To(ContainSubstring("episodic result"))
+				Expect(result).NotTo(ContainSubstring("legacy result"))
+				// Vector store should NOT have been called.
+				Expect(fakeStore.SearchWithFilterCallCount()).To(Equal(0))
+			})
 		})
 
-		It("should sort by score descending", func() {
-			fakeStore := &vectorfakes.FakeIStore{}
-			fakeStore.SearchWithFilterReturns([]vector.SearchResult{
-				{Content: "low score", Score: 0.3, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
-				{Content: "high score", Score: 0.9, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
-				{Content: "mid score", Score: 0.6, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
-			}, nil)
-			co.vectorStore = fakeStore
+		Context("wisdom notes integration", func() {
+			var (
+				fakeEpisodicMem *memoryfakes.FakeEpisodicMemory
+				fakeWisdom      *memoryfakes.FakeWisdomStore
+			)
 
-			result := co.recallAccomplishments(ctx)
-			// high score should appear before mid score, which should appear before low score
-			highIdx := strings.Index(result, "high score")
-			midIdx := strings.Index(result, "mid score")
-			lowIdx := strings.Index(result, "low score")
-			Expect(highIdx).To(BeNumerically("<", midIdx))
-			Expect(midIdx).To(BeNumerically("<", lowIdx))
+			BeforeEach(func() {
+				fakeEpisodicMem = &memoryfakes.FakeEpisodicMemory{}
+				co.episodicMemories.Store("global", fakeEpisodicMem)
+				fakeWisdom = &memoryfakes.FakeWisdomStore{}
+				co.wisdomStore = fakeWisdom
+			})
+
+			It("should append wisdom notes alongside episodic results", func() {
+				fakeEpisodicMem.RetrieveWeightedReturns([]rtmemory.Episode{
+					{Goal: "task", Trajectory: "episodic entry", Importance: 7},
+				})
+				fakeWisdom.RetrieveWisdomReturns([]rtmemory.WisdomNote{
+					{Summary: "Always check pod status before deploying", Period: "2026-03-10"},
+				})
+
+				result := co.recallAccomplishments(ctx)
+				Expect(result).To(ContainSubstring("- episodic entry"))
+				Expect(result).To(ContainSubstring("- Always check pod status"))
+			})
+
+			It("should return wisdom notes even when episodic memory is empty", func() {
+				fakeEpisodicMem.RetrieveWeightedReturns(nil)
+				fakeWisdom.RetrieveWisdomReturns([]rtmemory.WisdomNote{
+					{Summary: "Lesson from past tasks", Period: "2026-03-10"},
+				})
+
+				result := co.recallAccomplishments(ctx)
+				Expect(result).To(ContainSubstring("- Lesson from past tasks"))
+			})
+		})
+
+		Context("legacy vector store fallback", func() {
+			It("should return empty string when both episodic and vector store are empty", func() {
+				co.vectorStore = nil
+				result := co.recallAccomplishments(ctx)
+				Expect(result).To(BeEmpty())
+			})
+
+			It("should fall back to vector store when episodic memory and wisdom are empty", func() {
+				fakeStore := &vectorfakes.FakeIStore{}
+				fakeStore.SearchWithFilterReturns([]vector.SearchResult{
+					{Content: "legacy accomplishment", Score: 0.9, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
+				}, nil)
+				co.vectorStore = fakeStore
+
+				result := co.recallAccomplishments(ctx)
+				Expect(result).To(ContainSubstring("- legacy accomplishment"))
+			})
+
+			It("should sort legacy results by score descending", func() {
+				fakeStore := &vectorfakes.FakeIStore{}
+				fakeStore.SearchWithFilterReturns([]vector.SearchResult{
+					{Content: "low score", Score: 0.3, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
+					{Content: "high score", Score: 0.9, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
+					{Content: "mid score", Score: 0.6, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
+				}, nil)
+				co.vectorStore = fakeStore
+
+				result := co.recallAccomplishments(ctx)
+				highIdx := strings.Index(result, "high score")
+				midIdx := strings.Index(result, "mid score")
+				lowIdx := strings.Index(result, "low score")
+				Expect(highIdx).To(BeNumerically("<", midIdx))
+				Expect(midIdx).To(BeNumerically("<", lowIdx))
+			})
+
+			It("should limit legacy results to top 5", func() {
+				var results []vector.SearchResult
+				for i := 0; i < 8; i++ {
+					results = append(results, vector.SearchResult{
+						Content:  fmt.Sprintf("task %d", i),
+						Score:    float64(8-i) / 10.0,
+						Metadata: map[string]string{"type": rtmemory.AccomplishmentType},
+					})
+				}
+				fakeStore := &vectorfakes.FakeIStore{}
+				fakeStore.SearchWithFilterReturns(results, nil)
+				co.vectorStore = fakeStore
+
+				result := co.recallAccomplishments(ctx)
+				for i := 0; i < 5; i++ {
+					Expect(result).To(ContainSubstring(fmt.Sprintf("task %d", i)))
+				}
+				for i := 5; i < 8; i++ {
+					Expect(result).NotTo(ContainSubstring(fmt.Sprintf("task %d", i)))
+				}
+			})
 		})
 	})
 
 	Describe("storeAccomplishment", func() {
-		It("should not panic when vectorStore is nil", func() {
-			co.vectorStore = nil
+		var (
+			fakeEpisodicMem *memoryfakes.FakeEpisodicMemory
+			fakeScorer      *memoryfakes.FakeImportanceScorer
+		)
+
+		BeforeEach(func() {
+			fakeEpisodicMem = &memoryfakes.FakeEpisodicMemory{}
+			fakeScorer = &memoryfakes.FakeImportanceScorer{}
+			fakeScorer.ScoreReturns(7) // default importance score
+
+			co.importanceScorer = fakeScorer
+			// Pre-populate the sync.Map so episodicMemoryForSender returns our fake.
+			// DeriveVisibility() returns "global" when no MessageOrigin is in context.
+			co.episodicMemories.Store("global", fakeEpisodicMem)
+		})
+
+		It("should not panic when importanceScorer is no-op", func() {
+			co.importanceScorer = rtmemory.NewNoOpImportanceScorer()
 			Expect(func() {
 				co.storeAccomplishment(ctx, "question", reactree.TreeResult{Output: "answer", Status: reactree.Success})
 			}).NotTo(Panic())
 		})
 
-		It("should store accomplishment with correct metadata", func() {
-			fakeStore := &vectorfakes.FakeIStore{}
-			co.vectorStore = fakeStore
-
+		It("should store accomplishment as an episode with correct fields", func() {
 			co.storeAccomplishment(ctx, "refactor the database", reactree.TreeResult{Output: "done, refactored 3 files", Status: reactree.Success})
 
-			Expect(fakeStore.AddCallCount()).To(Equal(1))
-			_, items := fakeStore.AddArgsForCall(0)
-			Expect(items).To(HaveLen(1))
-			Expect(items[0].ID).To(HavePrefix(rtmemory.AccomplishmentType + "-"))
-			Expect(items[0].Text).To(ContainSubstring("Q: refactor the database"))
-			Expect(items[0].Text).To(ContainSubstring("A: done, refactored 3 files"))
-			Expect(items[0].Metadata).To(HaveKeyWithValue("type", rtmemory.AccomplishmentType))
+			Expect(fakeEpisodicMem.StoreCallCount()).To(Equal(1))
+			_, episode := fakeEpisodicMem.StoreArgsForCall(0)
+			Expect(episode.Goal).To(ContainSubstring("refactor the database"))
+			Expect(episode.Trajectory).To(ContainSubstring("Q: refactor the database"))
+			Expect(episode.Trajectory).To(ContainSubstring("A: done, refactored 3 files"))
+			Expect(episode.Status).To(Equal(rtmemory.EpisodeSuccess))
+			Expect(episode.Importance).To(Equal(7))
 		})
 
 		It("should truncate long questions and answers", func() {
-			fakeStore := &vectorfakes.FakeIStore{}
-			co.vectorStore = fakeStore
-
 			longQuestion := strings.Repeat("q", 500)
 			longAnswer := strings.Repeat("a", 1000)
 			co.storeAccomplishment(ctx, longQuestion, reactree.TreeResult{
@@ -246,28 +289,26 @@ var _ = Describe("CodeOwner", func() {
 				Status: reactree.Success,
 			})
 
-			Expect(fakeStore.AddCallCount()).To(Equal(1))
-			_, items := fakeStore.AddArgsForCall(0)
-			Expect(items).To(HaveLen(1))
+			Expect(fakeEpisodicMem.StoreCallCount()).To(Equal(1))
+			_, episode := fakeEpisodicMem.StoreArgsForCall(0)
 			// Should be truncated — total shouldn't exceed Q(200) + A(500) + formatting
-			Expect(len(items[0].Text)).To(BeNumerically("<", 800))
+			Expect(len(episode.Trajectory)).To(BeNumerically("<", 800))
 		})
 
-		It("should handle Add errors gracefully without panicking", func() {
-			fakeStore := &vectorfakes.FakeIStore{}
-			fakeStore.AddReturns(errors.New("disk full"))
-			co.vectorStore = fakeStore
+		It("should call importance scorer with correct request", func() {
+			co.storeAccomplishment(ctx, "deploy the app", reactree.TreeResult{
+				Output: "successfully deployed",
+				Status: reactree.Success,
+			})
 
-			Expect(func() {
-				co.storeAccomplishment(ctx, "question", reactree.TreeResult{Output: "answer", Status: reactree.Success})
-			}).NotTo(Panic())
-			Expect(fakeStore.AddCallCount()).To(Equal(1))
+			Expect(fakeScorer.ScoreCallCount()).To(Equal(1))
+			_, req := fakeScorer.ScoreArgsForCall(0)
+			Expect(req.Goal).To(ContainSubstring("deploy the app"))
+			Expect(req.Output).To(ContainSubstring("A: successfully deployed"))
+			Expect(req.Status).To(Equal(rtmemory.EpisodeSuccess))
 		})
 
 		It("should store accomplishments even if output mentions 'error' (status is Success)", func() {
-			fakeStore := &vectorfakes.FakeIStore{}
-			co.vectorStore = fakeStore
-
 			// These should all be stored because Status is Success — the agent
 			// fixed errors, which is a valid accomplishment.
 			phrases := []string{
@@ -280,19 +321,16 @@ var _ = Describe("CodeOwner", func() {
 				co.storeAccomplishment(ctx, "do something", reactree.TreeResult{Output: phrase, Status: reactree.Success})
 			}
 
-			Expect(fakeStore.AddCallCount()).To(Equal(3))
+			Expect(fakeEpisodicMem.StoreCallCount()).To(Equal(3))
 		})
 
 		It("should NOT store accomplishment when status is not Success", func() {
-			fakeStore := &vectorfakes.FakeIStore{}
-			co.vectorStore = fakeStore
-
 			co.storeAccomplishment(ctx, "do something", reactree.TreeResult{
 				Output: "completed the task",
 				Status: reactree.Failure,
 			})
 
-			Expect(fakeStore.AddCallCount()).To(Equal(0))
+			Expect(fakeEpisodicMem.StoreCallCount()).To(Equal(0))
 		})
 	})
 
