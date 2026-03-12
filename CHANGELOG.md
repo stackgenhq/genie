@@ -64,6 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking**: `Authenticator.Authenticate` now returns `*identity.Sender` (was `*authcontext.Principal`). The `identity.Sender` type has `DisplayName` instead of `Name`; `Role` and `AuthenticatedVia` fields are unchanged. Auth middleware now calls `identity.WithSender`/`identity.GetSender` instead of `authcontext.WithPrincipal`/`authcontext.GetPrincipal`.
 - HITL `CreatedBy` and `CanResolve` now source user identity from `identity.GetSender(ctx)` instead of `authcontext.GetPrincipal(ctx)`. Identical string values flow through; no behavioral change.
 - Langfuse tracing (`withPrincipalBaggage`) reads user identity from `identity.GetSender(ctx)` and maps `DisplayName` (was `Name`) to `langfuse.trace.metadata.user_name`.
+- **`IStore` interface refactored to 2-parameter pattern** — `Search` and `SearchWithFilter` unified into `Search(ctx, SearchRequest)` with optional `Filter`; `Add`, `Upsert`, `Delete` now accept `AddRequest`, `UpsertRequest`, `DeleteRequest` structs. All callers across `orchestrator`, `semanticrouter`, `graph`, `reactree`, `report`, and `app` packages updated.
 
 ### Fixed
 
