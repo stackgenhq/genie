@@ -13,33 +13,8 @@ import (
 	. "github.com/onsi/gomega"
 
 	go_scm "github.com/drone/go-scm/scm"
-	"github.com/drone/go-scm/scm/driver/github"
 	"github.com/stackgenhq/genie/pkg/tools/scm"
 )
-
-// newTestWrapper creates a scmWrapper backed by a mock HTTP server.
-// The handler map routes URL paths to handler functions.
-func newTestWrapper(handlers map[string]http.HandlerFunc) (scm.Service, *httptest.Server) {
-	mux := http.NewServeMux()
-	for pattern, handler := range handlers {
-		mux.HandleFunc(pattern, handler)
-	}
-	srv := httptest.NewServer(mux)
-	client, _ := github.New(srv.URL)
-	client.Client = srv.Client()
-
-	cfg := scm.Config{Provider: "github", Token: "test-token", BaseURL: srv.URL}
-	svc, _ := scm.New(cfg)
-	// We can't easily inject the test server URL into the existing New() factory,
-	// so we use a helper that builds the service with the test server.
-	// For coverage, we test through the public New() + tool constructors on a real wrapper.
-	_ = cfg
-	_ = svc
-
-	// Build a wrapper using the test client directly via an unexported-friendly trick:
-	// We use the Config + New function but override the base URL.
-	return nil, srv
-}
 
 var _ = Describe("scmWrapper integration", func() {
 	var (

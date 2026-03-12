@@ -89,6 +89,12 @@ type VectorToolProvider struct {
 	// duplicate state. Has no effect when graphStore is nil.
 	DisableCooccurrenceCache bool
 
+	// indexedToolIDs tracks which tool IDs ("tool:<name>") were last
+	// indexed into the vector store. On re-index, any IDs not in the
+	// new registry are deleted to prevent stale/denied tools from
+	// appearing in search results.
+	indexedToolIDs map[string]struct{}
+
 	// cooccurrence tracks pairwise tool usage. cooccurrence[A][B] = N
 	// means tools A and B appeared together in N task runs. The graph
 	// is symmetric: recording {A, B} increments both [A][B] and [B][A].
@@ -136,7 +142,8 @@ func NewVectorToolProvider(ctx context.Context, store vector.IStore, registry *R
 }
 
 // indexTools upserts all tool declarations from the registry into the
-// vector store. Uses batch upsert for efficiency.
+// vector store, then prunes stale entries for tools that are no longer
+// in the registry (e.g. because they were denied in .genie.toml).
 func (v *VectorToolProvider) indexTools(ctx context.Context, registry *Registry) error {
 	logr := logger.GetLogger(ctx).With("fn", "VectorToolProvider.indexTools")
 
@@ -146,11 +153,15 @@ func (v *VectorToolProvider) indexTools(ctx context.Context, registry *Registry)
 		return nil
 	}
 
+	// Build batch items and track current IDs.
+	newIDs := make(map[string]struct{}, len(allTools))
 	items := make([]vector.BatchItem, 0, len(allTools))
 	for _, t := range allTools {
 		decl := t.Declaration()
+		id := "tool:" + decl.Name
+		newIDs[id] = struct{}{}
 		items = append(items, vector.BatchItem{
-			ID:   "tool:" + decl.Name,
+			ID:   id,
 			Text: decl.Name + ": " + decl.Description,
 			Metadata: map[string]string{
 				"type":      toolIndexMetaType,
@@ -158,6 +169,26 @@ func (v *VectorToolProvider) indexTools(ctx context.Context, registry *Registry)
 			},
 		})
 	}
+
+	// Prune stale entries: delete tool IDs that were previously indexed
+	// but are absent from the current registry (e.g. newly denied tools).
+	if v.indexedToolIDs != nil {
+		var staleIDs []string
+		for oldID := range v.indexedToolIDs {
+			if _, ok := newIDs[oldID]; !ok {
+				staleIDs = append(staleIDs, oldID)
+			}
+		}
+		if len(staleIDs) > 0 {
+			logr.Info("pruning stale tool entries from vector store",
+				"stale_count", len(staleIDs), "stale", staleIDs)
+			if err := v.store.Delete(ctx, vector.DeleteRequest{IDs: staleIDs}); err != nil {
+				logr.Warn("failed to prune stale tool entries", "error", err)
+				// Non-fatal: continue with upsert.
+			}
+		}
+	}
+	v.indexedToolIDs = newIDs
 
 	if err := v.store.Upsert(ctx, vector.UpsertRequest{Items: items}); err != nil {
 		return fmt.Errorf("failed to upsert tool index: %w", err)

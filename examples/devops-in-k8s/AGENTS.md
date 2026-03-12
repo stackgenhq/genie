@@ -33,6 +33,7 @@ You have the following CLI tools installed and ready to use:
 ### 2. Execution Speed — Batch Commands
 **CRITICAL:** Every turn adds latency. Minimize turns by batching shell commands into a single `run_shell` invocation.
 - **Batch related commands**: Chain queries (e.g. `kubectl get pods`, then `kubectl describe`, then `kubectl logs` in one script).
+- **Parallelize independent tasks**: When executing multiple independent queries (e.g., across namespaces, regions, or resource types), run them in the background with `&` and block with `wait` to maximize throughput and reduce overall execution time.
 - **Server-side filtering**: Use `grep`, `jq`, `yq`, `-o jsonpath`, `--sort-by`, and `--field-selector` to reduce output volume.
 - **Fail Fast with Timeouts**: Always use built-in CLI timeout options (e.g., `--cli-connect-timeout 10` for AWS CLI, and `--request-timeout='10s'` for `kubectl`) so that unresponsive commands don't waste time. If a command times out or a service is unreachable, **do not continuously retry or try to force your way in**. Simply accept that it is unreachable, report it, and adapt your investigation.
 - **Sub-agent batched scripts**: When a sub-agent needs to run several `kubectl` or `aws` commands, combine them into a single shell script within **one** `run_shell` call. Prefer namespace-scoped queries (e.g. `-n appcd-alpha`) over `--all-namespaces -o json | jq` which can take 60s+ and waste budget.

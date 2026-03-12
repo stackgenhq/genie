@@ -23,7 +23,6 @@ import (
 	"github.com/stackgenhq/genie/pkg/halguard"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
-	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/reactree/memory"
 	"github.com/stackgenhq/genie/pkg/retrier"
 	"github.com/stackgenhq/genie/pkg/tools"
@@ -117,12 +116,12 @@ func (req CreateAgentRequest) clampedMaxLLMCalls() int {
 // included so the parent agent can still use what was learned.
 // Without this, every caller of executeInner would duplicate the same
 // branching logic for timeout/error annotation.
-func (req CreateAgentRequest) resolveStatus(timedOut bool, lastErr, result, partialToolResults string) (status, output string) {
+func (req CreateAgentRequest) resolveStatus(timedOut bool, lastErr, result, partialToolResults string) (status AgentStatus, output string) {
 	output = result
-	status = "success"
+	status = AgentStatusSuccess
 
 	if timedOut {
-		status = "partial"
+		status = AgentStatusPartial
 		prefix := fmt.Sprintf("[TIME LIMIT REACHED] The sub-agent %q ran out of time. Here is what was found before the deadline:\n\n", req.AgentName)
 		if output == "" && partialToolResults != "" {
 			output = prefix + partialToolResults
@@ -136,22 +135,73 @@ func (req CreateAgentRequest) resolveStatus(timedOut bool, lastErr, result, part
 
 	if lastErr != "" && output == "" {
 		if partialToolResults != "" {
-			status = "partial"
+			status = AgentStatusPartial
 			output = fmt.Sprintf("[BUDGET EXCEEDED] The sub-agent %q ran out of LLM calls. "+
 				"Here is what it learned before the limit:\n\n%s\n\nError: %s",
 				req.AgentName, partialToolResults, lastErr)
 		} else {
-			status = "error"
+			status = AgentStatusError
 			output = fmt.Sprintf("sub-agent error: %s", lastErr)
 		}
 	}
 	return status, output
 }
 
+// AgentStatus represents the status of a sub-agent execution.
+type AgentStatus int
+
+const (
+	AgentStatusSuccess AgentStatus = iota
+	AgentStatusPartial
+	AgentStatusError
+	AgentStatusToolUseFailure
+	AgentStatusVerifiedCorrected
+)
+
+func (s AgentStatus) String() string {
+	switch s {
+	case AgentStatusSuccess:
+		return "success"
+	case AgentStatusPartial:
+		return "partial"
+	case AgentStatusError:
+		return "error"
+	case AgentStatusToolUseFailure:
+		return "tool_use_failure"
+	case AgentStatusVerifiedCorrected:
+		return "verified_corrected"
+	default:
+		return "unknown"
+	}
+}
+
+func (s AgentStatus) MarshalJSON() ([]byte, error) {
+	return []byte(`"` + s.String() + `"`), nil
+}
+
+func (s *AgentStatus) UnmarshalJSON(b []byte) error {
+	str := strings.Trim(string(b), `"`)
+	switch str {
+	case "success":
+		*s = AgentStatusSuccess
+	case "partial":
+		*s = AgentStatusPartial
+	case "error":
+		*s = AgentStatusError
+	case "tool_use_failure":
+		*s = AgentStatusToolUseFailure
+	case "verified_corrected":
+		*s = AgentStatusVerifiedCorrected
+	default:
+		return fmt.Errorf("unknown status: %s", str)
+	}
+	return nil
+}
+
 // CreateAgentResponse is the output for the create_agent tool.
 type CreateAgentResponse struct {
-	Output string `json:"output"`
-	Status string `json:"status"`
+	Output string      `json:"output"`
+	Status AgentStatus `json:"status"`
 }
 
 // createAgentTool dynamically creates a sub-agent with a selected subset of
@@ -254,11 +304,6 @@ func WithPlanAdvisor(pa memory.PlanAdvisor) CreateAgentOption {
 	return func(t *createAgentTool) { t.planAdvisor = pa }
 }
 
-// orchestrationOnlyTools lists tool names that are available to the main agent
-// but must NOT be given to sub-agents. Sub-agents must not recursively spawn
-// agents or send messages directly — those are orchestration concerns.
-var orchestrationOnlyTools = []string{"create_agent", messenger.ToolName}
-
 // NewCreateAgentTool creates a tool that spawns sub-agents with dynamic tool
 // subsets. The llmModel is the LLM to use for sub-agents. The toolRegistry is
 // a name→tool map of all available tools the sub-agent can choose from.
@@ -269,7 +314,7 @@ func NewCreateAgentTool(
 	modelProvider modelprovider.ModelProvider,
 	expert expert.Expert,
 	summarizer agentutils.Summarizer,
-	toolRegistry *tools.Registry,
+	subAgentRegistry *tools.Registry,
 	workingMemory *memory.WorkingMemory,
 	episodic memory.EpisodicMemory,
 	toolWrapSvc *toolwrap.Service,
@@ -278,16 +323,11 @@ func NewCreateAgentTool(
 	toolIndex tools.SmartToolProvider,
 	opts ...CreateAgentOption,
 ) *createAgentTool {
-	// Build a sub-agent registry that excludes orchestration-only tools.
-	// Sub-agents must not call create_agent (no recursive spawning) or
-	// send_message (only the main agent orchestrates user communication).
-	subAgentRegistry := toolRegistry.Exclude(orchestrationOnlyTools...)
-
 	t := &createAgentTool{
 		modelProvider:    modelProvider,
 		expert:           expert,
 		summarizer:       summarizer,
-		toolRegistry:     toolRegistry,
+		toolRegistry:     subAgentRegistry,
 		subAgentRegistry: subAgentRegistry,
 		toolWrapSvc:      toolWrapSvc,
 		workingMemory:    workingMemory,
@@ -373,7 +413,7 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 	// Auto-retry on tool_use_failure: the sub-agent echoed commands as text
 	// instead of calling run_shell. Retry once with a reinforced prompt that
 	// leaves no ambiguity. Only retry once to avoid infinite loops.
-	if err == nil && resp.Status == "tool_use_failure" {
+	if err == nil && resp.Status == AgentStatusToolUseFailure {
 		logr.Warn("auto-retrying sub-agent after tool_use_failure",
 			"agent_name", req.AgentName, "attempt", 2)
 
@@ -386,7 +426,7 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 		retryReq.AgentName = req.AgentName + "-retry"
 
 		resp, err = t.executeInner(ctx, retryReq)
-		if resp.Status == "tool_use_failure" {
+		if resp.Status == AgentStatusToolUseFailure {
 			logr.Error("sub-agent failed to use tools even after retry",
 				"agent_name", req.AgentName)
 		}
@@ -395,68 +435,51 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 	return resp, err
 }
 
+func (t *createAgentTool) verifyTools(ctx context.Context, req CreateAgentRequest) error {
+	if len(req.ToolNames) == 0 {
+		return nil
+	}
+	// Scope sub-agent tools to only the ones the planner requested.
+	// If req.ToolNames is empty, all sub-agent tools are available.
+	// Check for tools that were requested but are denied or unknown.
+	// This catches the case where AGENTS.md/prompts instruct the LLM
+	// to use tools that .genie.toml has denied — without this check,
+	// the sub-agent gets zero tools and hallucinates tool calls.
+	unavailable := t.subAgentRegistry.UnavailableNames(req.ToolNames)
+	if len(unavailable) == 0 {
+		return nil
+	}
+	logr := logger.GetLogger(ctx).With("fn", "createAgentTool.verifyTools", "goal", toolwrap.TruncateForAudit(req.Goal, 80), "name", req.AgentName)
+	logr.Warn("create_agent: requested tools are denied or unavailable",
+		"unavailable", unavailable,
+		"requested", req.ToolNames,
+		"agent_name", req.AgentName)
+	return fmt.Errorf(
+		"Cannot create sub-agent %q: the following tools are denied or unavailable: [%s]. "+
+			"These tools are blocked by configuration (denied_tools in .genie.toml). "+
+			"Re-plan this task using only available tools, or set tool_names to empty to use all allowed tools.",
+		req.AgentName, strings.Join(unavailable, ", "))
+}
+
 func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentRequest) (CreateAgentResponse, error) {
+	if len(req.ToolNames) == 0 {
+		return CreateAgentResponse{
+			Status: AgentStatusError,
+			Output: "No tools specified for sub-agent. Please specify tools in the prompt.",
+		}, nil
+	}
+	if err := t.verifyTools(ctx, req); err != nil {
+		return CreateAgentResponse{
+			Status: AgentStatusError,
+			Output: err.Error(),
+		}, nil
+	}
 	logr := logger.GetLogger(ctx).With("fn", "createAgentTool.executeInner", "goal", toolwrap.TruncateForAudit(req.Goal, 80), "name", req.AgentName)
-
-	// --- Pre-delegation grounding check (P0) ---
-	// Validates the goal is grounded in reality before spending any tokens.
-	// Catches fabricated scenarios (role-play, hypothetical incidents) that
-	// would waste budget and inject hallucinations into the parent context.
-	// The confidence score (0–1) lets us tune the sensitivity threshold.
-	if t.halGuard != nil {
-		preTracer := otel.Tracer("genie")
-		preCtx, preSpan := preTracer.Start(ctx, "halguard.PreCheck")
-		preResult, preErr := t.halGuard.PreCheck(preCtx, halguard.PreCheckRequest{
-			Goal:      req.Goal,
-			Context:   req.Context,
-			ToolNames: req.ToolNames,
-		})
-		if preErr != nil {
-			preSpan.RecordError(preErr)
-			preSpan.SetStatus(codes.Error, preErr.Error())
-			preSpan.End()
-			logr.Warn("halguard pre-check error, proceeding anyway", "error", preErr)
-		} else {
-			preSpan.SetAttributes(
-				attribute.Float64("halguard.precheck.confidence", preResult.Confidence),
-				attribute.String("halguard.precheck.summary", preResult.Summary),
-				attribute.String("halguard.precheck.signals", preResult.Signals.String()),
-				attribute.String("halguard.agent_name", req.AgentName),
-			)
-
-			// Use configured pre-check threshold; fall back to 0.4 default.
-			threshold := 0.4
-			if t.halGuardThreshold > 0 {
-				threshold = t.halGuardThreshold
-			}
-
-			if preResult.Confidence < threshold {
-				preSpan.SetAttributes(
-					attribute.Bool("halguard.precheck.blocked", true),
-					attribute.Float64("halguard.precheck.threshold", threshold),
-				)
-				preSpan.SetStatus(codes.Error, "grounding check failed")
-				preSpan.End()
-				logr.Warn("halguard pre-check: low confidence, blocking sub-agent",
-					"confidence", preResult.Confidence,
-					"signals", preResult.Signals,
-					"summary", preResult.Summary)
-				return CreateAgentResponse{
-					Status: "error",
-					Output: fmt.Sprintf("GROUNDING CHECK FAILED (confidence=%.2f): %s. "+
-						"The goal appears to describe a fabricated scenario. "+
-						"Please rephrase with a real, actionable task.",
-						preResult.Confidence, preResult.Summary),
-				}, nil
-			}
-			preSpan.SetAttributes(
-				attribute.Bool("halguard.precheck.blocked", false),
-			)
-			preSpan.SetStatus(codes.Ok, "")
-			preSpan.End()
-			logr.Debug("halguard pre-check passed",
-				"confidence", preResult.Confidence)
-		}
+	if err := t.doPreflightChecks(ctx, req); err != nil {
+		return CreateAgentResponse{
+			Status: AgentStatusError,
+			Output: err.Error(),
+		}, nil
 	}
 
 	// Multi-step plan: delegate to orchestrator (paper's Expand action).
@@ -475,12 +498,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 		"threadID", threadID,
 		"runID", runID,
 	)
-	// Scope sub-agent tools to only the ones the planner requested.
-	// If req.ToolNames is empty, all sub-agent tools are available.
-	scopedRegistry := t.subAgentRegistry
-	if len(req.ToolNames) > 0 {
-		scopedRegistry = scopedRegistry.Include(req.ToolNames...)
-	}
+	scopedRegistry := t.subAgentRegistry.Include(req.ToolNames...)
 
 	// Create ephemeral states for dynamic skill loaders so sub-agents
 	// have isolated skill environments that don't conflict globally.
@@ -497,7 +515,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 			"agent_name", req.AgentName,
 			"tools", scopedRegistry.ToolNames())
 		return CreateAgentResponse{
-			Status: "success",
+			Status: AgentStatusSuccess,
 			Output: "No relevant data found — the memory store is empty. " +
 				"No knowledge base entries exist to search. " +
 				"Consider using other tools to gather information.",
@@ -505,7 +523,8 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	}
 
 	selectedTools := t.toolWrapSvc.Wrap(scopedRegistry.AllTools(), toolwrap.WrapRequest{
-		AgentName: req.AgentName,
+		AgentName:     req.AgentName,
+		WorkingMemory: t.workingMemory,
 	})
 	if req.TaskType == "" {
 		req.TaskType = modelprovider.TaskPlanning
@@ -514,7 +533,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	modelToUse, err := t.modelProvider.GetModel(ctx, req.TaskType)
 	if err != nil {
 		return CreateAgentResponse{
-			Status: "error",
+			Status: AgentStatusError,
 			Output: fmt.Sprintf("failed to get model: %v", err),
 		}, nil
 	}
@@ -585,10 +604,6 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	defer cancelCause(nil)
 	runCtx := toolwrap.WithCancelCause(cancelCtx, cancelCause)
 
-	tracer := otel.Tracer("genie")
-	runCtx, span := tracer.Start(runCtx, req.AgentName+" execution")
-	defer span.End()
-
 	// Retry transient upstream LLM errors (503 / rate-limit / overloaded)
 	// so that temporary provider capacity issues don't fail the sub-agent.
 	var evCh <-chan *event.Event
@@ -611,7 +626,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	)
 	if runErr != nil {
 		return CreateAgentResponse{
-			Status: "error",
+			Status: AgentStatusError,
 			Output: fmt.Sprintf("sub-agent failed to start: %v", runErr),
 		}, nil
 	}
@@ -719,7 +734,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	// When the sub-agent produced no LLM output (e.g. deadline hit mid-generation),
 	// check working memory for data stored by tool calls that completed before
 	// the deadline (http_request → summarize → memory_store pipeline).
-	if result == "" && t.workingMemory != nil {
+	if result == "" {
 		wmKey := fmt.Sprintf("subagent:%s:result", req.AgentName)
 		if stored, ok := t.workingMemory.Recall(wmKey); ok && stored != "" {
 			result = stored
@@ -762,13 +777,76 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	}, nil
 }
 
+func (t *createAgentTool) doPreflightChecks(ctx context.Context, req CreateAgentRequest) error {
+	if t.halGuard == nil {
+		return nil
+	}
+	logr := logger.GetLogger(ctx).With("fn", "createAgentTool.doPreflightChecks", "goal", toolwrap.TruncateForAudit(req.Goal, 80), "name", req.AgentName)
+	// --- Pre-delegation grounding check (P0) ---
+	// Validates the goal is grounded in reality before spending any tokens.
+	// Catches fabricated scenarios (role-play, hypothetical incidents) that
+	// would waste budget and inject hallucinations into the parent context.
+	// The confidence score (0–1) lets us tune the sensitivity threshold.
+	preTracer := otel.Tracer("genie")
+	preCtx, preSpan := preTracer.Start(ctx, "halguard.PreCheck")
+	preResult, preErr := t.halGuard.PreCheck(preCtx, halguard.PreCheckRequest{
+		Goal:      req.Goal,
+		Context:   req.Context,
+		ToolNames: req.ToolNames,
+	})
+	if preErr != nil {
+		preSpan.RecordError(preErr)
+		preSpan.SetStatus(codes.Error, preErr.Error())
+		preSpan.End()
+		logr.Warn("halguard pre-check error, proceeding anyway", "error", preErr)
+		return nil
+	}
+	preSpan.SetAttributes(
+		attribute.Float64("halguard.precheck.confidence", preResult.Confidence),
+		attribute.String("halguard.precheck.summary", preResult.Summary),
+		attribute.String("halguard.precheck.signals", preResult.Signals.String()),
+		attribute.String("halguard.agent_name", req.AgentName),
+	)
+
+	// Use configured pre-check threshold; fall back to 0.4 default.
+	threshold := 0.4
+	if t.halGuardThreshold > 0 {
+		threshold = t.halGuardThreshold
+	}
+
+	if preResult.Confidence < threshold {
+		preSpan.SetAttributes(
+			attribute.Bool("halguard.precheck.blocked", true),
+			attribute.Float64("halguard.precheck.threshold", threshold),
+		)
+		preSpan.SetStatus(codes.Error, "grounding check failed")
+		preSpan.End()
+		logr.Warn("halguard pre-check: low confidence, blocking sub-agent",
+			"confidence", preResult.Confidence,
+			"signals", preResult.Signals,
+			"summary", preResult.Summary)
+		return fmt.Errorf("GROUNDING CHECK FAILED (confidence=%.2f): %s. "+
+			"The goal appears to describe a fabricated scenario. "+
+			"Please rephrase with a real, actionable task.",
+			preResult.Confidence, preResult.Summary)
+	}
+	preSpan.SetAttributes(
+		attribute.Bool("halguard.precheck.blocked", false),
+	)
+	preSpan.SetStatus(codes.Ok, "")
+	preSpan.End()
+	logr.Debug("halguard pre-check passed",
+		"confidence", preResult.Confidence)
+	return nil
+}
+
 // subAgentResult carries the output, status, and metadata through the
 // post-execution pipeline stages. Each stage reads and returns a
 // (possibly modified) copy, keeping the pipeline composable and each
 // stage independently testable.
 type subAgentResult struct {
 	output        string
-	status        string
+	status        AgentStatus
 	toolCallCount int
 	timedOut      bool
 	toolNameList  []string
@@ -781,14 +859,14 @@ type subAgentResult struct {
 // echoed commands as text or refused the task. It annotates the output and
 // sets status to "tool_use_failure" so the caller can auto-retry.
 func (t *createAgentTool) applyZeroToolUseGuard(_ context.Context, _ CreateAgentRequest, sar subAgentResult) subAgentResult {
-	if sar.toolCallCount == 0 && sar.output != "" && sar.status != "error" && !sar.timedOut && sar.numTools > 0 {
+	if sar.toolCallCount == 0 && sar.output != "" && sar.status != AgentStatusError && !sar.timedOut && sar.numTools > 0 {
 		sar.output = fmt.Sprintf(
 			"⚠️ SUB-AGENT DID NOT USE TOOLS: The sub-agent produced a text-only response "+
 				"without calling any of its available tools (%s). This likely means it echoed "+
 				"commands as text or refused the task instead of executing it. "+
 				"The sub-agent should be re-spawned. Original output follows:\n\n%s",
 			strings.Join(sar.toolNameList, ", "), sar.output)
-		sar.status = "tool_use_failure"
+		sar.status = AgentStatusToolUseFailure
 	}
 	return sar
 }
@@ -799,7 +877,7 @@ func (t *createAgentTool) applyZeroToolUseGuard(_ context.Context, _ CreateAgent
 // budget-exceeded, and tool_use_failure statuses because those produce
 // boilerplate text without meaningful factual content to verify.
 func (t *createAgentTool) runHalGuardPostCheck(ctx context.Context, req CreateAgentRequest, sar subAgentResult, modelToUse modelprovider.ModelMap) subAgentResult {
-	if t.halGuard == nil || sar.output == "" || sar.status != "success" {
+	if t.halGuard == nil || sar.output == "" || sar.status != AgentStatusSuccess {
 		return sar
 	}
 
@@ -835,7 +913,7 @@ func (t *createAgentTool) runHalGuardPostCheck(ctx context.Context, req CreateAg
 		logr.Warn("halguard detected hallucination in sub-agent output",
 			"tier", vr.Tier, "contradictions", len(vr.BlockScores))
 		sar.output = vr.CorrectedText
-		sar.status = "verified_corrected"
+		sar.status = AgentStatusVerifiedCorrected
 	} else {
 		postSpan.SetAttributes(
 			attribute.String("halguard.postcheck.tier", string(vr.Tier)),
@@ -860,7 +938,7 @@ func (t *createAgentTool) storeResults(ctx context.Context, req CreateAgentReque
 	// it via memory_search and compose a single user-facing message.
 	// Store even partial/error results — the parent agent can still
 	// extract useful information from incomplete findings.
-	if t.workingMemory != nil && sar.output != "" {
+	if sar.output != "" {
 		wmKey := fmt.Sprintf("subagent:%s:result", req.AgentName)
 		t.workingMemory.Store(wmKey, sar.output)
 		logr.Info("sub-agent result stored in working memory", "key", wmKey, "length", len(sar.output), "status", sar.status)
@@ -879,7 +957,7 @@ func (t *createAgentTool) storeResults(ctx context.Context, req CreateAgentReque
 			trajectory = string(runes[:maxTrajectoryRunes]) + "... (truncated)"
 		}
 		episodeStatus := memory.EpisodeSuccess
-		if sar.timedOut || sar.status == "error" || sar.status == "partial" {
+		if sar.timedOut || sar.status == AgentStatusError || sar.status == AgentStatusPartial {
 			episodeStatus = memory.EpisodeFailure
 		}
 
@@ -1032,14 +1110,17 @@ func (t *createAgentTool) executePlan(ctx context.Context, req CreateAgentReques
 		WorkingMemory: t.workingMemory,
 		Episodic:      t.episodic,
 		MaxDecisions:  req.MaxLLMCalls,
-		ToolRegistry:  t.subAgentRegistry, // use filtered registry — no create_agent/send_message
+		ToolRegistry:  t.subAgentRegistry,
 		ToolWrapSvc:   t.toolWrapSvc,
-		WrapRequest:   toolwrap.WrapRequest{AgentName: req.AgentName},
+		WrapRequest: toolwrap.WrapRequest{
+			AgentName:     req.AgentName,
+			WorkingMemory: t.workingMemory,
+		},
 		ModelProvider: t.modelProvider,
 	})
 	if err != nil {
 		return CreateAgentResponse{
-			Status: "error",
+			Status: AgentStatusError,
 			Output: fmt.Sprintf("plan execution failed: %v", err),
 		}, nil
 	}
@@ -1058,20 +1139,20 @@ func (t *createAgentTool) executePlan(ctx context.Context, req CreateAgentReques
 	output := sb.String()
 
 	// Store combined result in working memory.
-	if t.workingMemory != nil && output != "" {
+	if output != "" {
 		wmKey := fmt.Sprintf("subagent:%s:result", req.AgentName)
 		t.workingMemory.Store(wmKey, output)
 		logr.Info("plan result stored in working memory", "key", wmKey, "length", len(output))
 	}
 
-	status := "success"
+	status := AgentStatusSuccess
 	if result.Status != Success {
-		status = "partial"
+		status = AgentStatusPartial
 	}
 
 	// When output is empty, provide rich context so the parent agent can
 	// adapt its retry strategy instead of re-running the same failing plan.
-	if output == "" && status != "success" {
+	if output == "" && status != AgentStatusSuccess {
 		var detail strings.Builder
 		detail.WriteString("⚠️ Research swarm completed with no results.\n\n")
 		if len(failed) > 0 {
@@ -1089,7 +1170,7 @@ func (t *createAgentTool) executePlan(ctx context.Context, req CreateAgentReques
 	}
 
 	// Prefix with status so the LLM sees it naturally in prose.
-	if status == "partial" && !strings.HasPrefix(output, "⚠️") {
+	if status == AgentStatusPartial && !strings.HasPrefix(output, "⚠️") {
 		output = "⚠️ [Partial results] " + output
 	}
 

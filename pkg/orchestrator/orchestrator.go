@@ -362,8 +362,12 @@ func NewOrchestrator(
 	}
 
 	createAgentTool := reactree.NewCreateAgentTool(
-		modelProvider, exp, summarizer, availableTools,
-		wm, episodicMem,
+		modelProvider,
+		exp,
+		summarizer,
+		availableTools.Exclude(reactree.CreateAgentToolName, messenger.ToolName),
+		wm,
+		episodicMem,
 		toolWrapSvc,
 		vectorStore,
 		halGuard,

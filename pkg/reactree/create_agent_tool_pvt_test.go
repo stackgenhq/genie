@@ -161,18 +161,18 @@ var _ = Describe("CreateAgentRequest", func() {
 
 	Describe("resolveStatus", func() {
 		DescribeTable("resolves status correctly",
-			func(timedOut bool, errMsg, output, partial, expectedStatus string) {
+			func(timedOut bool, errMsg, output, partial string, expectedStatus AgentStatus) {
 				req := CreateAgentRequest{AgentName: "test"}
 				status, _ := req.resolveStatus(timedOut, errMsg, output, partial)
 				Expect(status).To(Equal(expectedStatus))
 			},
-			Entry("success with output", false, "", "result", "", "success"),
-			Entry("partial on timeout", true, "", "some", "", "partial"),
-			Entry("partial timeout no output", true, "", "", "partial", "partial"),
-			Entry("partial timeout nothing", true, "", "", "", "partial"),
-			Entry("error no output", false, "model failed", "", "", "error"),
-			Entry("partial error+partial", false, "budget", "", "found 3", "partial"),
-			Entry("success despite error", false, "err", "real output", "", "success"),
+			Entry("success with output", false, "", "result", "", AgentStatusSuccess),
+			Entry("partial on timeout", true, "", "some", "", AgentStatusPartial),
+			Entry("partial timeout no output", true, "", "", "partial", AgentStatusPartial),
+			Entry("partial timeout nothing", true, "", "", "", AgentStatusPartial),
+			Entry("error no output", false, "model failed", "", "", AgentStatusError),
+			Entry("partial error+partial", false, "budget", "", "found 3", AgentStatusPartial),
+			Entry("success despite error", false, "err", "real output", "", AgentStatusSuccess),
 		)
 	})
 
