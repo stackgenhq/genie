@@ -163,6 +163,13 @@
     let hitlApprovalCount = 0;
     let hitlNudgeShown = false;
 
+    // Batch-approve: track pending approvals and offer "Approve All" when
+    // a tool sits unapproved for longer than BATCH_APPROVE_DELAY_MS.
+    const BATCH_APPROVE_DELAY_MS = 8000;
+    // Map<approvalId, { toolName: string, addedAt: number }>
+    const pendingApprovals = new Map();
+    let batchApproveBannerEl = null;
+
     // ── File Attachment State ──
     // pendingFiles holds File objects selected by the user before sending.
     let pendingFiles = [];
@@ -1338,6 +1345,8 @@
             case 'RUN_STARTED':
                 hitlApprovalCount = 0;
                 hitlNudgeShown = false;
+                pendingApprovals.clear();
+                removeBatchApproveBanner();
                 showThinking();
                 break;
 
@@ -1947,6 +1956,9 @@
 
     function addApprovalCard(approvalId, toolName, args, justification) {
         hitlApprovalCount += 1;
+        // Track this pending approval for the batch-approve feature.
+        pendingApprovals.set(approvalId, { toolName: toolName || 'tool', addedAt: Date.now() });
+
         const div = document.createElement('div');
         div.className = 'flex justify-start approvals-column-item';
         const justificationHtml = justification
@@ -1989,6 +2001,17 @@
       `;
         approvalsColumnListEl.appendChild(div);
         updateApprovalsColumnVisibility();
+
+        // Batch-approve: after BATCH_APPROVE_DELAY_MS, if ≥2 pending approvals exist, show the banner.
+        setTimeout(() => {
+            if (pendingApprovals.has(approvalId) && pendingApprovals.size >= 2) {
+                showOrUpdateBatchApproveBanner();
+            }
+        }, BATCH_APPROVE_DELAY_MS);
+        // If the banner is already visible, update its count immediately.
+        if (batchApproveBannerEl && pendingApprovals.size >= 2) {
+            updateBatchApproveBannerCount();
+        }
 
         if (hitlApprovalCount >= 3 && !hitlNudgeShown) {
             hitlNudgeShown = true;
@@ -2065,6 +2088,9 @@
             actionsEl.innerHTML = statusHtml;
             // Hide the feedback textarea after resolution
             if (feedbackEl) feedbackEl.parentElement.style.display = 'none';
+            // Remove from pending-approvals tracking and update batch-approve banner.
+            pendingApprovals.delete(approvalId);
+            refreshBatchApproveBanner();
             // Poof-dismiss from right column after 5 seconds
             setTimeout(() => {
                 dismissWithPoof(document.getElementById('approval-' + approvalId)?.closest('.approvals-column-item'));
@@ -2114,6 +2140,9 @@
             statusHtml += `<div style="font-size:0.7rem;color:rgba(255,255,255,0.5);margin-top:0.25rem">${escapeHtml(feedback)}</div>`;
             actionsEl.innerHTML = statusHtml;
             if (feedbackEl) feedbackEl.parentElement.style.display = 'none';
+            // Remove from pending-approvals tracking and update batch-approve banner.
+            pendingApprovals.delete(approvalId);
+            refreshBatchApproveBanner();
             setTimeout(() => {
                 dismissWithPoof(document.getElementById('approval-' + approvalId)?.closest('.approvals-column-item'));
             }, 5000);
@@ -2126,6 +2155,151 @@
                 actionsEl.innerHTML = '<span class="approval-resolved" style="color:#dc2626">⚠️ Error: ' + escapeHtml(err.message) + '</span>';
             }
         }
+    }
+
+    // ── Batch Approve All ──
+
+    // Build a { toolName → [approvalId, …] } map from pendingApprovals.
+    function groupPendingByToolName() {
+        const groups = {};
+        for (const [id, info] of pendingApprovals) {
+            const name = info.toolName || 'tool';
+            if (!groups[name]) groups[name] = [];
+            groups[name].push(id);
+        }
+        return groups;
+    }
+
+    function showOrUpdateBatchApproveBanner() {
+        // Always rebuild the banner content to reflect the latest groups.
+        if (batchApproveBannerEl) {
+            rebuildBatchBannerContent();
+            return;
+        }
+        const count = pendingApprovals.size;
+        if (count < 2) return;
+
+        const banner = document.createElement('div');
+        banner.id = 'batch-approve-banner';
+        banner.className = 'approvals-column-item';
+        banner.style.cssText = 'order:-1;';
+        buildBatchBannerContent(banner);
+        if (approvalsColumnListEl) {
+            approvalsColumnListEl.insertBefore(banner, approvalsColumnListEl.firstChild);
+        }
+        batchApproveBannerEl = banner;
+        updateApprovalsColumnVisibility();
+    }
+
+    function buildBatchBannerContent(container) {
+        const groups = groupPendingByToolName();
+        const total = pendingApprovals.size;
+        const toolNames = Object.keys(groups);
+
+        // Per-tool rows (only when there are multiple distinct tool names or ≥2 of any single tool).
+        let toolRowsHtml = '';
+        for (const name of toolNames) {
+            const ids = groups[name];
+            const n = ids.length;
+            if (n < 1) continue;
+            const safeIds = JSON.stringify(ids).replace(/'/g, '&#39;');
+            toolRowsHtml += `
+      <div style="display:flex;align-items:center;gap:0.5rem;padding:0.25rem 0;">
+        <code style="background:rgba(255,255,255,0.08);padding:0.1rem 0.4rem;border-radius:0.25rem;font-size:0.75rem;color:#c4b5fd;">${escapeHtml(name)}</code>
+        <span style="font-size:0.75rem;color:rgba(255,255,255,0.5);">×${n}</span>
+        <button class="btn-approve" onclick="genie.approveByToolName('${escapeJsQuoted(name)}')" style="padding:0.2rem 0.5rem;font-size:0.7rem;">✅ Approve${n > 1 ? ' All' : ''} (${n})</button>
+      </div>`;
+        }
+
+        container.innerHTML = `
+<div class="approval-card" style="border-left:3px solid #818cf8;background:rgba(99,102,241,0.12);position:relative;">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;">
+    <span style="font-size:0.85rem;font-weight:600;color:#a5b4fc;">⚡ ${total} tool${total !== 1 ? 's' : ''} waiting</span>
+    <button onclick="genie.dismissBatchBanner()" style="background:none;border:none;color:rgba(255,255,255,0.4);cursor:pointer;font-size:1rem;padding:0 0.25rem;" title="Dismiss" aria-label="Dismiss batch approve banner">×</button>
+  </div>
+  <div style="margin-top:0.35rem;">${toolRowsHtml}</div>
+  <div style="margin-top:0.5rem;display:flex;gap:0.5rem;border-top:1px solid rgba(255,255,255,0.06);padding-top:0.5rem;">
+    <button class="btn-approve" onclick="genie.approveAllPending()" style="flex:1;">✅ Approve All (${total})</button>
+    <button class="btn-reject" onclick="genie.rejectAllPending()" style="flex:0;white-space:nowrap;">❌ Reject All</button>
+  </div>
+</div>
+        `;
+    }
+
+    function rebuildBatchBannerContent() {
+        if (!batchApproveBannerEl) return;
+        buildBatchBannerContent(batchApproveBannerEl);
+    }
+
+    function refreshBatchApproveBanner() {
+        if (pendingApprovals.size < 2) {
+            removeBatchApproveBanner();
+            return;
+        }
+        if (batchApproveBannerEl) {
+            rebuildBatchBannerContent();
+        }
+    }
+
+    function removeBatchApproveBanner() {
+        if (batchApproveBannerEl) {
+            batchApproveBannerEl.remove();
+            batchApproveBannerEl = null;
+            updateApprovalsColumnVisibility();
+        }
+    }
+
+    function dismissBatchBanner() {
+        removeBatchApproveBanner();
+    }
+
+    async function approveByToolName(toolName) {
+        const ids = [];
+        for (const [id, info] of pendingApprovals) {
+            if (info.toolName === toolName) ids.push(id);
+        }
+        if (ids.length === 0) return;
+        // Disable buttons on the matching row to prevent double-clicks.
+        if (batchApproveBannerEl) {
+            batchApproveBannerEl.querySelectorAll('button').forEach(btn => { btn.disabled = true; });
+        }
+        const results = await Promise.allSettled(ids.map(id => resolveApproval(id, 'approved')));
+        results.forEach((r, i) => {
+            if (r.status === 'rejected') {
+                console.warn('Batch approve by tool failed for', ids[i], r.reason);
+            }
+        });
+        refreshBatchApproveBanner();
+    }
+
+    async function approveAllPending() {
+        const ids = Array.from(pendingApprovals.keys());
+        if (ids.length === 0) return;
+        if (batchApproveBannerEl) {
+            batchApproveBannerEl.querySelectorAll('button').forEach(btn => { btn.disabled = true; });
+        }
+        const results = await Promise.allSettled(ids.map(id => resolveApproval(id, 'approved')));
+        results.forEach((r, i) => {
+            if (r.status === 'rejected') {
+                console.warn('Batch approve failed for', ids[i], r.reason);
+            }
+        });
+        removeBatchApproveBanner();
+    }
+
+    async function rejectAllPending() {
+        const ids = Array.from(pendingApprovals.keys());
+        if (ids.length === 0) return;
+        if (batchApproveBannerEl) {
+            batchApproveBannerEl.querySelectorAll('button').forEach(btn => { btn.disabled = true; });
+        }
+        const results = await Promise.allSettled(ids.map(id => resolveApproval(id, 'rejected')));
+        results.forEach((r, i) => {
+            if (r.status === 'rejected') {
+                console.warn('Batch reject failed for', ids[i], r.reason);
+            }
+        });
+        removeBatchApproveBanner();
     }
 
     // ── Clarification Card ──
@@ -2839,6 +3013,10 @@
         toggleVibratePreference: toggleVibratePreference,
         resolveApproval: resolveApproval,
         revisitApproval: revisitApproval,
+        approveAllPending: approveAllPending,
+        rejectAllPending: rejectAllPending,
+        approveByToolName: approveByToolName,
+        dismissBatchBanner: dismissBatchBanner,
         submitClarification: submitClarification,
         submitClarificationWithAnswer: submitClarificationWithAnswer,
         loadConversation: loadConversation,
