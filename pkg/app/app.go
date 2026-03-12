@@ -1237,7 +1237,7 @@ func (a *Application) runOneDataSourcesSync(ctx context.Context, cfg *datasource
 				batch = append(batch, vector.BatchItem{ID: chunkID, Text: chunkText, Metadata: meta})
 			}
 		}
-		if err := a.vectorStore.Upsert(ctx, batch...); err != nil {
+		if err := a.vectorStore.Upsert(ctx, vector.UpsertRequest{Items: batch}); err != nil {
 			log.Warn("data sources: upsert failed", "source", name, "error", err)
 			hadErrors = true
 			continue

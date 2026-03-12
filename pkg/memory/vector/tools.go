@@ -138,12 +138,12 @@ func (t *memoryStoreTool) execute(ctx context.Context, req MemoryStoreRequest) (
 
 	item := BatchItem{ID: id, Text: redactedText, Metadata: redactedMeta}
 	if req.ID != "" {
-		if err := t.store.Upsert(ctx, item); err != nil {
+		if err := t.store.Upsert(ctx, UpsertRequest{Items: []BatchItem{item}}); err != nil {
 			return MemoryStoreResponse{}, fmt.Errorf("failed to upsert memory: %w", err)
 		}
 		return MemoryStoreResponse{ID: id, Message: "Successfully upserted in memory"}, nil
 	}
-	if err := t.store.Add(ctx, item); err != nil {
+	if err := t.store.Add(ctx, AddRequest{Items: []BatchItem{item}}); err != nil {
 		return MemoryStoreResponse{}, fmt.Errorf("failed to store memory: %w", err)
 	}
 	return MemoryStoreResponse{ID: id, Message: "Successfully stored in memory"}, nil
@@ -216,13 +216,11 @@ func (t *memorySearchTool) execute(ctx context.Context, req MemorySearchRequest)
 		limit = 5
 	}
 
-	var results []SearchResult
-	var err error
-	if len(req.Filter) > 0 {
-		results, err = t.store.SearchWithFilter(ctx, req.Query, limit, req.Filter)
-	} else {
-		results, err = t.store.Search(ctx, req.Query, limit)
-	}
+	results, err := t.store.Search(ctx, SearchRequest{
+		Query:  req.Query,
+		Limit:  limit,
+		Filter: req.Filter,
+	})
 	if err != nil {
 		return MemorySearchResponse{}, fmt.Errorf("memory search failed: %w", err)
 	}
@@ -285,7 +283,7 @@ func (t *memoryDeleteTool) execute(ctx context.Context, req MemoryDeleteRequest)
 	if len(req.IDs) == 0 {
 		return MemoryDeleteResponse{}, fmt.Errorf("at least one ID is required")
 	}
-	if err := t.store.Delete(ctx, req.IDs...); err != nil {
+	if err := t.store.Delete(ctx, DeleteRequest{IDs: req.IDs}); err != nil {
 		return MemoryDeleteResponse{}, fmt.Errorf("failed to delete memories: %w", err)
 	}
 	return MemoryDeleteResponse{
@@ -347,10 +345,10 @@ func (t *memoryListTool) execute(ctx context.Context, req MemoryListRequest) (Me
 	var results []SearchResult
 	var err error
 	if len(req.Filter) > 0 {
-		results, err = t.store.SearchWithFilter(ctx, "", limit, req.Filter)
+		results, err = t.store.Search(ctx, SearchRequest{Query: "", Limit: limit, Filter: req.Filter})
 	} else {
 		// Without a filter or query, use a broad search term.
-		results, err = t.store.Search(ctx, "memory", limit)
+		results, err = t.store.Search(ctx, SearchRequest{Query: "memory", Limit: limit})
 	}
 	if err != nil {
 		return MemoryListResponse{}, fmt.Errorf("memory list failed: %w", err)
@@ -434,17 +432,17 @@ func (t *memoryMergeTool) execute(ctx context.Context, req MemoryMergeRequest) (
 
 	// Upsert the merged entry under the first ID.
 	mergedID := req.IDs[0]
-	if err := t.store.Upsert(ctx, BatchItem{
+	if err := t.store.Upsert(ctx, UpsertRequest{Items: []BatchItem{{
 		ID:       mergedID,
 		Text:     redactedText,
 		Metadata: redactedMeta,
-	}); err != nil {
+	}}}); err != nil {
 		return MemoryMergeResponse{}, fmt.Errorf("failed to upsert merged memory: %w", err)
 	}
 
 	// Delete the remaining IDs.
 	remaining := req.IDs[1:]
-	if err := t.store.Delete(ctx, remaining...); err != nil {
+	if err := t.store.Delete(ctx, DeleteRequest{IDs: remaining}); err != nil {
 		return MemoryMergeResponse{}, fmt.Errorf("merged entry saved but failed to delete originals: %w", err)
 	}
 

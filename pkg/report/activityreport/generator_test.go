@@ -124,12 +124,12 @@ var _ = Describe("Generator", func() {
 		// Assert
 		Expect(err).NotTo(HaveOccurred())
 		Expect(fakeStore.UpsertCallCount()).To(Equal(1))
-		_, items := fakeStore.UpsertArgsForCall(0)
-		Expect(items).To(HaveLen(1))
-		Expect(items[0].ID).To(HavePrefix("activity_report:"))
-		Expect(items[0].Metadata).To(HaveKeyWithValue("type", "activity_report"))
-		Expect(items[0].Metadata).To(HaveKeyWithValue("source", "activity_report"))
-		Expect(items[0].Text).To(ContainSubstring("# Activity Report"))
+		_, upsertReq := fakeStore.UpsertArgsForCall(0)
+		Expect(upsertReq.Items).To(HaveLen(1))
+		Expect(upsertReq.Items[0].ID).To(HavePrefix("activity_report:"))
+		Expect(upsertReq.Items[0].Metadata).To(HaveKeyWithValue("type", "activity_report"))
+		Expect(upsertReq.Items[0].Metadata).To(HaveKeyWithValue("source", "activity_report"))
+		Expect(upsertReq.Items[0].Text).To(ContainSubstring("# Activity Report"))
 	})
 
 	It("includes skill reference footer in generated report", func(ctx context.Context) {

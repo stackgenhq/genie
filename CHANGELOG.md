@@ -59,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SkillToolProvider` and `LoadSkillsFromConfig` now accept additional `skill.Repository` sources (e.g. MCP `PromptRepository`) via variadic `additionalRepos` parameters.
 - Orchestrator Phase 1 (ANALYZE) prompt updated to prefer `memory_search` (vector memory) over `read_notes` at session start.
 - Sub-agent audit metadata now stores the full goal string instead of truncating to 200 chars.
+- **`IStore` interface refactored to 2-parameter pattern** — `Search` and `SearchWithFilter` unified into `Search(ctx, SearchRequest)` with optional `Filter`; `Add`, `Upsert`, `Delete` now accept `AddRequest`, `UpsertRequest`, `DeleteRequest` structs. All callers across `orchestrator`, `semanticrouter`, `graph`, `reactree`, `report`, and `app` packages updated.
 
 ### Fixed
 

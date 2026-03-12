@@ -388,10 +388,10 @@ var _ = Describe("SemanticRouter", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(fakeCacheStore.UpsertCallCount()).To(Equal(1))
-				_, upsertedItems := fakeCacheStore.UpsertArgsForCall(0)
+				_, upsertReq := fakeCacheStore.UpsertArgsForCall(0)
 				// sha256 hex encoding is 64 characters long, prefixed with "cache_"
-				Expect(len(upsertedItems[0].ID)).To(Equal(6 + 64))
-				Expect(upsertedItems[0].ID).To(HavePrefix("cache_"))
+				Expect(len(upsertReq.Items[0].ID)).To(Equal(6 + 64))
+				Expect(upsertReq.Items[0].ID).To(HavePrefix("cache_"))
 			})
 
 			It("should return nil immediately if caching disabled", func(ctx context.Context) {
@@ -418,7 +418,7 @@ var _ = Describe("SemanticRouter", func() {
 			expiredTime := strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10)
 			freshTime := strconv.FormatInt(time.Now().Add(-1*time.Minute).Unix(), 10)
 
-			fakeStore.SearchWithFilterReturns([]vector.SearchResult{
+			fakeStore.SearchReturns([]vector.SearchResult{
 				{ID: "cache_abc", Score: 0.5, Metadata: map[string]string{
 					"response": "stale", "cached_at": expiredTime,
 				}},
@@ -439,15 +439,15 @@ var _ = Describe("SemanticRouter", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(count).To(Equal(1)) // only the expired one
 			Expect(fakeStore.DeleteCallCount()).To(Equal(1))
-			_, deletedIDs := fakeStore.DeleteArgsForCall(0)
-			Expect(deletedIDs).To(ConsistOf("cache_abc"))
+			_, deleteReq := fakeStore.DeleteArgsForCall(0)
+			Expect(deleteReq.IDs).To(ConsistOf("cache_abc"))
 		})
 
 		It("should return 0 when no entries are stale", func(ctx context.Context) {
 			fakeStore := &vectorfakes.FakeIStore{}
 			freshTime := strconv.FormatInt(time.Now().Add(-1*time.Minute).Unix(), 10)
 
-			fakeStore.SearchWithFilterReturns([]vector.SearchResult{
+			fakeStore.SearchReturns([]vector.SearchResult{
 				{ID: "cache_abc", Score: 0.5, Metadata: map[string]string{
 					"response": "fresh", "cached_at": freshTime,
 				}},
@@ -519,7 +519,7 @@ var _ = Describe("SemanticRouter", func() {
 			fakeStore := &vectorfakes.FakeIStore{}
 			expiredTime := strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10)
 
-			fakeStore.SearchWithFilterReturns([]vector.SearchResult{
+			fakeStore.SearchReturns([]vector.SearchResult{
 				{ID: "cache_stale", Score: 0.5, Metadata: map[string]string{
 					"response": "old", "cached_at": expiredTime, "type": "semantic_cache",
 				}},
@@ -538,7 +538,7 @@ var _ = Describe("SemanticRouter", func() {
 
 			// Wait enough for at least one tick to fire.
 			Eventually(func() int {
-				return fakeStore.SearchWithFilterCallCount()
+				return fakeStore.SearchCallCount()
 			}, 500*time.Millisecond, 10*time.Millisecond).Should(BeNumerically(">=", 1))
 
 			// Verify that Delete was called for the stale entry.
@@ -554,7 +554,7 @@ var _ = Describe("SemanticRouter", func() {
 		It("should stop the prune ticker", func() {
 			fakeStore := &vectorfakes.FakeIStore{}
 			// Return no results so prune is a no-op.
-			fakeStore.SearchWithFilterReturns(nil, nil)
+			fakeStore.SearchReturns(nil, nil)
 
 			rt := &Router{
 				cfg: Config{
@@ -569,7 +569,7 @@ var _ = Describe("SemanticRouter", func() {
 
 			// Wait for at least one tick to prove the ticker is running.
 			Eventually(func() int {
-				return fakeStore.SearchWithFilterCallCount()
+				return fakeStore.SearchCallCount()
 			}, 500*time.Millisecond, 10*time.Millisecond).Should(BeNumerically(">=", 1))
 
 			rt.Close()
@@ -579,17 +579,17 @@ var _ = Describe("SemanticRouter", func() {
 
 			// Snapshot after a brief settle to let any in-flight call finish.
 			time.Sleep(100 * time.Millisecond)
-			countAfterClose := fakeStore.SearchWithFilterCallCount()
+			countAfterClose := fakeStore.SearchCallCount()
 
 			// No more ticks should fire after Close.
 			Consistently(func() int {
-				return fakeStore.SearchWithFilterCallCount()
+				return fakeStore.SearchCallCount()
 			}, 200*time.Millisecond, 25*time.Millisecond).Should(Equal(countAfterClose))
 		})
 
 		It("should be safe to call multiple times", func() {
 			fakeStore := &vectorfakes.FakeIStore{}
-			fakeStore.SearchWithFilterReturns(nil, nil)
+			fakeStore.SearchReturns(nil, nil)
 
 			rt := &Router{
 				cfg: Config{

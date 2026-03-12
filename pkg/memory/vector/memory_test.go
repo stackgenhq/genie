@@ -40,13 +40,13 @@ var _ = Describe("Vector Store", func() {
 		})
 
 		It("should add and retrieve documents", func() {
-			err = store.Add(ctx, vector.BatchItem{ID: "1", Text: "The sky is blue", Metadata: map[string]string{"type": "fact"}})
+			err = store.Add(ctx, vector.AddRequest{Items: []vector.BatchItem{{ID: "1", Text: "The sky is blue", Metadata: map[string]string{"type": "fact"}}}})
 			Expect(err).NotTo(HaveOccurred())
 
-			err = store.Add(ctx, vector.BatchItem{ID: "2", Text: "Apples are red", Metadata: map[string]string{"type": "fact"}})
+			err = store.Add(ctx, vector.AddRequest{Items: []vector.BatchItem{{ID: "2", Text: "Apples are red", Metadata: map[string]string{"type": "fact"}}}})
 			Expect(err).NotTo(HaveOccurred())
 
-			results, err := store.Search(ctx, "The sky is blue", 1)
+			results, err := store.Search(ctx, vector.SearchRequest{Query: "The sky is blue", Limit: 1})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(results).To(HaveLen(1))
 			Expect(results[0].ID).To(Equal("1"))
@@ -55,25 +55,25 @@ var _ = Describe("Vector Store", func() {
 		})
 
 		It("should delete documents by ID", func() {
-			err = store.Add(ctx, vector.BatchItem{ID: "del-1", Text: "To be deleted", Metadata: map[string]string{"type": "temp"}})
+			err = store.Add(ctx, vector.AddRequest{Items: []vector.BatchItem{{ID: "del-1", Text: "To be deleted", Metadata: map[string]string{"type": "temp"}}}})
 			Expect(err).NotTo(HaveOccurred())
 
-			err = store.Delete(ctx, "del-1")
+			err = store.Delete(ctx, vector.DeleteRequest{IDs: []string{"del-1"}})
 			Expect(err).NotTo(HaveOccurred())
 
-			results, err := store.Search(ctx, "To be deleted", 1)
+			results, err := store.Search(ctx, vector.SearchRequest{Query: "To be deleted", Limit: 1})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(results).To(BeEmpty())
 		})
 
 		It("should upsert by replacing existing document with same ID", func() {
-			err = store.Add(ctx, vector.BatchItem{ID: "upsert-1", Text: "Original content", Metadata: map[string]string{"v": "1"}})
+			err = store.Add(ctx, vector.AddRequest{Items: []vector.BatchItem{{ID: "upsert-1", Text: "Original content", Metadata: map[string]string{"v": "1"}}}})
 			Expect(err).NotTo(HaveOccurred())
 
-			err = store.Upsert(ctx, vector.BatchItem{ID: "upsert-1", Text: "Updated content", Metadata: map[string]string{"v": "2"}})
+			err = store.Upsert(ctx, vector.UpsertRequest{Items: []vector.BatchItem{{ID: "upsert-1", Text: "Updated content", Metadata: map[string]string{"v": "2"}}}})
 			Expect(err).NotTo(HaveOccurred())
 
-			results, err := store.Search(ctx, "Updated content", 1)
+			results, err := store.Search(ctx, vector.SearchRequest{Query: "Updated content", Limit: 1})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(results).To(HaveLen(1))
 			Expect(results[0].ID).To(Equal("upsert-1"))
@@ -109,14 +109,14 @@ var _ = Describe("Vector Store", func() {
 			store1, err := cfg.NewStore(ctx)
 			Expect(err).NotTo(HaveOccurred())
 
-			err = store1.Add(ctx, vector.BatchItem{ID: "persist-1", Text: "Go is great", Metadata: map[string]string{"lang": "go"}})
+			err = store1.Add(ctx, vector.AddRequest{Items: []vector.BatchItem{{ID: "persist-1", Text: "Go is great", Metadata: map[string]string{"lang": "go"}}}})
 			Expect(err).NotTo(HaveOccurred())
 
 			// Create store 2 from the same directory — should restore.
 			store2, err := cfg.NewStore(ctx)
 			Expect(err).NotTo(HaveOccurred())
 
-			results, err := store2.Search(ctx, "Go is great", 1)
+			results, err := store2.Search(ctx, vector.SearchRequest{Query: "Go is great", Limit: 1})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(results).To(HaveLen(1))
 			Expect(results[0].ID).To(Equal("persist-1"))
@@ -131,10 +131,10 @@ var _ = Describe("Vector Store", func() {
 			s1, err := cfg.NewStore(ctx)
 			Expect(err).NotTo(HaveOccurred())
 
-			err = s1.Add(ctx, vector.BatchItem{ID: "del-test", Text: "deletable", Metadata: map[string]string{}})
+			err = s1.Add(ctx, vector.AddRequest{Items: []vector.BatchItem{{ID: "del-test", Text: "deletable", Metadata: map[string]string{}}}})
 			Expect(err).NotTo(HaveOccurred())
 
-			err = s1.Delete(ctx, "del-test")
+			err = s1.Delete(ctx, vector.DeleteRequest{IDs: []string{"del-test"}})
 			Expect(err).NotTo(HaveOccurred())
 
 			err = s1.Close(ctx)
@@ -143,7 +143,7 @@ var _ = Describe("Vector Store", func() {
 			// Reload — deleted item should be gone
 			s2, err := cfg.NewStore(ctx)
 			Expect(err).NotTo(HaveOccurred())
-			results, err := s2.Search(ctx, "deletable", 1)
+			results, err := s2.Search(ctx, vector.SearchRequest{Query: "deletable", Limit: 1})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(results).To(BeEmpty())
 		})
@@ -224,7 +224,7 @@ var _ = Describe("NewMemorySearchTool", func() {
 		store, err := cfg.NewStore(context.Background())
 		Expect(err).NotTo(HaveOccurred())
 
-		err = store.Add(context.Background(), vector.BatchItem{ID: "s1", Text: "Testing memory", Metadata: map[string]string{}})
+		err = store.Add(context.Background(), vector.AddRequest{Items: []vector.BatchItem{{ID: "s1", Text: "Testing memory", Metadata: map[string]string{}}}})
 		Expect(err).NotTo(HaveOccurred())
 
 		t := vector.NewMemorySearchTool(store, nil)
@@ -251,7 +251,7 @@ var _ = Describe("NewMemoryDeleteTool", func() {
 		store, err := cfg.NewStore(context.Background())
 		Expect(err).NotTo(HaveOccurred())
 
-		err = store.Add(context.Background(), vector.BatchItem{ID: "del-tool-1", Text: "stale error data", Metadata: map[string]string{}})
+		err = store.Add(context.Background(), vector.AddRequest{Items: []vector.BatchItem{{ID: "del-tool-1", Text: "stale error data", Metadata: map[string]string{}}}})
 		Expect(err).NotTo(HaveOccurred())
 
 		t := vector.NewMemoryDeleteTool(store)
@@ -263,7 +263,7 @@ var _ = Describe("NewMemoryDeleteTool", func() {
 		Expect(fmt.Sprint(result)).To(ContainSubstring("Successfully deleted 1"))
 
 		// Verify the entry is gone.
-		results, err := store.Search(context.Background(), "stale error data", 1)
+		results, err := store.Search(context.Background(), vector.SearchRequest{Query: "stale error data", Limit: 1})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(results).To(BeEmpty())
 	})
@@ -297,10 +297,10 @@ var _ = Describe("NewMemoryListTool", func() {
 		store, err := cfg.NewStore(context.Background())
 		Expect(err).NotTo(HaveOccurred())
 
-		err = store.Add(context.Background(),
-			vector.BatchItem{ID: "list-1", Text: "first memory", Metadata: map[string]string{"type": "test"}},
-			vector.BatchItem{ID: "list-2", Text: "second memory", Metadata: map[string]string{"type": "test"}},
-		)
+		err = store.Add(context.Background(), vector.AddRequest{Items: []vector.BatchItem{
+			{ID: "list-1", Text: "first memory", Metadata: map[string]string{"type": "test"}},
+			{ID: "list-2", Text: "second memory", Metadata: map[string]string{"type": "test"}},
+		}})
 		Expect(err).NotTo(HaveOccurred())
 
 		t := vector.NewMemoryListTool(store, nil)
@@ -327,10 +327,10 @@ var _ = Describe("NewMemoryMergeTool", func() {
 		store, err := cfg.NewStore(context.Background())
 		Expect(err).NotTo(HaveOccurred())
 
-		err = store.Add(context.Background(),
-			vector.BatchItem{ID: "merge-1", Text: "part one", Metadata: map[string]string{}},
-			vector.BatchItem{ID: "merge-2", Text: "part two", Metadata: map[string]string{}},
-		)
+		err = store.Add(context.Background(), vector.AddRequest{Items: []vector.BatchItem{
+			{ID: "merge-1", Text: "part one", Metadata: map[string]string{}},
+			{ID: "merge-2", Text: "part two", Metadata: map[string]string{}},
+		}})
 		Expect(err).NotTo(HaveOccurred())
 
 		t := vector.NewMemoryMergeTool(store, nil)
@@ -342,14 +342,14 @@ var _ = Describe("NewMemoryMergeTool", func() {
 		Expect(fmt.Sprint(result)).To(ContainSubstring("Successfully merged 2"))
 
 		// Verify merge-1 has the new content.
-		results, err := store.Search(context.Background(), "combined part one and two", 1)
+		results, err := store.Search(context.Background(), vector.SearchRequest{Query: "combined part one and two", Limit: 1})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(results).To(HaveLen(1))
 		Expect(results[0].ID).To(Equal("merge-1"))
 		Expect(results[0].Content).To(Equal("combined part one and two"))
 
 		// Verify merge-2 is deleted.
-		results, err = store.Search(context.Background(), "part two", 1)
+		results, err = store.Search(context.Background(), vector.SearchRequest{Query: "part two", Limit: 1})
 		Expect(err).NotTo(HaveOccurred())
 		for _, r := range results {
 			Expect(r.ID).NotTo(Equal("merge-2"))
@@ -402,10 +402,10 @@ var _ = Describe("AllowedMetadataKeys", func() {
 		store, err := cfg.NewStore(context.Background())
 		Expect(err).NotTo(HaveOccurred())
 
-		err = store.Add(context.Background(),
-			vector.BatchItem{ID: "a", Text: "AI SRE feature", Metadata: map[string]string{"product": "ai-sre"}},
-			vector.BatchItem{ID: "b", Text: "Other product note", Metadata: map[string]string{"product": "other"}},
-		)
+		err = store.Add(context.Background(), vector.AddRequest{Items: []vector.BatchItem{
+			{ID: "a", Text: "AI SRE feature", Metadata: map[string]string{"product": "ai-sre"}},
+			{ID: "b", Text: "Other product note", Metadata: map[string]string{"product": "other"}},
+		}})
 		Expect(err).NotTo(HaveOccurred())
 
 		t := vector.NewMemorySearchTool(store, &cfg)

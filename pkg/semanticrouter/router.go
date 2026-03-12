@@ -270,7 +270,7 @@ func indexRoutes(ctx context.Context, routeStore vector.IStore, customRoutes []R
 				},
 			})
 		}
-		if err := routeStore.Upsert(ctx, items...); err != nil {
+		if err := routeStore.Upsert(ctx, vector.UpsertRequest{Items: items}); err != nil {
 			return fmt.Errorf("failed to index utterances for route %s: %w", name, err)
 		}
 	}
@@ -511,7 +511,7 @@ func (r *Router) CheckCache(ctx context.Context, query string) (string, bool) {
 		return "", false
 	}
 
-	results, err := r.cacheStore.Search(ctx, query, 1)
+	results, err := r.cacheStore.Search(ctx, vector.SearchRequest{Query: query, Limit: 1})
 	if err != nil || len(results) == 0 {
 		if err != nil {
 			logger.GetLogger(ctx).Warn("semantic cache search query failed", "error", err)
@@ -554,7 +554,7 @@ func (r *Router) SetCache(ctx context.Context, query string, response string) er
 	hash := sha256.Sum256([]byte(query))
 	id := hex.EncodeToString(hash[:])
 
-	err := r.cacheStore.Upsert(ctx, vector.BatchItem{
+	err := r.cacheStore.Upsert(ctx, vector.UpsertRequest{Items: []vector.BatchItem{{
 		ID:   "cache_" + id,
 		Text: query,
 		Metadata: map[string]string{
@@ -562,7 +562,7 @@ func (r *Router) SetCache(ctx context.Context, query string, response string) er
 			"cached_at": strconv.FormatInt(time.Now().Unix(), 10),
 			"type":      "semantic_cache",
 		},
-	})
+	}}})
 	if err != nil {
 		return fmt.Errorf("semantic cache upsert failed: %w", err)
 	}
@@ -587,8 +587,9 @@ func (r *Router) PruneStaleCacheEntries(ctx context.Context) (int, error) {
 	// Use filter-only mode (empty query + metadata filter) to reliably
 	// enumerate cache entries rather than relying on semantic similarity
 	// to the word "cache", which could miss entries.
-	results, err := r.cacheStore.SearchWithFilter(ctx, "", 200, map[string]string{
-		"type": "semantic_cache",
+	results, err := r.cacheStore.Search(ctx, vector.SearchRequest{
+		Query: "", Limit: 200,
+		Filter: map[string]string{"type": "semantic_cache"},
 	})
 	if err != nil {
 		return 0, fmt.Errorf("cache pruning search failed: %w", err)
@@ -614,7 +615,7 @@ func (r *Router) PruneStaleCacheEntries(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 
-	if err := r.cacheStore.Delete(ctx, staleIDs...); err != nil {
+	if err := r.cacheStore.Delete(ctx, vector.DeleteRequest{IDs: staleIDs}); err != nil {
 		return 0, fmt.Errorf("cache pruning delete failed: %w", err)
 	}
 
