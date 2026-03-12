@@ -24,12 +24,12 @@ import (
 	"github.com/stackgenhq/genie/pkg/clarify"
 	"github.com/stackgenhq/genie/pkg/config"
 	"github.com/stackgenhq/genie/pkg/hitl"
+	"github.com/stackgenhq/genie/pkg/identity"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/messenger/media"
 	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 	"github.com/stackgenhq/genie/pkg/security/auth"
-	"github.com/stackgenhq/genie/pkg/security/authcontext"
 	"github.com/stackgenhq/genie/pkg/security/keyring"
 	"github.com/stackgenhq/genie/pkg/tools/google/oauth"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
@@ -723,12 +723,12 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 
 	// Inject MessageOrigin so downstream subsystems (HITL, clarify,
 	// send_message) always have a valid origin — even for AG-UI web requests.
-	// Also retrieve the authenticated Principal set by the auth package.
-	p := authcontext.GetPrincipal(ctx)
+	// Retrieve the authenticated Sender set by the auth middleware.
+	sender := identity.GetSender(ctx)
 	origin := messenger.MessageOrigin{
 		Platform: messenger.PlatformAGUI,
 		Channel:  messenger.Channel{ID: input.ThreadID},
-		Sender:   messenger.Sender{ID: p.ID, DisplayName: p.Name},
+		Sender:   messenger.Sender{ID: sender.ID, DisplayName: sender.DisplayName},
 	}
 	ctx = messenger.WithMessageOrigin(ctx, origin)
 
@@ -951,17 +951,17 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Enforce principal-scoped authorization: only the creator or admins may resolve.
-	principal := authcontext.GetPrincipal(r.Context())
+	sender := identity.GetSender(r.Context())
 	approval, err := s.approvalStore.Get(r.Context(), req.ApprovalID)
 	if err != nil {
 		logr.Error("failed to get approval for authorization check", "error", err, "approvalId", req.ApprovalID)
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusNotFound)
 		return
 	}
-	if !hitl.CanResolve(approval, principal.ID, principal.Role) {
+	if !hitl.CanResolve(approval, sender.ID, sender.Role) {
 		logr.Warn("unauthorized approval resolution attempt",
 			"approvalId", req.ApprovalID,
-			"resolver", principal.ID,
+			"resolver", sender.ID,
 			"creator", approval.CreatedBy,
 		)
 		http.Error(w, `{"error":"forbidden: only the requesting user or an admin can resolve this approval"}`, http.StatusForbidden)
@@ -986,7 +986,7 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 	if err := s.approvalStore.Resolve(r.Context(), hitl.ResolveRequest{
 		ApprovalID: req.ApprovalID,
 		Decision:   decision,
-		ResolvedBy: principal.ID,
+		ResolvedBy: sender.ID,
 		Feedback:   req.Feedback,
 	}); err != nil {
 		logr.Error("failed to resolve approval", "error", err, "approvalId", req.ApprovalID)
@@ -994,7 +994,7 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logr.Info("approval resolved", "approvalId", req.ApprovalID, "decision", req.Decision, "resolvedBy", principal.ID)
+	logr.Info("approval resolved", "approvalId", req.ApprovalID, "decision", req.Decision, "resolvedBy", sender.ID)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck

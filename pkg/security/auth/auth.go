@@ -12,27 +12,18 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/stackgenhq/genie/pkg/identity"
 	"github.com/stackgenhq/genie/pkg/logger"
-	"github.com/stackgenhq/genie/pkg/security/authcontext"
 )
-
-func DemoUser() authcontext.Principal {
-	return authcontext.Principal{
-		ID:               "demo-user",
-		Name:             "Demo User",
-		Role:             "demo",
-		AuthenticatedVia: "none",
-	}
-}
 
 // Authenticator defines a pluggable authentication strategy.
 // An authenticator is responsible for verifying the request and issuing HTTP
 // error responses if the request is unauthorized.
 type Authenticator interface {
-	// Authenticate inspects the request. Returns a non-nil Principal on success.
+	// Authenticate inspects the request. Returns a non-nil Sender on success.
 	// On failure it must write the appropriate HTTP error to the ResponseWriter
 	// and return nil.
-	Authenticate(w http.ResponseWriter, r *http.Request) *authcontext.Principal
+	Authenticate(w http.ResponseWriter, r *http.Request) *identity.Sender
 }
 
 // Middleware returns an http.Handler middleware that enforces authentication
@@ -47,16 +38,16 @@ func Middleware(cfg Config, oidcHandler ...*OIDCHandler) func(http.Handler) http
 	auth := resolveAuthenticator(cfg, oh)
 	log := logger.GetLogger(context.Background())
 	if auth == nil {
-		// No auth configured → inject a demo principal and pass through.
+		// No auth configured → inject a demo sender and pass through.
 		var warnOnce sync.Once
-		log.Warn("auth: no authentication configured — all requests get DemoUser principal")
+		log.Warn("auth: no authentication configured — all requests get DemoSender")
 		return func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				warnOnce.Do(func() {
 					log.Info("auth: serving first request without authentication",
 						"ip", getIPAddress(r), "path", r.URL.Path)
 				})
-				ctx := authcontext.WithPrincipal(r.Context(), DemoUser())
+				ctx := identity.WithSender(r.Context(), identity.DemoSender())
 				next.ServeHTTP(w, r.WithContext(ctx))
 			})
 		}
@@ -71,7 +62,7 @@ func Middleware(cfg Config, oidcHandler ...*OIDCHandler) func(http.Handler) http
 			}
 
 			if p := auth.Authenticate(w, r); p != nil {
-				ctx := authcontext.WithPrincipal(r.Context(), *p)
+				ctx := identity.WithSender(r.Context(), *p)
 				ctx = logger.WithArgs(ctx, "principal", p, "request_id", uuid.NewString())
 				logger.GetLogger(ctx).Info("user authenticated", "user", p, "ip", getIPAddress(r))
 				next.ServeHTTP(w, r.WithContext(ctx))

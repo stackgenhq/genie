@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/stackgenhq/genie/pkg/security/authcontext"
+	"github.com/stackgenhq/genie/pkg/identity"
 )
 
 // newAPIKeyAuth returns an Authenticator that validates the request against
@@ -30,7 +30,7 @@ type apiKeyAuth struct {
 
 // Authenticate verifies the presence of an API key in the Authorization: Bearer
 // header or X-API-Key header.
-func (a *apiKeyAuth) Authenticate(w http.ResponseWriter, r *http.Request) *authcontext.Principal {
+func (a *apiKeyAuth) Authenticate(w http.ResponseWriter, r *http.Request) *identity.Sender {
 	// Try Bearer token first
 	token := ""
 	authHeader := r.Header.Get("Authorization")
@@ -56,9 +56,9 @@ func (a *apiKeyAuth) Authenticate(w http.ResponseWriter, r *http.Request) *authc
 			if len(abbr) > 8 {
 				abbr = abbr[:8] + "..."
 			}
-			return &authcontext.Principal{
+			return &identity.Sender{
 				ID:               "apikey:" + abbr,
-				Name:             "API Key User",
+				DisplayName:      "API Key User",
 				Role:             "agent",
 				AuthenticatedVia: "apikey",
 			}

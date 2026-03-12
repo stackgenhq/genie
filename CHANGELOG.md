@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Unified identity package** (`pkg/identity`) — introduces a single `Sender` type carrying user ID, display name, role, and authentication method. Replaces the dual-identity system (`authcontext.Principal` + `messenger.Sender`) with one type shared by auth and messenger paths. `messenger.Sender` is now a type alias for `identity.Sender`.
+
 - **Confidence-gated accomplishment storage** — `TreeResult` now carries a `Confidence` score (0.0–1.0) computed from execution signals (task completion, status, iteration efficiency, repetition, output presence). Only results above a configurable threshold (default 0.5) are stored, preventing failed/garbage outputs from polluting memory.
 - **`AccomplishmentConfidenceThreshold`** config field in `[persona]` — controls the minimum confidence required to store an accomplishment (default 0.5 / 50%). Exposed in Config Builder UI under the Persona section with TOML/YAML serialization.
 - Agent learning from failures — previously, failed task outputs were discarded; the agent now stores them as episodic memories with LLM-generated verbal reflections, enabling it to avoid repeating the same mistakes.
@@ -59,6 +61,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SkillToolProvider` and `LoadSkillsFromConfig` now accept additional `skill.Repository` sources (e.g. MCP `PromptRepository`) via variadic `additionalRepos` parameters.
 - Orchestrator Phase 1 (ANALYZE) prompt updated to prefer `memory_search` (vector memory) over `read_notes` at session start.
 - Sub-agent audit metadata now stores the full goal string instead of truncating to 200 chars.
+- **Breaking**: `Authenticator.Authenticate` now returns `*identity.Sender` (was `*authcontext.Principal`). The `identity.Sender` type has `DisplayName` instead of `Name`; `Role` and `AuthenticatedVia` fields are unchanged. Auth middleware now calls `identity.WithSender`/`identity.GetSender` instead of `authcontext.WithPrincipal`/`authcontext.GetPrincipal`.
+- HITL `CreatedBy` and `CanResolve` now source user identity from `identity.GetSender(ctx)` instead of `authcontext.GetPrincipal(ctx)`. Identical string values flow through; no behavioral change.
+- Langfuse tracing (`withPrincipalBaggage`) reads user identity from `identity.GetSender(ctx)` and maps `DisplayName` (was `Name`) to `langfuse.trace.metadata.user_name`.
 
 ### Fixed
 
@@ -71,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `EnableCriticMiddleware`, `EnableActionReflection`, `EnableDryRunSimulation`, `EnableMCPServerAccess`, and `EnableAuditDashboard` boolean fields removed from `FeaturesConfig`.
 - `pkg/tools/ghcli/` package — replaced by generic `pkg/tools/executable/` tool with config-driven binary wrapping.
 - `GHCli` field removed from `GenieConfig`; replaced by `ExecutableTools executable.Configs` with `[executable_tools]` config section.
+- `pkg/security/authcontext/` package — replaced by `pkg/identity/` with a unified `Sender` type. `authcontext.Principal`, `WithPrincipal`, and `GetPrincipal` are no longer available; use `identity.Sender`, `identity.WithSender`, and `identity.GetSender` instead.
 
 
 ## [0.1.7] - 2026-03-10

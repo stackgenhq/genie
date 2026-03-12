@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/stackgenhq/genie/pkg/security/authcontext"
+	"github.com/stackgenhq/genie/pkg/identity"
 	"github.com/stackgenhq/genie/pkg/security/keyring"
 )
 
@@ -31,12 +31,12 @@ type passwordAuth struct {
 	password []byte
 }
 
-func (p *passwordAuth) Authenticate(w http.ResponseWriter, r *http.Request) *authcontext.Principal {
+func (p *passwordAuth) Authenticate(w http.ResponseWriter, r *http.Request) *identity.Sender {
 	provided := r.Header.Get("X-AGUI-Password")
 	if provided != "" && subtle.ConstantTimeCompare(p.password, []byte(provided)) == 1 {
-		return &authcontext.Principal{
+		return &identity.Sender{
 			ID:               "password-user",
-			Name:             "Password User",
+			DisplayName:      "Password User",
 			Role:             "user",
 			AuthenticatedVia: "password",
 		}

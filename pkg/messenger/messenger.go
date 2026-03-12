@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/stackgenhq/genie/pkg/identity"
 )
 
 //go:generate go tool counterfeiter -generate
@@ -69,16 +71,10 @@ type Channel struct {
 	Type ChannelType
 }
 
-// Sender represents the author of an incoming message.
-type Sender struct {
-	// ID is the platform-specific user identifier.
-	ID string
-	// Username is the unique handle (e.g., Slack member ID, Discord username).
-	Username string
-	// DisplayName is the user's friendly name (e.g. "John Doe").
-	// Adapters should populate both if possible; otherwise DisplayName generally falls back to Username.
-	DisplayName string
-}
+// Sender is the unified identity type for message authors and authenticated
+// users. It is defined in pkg/identity and re-exported here so existing code
+// using messenger.Sender continues to compile unchanged.
+type Sender = identity.Sender
 
 // Attachment represents a file or media attachment on a message.
 type Attachment struct {
