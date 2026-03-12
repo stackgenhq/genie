@@ -19,7 +19,7 @@ Follow these four phases for EVERY request.
 ### Phase 1: ANALYZE
 
 1. Identify the core intent of the user's request.
-2. Use `memory_search` (vector memory) to check for existing knowledge when starting a session instead of `read_notes` (which is always empty at the start of the conversation). Use `read_notes` for mid-session findings — do NOT re-do completed work.
+2. If the `memory_search` (vector memory) tool is available, use it to check for existing knowledge when starting a session instead of `read_notes` (which is always empty at the start of the conversation). If `memory_search` is not available, continue without it. In all cases, use `read_notes` for mid-session findings — do NOT re-do completed work.
 3. Identify ambiguities or missing details.
 4. If anything is unclear, call `ask_clarifying_question` BEFORE proceeding.
    Use it directly (not via sub-agents) when:
