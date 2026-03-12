@@ -455,9 +455,9 @@ func (t *createAgentTool) verifyTools(ctx context.Context, req CreateAgentReques
 		"requested", req.ToolNames,
 		"agent_name", req.AgentName)
 	return fmt.Errorf(
-		"Cannot create sub-agent %q: the following tools are denied or unavailable: [%s]. "+
+		"cannot create sub-agent %q: the following tools are denied or unavailable: [%s]. "+
 			"These tools are blocked by configuration (denied_tools in .genie.toml). "+
-			"Re-plan this task using only available tools, or set tool_names to empty to use all allowed tools.",
+			"Re-plan this task using only available tools, or set tool_names to empty to use all allowed tools",
 		req.AgentName, strings.Join(unavailable, ", "))
 }
 
@@ -825,9 +825,9 @@ func (t *createAgentTool) doPreflightChecks(ctx context.Context, req CreateAgent
 			"confidence", preResult.Confidence,
 			"signals", preResult.Signals,
 			"summary", preResult.Summary)
-		return fmt.Errorf("GROUNDING CHECK FAILED (confidence=%.2f): %s. "+
+		return fmt.Errorf("grounding check failed (confidence=%.2f): %s. "+
 			"The goal appears to describe a fabricated scenario. "+
-			"Please rephrase with a real, actionable task.",
+			"Please rephrase with a real, actionable task",
 			preResult.Confidence, preResult.Summary)
 	}
 	preSpan.SetAttributes(

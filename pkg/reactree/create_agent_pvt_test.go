@@ -345,7 +345,7 @@ var _ = Describe("createAgentTool halguard integration", func() {
 			}, nil)
 			err := cat.doPreflightChecks(context.Background(), req)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("GROUNDING CHECK FAILED"))
+			Expect(err.Error()).To(ContainSubstring("grounding check failed"))
 			Expect(err.Error()).To(ContainSubstring("fabricated scenario"))
 		})
 
@@ -373,7 +373,7 @@ var _ = Describe("createAgentTool halguard integration", func() {
 			}, nil)
 			err := cat.doPreflightChecks(context.Background(), req)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("GROUNDING CHECK FAILED"))
+			Expect(err.Error()).To(ContainSubstring("grounding check failed"))
 		})
 	})
 })
@@ -686,7 +686,7 @@ var _ = Describe("storeResults", func() {
 
 	It("stores in episodic memory with success status for verified_corrected", func() {
 		fakeEpisodic := &memoryfakes.FakeEpisodicMemory{}
-		cat := &createAgentTool{episodic: fakeEpisodic}
+		cat := &createAgentTool{episodic: fakeEpisodic, workingMemory: memory.NewWorkingMemory()}
 		req := CreateAgentRequest{AgentName: "test-agent", Goal: "find files"}
 
 		cat.storeResults(context.Background(), req, subAgentResult{

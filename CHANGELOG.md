@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Loop detection tightened** — Loop detection middleware now blocks after 2 identical consecutive calls (reduced from 3) to minimize wasted retries. Added "exploration loop" detection that prevents a sub-agent from calling the exact same tool with different arguments more than 3 consecutive times (blocks on the 4th), resetting the counter when a different tool is used.
+
 - **SCM tool constructors simplified** — removed the `toolSet` intermediary struct; all tool constructors now directly reference methods on the `Service` interface, matching the `NewGetRepoContentTool` pattern.
 
 - **Unified identity model** — Removed the `authcontext` package and consolidated user identity into a single `identity.Sender` type in `pkg/identity`. This eliminates the dual-identity system where `authcontext.Principal` and `messenger.Sender` carried overlapping information through separate context paths. `messenger.Sender` is now a type alias for `identity.Sender`.
@@ -75,7 +77,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `semanticrouter.Config` extended with `CacheTTL`, `L0Regex`, and `FollowUpBypass` middleware config structs, all exposed through the agent config chain (`config.go` → `semanticrouter.Config` → `mw.*Config`).
 - `ErrToolCallRejected` introduced so that intentional tool call rejections (e.g., from user rejections, HITL re-planning feedback, or validation/schema rechecks) do not trigger the circuit breaker and inappropriately penalize healthy tools.
 - HalGuard `verifyLight` prompt now includes tool call context (`ToolSummary` field on `PostCheckRequest`) — the verifier is told which tools the sub-agent called, preventing false-positive hallucination flags on tool-sourced data (e.g. AWS VPC IDs from `run_shell`).
-- Loop detection threshold (`maxConsecutiveRepeatCalls`) increased from 2 → 3 to tolerate one accidental retry (common with Gemini Flash) while still catching true infinite loops.
 - `SkillToolProvider` and `LoadSkillsFromConfig` now accept additional `skill.Repository` sources (e.g. MCP `PromptRepository`) via variadic `additionalRepos` parameters.
 - Orchestrator Phase 1 (ANALYZE) prompt updated to prefer `memory_search` (vector memory) over `read_notes` at session start.
 - Sub-agent audit metadata now stores the full goal string instead of truncating to 200 chars.

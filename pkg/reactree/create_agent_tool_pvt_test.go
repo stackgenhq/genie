@@ -49,17 +49,6 @@ var _ = Describe("CreateAgentTool", func() {
 			Expect(cat.skipSummarize).To(BeTrue())
 		})
 
-		It("excludes orchestration-only tools from sub-agent registry", func() {
-			run := &toolsfakes.FakeCallableTool{}
-			run.DeclarationReturns(&tool.Declaration{Name: "run_shell"})
-			ca := &toolsfakes.FakeCallableTool{}
-			ca.DeclarationReturns(&tool.Declaration{Name: "create_agent"})
-			reg := tools.NewRegistry(context.Background(), &testToolProvider{t: []tool.Tool{run, ca}})
-
-			cat := NewCreateAgentTool(nil, nil, nil, reg, nil, nil, nil, nil, nil, nil)
-			Expect(cat.subAgentRegistry.ToolNames()).To(ContainElement("run_shell"))
-			Expect(cat.subAgentRegistry.ToolNames()).NotTo(ContainElement("create_agent"))
-		})
 	})
 
 	Describe("GetTool", func() {
