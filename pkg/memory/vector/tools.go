@@ -283,7 +283,7 @@ func (t *memoryDeleteTool) execute(ctx context.Context, req MemoryDeleteRequest)
 	if len(req.IDs) == 0 {
 		return MemoryDeleteResponse{}, fmt.Errorf("at least one ID is required")
 	}
-	if err := t.store.Delete(ctx, DeleteRequest{IDs: req.IDs}); err != nil {
+	if err := t.store.Delete(ctx, DeleteRequest(req)); err != nil {
 		return MemoryDeleteResponse{}, fmt.Errorf("failed to delete memories: %w", err)
 	}
 	return MemoryDeleteResponse{

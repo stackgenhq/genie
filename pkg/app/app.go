@@ -55,8 +55,8 @@ import (
 	"github.com/stackgenhq/genie/pkg/report/activityreport"
 	"github.com/stackgenhq/genie/pkg/semanticrouter"
 
+	"github.com/stackgenhq/genie/pkg/identity"
 	"github.com/stackgenhq/genie/pkg/security"
-	"github.com/stackgenhq/genie/pkg/security/authcontext"
 
 	"github.com/stackgenhq/genie/pkg/tools"
 	"github.com/stackgenhq/genie/pkg/tools/codeskim"
@@ -716,11 +716,11 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 		ctx = withLangfuseTraceBaggage(ctx, a.displayName(), "agui")
 		ctx = withPrincipalBaggage(ctx)
 
-		principal := authcontext.GetPrincipal(ctx)
+		sender := identity.GetSender(ctx)
 		ctx, aguiSpan := trace.Tracer.Start(ctx, a.displayName(), oteltrace.WithAttributes(
 			attribute.String("langfuse.trace.name", a.displayName()),
 			attribute.String("langfuse.trace.input", pii.Redact(message)),
-			attribute.String("langfuse.user.id", principal.ID),
+			attribute.String("langfuse.user.id", sender.ID),
 			attribute.StringSlice("langfuse.trace.tags", []string{
 				a.displayName(),
 				"agui",
@@ -1938,23 +1938,23 @@ func withLangfuseTraceBaggage(ctx context.Context, tags ...string) context.Conte
 // authentication method in the Langfuse dashboard.
 //
 // Sets the following Langfuse-recognised keys:
-//   - langfuse.user.id              → principal.ID
-//   - langfuse.trace.metadata.user_name → principal.Name
-//   - langfuse.trace.metadata.user_role → principal.Role
-//   - langfuse.trace.metadata.auth_method → principal.AuthenticatedVia
+//   - langfuse.user.id              → sender.ID
+//   - langfuse.trace.metadata.user_name → sender.DisplayName
+//   - langfuse.trace.metadata.user_role → sender.Role
+//   - langfuse.trace.metadata.auth_method → sender.AuthenticatedVia
 //
-// Only non-empty values are propagated. If the principal is the demo
+// Only non-empty values are propagated. If the sender is the demo
 // fallback, the keys are still set so Langfuse can distinguish
 // unauthenticated traffic.
 func withPrincipalBaggage(ctx context.Context) context.Context {
-	p := authcontext.GetPrincipal(ctx)
+	s := identity.GetSender(ctx)
 	bag := baggage.FromContext(ctx)
 
 	for _, kv := range []struct{ key, val string }{
-		{"langfuse.user.id", p.ID},
-		{"langfuse.trace.metadata.user_name", p.Name},
-		{"langfuse.trace.metadata.user_role", p.Role},
-		{"langfuse.trace.metadata.auth_method", p.AuthenticatedVia},
+		{"langfuse.user.id", s.ID},
+		{"langfuse.trace.metadata.user_name", s.DisplayName},
+		{"langfuse.trace.metadata.user_role", s.Role},
+		{"langfuse.trace.metadata.auth_method", s.AuthenticatedVia},
 	} {
 		if kv.val == "" {
 			continue

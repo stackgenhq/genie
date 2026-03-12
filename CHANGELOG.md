@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Unified identity model** — Removed the `authcontext` package and consolidated user identity into a single `identity.Sender` type in `pkg/identity`. This eliminates the dual-identity system where `authcontext.Principal` and `messenger.Sender` carried overlapping information through separate context paths. `messenger.Sender` is now a type alias for `identity.Sender`.
+- **BREAKING**: `Authenticator.Authenticate` returns `*identity.Sender` instead of `*authcontext.Principal`. The `Name` field is now `DisplayName`.
+
 ### Added
 
 - **Confidence-gated accomplishment storage** — `TreeResult` now carries a `Confidence` score (0.0–1.0) computed from execution signals (task completion, status, iteration efficiency, repetition, output presence). Only results above a configurable threshold (default 0.5) are stored, preventing failed/garbage outputs from polluting memory.
