@@ -176,6 +176,13 @@ type createAgentTool struct {
 	// so retrieval-only sub-agents (memory_search, graph_*) can be skipped
 	// when the store has no documents, avoiding futile LLM calls.
 	vectorStore vector.IStore
+
+	// toolIndex provides semantic search over tool declarations.
+	// Used to resolve tools by goal description instead of listing
+	// all tools in the description. Sub-agents do NOT get access to
+	// this — they receive concrete tools via Registry.Include().
+	toolIndex *tools.VectorToolProvider
+
 	description string
 
 	// halGuard provides optional pre-delegation grounding checks and
@@ -269,15 +276,13 @@ func NewCreateAgentTool(
 	toolWrapSvc *toolwrap.Service,
 	vectorStore vector.IStore,
 	halGuard halguard.Guard,
+	toolIndex *tools.VectorToolProvider,
 	opts ...CreateAgentOption,
 ) *createAgentTool {
 	// Build a sub-agent registry that excludes orchestration-only tools.
 	// Sub-agents must not call create_agent (no recursive spawning) or
 	// send_message (only the main agent orchestrates user communication).
 	subAgentRegistry := toolRegistry.Exclude(orchestrationOnlyTools...)
-
-	// Build description listing tools available to sub-agents.
-	toolList := subAgentRegistry.ToolNames()
 
 	t := &createAgentTool{
 		modelProvider:    modelProvider,
@@ -290,10 +295,24 @@ func NewCreateAgentTool(
 		episodic:         episodic,
 		vectorStore:      vectorStore,
 		halGuard:         halGuard,
+		toolIndex:        toolIndex,
 	}
 
 	for _, opt := range opts {
 		opt(t)
+	}
+
+	// Build description. If a tool index is available, instruct the LLM to
+	// specify tools by capability instead of embedding a static list that
+	// goes stale and causes hallucination.
+	toolSection := ""
+	if toolIndex != nil {
+		toolSection = "Use tool_names to specify which tools the sub-agent needs. " +
+			"If unsure which tools exist, leave tool_names empty and all tools will be available."
+	} else {
+		// Fallback: list tool names when no vector index is available.
+		toolList := subAgentRegistry.ToolNames()
+		toolSection = fmt.Sprintf("Available tools: %s", strings.Join(toolList, ", "))
 	}
 
 	t.description = fmt.Sprintf(
@@ -316,8 +335,8 @@ func NewCreateAgentTool(
 			"simple lookups: 5-10, file edits: 15-25, multi-step/infrastructure: 30-50. "+
 			"Use higher values for infrastructure tasks that involve discovery and retries. "+
 			"Set timeout_seconds to limit wall-clock time: simple 60-120, multi-step 180-300.\n\n"+
-			"Available tools: %s",
-		strings.Join(toolList, ", "),
+			"%s",
+		toolSection,
 	)
 
 	return t

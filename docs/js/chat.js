@@ -1425,6 +1425,17 @@
                 break;
 
             case 'CUSTOM':
+                // User action events — render native cards for login, confirmation, etc.
+                if (event.name === 'user_action_required' && event.value) {
+                    hideThinking();
+                    addUserActionCard(event.value);
+                    showNotification(
+                        'Action required',
+                        event.value.message || ('Please complete: ' + (event.value.action || 'action')),
+                        'user-action-' + (event.value.service || '')
+                    );
+                    vibrateBrief();
+                }
                 // Log events — just show as subtle system messages
                 if (event.name === 'log' && event.value) {
                     // Skip debug logs
@@ -1943,6 +1954,78 @@
                 updateApprovalsColumnVisibility();
             }, 600); // Wait 0.6s to allow opacity transition
         }, 3500);
+    }
+
+    // ── User Action Cards (login, open URL, confirm) ──
+    // Tracks which services have already shown an action card to avoid duplicates.
+    const shownActionCards = new Set();
+
+    function addUserActionCard(value) {
+        const action = value.action || 'open_url';
+        const service = value.service || 'service';
+        const url = value.url || '';
+        const message = value.message || '';
+
+        // De-duplicate by service name to prevent multiple cards for the same auth.
+        const dedupeKey = action + ':' + service;
+        if (shownActionCards.has(dedupeKey)) return;
+        shownActionCards.add(dedupeKey);
+
+        const div = document.createElement('div');
+        div.className = 'flex justify-start mb-4';
+
+        let icon = '🔗';
+        let title = 'Action Required';
+        let btnLabel = 'Open';
+        let borderColor = 'rgba(99,102,241,0.4)';
+        let bgColor = 'rgba(99,102,241,0.08)';
+        let iconBg = 'rgba(99,102,241,0.15)';
+        let btnColor = '#4f46e5';
+
+        if (action === 'oauth_login') {
+            icon = '🔐';
+            title = 'Sign in to ' + escapeHtml(service);
+            btnLabel = '🔐 Sign In';
+            borderColor = 'rgba(16,185,129,0.5)';
+            bgColor = 'rgba(16,185,129,0.06)';
+            iconBg = 'rgba(16,185,129,0.15)';
+            btnColor = '#059669';
+        } else if (action === 'confirm') {
+            icon = '✅';
+            title = 'Confirmation Required';
+            btnLabel = '✅ Confirm';
+            borderColor = 'rgba(245,158,11,0.5)';
+            bgColor = 'rgba(245,158,11,0.06)';
+            iconBg = 'rgba(245,158,11,0.15)';
+            btnColor = '#d97706';
+        }
+
+        const messageHtml = message
+            ? '<p style="font-size:0.85rem;color:#cbd5e1;margin:0.5rem 0 0.75rem;line-height:1.4;">' + escapeHtml(message) + '</p>'
+            : '';
+
+        const buttonHtml = url
+            ? '<a href="' + escapeAttr(url) + '" target="_blank" rel="noopener" '
+              + 'style="display:inline-flex;align-items:center;gap:0.35rem;padding:0.5rem 1.25rem;'
+              + 'background:' + btnColor + ';color:#fff;border:none;border-radius:0.5rem;'
+              + 'font-size:0.85rem;font-weight:600;text-decoration:none;cursor:pointer;'
+              + 'transition:opacity 0.15s ease;" '
+              + 'onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1"'
+              + '>' + btnLabel + '</a>'
+            : '';
+
+        div.innerHTML = '\
+<div style="border-left:3px solid ' + borderColor + ';background:' + bgColor + ';border-radius:0.5rem;padding:0.85rem 1rem;max-width:420px;width:100%;">\
+  <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem;">\
+    <span style="font-size:1.3rem;background:' + iconBg + ';width:2rem;height:2rem;display:flex;align-items:center;justify-content:center;border-radius:0.4rem;">' + icon + '</span>\
+    <span style="font-weight:600;font-size:0.95rem;color:#e2e8f0;">' + title + '</span>\
+  </div>\
+  ' + messageHtml + '\
+  ' + buttonHtml + '\
+</div>';
+
+        messagesEl.appendChild(div);
+        scrollToBottom();
     }
 
     function addApprovalCard(approvalId, toolName, args, justification) {

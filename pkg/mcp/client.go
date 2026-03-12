@@ -111,37 +111,8 @@ func (c *Client) initializeServer(ctx context.Context, config MCPServerConfig) (
 	var trans transport.Interface
 	var err error
 
-	// Determine authentication (if configured) so it can be passed to HTTP/SSE transports
-	var sseOpts []transport.ClientOption
-	if config.Auth != nil && c.credstoreManager != nil { // only apply if Manager is provided
-		switch config.Auth.Mode {
-		case "mcp_oauth":
-			// DCR flow: wrap transport.OAuthHandler in credstore (manager does this internally)
-			// But for mcp-go client we need to provide the TokenStore.
-			store := c.credstoreManager.StoreFor(config.Name)
-			// Because DCR is an OAuth flow without pre-configured credentials,
-			// we pass an empty OAuthConfig with just the TokenStore.
-			// The mcp-go OAuthHandler will use it to store/retrieve tokens.
-			sseOpts = append(sseOpts, transport.WithOAuth(transport.OAuthConfig{
-				TokenStore: newTokenStoreAdapter(store),
-			}))
-		case "oauth":
-			// Goth flow: users authenticate via a pre-configured provider (e.g. GitHub)
-			store := c.credstoreManager.StoreFor(config.Name)
-			sseOpts = append(sseOpts, transport.WithOAuth(transport.OAuthConfig{
-				TokenStore: newTokenStoreAdapter(store),
-			}))
-		case "static":
-			// Wait, mcp-go currently only defines WithOAuth for TokenStore.
-			// Let me rethink this: WithOAuth might be specific to OAuth flows.
-			// Actually mcp-go's OAuthHandler can wrap ANY TokenStore (even static tokens)
-			// because it just calls GetToken() to get the string to put in the Authorization header.
-			store := c.credstoreManager.StoreFor(config.Name)
-			sseOpts = append(sseOpts, transport.WithOAuth(transport.OAuthConfig{
-				TokenStore: newTokenStoreAdapter(store),
-			}))
-		}
-	}
+	// Build transport based on type.
+	sseOpts := c.buildAuthOpts(config)
 
 	switch config.Transport {
 	case "stdio":
@@ -205,6 +176,22 @@ func (c *Client) initializeServer(ctx context.Context, config MCPServerConfig) (
 
 	// Convert and filter tools
 	return c.convertAndFilterTools(ctx, mcpClient, toolsResponse.Tools, config)
+}
+
+// buildAuthOpts returns SSE transport options for authentication based on the
+// server's auth config. All supported modes (mcp_oauth, oauth, static) use the
+// same mcp-go OAuthConfig with a TokenStore adapter backed by credstore.
+// Returns nil when auth is not configured or credstoreManager is unavailable.
+func (c *Client) buildAuthOpts(config MCPServerConfig) []transport.ClientOption {
+	if config.Auth == nil || c.credstoreManager == nil {
+		return nil
+	}
+	store := c.credstoreManager.StoreFor(config.Name)
+	return []transport.ClientOption{
+		transport.WithOAuth(transport.OAuthConfig{
+			TokenStore: newTokenStoreAdapter(store),
+		}),
+	}
 }
 
 // buildStdioEnv returns the environment for the stdio subprocess: parent env

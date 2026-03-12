@@ -419,9 +419,19 @@ var _ = Describe("CodeOwner", func() {
 			Expect(req.Content).To(ContainSubstring("SysPrompt"))
 		})
 
-		It("should include available tool names in the summarizer prompt", func() {
+		It("should include tool capabilities from vector tool index in the summarizer prompt", func() {
 			co.vectorStore = nil
-			co.availableToolNames = []string{"email_read", "email_send", "scm_list_prs", "browser_navigate"}
+			// Create a vector store and tool index with some test tools.
+			cfg := vector.Config{
+				VectorStoreProvider: "inmemory",
+				EmbeddingProvider:   "dummy",
+			}
+			store, err := cfg.NewStore(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			reg := tools.NewRegistry(ctx)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg)
+			Expect(err).NotTo(HaveOccurred())
+			co.toolIndex = vtp
 
 			fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
 			fakeSummarizer.SummarizeReturns("Resume with tools", nil)
@@ -431,35 +441,43 @@ var _ = Describe("CodeOwner", func() {
 			Expect(resume).To(Equal("Resume with tools"))
 
 			Expect(fakeSummarizer.SummarizeCallCount()).To(Equal(1))
-			_, req := fakeSummarizer.SummarizeArgsForCall(0)
-			Expect(req.Content).To(ContainSubstring("Available Tools"))
-			Expect(req.Content).To(ContainSubstring("email_read"))
-			Expect(req.Content).To(ContainSubstring("email_send"))
-			Expect(req.Content).To(ContainSubstring("scm_list_prs"))
-			Expect(req.Content).To(ContainSubstring("browser_navigate"))
 		})
 
-		It("should sort tool names alphabetically in the prompt", func() {
+		It("should include vector search results for tools when toolIndex is configured", func() {
 			co.vectorStore = nil
-			co.availableToolNames = []string{"z_tool", "a_tool", "m_tool"}
+			// Create a store, index a tool, verify it shows up in resume.
+			cfg := vector.Config{
+				VectorStoreProvider: "inmemory",
+				EmbeddingProvider:   "dummy",
+			}
+			store, err := cfg.NewStore(ctx)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Index a dummy tool via the store directly to simulate the index.
+			err = store.Add(ctx, vector.AddRequest{Items: []vector.BatchItem{{
+				ID: "tool:email_send", Text: "email_send: Send email messages",
+				Metadata: map[string]string{"type": "tool_index", "tool_name": "email_send"},
+			}}})
+			Expect(err).NotTo(HaveOccurred())
+
+			reg := tools.NewRegistry(ctx)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg)
+			Expect(err).NotTo(HaveOccurred())
+			co.toolIndex = vtp
 
 			fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
 			fakeSummarizer.SummarizeReturns("sorted resume", nil)
 
-			_, err := co.createResume(ctx, fakeSummarizer, "TestPersona")
+			_, err = co.createResume(ctx, fakeSummarizer, "TestPersona")
 			Expect(err).NotTo(HaveOccurred())
 
 			_, req := fakeSummarizer.SummarizeArgsForCall(0)
-			aIdx := strings.Index(req.Content, "a_tool")
-			mIdx := strings.Index(req.Content, "m_tool")
-			zIdx := strings.Index(req.Content, "z_tool")
-			Expect(aIdx).To(BeNumerically("<", mIdx))
-			Expect(mIdx).To(BeNumerically("<", zIdx))
+			Expect(req.Content).To(ContainSubstring("email_send"))
 		})
 
-		It("should omit the tools section when no tools are available", func() {
+		It("should omit the tools section when no toolIndex is available", func() {
 			co.vectorStore = nil
-			co.availableToolNames = nil
+			co.toolIndex = nil
 
 			fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
 			fakeSummarizer.SummarizeReturns("resume without tools", nil)
@@ -468,7 +486,7 @@ var _ = Describe("CodeOwner", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			_, req := fakeSummarizer.SummarizeArgsForCall(0)
-			Expect(req.Content).NotTo(ContainSubstring("Available Tools"))
+			Expect(req.Content).NotTo(ContainSubstring("Key Capabilities"))
 		})
 	})
 

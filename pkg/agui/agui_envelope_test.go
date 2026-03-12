@@ -71,6 +71,7 @@ var _ = Describe("CloudEvent Envelope", func() {
 				{agui.StageProgressMsg{}, "ai.genie.agui.STEP_STARTED"},
 				{agui.LogMsg{}, "ai.genie.agui.CUSTOM"},
 				{agui.UserInputMsg{}, "ai.genie.agui.CUSTOM"},
+				{agui.UserActionRequiredMsg{}, "ai.genie.agui.CUSTOM"},
 			}
 
 			for _, tt := range tests {

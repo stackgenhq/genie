@@ -264,6 +264,65 @@ var _ = Describe("AG-UI Server", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("unsupported event type"))
 		})
+
+		It("should map UserActionRequiredMsg to CUSTOM with user_action_required name", func() {
+			event := aguitypes.UserActionRequiredMsg{
+				Action:  "oauth_login",
+				Service: "stackgen",
+				URL:     "https://example.com/auth",
+				Message: "Sign in to StackGen",
+			}
+			data, eventType, err := agui.MapEvent(event, threadID, runID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(eventType).To(Equal(aguitypes.EventCustom))
+
+			var parsed map[string]interface{}
+			Expect(json.Unmarshal(data, &parsed)).To(Succeed())
+			Expect(parsed["name"]).To(Equal("user_action_required"))
+			value := parsed["value"].(map[string]interface{})
+			Expect(value["action"]).To(Equal("oauth_login"))
+			Expect(value["service"]).To(Equal("stackgen"))
+			Expect(value["url"]).To(Equal("https://example.com/auth"))
+			Expect(value["message"]).To(Equal("Sign in to StackGen"))
+		})
+
+		It("should map UserActionRequiredMsg with confirm action", func() {
+			event := aguitypes.UserActionRequiredMsg{
+				Action:  "confirm",
+				Service: "github",
+				Message: "Please confirm the action",
+			}
+			data, eventType, err := agui.MapEvent(event, threadID, runID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(eventType).To(Equal(aguitypes.EventCustom))
+
+			var parsed map[string]interface{}
+			Expect(json.Unmarshal(data, &parsed)).To(Succeed())
+			Expect(parsed["name"]).To(Equal("user_action_required"))
+			value := parsed["value"].(map[string]interface{})
+			Expect(value["action"]).To(Equal("confirm"))
+			Expect(value["service"]).To(Equal("github"))
+			Expect(value["url"]).To(Equal(""))
+			Expect(value["message"]).To(Equal("Please confirm the action"))
+		})
+
+		It("should map UserActionRequiredMsg with open_url action", func() {
+			event := aguitypes.UserActionRequiredMsg{
+				Action:  "open_url",
+				Service: "docs",
+				URL:     "https://docs.example.com",
+				Message: "Open documentation",
+			}
+			data, eventType, err := agui.MapEvent(event, threadID, runID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(eventType).To(Equal(aguitypes.EventCustom))
+
+			var parsed map[string]interface{}
+			Expect(json.Unmarshal(data, &parsed)).To(Succeed())
+			value := parsed["value"].(map[string]interface{})
+			Expect(value["action"]).To(Equal("open_url"))
+			Expect(value["url"]).To(Equal("https://docs.example.com"))
+		})
 	})
 
 	Describe("SSEWriter", func() {

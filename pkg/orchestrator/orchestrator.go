@@ -110,11 +110,10 @@ type orchestrator struct {
 	vectorStore   vector.IStore
 	router        semanticrouter.IRouter
 
-	// availableToolNames holds the names of all tools registered in the full
-	// tool registry (not just the orchestrator's own tools). This list is
-	// injected into the resume so the front-desk classifier knows about
-	// every capability (email, SCM, browser, etc.) when determining scope.
-	availableToolNames []string
+	// toolIndex provides semantic search over all registered tool
+	// declarations. Used by createResume to find relevant capabilities
+	// instead of dumping every tool name into the prompt.
+	toolIndex *tools.VectorToolProvider
 
 	// Per-sender memory isolation. These maps use sync.Map for concurrent
 	// access and lazily create instances on first access per sender.
@@ -212,6 +211,23 @@ func WithRBAC(r *rbac.RBAC) OrchestratorOption {
 // agentNamePlaceholder is replaced in embedded prompt templates with the
 // configured agent name so the LLM persona matches the deployment identity.
 const agentNamePlaceholder = "{{AGENT_NAME}}"
+
+// orchestratorDirectTools lists tool names that the main agent (planner)
+// should have direct access to. These are tools the orchestrator needs
+// to operate without delegating to a sub-agent. Organized by category
+// for clarity.
+var orchestratorDirectTools = []string{
+	// Clarification
+	"ask_clarifying_question",
+	// Scheduling
+	cron.ToolName,
+	// Context management (Pensieve)
+	"note", "read_notes", "delete_context", "check_budget",
+	// Communication
+	"notify",
+	// Knowledge management (vector memory)
+	"memory_search", "memory_store", "memory_delete", "memory_list", "memory_merge",
+}
 
 func NewOrchestrator(
 	ctx context.Context,
@@ -339,12 +355,21 @@ func NewOrchestrator(
 	}.NewWisdomStore()
 	planAdvisor := rtmemory.NewPlanAdvisor(episodicMem, wisdomStore)
 
+	// Build the vector tool index for semantic tool lookups.
+	// Used by resume generation and create_agent to find relevant tools by
+	// description instead of listing all tools in prompts.
+	toolIndex, err := tools.NewVectorToolProvider(ctx, vectorStore, availableTools)
+	if err != nil {
+		logger.GetLogger(ctx).Warn("failed to create tool index, continuing without", "error", err)
+	}
+
 	createAgentTool := reactree.NewCreateAgentTool(
 		modelProvider, exp, summarizer, availableTools,
 		wm, episodicMem,
 		toolWrapSvc,
 		vectorStore,
 		halGuard,
+		toolIndex,
 		reactree.WithSkipSummarizeMarker(true),
 		reactree.WithFailureReflector(failureReflector),
 		reactree.WithImportanceScorer(importanceScorer),
@@ -360,36 +385,19 @@ func NewOrchestrator(
 		"sub_agent_tools", n-2, // exclude create_agent and send_message
 	)
 
-	// Build the main agent's tool registry:
-	//   - create_agent: to delegate detailed work to sub-agents
-	//   - ask_clarifying_question: to ask users for clarification directly
-	//   - note / read_notes: Pensieve context-management tools so the
-	//     orchestrator can maintain persistent notes across its own turns
-	//     (e.g. summarise sub-agent results before synthesising a reply).
-	//
+	// Build the main agent's tool registry.
 	// Sub-agent tool scoping (excluding create_agent + send_message) is
 	// handled inside create_agent.go via subAgentRegistry, NOT here.
 	orchestratorToolSlice := tools.Tools{
 		createAgentTool.GetTool(),
 	}
-	// Lift ask_clarifying_question from the full registry so the main
-	// agent (planner) can ask users directly without delegating to a sub-agent.
-	if t, err := availableTools.GetTool("ask_clarifying_question"); err == nil {
-		orchestratorToolSlice = append(orchestratorToolSlice, t)
-	}
-	// Lift create_recurring_task so the main agent can schedule recurring tasks
-	// directly (e.g. "remind me daily", "run this every hour") without delegating.
-	if t, err := availableTools.GetTool(cron.ToolName); err == nil {
-		orchestratorToolSlice = append(orchestratorToolSlice, t)
-	}
-	// Lift Pensieve note tools and notify so the orchestrator can write/read persistent
-	// notes across its own turns, distil sub-agent results into concise
-	// summaries before composing a final answer, and send notifications.
-	for _, toolName := range []string{"note", "read_notes", "delete_context", "check_budget", "notify", "memory_search", "memory_store", "memory_delete", "memory_list", "memory_merge"} {
+	// Lift orchestrator-direct tools from the full registry so the main
+	// agent (planner) can use them without delegating to a sub-agent.
+	for _, toolName := range orchestratorDirectTools {
 		if t, err := availableTools.GetTool(toolName); err == nil {
 			orchestratorToolSlice = append(orchestratorToolSlice, t)
 		} else {
-			logger.Debug("Failed to get tool", "tool_name", toolName, "error", err)
+			logger.Debug("orchestrator direct tool not available", "tool_name", toolName, "error", err)
 		}
 	}
 	// Register semantic cache management tool so the orchestrator can
@@ -414,7 +422,7 @@ func NewOrchestrator(
 		episodicMemoryCfg:                 episodicMemoryCfg,
 		importanceScorer:                  importanceScorer,
 		wisdomStore:                       wisdomStore,
-		availableToolNames:                availableTools.GetToolDescriptions(),
+		toolIndex:                         toolIndex,
 		disableResume:                     oo.disableResume,
 		agentPersona:                      agentPersona,
 		accomplishmentConfidenceThreshold: oo.accomplishmentConfidenceThreshold,
@@ -496,15 +504,19 @@ Recent Accomplishments (things I have successfully done):
 
 	toolsSection := ""
 	toolsInstruction := ""
-	if len(c.availableToolNames) > 0 {
-		sortedNames := make([]string, len(c.availableToolNames))
-		copy(sortedNames, c.availableToolNames)
-		sort.Strings(sortedNames)
-		toolsSection = fmt.Sprintf(`
+	if c.toolIndex != nil {
+		// Use semantic search to find the ~20 most representative tools
+		// instead of dumping all 30+ tool descriptions into the prompt.
+		toolResults, searchErr := c.toolIndex.SearchTools(ctx, "capabilities tools actions", 20)
+		if searchErr != nil {
+			logger.Warn("tool index search failed for resume", "error", searchErr)
+		} else if len(toolResults) > 0 {
+			toolsSection = fmt.Sprintf(`
 
-Available Tools (capabilities I can use via sub-agents):
-%s`, strings.Join(sortedNames, ", "))
-		toolsInstruction = "\n- The Available Tools section lists every tool the agent can delegate to sub-agents. Mention the key capability areas they enable (e.g. email, source control, browsing, file management)."
+Key Capabilities (via sub-agents):
+%s`, c.toolIndex.FormatToolList(toolResults))
+			toolsInstruction = "\n- The Key Capabilities section highlights representative tools the agent can delegate to sub-agents. Mention the key capability areas they enable (e.g. email, source control, browsing, file management)."
+		}
 	}
 
 	result, err := summarizer.Summarize(ctx, agentutils.SummarizeRequest{

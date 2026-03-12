@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	aguitypes "github.com/stackgenhq/genie/pkg/agui"
 	"github.com/stackgenhq/genie/pkg/credstore"
 	"github.com/stackgenhq/genie/pkg/pii"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
@@ -30,7 +31,7 @@ type DummyAuthTool struct {
 }
 
 // NewDummyAuthTool creates a new dummy authentication tool for the given server.
-func NewDummyAuthTool(serverName string, store credstore.Store) tool.Tool {
+func NewDummyAuthTool(serverName string, store credstore.Store) tool.CallableTool {
 	return &DummyAuthTool{
 		serverName: serverName,
 		store:      store,
@@ -39,7 +40,7 @@ func NewDummyAuthTool(serverName string, store credstore.Store) tool.Tool {
 
 // Name returns the namespaced tool name.
 func (t *DummyAuthTool) Name() string {
-	return "connect_" + strings.ToLower(t.serverName)
+	return strings.ToLower(t.serverName) + "_connect"
 }
 
 // Description returns the tool description.
@@ -61,11 +62,11 @@ func (t *DummyAuthTool) Declaration() *tool.Declaration {
 
 // Call triggers the OAuth flow by calling GetToken on the credstore.
 //
-// On the first call that requires authentication, the sign-in URL is returned
-// as a successful result so the LLM presents it to the user. Any subsequent
-// call (before the user completes sign-in) returns an error to prevent the
-// LLM from looping — gemini-3-flash in particular ignores text instructions
-// like "Do NOT call this tool again" and retries indefinitely.
+// On the first call that requires authentication, a structured
+// UserActionRequiredMsg is emitted to the AG-UI chat UI (rendered as a native
+// sign-in card), and the sign-in URL is also returned as text so the LLM can
+// relay it. Any subsequent call (before the user completes sign-in) returns
+// an error to prevent the LLM from looping.
 func (t *DummyAuthTool) Call(ctx context.Context, _ []byte) (any, error) {
 	_, err := t.store.GetToken(ctx)
 	if err != nil {
@@ -84,15 +85,22 @@ func (t *DummyAuthTool) Call(ctx context.Context, _ []byte) (any, error) {
 				)
 			}
 
+			// Emit a structured event so the chat UI renders a native
+			// sign-in card with a button (instead of an embedded markdown link).
+			aguitypes.Emit(ctx, aguitypes.UserActionRequiredMsg{
+				Action:  "oauth_login",
+				Service: t.serverName,
+				URL:     authURL,
+				Message: fmt.Sprintf("Sign in to %s to access its tools and services.", t.serverName),
+			})
+
 			return fmt.Sprintf(
 				"%s🔐 **Authentication required for %s**\n\n"+
-					"Please sign in by clicking the link below:\n\n"+
-					"👉 [Sign in to %s](%s)\n\n"+
-					"Once you've completed sign-in, your tools will be automatically loaded.\n\n"+
+					"A sign-in card has been shown to the user in the chat UI.\n\n"+
 					"IMPORTANT: Do NOT call this tool again. "+
 					"The user must complete sign-in in their browser first. "+
-					"Relay this sign-in link to the user and stop.",
-				pii.SkipRedactionMarker, t.serverName, t.serverName, authURL,
+					"Tell the user to click the Sign In button and stop.",
+				pii.SkipRedactionMarker, t.serverName,
 			), nil
 		}
 		// For non-auth errors, return as error.

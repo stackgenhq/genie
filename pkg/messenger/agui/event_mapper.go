@@ -188,6 +188,18 @@ func MapEvent(event interface{}, threadID, runID string) ([]byte, string, error)
 			Message:    e.Context,
 		}
 
+	case aguitypes.UserActionRequiredMsg:
+		out = aguiEvent{
+			Type: aguitypes.EventCustom,
+			Name: "user_action_required",
+			Value: map[string]interface{}{
+				"action":  e.Action,
+				"service": e.Service,
+				"url":     e.URL,
+				"message": e.Message,
+			},
+		}
+
 	case string:
 		// Plain string from messenger.Send() (e.g. send_message tool): emit as
 		// TEXT_MESSAGE_CONTENT with a new messageId so the client can show it.

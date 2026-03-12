@@ -290,3 +290,20 @@ type UserInputMsg struct {
 }
 
 func (m UserInputMsg) AGUIType() string { return EventCustom }
+
+// UserActionRequiredMsg signals that the user must perform an action (e.g. OAuth login,
+// confirmation, opening a URL). It is emitted as a CUSTOM AG-UI event with the name
+// "user_action_required". The chat UI renders a native card with action buttons.
+//
+// Supported Action values:
+//   - "oauth_login" — user must sign in via OAuth
+//   - "confirm"     — user must confirm/approve something
+//   - "open_url"    — user should open a URL in their browser
+type UserActionRequiredMsg struct {
+	Action  string // action type: "oauth_login", "confirm", "open_url"
+	Service string // service name (e.g. "stackgen", "github")
+	URL     string // URL the user should visit
+	Message string // human-readable message describing the action
+}
+
+func (m UserActionRequiredMsg) AGUIType() string { return EventCustom }

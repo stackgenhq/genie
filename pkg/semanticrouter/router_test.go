@@ -466,6 +466,59 @@ var _ = Describe("SemanticRouter", func() {
 				Expect(fakeCacheStore.DeleteCallCount()).To(Equal(0))
 			})
 		})
+
+		Describe("ClearCache", func() {
+			It("should delete all cache entries", func(ctx context.Context) {
+				recentTime := strconv.FormatInt(time.Now().Add(-1*time.Minute).Unix(), 10)
+				fakeCacheStore.SearchReturnsOnCall(0, []vector.SearchResult{
+					{ID: "cache_1", Metadata: map[string]string{"type": "semantic_cache", "cached_at": recentTime}},
+					{ID: "cache_2", Metadata: map[string]string{"type": "semantic_cache", "cached_at": recentTime}},
+				}, nil)
+				// Second call returns empty = done.
+				fakeCacheStore.SearchReturnsOnCall(1, nil, nil)
+
+				count, err := rt.ClearCache(ctx)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(count).To(Equal(2))
+				Expect(fakeCacheStore.DeleteCallCount()).To(Equal(1))
+				_, delReq := fakeCacheStore.DeleteArgsForCall(0)
+				Expect(delReq.IDs).To(ConsistOf("cache_1", "cache_2"))
+			})
+
+			It("should return 0 when caching disabled", func(ctx context.Context) {
+				rt.cfg.EnableCaching = false
+				count, err := rt.ClearCache(ctx)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(count).To(Equal(0))
+				Expect(fakeCacheStore.SearchCallCount()).To(Equal(0))
+			})
+
+			It("should return 0 when nothing in cache", func(ctx context.Context) {
+				fakeCacheStore.SearchReturns(nil, nil)
+				count, err := rt.ClearCache(ctx)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(count).To(Equal(0))
+				Expect(fakeCacheStore.DeleteCallCount()).To(Equal(0))
+			})
+
+			It("should propagate search errors", func(ctx context.Context) {
+				fakeCacheStore.SearchReturns(nil, errors.New("search failed"))
+				_, err := rt.ClearCache(ctx)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("search failed"))
+			})
+
+			It("should propagate delete errors", func(ctx context.Context) {
+				fakeCacheStore.SearchReturns([]vector.SearchResult{
+					{ID: "cache_1", Metadata: map[string]string{"type": "semantic_cache"}},
+				}, nil)
+				fakeCacheStore.DeleteReturns(errors.New("delete failed"))
+
+				_, err := rt.ClearCache(ctx)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("delete failed"))
+			})
+		})
 	})
 
 	Describe("extractTextFromChoices", func() {

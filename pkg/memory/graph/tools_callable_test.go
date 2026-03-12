@@ -633,4 +633,78 @@ var _ = Describe("graph tools via CallableTool", func() {
 			Expect(err.Error()).To(ContainSubstring("action must be"))
 		})
 	})
+
+	Describe("graph_store delete_all", func() {
+		It("removes all entities and relations", func() {
+			// Verify entities exist before delete_all.
+			getInput, _ := json.Marshal(graph.GraphQueryRequest{
+				Action:   "get_entity",
+				EntityID: "alice",
+			})
+			result, err := queryTool.Call(ctx, getInput)
+			Expect(err).NotTo(HaveOccurred())
+			resp, ok := result.(graph.GraphQueryResponse)
+			Expect(ok).To(BeTrue())
+			Expect(resp.Entity).NotTo(BeNil())
+
+			// Delete all.
+			deleteInput, _ := json.Marshal(graph.GraphStoreRequest{
+				Action: "delete_all",
+			})
+			storeResult, err := storeTool.Call(ctx, deleteInput)
+			Expect(err).NotTo(HaveOccurred())
+			storeResp, ok := storeResult.(graph.GraphStoreResponse)
+			Expect(ok).To(BeTrue())
+			Expect(storeResp.Message).To(ContainSubstring("All graph data deleted"))
+
+			// Verify entities are gone.
+			result, err = queryTool.Call(ctx, getInput)
+			Expect(err).NotTo(HaveOccurred())
+			resp, ok = result.(graph.GraphQueryResponse)
+			Expect(ok).To(BeTrue())
+			Expect(resp.Entity).To(BeNil())
+		})
+
+		It("is idempotent on empty graph", func() {
+			// Delete all twice — second should also succeed.
+			deleteInput, _ := json.Marshal(graph.GraphStoreRequest{
+				Action: "delete_all",
+			})
+			_, err := storeTool.Call(ctx, deleteInput)
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = storeTool.Call(ctx, deleteInput)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("allows adding entities after delete_all", func() {
+			// Delete all.
+			deleteInput, _ := json.Marshal(graph.GraphStoreRequest{
+				Action: "delete_all",
+			})
+			_, err := storeTool.Call(ctx, deleteInput)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Add a new entity.
+			addInput, _ := json.Marshal(graph.GraphStoreRequest{
+				Action: "entity",
+				ID:     "new_entity",
+				Type:   "test",
+			})
+			_, err = storeTool.Call(ctx, addInput)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify new entity exists.
+			getInput, _ := json.Marshal(graph.GraphQueryRequest{
+				Action:   "get_entity",
+				EntityID: "new_entity",
+			})
+			result, err := queryTool.Call(ctx, getInput)
+			Expect(err).NotTo(HaveOccurred())
+			resp, ok := result.(graph.GraphQueryResponse)
+			Expect(ok).To(BeTrue())
+			Expect(resp.Entity).NotTo(BeNil())
+			Expect(resp.Entity.ID).To(Equal("new_entity"))
+		})
+	})
 })
