@@ -38,6 +38,19 @@ type FakeIRouter struct {
 		result1 semanticrouter.ClassificationResult
 		result2 error
 	}
+	ClearCacheStub        func(context.Context) (int, error)
+	clearCacheMutex       sync.RWMutex
+	clearCacheArgsForCall []struct {
+		arg1 context.Context
+	}
+	clearCacheReturns struct {
+		result1 int
+		result2 error
+	}
+	clearCacheReturnsOnCall map[int]struct {
+		result1 int
+		result2 error
+	}
 	DeleteCacheEntriesStub        func(context.Context, []string) (int, error)
 	deleteCacheEntriesMutex       sync.RWMutex
 	deleteCacheEntriesArgsForCall []struct {
@@ -224,6 +237,70 @@ func (fake *FakeIRouter) ClassifyReturnsOnCall(i int, result1 semanticrouter.Cla
 	}
 	fake.classifyReturnsOnCall[i] = struct {
 		result1 semanticrouter.ClassificationResult
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeIRouter) ClearCache(arg1 context.Context) (int, error) {
+	fake.clearCacheMutex.Lock()
+	ret, specificReturn := fake.clearCacheReturnsOnCall[len(fake.clearCacheArgsForCall)]
+	fake.clearCacheArgsForCall = append(fake.clearCacheArgsForCall, struct {
+		arg1 context.Context
+	}{arg1})
+	stub := fake.ClearCacheStub
+	fakeReturns := fake.clearCacheReturns
+	fake.recordInvocation("ClearCache", []interface{}{arg1})
+	fake.clearCacheMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeIRouter) ClearCacheCallCount() int {
+	fake.clearCacheMutex.RLock()
+	defer fake.clearCacheMutex.RUnlock()
+	return len(fake.clearCacheArgsForCall)
+}
+
+func (fake *FakeIRouter) ClearCacheCalls(stub func(context.Context) (int, error)) {
+	fake.clearCacheMutex.Lock()
+	defer fake.clearCacheMutex.Unlock()
+	fake.ClearCacheStub = stub
+}
+
+func (fake *FakeIRouter) ClearCacheArgsForCall(i int) context.Context {
+	fake.clearCacheMutex.RLock()
+	defer fake.clearCacheMutex.RUnlock()
+	argsForCall := fake.clearCacheArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeIRouter) ClearCacheReturns(result1 int, result2 error) {
+	fake.clearCacheMutex.Lock()
+	defer fake.clearCacheMutex.Unlock()
+	fake.ClearCacheStub = nil
+	fake.clearCacheReturns = struct {
+		result1 int
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeIRouter) ClearCacheReturnsOnCall(i int, result1 int, result2 error) {
+	fake.clearCacheMutex.Lock()
+	defer fake.clearCacheMutex.Unlock()
+	fake.ClearCacheStub = nil
+	if fake.clearCacheReturnsOnCall == nil {
+		fake.clearCacheReturnsOnCall = make(map[int]struct {
+			result1 int
+			result2 error
+		})
+	}
+	fake.clearCacheReturnsOnCall[i] = struct {
+		result1 int
 		result2 error
 	}{result1, result2}
 }

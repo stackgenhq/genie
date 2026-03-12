@@ -121,35 +121,9 @@ func (t *cacheTool) deleteCacheEntries(ctx context.Context, req CacheToolRequest
 }
 
 func (t *cacheTool) clearAll(ctx context.Context) (CacheToolResponse, error) {
-	count, err := t.router.PruneStaleCacheEntries(ctx)
+	count, err := t.router.ClearCache(ctx)
 	if err != nil {
 		return CacheToolResponse{}, err
-	}
-
-	// PruneStaleCacheEntries only removes expired entries.
-	// To clear ALL, we search broadly and delete matches.
-	// A wildcard query ensures the vector store returns all entries.
-	entries, err := t.router.SearchCache(ctx, "cache", maxCacheSearchLimit)
-	if err != nil {
-		return CacheToolResponse{
-			Message: fmt.Sprintf("Pruned %d stale entries, but failed to search remaining: %v", count, err),
-			Count:   count,
-		}, nil
-	}
-
-	if len(entries) > 0 {
-		ids := make([]string, len(entries))
-		for i, e := range entries {
-			ids[i] = e.ID
-		}
-		deleted, delErr := t.router.DeleteCacheEntries(ctx, ids)
-		if delErr != nil {
-			return CacheToolResponse{
-				Message: fmt.Sprintf("Pruned %d stale entries, but failed to delete remaining: %v", count, delErr),
-				Count:   count,
-			}, nil
-		}
-		count += deleted
 	}
 
 	return CacheToolResponse{

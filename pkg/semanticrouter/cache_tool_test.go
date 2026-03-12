@@ -166,23 +166,19 @@ var _ = Describe("cacheTool", func() {
 	})
 
 	Describe("clear_all", func() {
-		It("should prune and then delete remaining entries", func(ctx context.Context) {
-			fakeRouter.PruneStaleCacheEntriesReturns(2, nil)
-			fakeRouter.SearchCacheReturns([]semanticrouter.CacheEntry{
-				{ID: "cache_1"},
-				{ID: "cache_2"},
-			}, nil)
-			fakeRouter.DeleteCacheEntriesReturns(2, nil)
+		It("should clear all cache entries", func(ctx context.Context) {
+			fakeRouter.ClearCacheReturns(4, nil)
 
 			resp, err := callTool(ctx, semanticrouter.CacheToolRequest{Action: "clear_all"})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.Count).To(Equal(4)) // 2 pruned + 2 deleted
+			Expect(resp.Count).To(Equal(4))
 			Expect(resp.Message).To(ContainSubstring("Cleared all 4"))
+
+			Expect(fakeRouter.ClearCacheCallCount()).To(Equal(1))
 		})
 
 		It("should handle empty cache gracefully", func(ctx context.Context) {
-			fakeRouter.PruneStaleCacheEntriesReturns(0, nil)
-			fakeRouter.SearchCacheReturns(nil, nil)
+			fakeRouter.ClearCacheReturns(0, nil)
 
 			resp, err := callTool(ctx, semanticrouter.CacheToolRequest{Action: "clear_all"})
 			Expect(err).NotTo(HaveOccurred())

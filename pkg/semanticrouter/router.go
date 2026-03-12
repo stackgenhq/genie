@@ -71,6 +71,7 @@ type IRouter interface {
 	PruneStaleCacheEntries(ctx context.Context) (int, error)
 	SearchCache(ctx context.Context, query string, limit int) ([]CacheEntry, error)
 	DeleteCacheEntries(ctx context.Context, ids []string) (int, error)
+	ClearCache(ctx context.Context) (int, error)
 }
 
 // CacheEntry represents a single entry in the semantic cache.
@@ -691,6 +692,58 @@ func (r *Router) DeleteCacheEntries(ctx context.Context, ids []string) (int, err
 
 	logger.GetLogger(ctx).Info("deleted cache entries", "count", len(ids))
 	return len(ids), nil
+}
+
+// ClearCache removes ALL cache entries from the vector store.
+// It uses filter-only search (no embedding needed) to find entries matching
+// the semantic_cache type, then deletes them all. This is more reliable than
+// a text query because it matches by metadata filter, not content similarity.
+func (r *Router) ClearCache(ctx context.Context) (int, error) {
+	if r.cfg.Disabled || !r.cfg.EnableCaching || r.cacheStore == nil {
+		return 0, nil
+	}
+
+	logr := logger.GetLogger(ctx)
+
+	// Use filter-only search (empty query + filter triggers SearchModeFilter
+	// in the vector store, which skips embedding entirely).
+	const batchSize = 100
+	totalDeleted := 0
+
+	for {
+		results, err := r.cacheStore.Search(ctx, vector.SearchRequest{
+			Query:  "",
+			Limit:  batchSize,
+			Filter: map[string]string{"type": "semantic_cache"},
+		})
+		if err != nil {
+			return totalDeleted, fmt.Errorf("cache clear search failed: %w", err)
+		}
+
+		if len(results) == 0 {
+			break
+		}
+
+		ids := make([]string, len(results))
+		for i, res := range results {
+			ids[i] = res.ID
+		}
+
+		if err := r.cacheStore.Delete(ctx, vector.DeleteRequest{IDs: ids}); err != nil {
+			return totalDeleted, fmt.Errorf("cache clear delete failed: %w", err)
+		}
+
+		totalDeleted += len(ids)
+		logr.Info("cleared cache batch", "batch_size", len(ids), "total", totalDeleted)
+
+		// If we got less than a full batch, we're done.
+		if len(results) < batchSize {
+			break
+		}
+	}
+
+	logr.Info("cache cleared", "total_deleted", totalDeleted)
+	return totalDeleted, nil
 }
 
 // builtinRoutes returns sensible defaults to replicate vllm-semantic-router out of the box.
