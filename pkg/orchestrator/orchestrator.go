@@ -36,6 +36,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/hitl"
 	"github.com/stackgenhq/genie/pkg/llmutil"
 	"github.com/stackgenhq/genie/pkg/logger"
+	memorygraph "github.com/stackgenhq/genie/pkg/memory/graph"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
@@ -112,7 +113,7 @@ type orchestrator struct {
 	// toolIndex provides semantic search over all registered tool
 	// declarations. Used by createResume to find relevant capabilities
 	// instead of dumping every tool name into the prompt.
-	toolIndex *tools.VectorToolProvider
+	toolIndex tools.SmartToolProvider
 
 	// Per-sender memory isolation. These maps use sync.Map for concurrent
 	// access and lazily create instances on first access per sender.
@@ -224,6 +225,7 @@ func NewOrchestrator(
 	modelProvider modelprovider.ModelProvider,
 	availableTools *tools.Registry,
 	vectorStore vector.IStore,
+	graphStore memorygraph.IStore,
 	auditor audit.Auditor,
 	approvalStore hitl.ApprovalStore,
 	memorySvc memory.Service,
@@ -348,7 +350,7 @@ func NewOrchestrator(
 	// Build the vector tool index for semantic tool lookups.
 	// Used by resume generation and create_agent to find relevant tools by
 	// description instead of listing all tools in prompts.
-	toolIndex, err := tools.NewVectorToolProvider(ctx, vectorStore, availableTools)
+	toolIndex, err := tools.NewVectorToolProvider(ctx, vectorStore, availableTools, graphStore)
 	if err != nil {
 		logger.GetLogger(ctx).Warn("failed to create tool index, continuing without", "error", err)
 	}
@@ -499,7 +501,7 @@ Recent Accomplishments (things I have successfully done):
 			toolsSection = fmt.Sprintf(`
 
 Key Capabilities (via sub-agents):
-%s`, c.toolIndex.FormatToolList(toolResults))
+%s`, toolResults.String())
 			toolsInstruction = "\n- The Key Capabilities section highlights representative tools the agent can delegate to sub-agents. Mention the key capability areas they enable (e.g. email, source control, browsing, file management)."
 		}
 	}

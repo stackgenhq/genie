@@ -8,16 +8,26 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/stackgenhq/genie/pkg/logger"
+	"github.com/stackgenhq/genie/pkg/memory/graph"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 )
 
 // toolIndexMetaType is the metadata value used to tag tool declarations in
 // the vector store, preventing collisions with memory/graph documents.
 const toolIndexMetaType = "tool_index"
+
+// cooccurrenceEntityType is the entity type for tools stored in the graph
+// store for co-occurrence tracking.
+const cooccurrenceEntityType = "cooccurrence_tool"
+
+// cooccurrenceAttrPrefix prefixes entity attrs keys that encode edge weights.
+// Format: "cooc:<other_tool>" → "<count>".
+const cooccurrenceAttrPrefix = "cooc:"
 
 // Blended scoring weights for SearchToolsWithContext.
 // Semantic similarity dominates so new/unknown tools still surface.
@@ -32,6 +42,24 @@ type ToolSearchResult struct {
 	Name        string  `json:"name"`
 	Description string  `json:"description"`
 	Score       float64 `json:"score"`
+}
+
+type ToolSearchResults []ToolSearchResult
+
+//counterfeiter:generate . SmartToolProvider
+
+// SmartToolProvider is a tool provider that can perform semantic search and
+// co-occurrence analysis to find relevant tools.
+type SmartToolProvider interface {
+	// SearchToolsWithContext performs a semantic search and then re-ranks results
+	// using co-occurrence affinity with the provided context tools. The blended
+	// score is: 0.7*semantic + 0.3*max(cooccurrence with each contextTool).
+	SearchToolsWithContext(ctx context.Context, query string, contextTools []string, limit int) (ToolSearchResults, error)
+
+	// RecordToolUsage records that the given tools were used together in a
+	// single task run. This updates the co-occurrence graph by incrementing
+	// all pairwise edges. The graph is symmetric.
+	RecordToolUsage(ctx context.Context, toolNames []string)
 }
 
 // VectorToolProvider indexes tool declarations into a vector store and
@@ -49,9 +77,22 @@ type ToolSearchResult struct {
 type VectorToolProvider struct {
 	store vector.IStore
 
+	// graphStore persists co-occurrence data across restarts. When
+	// non-nil, each tool is stored as a graph.Entity with type
+	// "cooccurrence_tool" and edge weights encoded in Attrs.
+	// When nil, the co-occurrence graph is ephemeral (in-memory only).
+	graphStore graph.IStore
+
+	// DisableCooccurrenceCache when true skips the in-memory map and reads
+	// co-occurrence scores directly from the graph store. Useful when the
+	// graph store is fast (e.g. in-memory graph) and you want to avoid
+	// duplicate state. Has no effect when graphStore is nil.
+	DisableCooccurrenceCache bool
+
 	// cooccurrence tracks pairwise tool usage. cooccurrence[A][B] = N
 	// means tools A and B appeared together in N task runs. The graph
 	// is symmetric: recording {A, B} increments both [A][B] and [B][A].
+	// Skipped when DisableCooccurrenceCache is true.
 	cooccurrence map[string]map[string]int
 
 	// maxEdgeWeight tracks the highest edge weight seen so far.
@@ -66,20 +107,31 @@ type VectorToolProvider struct {
 // document with ID "tool:<name>", text "<name>: <description>", and
 // metadata type=tool_index.
 //
+// When graphStore is non-nil, the co-occurrence graph is persisted via
+// graph.IStore entities so it survives restarts. Pass nil for ephemeral mode.
+//
 // The indexing is idempotent (upsert) so repeated calls with the same
 // registry are safe.
-func NewVectorToolProvider(ctx context.Context, store vector.IStore, registry *Registry) (*VectorToolProvider, error) {
+func NewVectorToolProvider(ctx context.Context, store vector.IStore, registry *Registry, graphStore graph.IStore) (*VectorToolProvider, error) {
 	if store == nil {
 		return nil, fmt.Errorf("vector store is nil; cannot create VectorToolProvider")
 	}
 
 	vtp := &VectorToolProvider{
 		store:        store,
+		graphStore:   graphStore,
 		cooccurrence: make(map[string]map[string]int),
 	}
 
 	if err := vtp.indexTools(ctx, registry); err != nil {
 		return nil, fmt.Errorf("failed to index tools: %w", err)
+	}
+
+	// Hydrate co-occurrence graph from persistent storage.
+	if graphStore != nil {
+		if err := vtp.loadCooccurrence(ctx); err != nil {
+			logger.GetLogger(ctx).Warn("failed to load co-occurrence graph from graph store, starting fresh", "error", err)
+		}
 	}
 
 	return vtp, nil
@@ -120,11 +172,7 @@ func (v *VectorToolProvider) indexTools(ctx context.Context, registry *Registry)
 // SearchTools performs a semantic search over indexed tool declarations,
 // returning tools whose descriptions are most relevant to the query.
 // Results are ordered by similarity score (highest first).
-func (v *VectorToolProvider) SearchTools(ctx context.Context, query string, limit int) ([]ToolSearchResult, error) {
-	if v.store == nil {
-		return nil, nil
-	}
-
+func (v *VectorToolProvider) SearchTools(ctx context.Context, query string, limit int) (ToolSearchResults, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -150,11 +198,7 @@ func (v *VectorToolProvider) SearchTools(ctx context.Context, query string, limi
 // This makes tool recommendations context-aware: tools that are commonly
 // used alongside the context tools rank higher. If the co-occurrence graph
 // is empty (cold start), results are ranked purely by semantic similarity.
-func (v *VectorToolProvider) SearchToolsWithContext(ctx context.Context, query string, contextTools []string, limit int) ([]ToolSearchResult, error) {
-	if v.store == nil {
-		return nil, nil
-	}
-
+func (v *VectorToolProvider) SearchToolsWithContext(ctx context.Context, query string, contextTools []string, limit int) (ToolSearchResults, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -222,14 +266,18 @@ func (v *VectorToolProvider) SearchToolsWithContext(ctx context.Context, query s
 // all pairwise edges. The graph is symmetric.
 //
 // Called after every sub-agent completes with its TreeResult.ToolCallCounts.
-func (v *VectorToolProvider) RecordToolUsage(toolNames []string) {
+func (v *VectorToolProvider) RecordToolUsage(ctx context.Context, toolNames []string) {
+	logr := logger.GetLogger(ctx).With("fn", "VectorToolProvider.RecordToolUsage")
+
 	if len(toolNames) < 2 {
+		logr.Info("not enough tools to record co-occurrence", "tool_names", toolNames)
 		return // Need at least 2 tools for co-occurrence.
 	}
 
-	v.mu.Lock()
-	defer v.mu.Unlock()
+	// Track which tools changed so we only persist dirty entities.
+	changed := make(map[string]struct{})
 
+	v.mu.Lock()
 	for i := 0; i < len(toolNames); i++ {
 		for j := i + 1; j < len(toolNames); j++ {
 			a, b := toolNames[i], toolNames[j]
@@ -244,18 +292,140 @@ func (v *VectorToolProvider) RecordToolUsage(toolNames []string) {
 			v.cooccurrence[a][b]++
 			v.cooccurrence[b][a]++
 
+			changed[a] = struct{}{}
+			changed[b] = struct{}{}
+
 			// Track max for normalization.
 			if v.cooccurrence[a][b] > v.maxEdgeWeight {
 				v.maxEdgeWeight = v.cooccurrence[a][b]
 			}
 		}
 	}
+	v.mu.Unlock()
+
+	// Persist changed entities to graph store (best-effort, outside lock).
+	if v.graphStore != nil {
+		v.persistCooccurrence(ctx, changed)
+	}
+}
+
+// loadCooccurrence hydrates the in-memory co-occurrence map from entities
+// stored in the graph store. Each entity of type "cooccurrence_tool" has
+// attrs like "cooc:write_file" → "5" encoding pairwise counts.
+func (v *VectorToolProvider) loadCooccurrence(ctx context.Context) error {
+	logr := logger.GetLogger(ctx).With("fn", "VectorToolProvider.loadCooccurrence")
+
+	if v.graphStore == nil {
+		return nil
+	}
+
+	// We need to discover all cooccurrence_tool entities. The graph store
+	// doesn't have a "list all by type" API, but we can look up entities
+	// by ID. We use a sentinel entity that records known tool names.
+	sentinel, err := v.graphStore.GetEntity(ctx, "cooccurrence:index")
+	if err != nil {
+		return fmt.Errorf("failed to get co-occurrence index: %w", err)
+	}
+	if sentinel == nil {
+		logr.Info("no co-occurrence index found, starting fresh")
+		return nil
+	}
+
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	toolNames := make([]string, 0, len(sentinel.Attrs))
+	for k := range sentinel.Attrs {
+		toolNames = append(toolNames, k)
+	}
+
+	for _, toolName := range toolNames {
+		entity, err := v.graphStore.GetEntity(ctx, "cooccurrence:tool:"+toolName)
+		if err != nil {
+			logr.Warn("failed to load co-occurrence entity", "tool", toolName, "error", err)
+			continue
+		}
+		if entity == nil {
+			continue
+		}
+
+		if v.cooccurrence[toolName] == nil {
+			v.cooccurrence[toolName] = make(map[string]int)
+		}
+
+		for k, val := range entity.Attrs {
+			if !strings.HasPrefix(k, cooccurrenceAttrPrefix) {
+				continue
+			}
+			otherTool := strings.TrimPrefix(k, cooccurrenceAttrPrefix)
+			count, err := strconv.Atoi(val)
+			if err != nil {
+				continue
+			}
+			v.cooccurrence[toolName][otherTool] = count
+			if count > v.maxEdgeWeight {
+				v.maxEdgeWeight = count
+			}
+		}
+	}
+
+	logr.Info("co-occurrence graph loaded from graph store", "tools", len(toolNames), "maxEdgeWeight", v.maxEdgeWeight)
+	return nil
+}
+
+// persistCooccurrence writes the co-occurrence data for the given changed
+// tools to the graph store. Each tool becomes an Entity with attrs encoding
+// its pairwise counts. A sentinel "cooccurrence:index" entity tracks all
+// known tool names for discovery during load.
+func (v *VectorToolProvider) persistCooccurrence(ctx context.Context, changed map[string]struct{}) {
+	logr := logger.GetLogger(ctx).With("fn", "VectorToolProvider.persistCooccurrence")
+
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+
+	for toolName := range changed {
+		edges := v.cooccurrence[toolName]
+		attrs := make(map[string]string, len(edges))
+		for otherTool, count := range edges {
+			attrs[cooccurrenceAttrPrefix+otherTool] = strconv.Itoa(count)
+		}
+
+		entity := graph.Entity{
+			ID:    "cooccurrence:tool:" + toolName,
+			Type:  cooccurrenceEntityType,
+			Attrs: attrs,
+		}
+		if err := v.graphStore.AddEntity(ctx, entity); err != nil {
+			logr.Warn("failed to persist co-occurrence entity", "tool", toolName, "error", err)
+		}
+	}
+
+	// Update the sentinel index entity with all known tool names.
+	allTools := make(map[string]string, len(v.cooccurrence))
+	for toolName := range v.cooccurrence {
+		allTools[toolName] = "1"
+	}
+	indexEntity := graph.Entity{
+		ID:    "cooccurrence:index",
+		Type:  cooccurrenceEntityType,
+		Attrs: allTools,
+	}
+	if err := v.graphStore.AddEntity(ctx, indexEntity); err != nil {
+		logr.Warn("failed to persist co-occurrence index", "error", err)
+	}
 }
 
 // CooccurrenceScore returns a normalized affinity score [0, 1] between
 // two tools based on how frequently they appear together. Returns 0 if
 // either tool is unknown or the graph is empty.
+//
+// When DisableCooccurrenceCache is true and graphStore is available, the
+// score is computed directly from the graph store entities.
 func (v *VectorToolProvider) CooccurrenceScore(toolA, toolB string) float64 {
+	if v.DisableCooccurrenceCache && v.graphStore != nil {
+		return v.cooccurrenceScoreFromGraph(toolA, toolB)
+	}
+
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 
@@ -276,6 +446,39 @@ func (v *VectorToolProvider) CooccurrenceScore(toolA, toolB string) float64 {
 	// Log-normalized score to avoid linearly scaling with outlier counts.
 	// log(1+w) / log(1+max) gives [0, 1] with diminishing returns.
 	return math.Log1p(float64(weight)) / math.Log1p(float64(v.maxEdgeWeight))
+}
+
+// cooccurrenceScoreFromGraph reads co-occurrence counts directly from the
+// graph store, bypassing the in-memory cache. Used when DisableCooccurrenceCache is true.
+func (v *VectorToolProvider) cooccurrenceScoreFromGraph(toolA, toolB string) float64 {
+	ctx := context.Background()
+
+	entityA, err := v.graphStore.GetEntity(ctx, "cooccurrence:tool:"+toolA)
+	if err != nil || entityA == nil {
+		return 0
+	}
+
+	val, ok := entityA.Attrs[cooccurrenceAttrPrefix+toolB]
+	if !ok {
+		return 0
+	}
+	weight, err := strconv.Atoi(val)
+	if err != nil || weight == 0 {
+		return 0
+	}
+
+	// Need maxEdgeWeight for normalization. Read from the cache (still
+	// tracked even when cache is disabled) because scanning all entities
+	// for the global max would be expensive.
+	v.mu.RLock()
+	max := v.maxEdgeWeight
+	v.mu.RUnlock()
+
+	if max == 0 {
+		return 0
+	}
+
+	return math.Log1p(float64(weight)) / math.Log1p(float64(max))
 }
 
 // parseSearchResults converts raw vector search results into ToolSearchResult
@@ -303,9 +506,9 @@ func (v *VectorToolProvider) parseSearchResults(results []vector.SearchResult) [
 	return toolResults
 }
 
-// FormatToolList formats search results as a concise string suitable for
+// String formats search results as a concise string suitable for
 // inclusion in LLM prompts. Each tool is listed as "- name: description".
-func (v *VectorToolProvider) FormatToolList(results []ToolSearchResult) string {
+func (results ToolSearchResults) String() string {
 	if len(results) == 0 {
 		return ""
 	}

@@ -180,7 +180,7 @@ type createAgentTool struct {
 	// Used to resolve tools by goal description instead of listing
 	// all tools in the description. Sub-agents do NOT get access to
 	// this — they receive concrete tools via Registry.Include().
-	toolIndex *tools.VectorToolProvider
+	toolIndex tools.SmartToolProvider
 
 	description string
 
@@ -275,7 +275,7 @@ func NewCreateAgentTool(
 	toolWrapSvc *toolwrap.Service,
 	vectorStore vector.IStore,
 	halGuard halguard.Guard,
-	toolIndex *tools.VectorToolProvider,
+	toolIndex tools.SmartToolProvider,
 	opts ...CreateAgentOption,
 ) *createAgentTool {
 	// Build a sub-agent registry that excludes orchestration-only tools.
@@ -760,7 +760,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	sar = t.applyZeroToolUseGuard(ctx, req, sar)
 	sar = t.runHalGuardPostCheck(ctx, req, sar, modelToUse)
 	t.storeResults(ctx, req, sar)
-	t.recordToolCooccurrence(sar)
+	t.recordToolCooccurrence(ctx, sar)
 	sar = t.summarizeOutput(ctx, req, sar)
 
 	return CreateAgentResponse{
@@ -925,11 +925,11 @@ func (t *createAgentTool) storeResults(ctx context.Context, req CreateAgentReque
 // recordToolCooccurrence feeds the tools actually used by a sub-agent into
 // the co-occurrence graph so future tool recommendations are context-aware.
 // Only records when >= 2 tools were used (co-occurrence requires pairs).
-func (t *createAgentTool) recordToolCooccurrence(sar subAgentResult) {
+func (t *createAgentTool) recordToolCooccurrence(ctx context.Context, sar subAgentResult) {
 	if t.toolIndex == nil || len(sar.usedToolNames) < 2 {
 		return
 	}
-	t.toolIndex.RecordToolUsage(sar.usedToolNames)
+	t.toolIndex.RecordToolUsage(ctx, sar.usedToolNames)
 }
 
 // summarizeOutput compresses large sub-agent output when the caller

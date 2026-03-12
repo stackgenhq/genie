@@ -93,6 +93,7 @@ var _ = Describe("CodeOwner", func() {
 				fakeProvider,
 				fakeRegistry,
 				&vectorfakes.FakeIStore{},
+				nil, // graphStore
 				&auditfakes.FakeAuditor{},
 				&hitlfakes.FakeApprovalStore{},
 				nil,
@@ -433,7 +434,7 @@ var _ = Describe("CodeOwner", func() {
 				newStubTool("email_read", "Read email messages"),
 				newStubTool("email_send", "Send email messages"),
 			})
-			toolIdx, idxErr := tools.NewVectorToolProvider(ctx, store, reg)
+			toolIdx, idxErr := tools.NewVectorToolProvider(ctx, store, reg, nil)
 			Expect(idxErr).NotTo(HaveOccurred())
 			co.toolIndex = toolIdx
 

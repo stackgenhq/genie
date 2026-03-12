@@ -386,6 +386,7 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 		modelProvider,
 		a.toolRegistry,
 		vectorStore,
+		a.graphStore,
 		a.auditor,
 		a.approvalStore,
 		memorySvc,
