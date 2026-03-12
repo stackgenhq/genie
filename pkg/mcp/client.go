@@ -129,11 +129,12 @@ func (c *Client) initializeServer(ctx context.Context, config MCPServerConfig) (
 
 	// Create MCP client
 	mcpClient := client.NewClient(trans)
+	logger := logger.GetLogger(ctx).With("server", config.Name, "transport", config.Transport, "fn", "mcp.initializeServer")
 
 	// Helper to handle fallback to dummy auth tool on failure
 	fallbackToDummy := func(failErr error) ([]tool.Tool, error) {
 		if config.Auth != nil && (config.Auth.Mode == "oauth" || config.Auth.Mode == "mcp_oauth") && c.credstoreManager != nil {
-			logger.GetLogger(ctx).With("server", config.Name, "err", failErr).Warn("MCP server failed to initialize, falling back to dummy auth tool")
+			logger.Warn("MCP server failed to initialize, falling back to dummy auth tool", "err", failErr)
 			return []tool.Tool{NewDummyAuthTool(config.Name, c.credstoreManager.StoreFor(config.Name))}, nil
 		}
 		return nil, failErr
@@ -142,6 +143,7 @@ func (c *Client) initializeServer(ctx context.Context, config MCPServerConfig) (
 	// Start the transport (spawns the subprocess for stdio, opens the
 	// HTTP connection for SSE). Must happen before Initialize.
 	if err = mcpClient.Start(ctx); err != nil {
+		logger.Warn("connection errored", "url", config.ServerURL, "error", err)
 		return fallbackToDummy(fmt.Errorf("failed to start MCP transport: %w", err))
 	}
 
@@ -171,7 +173,7 @@ func (c *Client) initializeServer(ctx context.Context, config MCPServerConfig) (
 			})
 		}
 	} else {
-		logger.GetLogger(ctx).With("fn", "mcp.initializeServer").Warn("failed to list prompts, prompts will be unavailable", "server", config.Name, "err", err)
+		logger.Warn("failed to list prompts, prompts will be unavailable", "server", config.Name, "err", err)
 	}
 
 	// Convert and filter tools

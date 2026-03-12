@@ -418,11 +418,12 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/auth/info", s.oidcHandler.HandleAuthInfo)
 	}
 
-	// Serve static documentation / chat UI
-	// Serve documentation via reverse proxy to GitHub Pages
-	// This ensures users always see the latest docs without needing local files.
+	// Serve static documentation / chat UI.
+	// In development (local docs/ directory exists), serve files directly so
+	// local changes are visible immediately. In production builds, proxy to
+	// GitHub Pages so users always see the latest published docs.
 	r.Handle("/ui", http.RedirectHandler("/ui/", http.StatusMovedPermanently))
-	r.Handle("/ui/*", http.StripPrefix("/ui", newDocsProxy()))
+	r.Handle("/ui/*", http.StripPrefix("/ui", docsHandler()))
 
 	// Protected endpoints in a new chi.Group that applies authMiddleware
 	s.registerProtectedRoutes(r)
@@ -492,6 +493,33 @@ func (s *Server) registerProtectedRoutes(r chi.Router) {
 		})
 
 	})
+}
+
+// docsHandler returns an http.Handler that serves the documentation / chat UI.
+// It probes for a local docs/ directory by walking up from the working directory
+// (up to 3 levels, covering common layouts like examples/stackgen-oauth/).
+// When found, files are served directly so developers see local changes
+// immediately without deploying to GitHub Pages.
+// When no local docs/ directory is found, it falls back to the GitHub Pages
+// reverse proxy (production / release builds).
+func docsHandler() http.Handler {
+	// Walk up from cwd to find a docs/ directory in the repo root.
+	if dir, err := os.Getwd(); err == nil {
+		for i := 0; i < 4; i++ {
+			candidate := filepath.Join(dir, "docs")
+			if info, statErr := os.Stat(candidate); statErr == nil && info.IsDir() {
+				logger.GetLogger(context.Background()).Info("serving local docs for chat UI",
+					"fn", "docsHandler", "path", candidate)
+				return http.FileServer(http.Dir(candidate))
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break // reached filesystem root
+			}
+			dir = parent
+		}
+	}
+	return newDocsProxy()
 }
 
 // newDocsProxy creates a reverse proxy to the Genie GitHub Pages documentation.

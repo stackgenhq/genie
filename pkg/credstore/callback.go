@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/markbates/goth"
+	"github.com/stackgenhq/genie/pkg/messenger"
 )
 
 // CallbackHandler returns an http.Handler that processes OAuth redirect
@@ -22,59 +23,63 @@ import (
 //  3. Exchanges the authorization code for tokens
 //  4. Stores the token via the Backend (keyed by userID + serviceName)
 //  5. Responds with a success page telling the user to return to chat
-func (m *Manager) CallbackHandler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		state := r.URL.Query().Get("state")
-		if state == "" {
-			http.Error(w, "missing state parameter", http.StatusBadRequest)
+func (m *Manager) CallbackHandler(w http.ResponseWriter, r *http.Request) {
+	state := r.URL.Query().Get("state")
+	if state == "" {
+		http.Error(w, "missing state parameter", http.StatusBadRequest)
+		return
+	}
+
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		http.Error(w, "missing code parameter", http.StatusBadRequest)
+		return
+	}
+
+	pending, ok := m.pending.Load(state)
+	if !ok {
+		http.Error(w, "invalid or expired authorization state", http.StatusBadRequest)
+		return
+	}
+
+	store, ok := m.stores[pending.ServiceName]
+	if !ok {
+		http.Error(w, "unknown service: "+pending.ServiceName, http.StatusInternalServerError)
+		return
+	}
+
+	// Dispatch to the appropriate store type.
+	switch st := store.(type) {
+	case *oauthStore:
+		if err := m.handleGothCallback(w, r, st, pending); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-
-		code := r.URL.Query().Get("code")
-		if code == "" {
-			http.Error(w, "missing code parameter", http.StatusBadRequest)
+	case *mcpOAuthStore:
+		if err := m.handleMCPCallback(r, st, pending, code, state); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+	default:
+		http.Error(w, "service does not support OAuth callbacks", http.StatusInternalServerError)
+		return
+	}
 
-		pending, ok := m.pending.Load(state)
-		if !ok {
-			http.Error(w, "invalid or expired authorization state", http.StatusBadRequest)
-			return
-		}
+	// Attach the authenticating user's identity to the context so that
+	// downstream consumers (e.g. ReloadServer → tokenStoreAdapter.GetToken)
+	// can resolve the correct user. The HTTP callback context (r.Context())
+	// has no MessageOrigin, but we know who authenticated from pending.UserID.
+	notifyCtx := messenger.WithMessageOrigin(r.Context(), messenger.MessageOrigin{
+		Sender: messenger.Sender{ID: pending.UserID},
+	})
+	m.NotifyTokenSaved(notifyCtx, pending.ServiceName)
 
-		store, ok := m.stores[pending.ServiceName]
-		if !ok {
-			http.Error(w, "unknown service: "+pending.ServiceName, http.StatusInternalServerError)
-			return
-		}
-
-		// Dispatch to the appropriate store type.
-		switch st := store.(type) {
-		case *oauthStore:
-			if err := m.handleGothCallback(w, r, st, pending); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-		case *mcpOAuthStore:
-			if err := m.handleMCPCallback(r, st, pending, code, state); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-		default:
-			http.Error(w, "service does not support OAuth callbacks", http.StatusInternalServerError)
-			return
-		}
-
-		// Notify observers that the token was successfully saved.
-		m.NotifyTokenSaved(pending.ServiceName)
-
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = fmt.Fprintf(w, `<html><body style="font-family: system-ui, sans-serif; max-width: 480px; margin: 2rem auto; padding: 1rem; line-height: 1.5;">
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = fmt.Fprintf(w, `<html><body style="font-family: system-ui, sans-serif; max-width: 480px; margin: 2rem auto; padding: 1rem; line-height: 1.5;">
 <h2 style="color: #0a0;">✓ Connected to %s</h2>
 <p>You can close this tab and return to your chat. Genie can now use <strong>%s</strong> on your behalf.</p>
 <p><strong>Your privacy:</strong> Tokens are stored securely and scoped to your user account. StackGen does not have access to your credentials.</p>
 </body></html>`, pending.ServiceName, pending.ServiceName)
-	})
 }
 
 // handleGothCallback processes the OAuth callback for goth-based stores.
@@ -107,26 +112,27 @@ func (m *Manager) handleGothCallback(w http.ResponseWriter, r *http.Request, st 
 	}); err != nil {
 		return fmt.Errorf("failed to store token: %w", err)
 	}
+	w.WriteHeader(http.StatusOK)
 	return nil
 }
 
 // handleMCPCallback processes the OAuth callback for MCP OAuth (DCR) stores.
-// It exchanges the authorization code for tokens using the mcp-go OAuthHandler.
+// It exchanges the authorization code for tokens using the mcp-go OAuthHandler,
+// persisting the token directly under the correct user ID.
 func (m *Manager) handleMCPCallback(r *http.Request, st *mcpOAuthStore, pending PendingAuth, code, state string) error {
-	// ProcessAuthorizationResponse validates state, exchanges code for token,
-	// and saves it via the OAuthHandler's TokenStore.
-	if err := st.handler.ProcessAuthorizationResponse(r.Context(), code, state, pending.CodeVerifier); err != nil {
+	// Attach the authenticating user's identity to the context so that
+	// backendTokenStore.SaveToken (called by ProcessAuthorizationResponse)
+	// saves the token directly under the correct user ID instead of "_default".
+	// This avoids a race condition where concurrent users could overwrite each
+	// other's tokens under a shared "_default" key.
+	userCtx := messenger.WithMessageOrigin(r.Context(), messenger.MessageOrigin{
+		Sender: messenger.Sender{ID: pending.UserID},
+	})
+
+	if err := st.handler.ProcessAuthorizationResponse(userCtx, code, state, pending.CodeVerifier); err != nil {
 		return fmt.Errorf("MCP OAuth token exchange failed: %w", err)
 	}
 
-	// Also store the token in our backend so it's available for the credstore flow.
-	tok, err := st.handler.GetAuthorizationHeader(r.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get token after exchange: %w", err)
-	}
-	// The token was saved in the OAuthHandler's TokenStore. Retrieve it
-	// and persist it in our backend keyed by user+service for consistency.
-	_ = tok // Token is already stored by ProcessAuthorizationResponse via the TokenStore
 	return nil
 }
 

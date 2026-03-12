@@ -4,6 +4,7 @@
 package credstore
 
 import (
+	"context"
 	"sync"
 )
 
@@ -15,7 +16,7 @@ type Manager struct {
 	stores       map[string]Store // serviceName → Store
 	backend      Backend
 	pending      *PendingAuthStore
-	onTokenSaved func(serviceName string)
+	onTokenSaved func(ctx context.Context, serviceName string)
 }
 
 // NewManagerRequest is the request for NewManager.
@@ -25,18 +26,18 @@ type NewManagerRequest struct {
 
 // OnTokenSaved registers a callback that is invoked whenever a new token is successfully saved for a service.
 // This is typically used to trigger hot-reloading of clients (e.g. MCP client) after an OAuth flow.
-func (m *Manager) OnTokenSaved(callback func(serviceName string)) {
+func (m *Manager) OnTokenSaved(callback func(ctx context.Context, serviceName string)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.onTokenSaved = callback
 }
 
-func (m *Manager) NotifyTokenSaved(serviceName string) {
+func (m *Manager) NotifyTokenSaved(ctx context.Context, serviceName string) {
 	m.mu.RLock()
 	cb := m.onTokenSaved
 	m.mu.RUnlock()
 	if cb != nil {
-		cb(serviceName)
+		cb(ctx, serviceName)
 	}
 }
 

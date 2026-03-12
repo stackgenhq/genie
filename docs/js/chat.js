@@ -982,7 +982,7 @@
 
         messagesEl.appendChild(wrapper);
         scrollToBottom();
-        setTimeout(function () { wrapper.remove(); }, 30000);
+        setTimeout(function () { wrapper.remove(); }, 10000);
     }
 
     function setConnected(connected, userName) {

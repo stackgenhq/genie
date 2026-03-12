@@ -522,10 +522,9 @@ func (a *Application) Start(ctx context.Context) error {
 		// handler wrapper. The wrapper intercepts /oauth/callback before
 		// the request reaches the AG-UI server routes.
 		if a.credstoreManager != nil {
-			callbackHandler := a.credstoreManager.CallbackHandler()
 			aguiMsgr.SetHandlerWrapper(func(next http.Handler) http.Handler {
 				mux := chi.NewRouter()
-				mux.Mount("/oauth/callback", callbackHandler)
+				mux.Mount("/oauth/callback", http.HandlerFunc(a.credstoreManager.CallbackHandler))
 				mux.NotFound(next.ServeHTTP)
 				return mux
 			})
@@ -896,10 +895,10 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 		log.Info("MCP client initialized", "server_count", len(a.cfg.MCP.Servers))
 
 		if a.credstoreManager != nil {
-			a.credstoreManager.OnTokenSaved(func(serviceName string) {
-				logger.GetLogger(context.Background()).With("server", serviceName).Info("Token saved for MCP server, reloading tools")
-				if err := a.mcpClient.ReloadServer(context.Background(), serviceName); err != nil {
-					logger.GetLogger(context.Background()).With("server", serviceName, "err", err).Warn("Failed to reload MCP tools")
+			a.credstoreManager.OnTokenSaved(func(ctx context.Context, serviceName string) {
+				logger.GetLogger(ctx).With("server", serviceName).Info("Token saved for MCP server, reloading tools")
+				if err := a.mcpClient.ReloadServer(ctx, serviceName); err != nil {
+					logger.GetLogger(ctx).With("server", serviceName, "err", err).Warn("Failed to reload MCP tools")
 				}
 			})
 		}

@@ -736,6 +736,11 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 					}
 					if !hasUserActionRequired && strings.Contains(content, agui.UserActionRequiredMarker) {
 						hasUserActionRequired = true
+						// Cancel the sub-agent context so the runner stops
+						// immediately. Without this, the LLM may issue
+						// another duplicate tool call (e.g. a second
+						// stackgen_connect) before the loop terminates.
+						cancelCause(fmt.Errorf("user action required, stopping sub-agent"))
 					}
 					if len(content) > remaining {
 						cut := remaining
@@ -767,8 +772,11 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 				"cause", cause.Error(),
 				"partial_output_length", sb.Len())
 
-			// Surface the cancellation cause to the parent agent instead of swallowing it
-			lastErr = cause.Error()
+			// Surface the cancellation cause to the parent agent instead of swallowing it,
+			// unless the cancel was for user-action-required (expected flow, not an error).
+			if !hasUserActionRequired {
+				lastErr = cause.Error()
+			}
 		} else {
 			timedOut = true
 			logr.Warn("sub-agent context expired, returning partial results",
@@ -856,15 +864,14 @@ type subAgentResult struct {
 }
 
 // applyZeroToolUseGuard detects when a sub-agent had action tools but made
-// zero tool calls, producing text-only output. This indicates the sub-agent
+// zero tool calls, producing text-only output. This could indicate the sub-agent
 // echoed commands as text or refused the task. It annotates the output and
 // sets status to "tool_use_failure" so the caller can auto-retry.
 func (t *createAgentTool) applyZeroToolUseGuard(_ context.Context, _ CreateAgentRequest, sar subAgentResult) subAgentResult {
 	if sar.toolCallCount == 0 && sar.output != "" && sar.status != "error" && !sar.timedOut && sar.numTools > 0 {
 		sar.output = fmt.Sprintf(
 			"⚠️ SUB-AGENT DID NOT USE TOOLS: The sub-agent produced a text-only response "+
-				"without calling any of its available tools (%s). This likely means it echoed "+
-				"commands as text or refused the task instead of executing it. "+
+				"without calling any of its available tools (%s). This likely means it did not understand the task or refused the task instead of executing it. "+
 				"The sub-agent should be re-spawned. Original output follows:\n\n%s",
 			strings.Join(sar.toolNameList, ", "), sar.output)
 		sar.status = "tool_use_failure"

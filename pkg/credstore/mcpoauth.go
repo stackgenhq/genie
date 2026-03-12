@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/mark3labs/mcp-go/client/transport"
+	transport "github.com/mark3labs/mcp-go/client/transport"
 
 	"golang.org/x/oauth2"
 )
@@ -71,6 +71,10 @@ func NewMCPOAuthStore(req NewMCPOAuthStoreRequest) Store {
 		ClientSecret: req.Config.ClientSecret,
 		Scopes:       req.Config.Scopes,
 		PKCEEnabled:  true, // Always use PKCE for public clients with DCR
+		TokenStore: &backendTokenStore{
+			backend:     req.Backend,
+			serviceName: req.ServiceName,
+		},
 	})
 	// Set the base URL so mcp-go can discover server metadata.
 	// We extract just the scheme and host because .well-known endpoints
@@ -190,4 +194,43 @@ func computeS256Challenge(verifier string) string {
 	//nolint:gosec // Not a crypto secret, just a PKCE challenge
 	h := sha256Sum([]byte(verifier))
 	return base64URLEncode(h[:])
+}
+
+// backendTokenStore adapts Backend to transport.TokenStore so that
+// mcp-go's OAuthHandler persists tokens via our credstore backend
+// instead of an ephemeral in-memory store.
+type backendTokenStore struct {
+	backend     Backend
+	serviceName string
+}
+
+func (b *backendTokenStore) GetToken(ctx context.Context) (*transport.Token, error) {
+	userID := userIDFromContext(ctx)
+	tok, err := b.backend.Get(ctx, BackendGetRequest{
+		UserID:      userID,
+		ServiceName: b.serviceName,
+	})
+	if err != nil {
+		return nil, transport.ErrNoToken
+	}
+	return &transport.Token{
+		AccessToken:  tok.AccessToken,
+		TokenType:    tok.TokenType,
+		RefreshToken: tok.RefreshToken,
+		ExpiresAt:    tok.ExpiresAt,
+	}, nil
+}
+
+func (b *backendTokenStore) SaveToken(ctx context.Context, token *transport.Token) error {
+	userID := userIDFromContext(ctx)
+	return b.backend.Put(ctx, BackendPutRequest{
+		UserID:      userID,
+		ServiceName: b.serviceName,
+		Token: &Token{
+			AccessToken:  token.AccessToken,
+			TokenType:    token.TokenType,
+			RefreshToken: token.RefreshToken,
+			ExpiresAt:    token.ExpiresAt,
+		},
+	})
 }
