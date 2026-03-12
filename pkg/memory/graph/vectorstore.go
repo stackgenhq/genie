@@ -84,11 +84,11 @@ func (s *VectorBackedStore) AddEntity(ctx context.Context, e Entity) error {
 		metaEntityID:   e.ID,
 		metaEntityType: e.Type,
 	}
-	return s.vs.Upsert(ctx, vector.BatchItem{
+	return s.vs.Upsert(ctx, vector.UpsertRequest{Items: []vector.BatchItem{{
 		ID:       entityDocID(e.ID),
 		Text:     string(textBytes),
 		Metadata: meta,
-	})
+	}}})
 }
 
 // AddEntities stores multiple entities in a single batch, reducing the number
@@ -116,7 +116,7 @@ func (s *VectorBackedStore) AddEntities(ctx context.Context, entities []Entity) 
 			},
 		})
 	}
-	return s.vs.Upsert(ctx, items...)
+	return s.vs.Upsert(ctx, vector.UpsertRequest{Items: items})
 }
 
 // AddRelation stores a directed relation. Upserts, so the same triple is idempotent.
@@ -134,11 +134,11 @@ func (s *VectorBackedStore) AddRelation(ctx context.Context, r Relation) error {
 		metaPredicate: r.Predicate,
 		metaObjectID:  r.ObjectID,
 	}
-	return s.vs.Upsert(ctx, vector.BatchItem{
+	return s.vs.Upsert(ctx, vector.UpsertRequest{Items: []vector.BatchItem{{
 		ID:       relationDocID(r.SubjectID, r.Predicate, r.ObjectID),
 		Text:     string(textBytes),
 		Metadata: meta,
-	})
+	}}})
 }
 
 // GetEntity looks up an entity by ID using metadata filter.
@@ -146,9 +146,12 @@ func (s *VectorBackedStore) GetEntity(ctx context.Context, id string) (*Entity, 
 	if id == "" {
 		return nil, nil
 	}
-	results, err := s.vs.SearchWithFilter(ctx, "", vectorStoreSearchLimit, map[string]string{
-		graphDocType: graphTypeEntity,
-		metaEntityID: id,
+	results, err := s.vs.Search(ctx, vector.SearchRequest{
+		Query: "", Limit: vectorStoreSearchLimit,
+		Filter: map[string]string{
+			graphDocType: graphTypeEntity,
+			metaEntityID: id,
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("vector store search for entity %q: %w", id, err)
@@ -165,9 +168,12 @@ func (s *VectorBackedStore) GetEntity(ctx context.Context, id string) (*Entity, 
 
 // RelationsOut returns relations where subject_id equals id (outgoing edges).
 func (s *VectorBackedStore) RelationsOut(ctx context.Context, id string) ([]Relation, error) {
-	results, err := s.vs.SearchWithFilter(ctx, "", vectorStoreSearchLimit, map[string]string{
-		graphDocType:  graphTypeRelation,
-		metaSubjectID: id,
+	results, err := s.vs.Search(ctx, vector.SearchRequest{
+		Query: "", Limit: vectorStoreSearchLimit,
+		Filter: map[string]string{
+			graphDocType:  graphTypeRelation,
+			metaSubjectID: id,
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("vector store search for outgoing relations of %q: %w", id, err)
@@ -177,9 +183,12 @@ func (s *VectorBackedStore) RelationsOut(ctx context.Context, id string) ([]Rela
 
 // RelationsIn returns relations where object_id equals id (incoming edges).
 func (s *VectorBackedStore) RelationsIn(ctx context.Context, id string) ([]Relation, error) {
-	results, err := s.vs.SearchWithFilter(ctx, "", vectorStoreSearchLimit, map[string]string{
-		graphDocType: graphTypeRelation,
-		metaObjectID: id,
+	results, err := s.vs.Search(ctx, vector.SearchRequest{
+		Query: "", Limit: vectorStoreSearchLimit,
+		Filter: map[string]string{
+			graphDocType: graphTypeRelation,
+			metaObjectID: id,
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("vector store search for incoming relations of %q: %w", id, err)

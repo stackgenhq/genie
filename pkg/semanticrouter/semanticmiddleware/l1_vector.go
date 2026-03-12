@@ -52,7 +52,7 @@ func NewL1Vector(cfg L1VectorConfig, routeStore vector.IStore) Middleware {
 	}
 
 	return func(ctx context.Context, cc *ClassifyContext, next ClassifyFunc) (ClassifyResult, error) {
-		results, err := routeStore.Search(ctx, cc.Question, 1)
+		results, err := routeStore.Search(ctx, vector.SearchRequest{Query: cc.Question, Limit: 1})
 		if err != nil {
 			logger.GetLogger(ctx).Warn("L1 semantic route search failed", "error", err)
 			return next(ctx, cc)

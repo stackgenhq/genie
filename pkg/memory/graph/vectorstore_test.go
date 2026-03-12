@@ -45,7 +45,7 @@ var _ = Describe("VectorBackedStore", func() {
 			entity, err := vbs.GetEntity(ctx, "")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(entity).To(BeNil())
-			Expect(fakeStore.SearchWithFilterCallCount()).To(Equal(0))
+			Expect(fakeStore.SearchCallCount()).To(Equal(0))
 		})
 
 		It("calls SearchWithFilter with empty query and metadata filter", func() {
@@ -58,13 +58,13 @@ var _ = Describe("VectorBackedStore", func() {
 			entityJSON, err := json.Marshal(testEntity)
 			Expect(err).NotTo(HaveOccurred())
 
-			fakeStore.SearchWithFilterStub = func(
-				_ context.Context, query string, limit int, filter map[string]string,
+			fakeStore.SearchStub = func(
+				_ context.Context, req vector.SearchRequest,
 			) ([]vector.SearchResult, error) {
 				// The key assertion: query MUST be "" for ID-based lookups.
-				Expect(query).To(Equal(""))
-				Expect(filter).To(HaveKeyWithValue("__graph_type", "entity"))
-				Expect(filter).To(HaveKeyWithValue("graph_entity_id", "org:appcd-dev"))
+				Expect(req.Query).To(Equal(""))
+				Expect(req.Filter).To(HaveKeyWithValue("__graph_type", "entity"))
+				Expect(req.Filter).To(HaveKeyWithValue("graph_entity_id", "org:appcd-dev"))
 				return []vector.SearchResult{
 					{ID: "graph:entity:org:appcd-dev", Content: string(entityJSON)},
 				}, nil
@@ -76,11 +76,11 @@ var _ = Describe("VectorBackedStore", func() {
 			Expect(entity.ID).To(Equal("org:appcd-dev"))
 			Expect(entity.Type).To(Equal("organization"))
 			Expect(entity.Attrs["name"]).To(Equal("AppCD Dev"))
-			Expect(fakeStore.SearchWithFilterCallCount()).To(Equal(1))
+			Expect(fakeStore.SearchCallCount()).To(Equal(1))
 		})
 
 		It("returns nil when entity is not found", func() {
-			fakeStore.SearchWithFilterReturns([]vector.SearchResult{}, nil)
+			fakeStore.SearchReturns([]vector.SearchResult{}, nil)
 
 			entity, err := vbs.GetEntity(ctx, "nonexistent")
 			Expect(err).NotTo(HaveOccurred())
@@ -88,7 +88,7 @@ var _ = Describe("VectorBackedStore", func() {
 		})
 
 		It("propagates vector store errors", func() {
-			fakeStore.SearchWithFilterReturns(nil, fmt.Errorf("connection lost"))
+			fakeStore.SearchReturns(nil, fmt.Errorf("connection lost"))
 
 			entity, err := vbs.GetEntity(ctx, "some-id")
 			Expect(err).To(HaveOccurred())
@@ -119,12 +119,12 @@ var _ = Describe("VectorBackedStore", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(fakeStore.UpsertCallCount()).To(Equal(1))
 
-			_, items := fakeStore.UpsertArgsForCall(0)
-			Expect(items).To(HaveLen(1))
-			Expect(items[0].ID).To(Equal("graph:entity:svc:api"))
-			Expect(items[0].Metadata["__graph_type"]).To(Equal("entity"))
-			Expect(items[0].Metadata["graph_entity_id"]).To(Equal("svc:api"))
-			Expect(items[0].Metadata["graph_entity_type"]).To(Equal("service"))
+			_, upsertReq := fakeStore.UpsertArgsForCall(0)
+			Expect(upsertReq.Items).To(HaveLen(1))
+			Expect(upsertReq.Items[0].ID).To(Equal("graph:entity:svc:api"))
+			Expect(upsertReq.Items[0].Metadata["__graph_type"]).To(Equal("entity"))
+			Expect(upsertReq.Items[0].Metadata["graph_entity_id"]).To(Equal("svc:api"))
+			Expect(upsertReq.Items[0].Metadata["graph_entity_type"]).To(Equal("service"))
 		})
 	})
 
@@ -155,13 +155,13 @@ var _ = Describe("VectorBackedStore", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(fakeStore.UpsertCallCount()).To(Equal(1))
 
-			_, items := fakeStore.UpsertArgsForCall(0)
-			Expect(items).To(HaveLen(1))
-			Expect(items[0].ID).To(Equal("graph:relation:alice:OWNS:repo-x"))
-			Expect(items[0].Metadata["__graph_type"]).To(Equal("relation"))
-			Expect(items[0].Metadata["graph_subject_id"]).To(Equal("alice"))
-			Expect(items[0].Metadata["graph_predicate"]).To(Equal("OWNS"))
-			Expect(items[0].Metadata["graph_object_id"]).To(Equal("repo-x"))
+			_, upsertReq := fakeStore.UpsertArgsForCall(0)
+			Expect(upsertReq.Items).To(HaveLen(1))
+			Expect(upsertReq.Items[0].ID).To(Equal("graph:relation:alice:OWNS:repo-x"))
+			Expect(upsertReq.Items[0].Metadata["__graph_type"]).To(Equal("relation"))
+			Expect(upsertReq.Items[0].Metadata["graph_subject_id"]).To(Equal("alice"))
+			Expect(upsertReq.Items[0].Metadata["graph_predicate"]).To(Equal("OWNS"))
+			Expect(upsertReq.Items[0].Metadata["graph_object_id"]).To(Equal("repo-x"))
 		})
 	})
 
@@ -170,10 +170,10 @@ var _ = Describe("VectorBackedStore", func() {
 			rel := graph.Relation{SubjectID: "a", Predicate: "USES", ObjectID: "b"}
 			relJSON, _ := json.Marshal(rel)
 
-			fakeStore.SearchWithFilterStub = func(
-				_ context.Context, query string, _ int, filter map[string]string,
+			fakeStore.SearchStub = func(
+				_ context.Context, req vector.SearchRequest,
 			) ([]vector.SearchResult, error) {
-				if filter["graph_subject_id"] == "a" {
+				if req.Filter["graph_subject_id"] == "a" {
 					return []vector.SearchResult{
 						{
 							Content: string(relJSON),
@@ -199,10 +199,10 @@ var _ = Describe("VectorBackedStore", func() {
 
 	Describe("RelationsIn", func() {
 		It("returns incoming relations using metadata filter", func() {
-			fakeStore.SearchWithFilterStub = func(
-				_ context.Context, _ string, _ int, filter map[string]string,
+			fakeStore.SearchStub = func(
+				_ context.Context, req vector.SearchRequest,
 			) ([]vector.SearchResult, error) {
-				if filter["graph_object_id"] == "target" {
+				if req.Filter["graph_object_id"] == "target" {
 					return []vector.SearchResult{
 						{
 							Metadata: map[string]string{

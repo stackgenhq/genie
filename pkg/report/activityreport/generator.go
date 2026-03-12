@@ -107,14 +107,14 @@ func (g *Generator) Generate(ctx context.Context, reportName string, at time.Tim
 
 	if g.vectorStore != nil {
 		id := fmt.Sprintf("activity_report:%s_%s", at.Format("20060102"), osutils.SanitizeForFilename(reportName))
-		if err := g.vectorStore.Upsert(ctx, vector.BatchItem{
+		if err := g.vectorStore.Upsert(ctx, vector.UpsertRequest{Items: []vector.BatchItem{{
 			ID:   id,
 			Text: summary,
 			Metadata: map[string]string{
 				"type":   "activity_report",
 				"source": "activity_report",
 			},
-		}); err != nil {
+		}}}); err != nil {
 			logr.Warn("Failed to store report in vector memory", "error", err)
 			// Do not fail the whole run; file was written.
 		}

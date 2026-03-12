@@ -9,11 +9,11 @@ import (
 )
 
 type FakeIStore struct {
-	AddStub        func(context.Context, ...vector.BatchItem) error
+	AddStub        func(context.Context, vector.AddRequest) error
 	addMutex       sync.RWMutex
 	addArgsForCall []struct {
 		arg1 context.Context
-		arg2 []vector.BatchItem
+		arg2 vector.AddRequest
 	}
 	addReturns struct {
 		result1 error
@@ -32,11 +32,11 @@ type FakeIStore struct {
 	closeReturnsOnCall map[int]struct {
 		result1 error
 	}
-	DeleteStub        func(context.Context, ...string) error
+	DeleteStub        func(context.Context, vector.DeleteRequest) error
 	deleteMutex       sync.RWMutex
 	deleteArgsForCall []struct {
 		arg1 context.Context
-		arg2 []string
+		arg2 vector.DeleteRequest
 	}
 	deleteReturns struct {
 		result1 error
@@ -44,12 +44,11 @@ type FakeIStore struct {
 	deleteReturnsOnCall map[int]struct {
 		result1 error
 	}
-	SearchStub        func(context.Context, string, int) ([]vector.SearchResult, error)
+	SearchStub        func(context.Context, vector.SearchRequest) ([]vector.SearchResult, error)
 	searchMutex       sync.RWMutex
 	searchArgsForCall []struct {
 		arg1 context.Context
-		arg2 string
-		arg3 int
+		arg2 vector.SearchRequest
 	}
 	searchReturns struct {
 		result1 []vector.SearchResult
@@ -59,27 +58,11 @@ type FakeIStore struct {
 		result1 []vector.SearchResult
 		result2 error
 	}
-	SearchWithFilterStub        func(context.Context, string, int, map[string]string) ([]vector.SearchResult, error)
-	searchWithFilterMutex       sync.RWMutex
-	searchWithFilterArgsForCall []struct {
-		arg1 context.Context
-		arg2 string
-		arg3 int
-		arg4 map[string]string
-	}
-	searchWithFilterReturns struct {
-		result1 []vector.SearchResult
-		result2 error
-	}
-	searchWithFilterReturnsOnCall map[int]struct {
-		result1 []vector.SearchResult
-		result2 error
-	}
-	UpsertStub        func(context.Context, ...vector.BatchItem) error
+	UpsertStub        func(context.Context, vector.UpsertRequest) error
 	upsertMutex       sync.RWMutex
 	upsertArgsForCall []struct {
 		arg1 context.Context
-		arg2 []vector.BatchItem
+		arg2 vector.UpsertRequest
 	}
 	upsertReturns struct {
 		result1 error
@@ -91,19 +74,19 @@ type FakeIStore struct {
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeIStore) Add(arg1 context.Context, arg2 ...vector.BatchItem) error {
+func (fake *FakeIStore) Add(arg1 context.Context, arg2 vector.AddRequest) error {
 	fake.addMutex.Lock()
 	ret, specificReturn := fake.addReturnsOnCall[len(fake.addArgsForCall)]
 	fake.addArgsForCall = append(fake.addArgsForCall, struct {
 		arg1 context.Context
-		arg2 []vector.BatchItem
+		arg2 vector.AddRequest
 	}{arg1, arg2})
 	stub := fake.AddStub
 	fakeReturns := fake.addReturns
 	fake.recordInvocation("Add", []interface{}{arg1, arg2})
 	fake.addMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2...)
+		return stub(arg1, arg2)
 	}
 	if specificReturn {
 		return ret.result1
@@ -117,13 +100,13 @@ func (fake *FakeIStore) AddCallCount() int {
 	return len(fake.addArgsForCall)
 }
 
-func (fake *FakeIStore) AddCalls(stub func(context.Context, ...vector.BatchItem) error) {
+func (fake *FakeIStore) AddCalls(stub func(context.Context, vector.AddRequest) error) {
 	fake.addMutex.Lock()
 	defer fake.addMutex.Unlock()
 	fake.AddStub = stub
 }
 
-func (fake *FakeIStore) AddArgsForCall(i int) (context.Context, []vector.BatchItem) {
+func (fake *FakeIStore) AddArgsForCall(i int) (context.Context, vector.AddRequest) {
 	fake.addMutex.RLock()
 	defer fake.addMutex.RUnlock()
 	argsForCall := fake.addArgsForCall[i]
@@ -214,19 +197,19 @@ func (fake *FakeIStore) CloseReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeIStore) Delete(arg1 context.Context, arg2 ...string) error {
+func (fake *FakeIStore) Delete(arg1 context.Context, arg2 vector.DeleteRequest) error {
 	fake.deleteMutex.Lock()
 	ret, specificReturn := fake.deleteReturnsOnCall[len(fake.deleteArgsForCall)]
 	fake.deleteArgsForCall = append(fake.deleteArgsForCall, struct {
 		arg1 context.Context
-		arg2 []string
+		arg2 vector.DeleteRequest
 	}{arg1, arg2})
 	stub := fake.DeleteStub
 	fakeReturns := fake.deleteReturns
 	fake.recordInvocation("Delete", []interface{}{arg1, arg2})
 	fake.deleteMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2...)
+		return stub(arg1, arg2)
 	}
 	if specificReturn {
 		return ret.result1
@@ -240,13 +223,13 @@ func (fake *FakeIStore) DeleteCallCount() int {
 	return len(fake.deleteArgsForCall)
 }
 
-func (fake *FakeIStore) DeleteCalls(stub func(context.Context, ...string) error) {
+func (fake *FakeIStore) DeleteCalls(stub func(context.Context, vector.DeleteRequest) error) {
 	fake.deleteMutex.Lock()
 	defer fake.deleteMutex.Unlock()
 	fake.DeleteStub = stub
 }
 
-func (fake *FakeIStore) DeleteArgsForCall(i int) (context.Context, []string) {
+func (fake *FakeIStore) DeleteArgsForCall(i int) (context.Context, vector.DeleteRequest) {
 	fake.deleteMutex.RLock()
 	defer fake.deleteMutex.RUnlock()
 	argsForCall := fake.deleteArgsForCall[i]
@@ -276,20 +259,19 @@ func (fake *FakeIStore) DeleteReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeIStore) Search(arg1 context.Context, arg2 string, arg3 int) ([]vector.SearchResult, error) {
+func (fake *FakeIStore) Search(arg1 context.Context, arg2 vector.SearchRequest) ([]vector.SearchResult, error) {
 	fake.searchMutex.Lock()
 	ret, specificReturn := fake.searchReturnsOnCall[len(fake.searchArgsForCall)]
 	fake.searchArgsForCall = append(fake.searchArgsForCall, struct {
 		arg1 context.Context
-		arg2 string
-		arg3 int
-	}{arg1, arg2, arg3})
+		arg2 vector.SearchRequest
+	}{arg1, arg2})
 	stub := fake.SearchStub
 	fakeReturns := fake.searchReturns
-	fake.recordInvocation("Search", []interface{}{arg1, arg2, arg3})
+	fake.recordInvocation("Search", []interface{}{arg1, arg2})
 	fake.searchMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2, arg3)
+		return stub(arg1, arg2)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
@@ -303,17 +285,17 @@ func (fake *FakeIStore) SearchCallCount() int {
 	return len(fake.searchArgsForCall)
 }
 
-func (fake *FakeIStore) SearchCalls(stub func(context.Context, string, int) ([]vector.SearchResult, error)) {
+func (fake *FakeIStore) SearchCalls(stub func(context.Context, vector.SearchRequest) ([]vector.SearchResult, error)) {
 	fake.searchMutex.Lock()
 	defer fake.searchMutex.Unlock()
 	fake.SearchStub = stub
 }
 
-func (fake *FakeIStore) SearchArgsForCall(i int) (context.Context, string, int) {
+func (fake *FakeIStore) SearchArgsForCall(i int) (context.Context, vector.SearchRequest) {
 	fake.searchMutex.RLock()
 	defer fake.searchMutex.RUnlock()
 	argsForCall := fake.searchArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+	return argsForCall.arg1, argsForCall.arg2
 }
 
 func (fake *FakeIStore) SearchReturns(result1 []vector.SearchResult, result2 error) {
@@ -342,86 +324,19 @@ func (fake *FakeIStore) SearchReturnsOnCall(i int, result1 []vector.SearchResult
 	}{result1, result2}
 }
 
-func (fake *FakeIStore) SearchWithFilter(arg1 context.Context, arg2 string, arg3 int, arg4 map[string]string) ([]vector.SearchResult, error) {
-	fake.searchWithFilterMutex.Lock()
-	ret, specificReturn := fake.searchWithFilterReturnsOnCall[len(fake.searchWithFilterArgsForCall)]
-	fake.searchWithFilterArgsForCall = append(fake.searchWithFilterArgsForCall, struct {
-		arg1 context.Context
-		arg2 string
-		arg3 int
-		arg4 map[string]string
-	}{arg1, arg2, arg3, arg4})
-	stub := fake.SearchWithFilterStub
-	fakeReturns := fake.searchWithFilterReturns
-	fake.recordInvocation("SearchWithFilter", []interface{}{arg1, arg2, arg3, arg4})
-	fake.searchWithFilterMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2, arg3, arg4)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeIStore) SearchWithFilterCallCount() int {
-	fake.searchWithFilterMutex.RLock()
-	defer fake.searchWithFilterMutex.RUnlock()
-	return len(fake.searchWithFilterArgsForCall)
-}
-
-func (fake *FakeIStore) SearchWithFilterCalls(stub func(context.Context, string, int, map[string]string) ([]vector.SearchResult, error)) {
-	fake.searchWithFilterMutex.Lock()
-	defer fake.searchWithFilterMutex.Unlock()
-	fake.SearchWithFilterStub = stub
-}
-
-func (fake *FakeIStore) SearchWithFilterArgsForCall(i int) (context.Context, string, int, map[string]string) {
-	fake.searchWithFilterMutex.RLock()
-	defer fake.searchWithFilterMutex.RUnlock()
-	argsForCall := fake.searchWithFilterArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4
-}
-
-func (fake *FakeIStore) SearchWithFilterReturns(result1 []vector.SearchResult, result2 error) {
-	fake.searchWithFilterMutex.Lock()
-	defer fake.searchWithFilterMutex.Unlock()
-	fake.SearchWithFilterStub = nil
-	fake.searchWithFilterReturns = struct {
-		result1 []vector.SearchResult
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeIStore) SearchWithFilterReturnsOnCall(i int, result1 []vector.SearchResult, result2 error) {
-	fake.searchWithFilterMutex.Lock()
-	defer fake.searchWithFilterMutex.Unlock()
-	fake.SearchWithFilterStub = nil
-	if fake.searchWithFilterReturnsOnCall == nil {
-		fake.searchWithFilterReturnsOnCall = make(map[int]struct {
-			result1 []vector.SearchResult
-			result2 error
-		})
-	}
-	fake.searchWithFilterReturnsOnCall[i] = struct {
-		result1 []vector.SearchResult
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeIStore) Upsert(arg1 context.Context, arg2 ...vector.BatchItem) error {
+func (fake *FakeIStore) Upsert(arg1 context.Context, arg2 vector.UpsertRequest) error {
 	fake.upsertMutex.Lock()
 	ret, specificReturn := fake.upsertReturnsOnCall[len(fake.upsertArgsForCall)]
 	fake.upsertArgsForCall = append(fake.upsertArgsForCall, struct {
 		arg1 context.Context
-		arg2 []vector.BatchItem
+		arg2 vector.UpsertRequest
 	}{arg1, arg2})
 	stub := fake.UpsertStub
 	fakeReturns := fake.upsertReturns
 	fake.recordInvocation("Upsert", []interface{}{arg1, arg2})
 	fake.upsertMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2...)
+		return stub(arg1, arg2)
 	}
 	if specificReturn {
 		return ret.result1
@@ -435,13 +350,13 @@ func (fake *FakeIStore) UpsertCallCount() int {
 	return len(fake.upsertArgsForCall)
 }
 
-func (fake *FakeIStore) UpsertCalls(stub func(context.Context, ...vector.BatchItem) error) {
+func (fake *FakeIStore) UpsertCalls(stub func(context.Context, vector.UpsertRequest) error) {
 	fake.upsertMutex.Lock()
 	defer fake.upsertMutex.Unlock()
 	fake.UpsertStub = stub
 }
 
-func (fake *FakeIStore) UpsertArgsForCall(i int) (context.Context, []vector.BatchItem) {
+func (fake *FakeIStore) UpsertArgsForCall(i int) (context.Context, vector.UpsertRequest) {
 	fake.upsertMutex.RLock()
 	defer fake.upsertMutex.RUnlock()
 	argsForCall := fake.upsertArgsForCall[i]

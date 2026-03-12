@@ -136,7 +136,7 @@ var _ = Describe("CodeOwner", func() {
 					{Goal: "task", Trajectory: "episodic result", Status: rtmemory.EpisodeSuccess, Importance: 7},
 				})
 				fakeStore := &vectorfakes.FakeIStore{}
-				fakeStore.SearchWithFilterReturns([]vector.SearchResult{
+				fakeStore.SearchReturns([]vector.SearchResult{
 					{Content: "legacy result", Score: 0.9},
 				}, nil)
 				co.vectorStore = fakeStore
@@ -145,7 +145,7 @@ var _ = Describe("CodeOwner", func() {
 				Expect(result).To(ContainSubstring("episodic result"))
 				Expect(result).NotTo(ContainSubstring("legacy result"))
 				// Vector store should NOT have been called.
-				Expect(fakeStore.SearchWithFilterCallCount()).To(Equal(0))
+				Expect(fakeStore.SearchCallCount()).To(Equal(0))
 			})
 		})
 
@@ -195,7 +195,7 @@ var _ = Describe("CodeOwner", func() {
 
 			It("should fall back to vector store when episodic memory and wisdom are empty", func() {
 				fakeStore := &vectorfakes.FakeIStore{}
-				fakeStore.SearchWithFilterReturns([]vector.SearchResult{
+				fakeStore.SearchReturns([]vector.SearchResult{
 					{Content: "legacy accomplishment", Score: 0.9, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
 				}, nil)
 				co.vectorStore = fakeStore
@@ -206,7 +206,7 @@ var _ = Describe("CodeOwner", func() {
 
 			It("should sort legacy results by score descending", func() {
 				fakeStore := &vectorfakes.FakeIStore{}
-				fakeStore.SearchWithFilterReturns([]vector.SearchResult{
+				fakeStore.SearchReturns([]vector.SearchResult{
 					{Content: "low score", Score: 0.3, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
 					{Content: "high score", Score: 0.9, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
 					{Content: "mid score", Score: 0.6, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
@@ -231,7 +231,7 @@ var _ = Describe("CodeOwner", func() {
 					})
 				}
 				fakeStore := &vectorfakes.FakeIStore{}
-				fakeStore.SearchWithFilterReturns(results, nil)
+				fakeStore.SearchReturns(results, nil)
 				co.vectorStore = fakeStore
 
 				result := co.recallAccomplishments(ctx)
@@ -397,7 +397,7 @@ var _ = Describe("CodeOwner", func() {
 		It("should generate a resume using the summarizer and accomplishments", func() {
 			// Mock findings in vector store
 			fakeStore := &vectorfakes.FakeIStore{}
-			fakeStore.SearchWithFilterReturns([]vector.SearchResult{
+			fakeStore.SearchReturns([]vector.SearchResult{
 				{Content: "Built a go app", Score: 1.0, Metadata: map[string]string{"type": rtmemory.AccomplishmentType}},
 			}, nil)
 			co.vectorStore = fakeStore
@@ -410,7 +410,7 @@ var _ = Describe("CodeOwner", func() {
 			Expect(resume).To(Equal("Generated Resume Content"))
 
 			// Verify it tried to recall accomplishments via SearchWithFilter
-			Expect(fakeStore.SearchWithFilterCallCount()).To(Equal(2))
+			Expect(fakeStore.SearchCallCount()).To(Equal(2))
 
 			// Verify it called summarizer
 			Expect(fakeSummarizer.SummarizeCallCount()).To(Equal(1))

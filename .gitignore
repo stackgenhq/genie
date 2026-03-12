@@ -15,3 +15,4 @@ examples/devops-in-k8s/.terraform
 examples/devops-in-k8s/*auto.tfvars
 installation/k8s/.terraform
 backend.tf
+examples/cloud-discovery/terraform.tfstate
