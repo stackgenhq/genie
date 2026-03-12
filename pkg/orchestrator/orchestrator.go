@@ -835,8 +835,11 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	// Skip for internal tasks so cron/heartbeat results don't pollute
 	// the cache — they'd cause false cache hits for unrelated user queries
 	// that happen to be semantically similar.
+	// PII is redacted before storage to prevent sensitive data leakage
+	// when cached responses are later injected as context hints.
 	if c.router != nil && !req.SkipClassification {
-		if err := c.router.SetCache(ctx, req.Question, res.Output); err != nil {
+		redactedOutput := pii.Redact(ctx, res.Output)
+		if err := c.router.SetCache(ctx, req.Question, redactedOutput); err != nil {
 			logr.Warn("failed to set semantic cache", "error", err)
 		}
 	}

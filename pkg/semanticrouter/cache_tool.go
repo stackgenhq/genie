@@ -127,8 +127,9 @@ func (t *cacheTool) clearAll(ctx context.Context) (CacheToolResponse, error) {
 	}
 
 	// PruneStaleCacheEntries only removes expired entries.
-	// To clear ALL, we search for everything and delete.
-	entries, err := t.router.SearchCache(ctx, "", maxCacheSearchLimit)
+	// To clear ALL, we search broadly and delete matches.
+	// A wildcard query ensures the vector store returns all entries.
+	entries, err := t.router.SearchCache(ctx, "cache", maxCacheSearchLimit)
 	if err != nil {
 		return CacheToolResponse{
 			Message: fmt.Sprintf("Pruned %d stale entries, but failed to search remaining: %v", count, err),

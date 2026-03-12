@@ -18,6 +18,7 @@ import (
 
 	"github.com/stackgenhq/genie/pkg/memory/graph"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
+	"github.com/stackgenhq/genie/pkg/semanticrouter"
 )
 
 //go:generate go tool counterfeiter -generate
@@ -217,6 +218,7 @@ var defaultReadOnlyTools = []string{
 	"create_agent",
 	graph.GraphStoreToolName,
 	graph.GraphQueryToolName,
+	semanticrouter.CacheToolName,
 }
 
 // CanResolve checks whether the resolving user is authorized to approve or
