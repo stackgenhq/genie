@@ -1,0 +1,178 @@
+# Marketing Intelligence Agent Configuration
+# ─────────────────────────────────────────────────────────────────────
+# This file is a Terraform template (tftpl). Infrastructure values
+# (hosts, ports, secret names) are resolved at terraform apply time.
+# Genie runtime secret references ($${VAR}) are passed through
+# literally and resolved by the Genie binary at startup.
+#
+# Template variables (resolved by Terraform):
+#   secrets_manager_name  — AWS Secrets Manager secret name
+#   aws_region            — AWS region
+#   qdrant_host           — Qdrant service FQDN (shared with devops-copilot)
+#   qdrant_port           — Qdrant gRPC port
+#   qdrant_api_key        — Qdrant API key (optional, empty = disabled)
+#   agui_port             — AG-UI server port
+#
+# Runtime placeholders (resolved by envsubst in init container):
+#   $${MARKETING_POSTGRES_DSN}  — PostgreSQL DSN for genie_marketing db
+# ─────────────────────────────────────────────────────────────────────
+
+agent_name = "marketing-expert"
+
+[persona]
+file = "/app/AGENTS.md"
+disable_resume = true
+
+[security]
+[security.secrets]
+"OPENAI_API_KEY" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=OPENAI_API_KEY"
+"ANTHROPIC_API_KEY" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=ANTHROPIC_API_KEY"
+"GEMINI_API_KEY" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=GEMINI_API_KEY"
+"SLACK_APP_TOKEN" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=SLACK_APP_TOKEN"
+"SLACK_BOT_TOKEN" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=SLACK_BOT_TOKEN"
+"SYBILL_API_KEY" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=SYBILL_API_KEY"
+"LANGFUSE_PUBLIC_KEY" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=LANGFUSE_PUBLIC_KEY"
+"LANGFUSE_SECRET_KEY" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=LANGFUSE_SECRET_KEY"
+"LANGFUSE_HOST" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=LANGFUSE_HOST"
+%{ if qdrant_api_key != "" ~}
+"QDRANT_API_KEY" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=QDRANT_API_KEY"
+%{ endif ~}
+
+[db_config]
+dsn = "$${MARKETING_POSTGRES_DSN}"
+
+# ── Model Configuration ─────────────────────────────────────────────
+[model_config]
+
+# Planning: Sonnet for orchestration (thread summarization, multi-source synthesis)
+[[model_config.providers]]
+provider = "anthropic"
+model_name = "claude-sonnet-4-5-20250929"
+token = "$${ANTHROPIC_API_KEY}"
+good_for_task = "planning"
+
+# Tool calling: Gemini Flash for Google Drive lookups, HTTP requests
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "$${GEMINI_API_KEY}"
+good_for_task = "tool_calling"
+
+# Summarizer: Gemini Pro for high-quality thread/document summaries
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-pro-preview"
+token = "$${GEMINI_API_KEY}"
+good_for_task = "summarizer"
+
+# General task: fast model for Q&A and simple responses
+[[model_config.providers]]
+provider = "openai-completions"
+model_name = "gpt-5.1-codex-mini"
+token = "$${OPENAI_API_KEY}"
+good_for_task = "general_task"
+
+# Frontdesk: request classification and triage
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "$${GEMINI_API_KEY}"
+good_for_task = "frontdesk"
+
+# Efficiency models for hallucination guard cross-model verification
+[[model_config.providers]]
+provider = "openai"
+model_name = "gpt-4.1-mini"
+token = "$${OPENAI_API_KEY}"
+good_for_task = "efficiency"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-2.0-flash"
+token = "$${GEMINI_API_KEY}"
+good_for_task = "efficiency"
+
+[[model_config.providers]]
+provider = "anthropic"
+model_name = "claude-haiku-4-5"
+token = "$${ANTHROPIC_API_KEY}"
+good_for_task = "efficiency"
+
+# ── Hallucination Guard ─────────────────────────────────────────────
+[halguard]
+enable_pre_check = true
+enable_post_check = true
+pre_check_threshold = 0.4
+cross_model_samples = 3
+
+# ── Slack Messenger ─────────────────────────────────────────────────
+# Primary interface: Slack Socket Mode (no public endpoint needed).
+# The agent listens for messages and thread mentions via WebSocket.
+[messenger]
+platform = "slack"
+
+[messenger.slack]
+app_token = "$${SLACK_APP_TOKEN}"
+bot_token = "$${SLACK_BOT_TOKEN}"
+
+# ── AG-UI Server (optional web dashboard) ───────────────────────────
+[messenger.agui]
+port = ${agui_port}
+cors_origins = ["https://stackgenhq.github.io", "http://localhost:8123"]
+rate_limit = 16.67
+rate_burst = 100
+
+# ── Data Sources (vectorized for RAG) ───────────────────────────────
+# Google Drive folders and Slack channels are synced into the vector
+# store for semantic search. Update folder_ids and channel_ids with
+# your actual IDs.
+[data_sources]
+enabled = true
+sync_interval = "30m"
+search_keywords = ["marketing", "competitive", "campaign", "brand", "positioning", "pipeline"]
+
+[data_sources.gdrive]
+enabled = true
+folder_ids = []  # Add your Google Drive folder IDs here
+
+[data_sources.slack]
+enabled = true
+channel_ids = []  # Add your Slack channel IDs here
+
+# ── Application Settings ────────────────────────────────────────────
+[ops]
+max_pages = 5
+enable_verification = true
+max_verification_runs = 3
+
+# ── Langfuse Observability ──────────────────────────────────────────
+[langfuse]
+public_key = "$${LANGFUSE_PUBLIC_KEY}"
+secret_key = "$${LANGFUSE_SECRET_KEY}"
+host       = "$${LANGFUSE_HOST}"
+
+# ── Knowledge Graph ─────────────────────────────────────────────────
+[graph]
+backend = "vectorstore"
+
+# ── Vector Memory ───────────────────────────────────────────────────
+# Uses the SAME Qdrant cluster as devops-copilot but a DIFFERENT
+# collection to keep marketing documents isolated from DevOps data.
+[vector_memory]
+vector_store_provider = "qdrant"
+embedding_provider = "openai"
+openai_model = "text-embedding-3-small"
+api_key = "$${OPENAI_API_KEY}"
+
+[vector_memory.qdrant]
+host = "${qdrant_host}"
+port = ${qdrant_port}
+collection_name = "genie_marketing_documents"
+%{ if qdrant_api_key != "" ~}
+api_key = "$${QDRANT_API_KEY}"
+%{ endif ~}
+
+[hitl]
+# Auto-approve graph and Google Drive tools for autonomous agents.
+always_allowed = ["graph_*", "google_drive_*", "http_request", "notify"]
+background_behavior = "approve"

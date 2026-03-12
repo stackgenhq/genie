@@ -11,9 +11,18 @@
           "description": "Pick the one that matches how you check email",
           "type": "select",
           "options": [
-            { "value": "smtp", "label": "My own mail (e.g. work or Gmail)" },
-            { "value": "gmail_api", "label": "Gmail (Google account)" },
-            { "value": "sendgrid", "label": "SendGrid" }
+            {
+              "value": "smtp",
+              "label": "My own mail (e.g. work or Gmail)"
+            },
+            {
+              "value": "gmail_api",
+              "label": "Gmail (Google account)"
+            },
+            {
+              "value": "sendgrid",
+              "label": "SendGrid"
+            }
           ],
           "default": "smtp"
         },
@@ -74,9 +83,18 @@
           "description": "DuckDuckGo is free and needs no signup",
           "type": "select",
           "options": [
-            { "value": "duckduckgo", "label": "DuckDuckGo (free, no signup)" },
-            { "value": "google", "label": "Google" },
-            { "value": "bing", "label": "Bing" }
+            {
+              "value": "duckduckgo",
+              "label": "DuckDuckGo (free, no signup)"
+            },
+            {
+              "value": "google",
+              "label": "Google"
+            },
+            {
+              "value": "bing",
+              "label": "Bing"
+            }
           ],
           "default": "duckduckgo"
         },
@@ -128,9 +146,18 @@
           "label": "Which app do you use?",
           "type": "select",
           "options": [
-            { "value": "jira", "label": "Jira" },
-            { "value": "linear", "label": "Linear" },
-            { "value": "asana", "label": "Asana" }
+            {
+              "value": "jira",
+              "label": "Jira"
+            },
+            {
+              "value": "linear",
+              "label": "Linear"
+            },
+            {
+              "value": "asana",
+              "label": "Asana"
+            }
           ],
           "default": "linear"
         },
@@ -168,8 +195,14 @@
           "label": "GitHub or GitLab?",
           "type": "select",
           "options": [
-            { "value": "github", "label": "GitHub" },
-            { "value": "gitlab", "label": "GitLab" }
+            {
+              "value": "github",
+              "label": "GitHub"
+            },
+            {
+              "value": "gitlab",
+              "label": "GitLab"
+            }
           ],
           "default": "github"
         },
