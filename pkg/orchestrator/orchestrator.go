@@ -125,6 +125,10 @@ type orchestrator struct {
 	// Used by storeAccomplishment to score results before episodic storage.
 	importanceScorer rtmemory.ImportanceScorer
 
+	// wisdomStore provides access to consolidated wisdom notes.
+	// Used by recallAccomplishments to surface distilled lessons.
+	wisdomStore rtmemory.WisdomStore
+
 	disableResume                     bool
 	agentPersona                      string
 	accomplishmentConfidenceThreshold float64
@@ -392,6 +396,7 @@ func NewOrchestrator(
 		router:                            oo.semanticRouter,
 		episodicMemoryCfg:                 episodicMemoryCfg,
 		importanceScorer:                  importanceScorer,
+		wisdomStore:                       wisdomStore,
 		availableToolNames:                availableTools.GetToolDescriptions(),
 		disableResume:                     oo.disableResume,
 		agentPersona:                      agentPersona,
@@ -1032,77 +1037,96 @@ func (c *orchestrator) storeEpisode(ctx context.Context, question string, res re
 
 // recallAccomplishments searches the vector store for recent accomplishments
 // and formats them as a bulleted list for inclusion in the agent's resume.
-// Returns an empty string if no accomplishments are found or the vector store
-// is not configured. Without this, the resume would lack evidence-based
-// confidence signals.
+// recallAccomplishments retrieves past accomplishments from the episodic memory
+// pipeline (primary) and falls back to the legacy vector store when episodic
+// memory has no entries yet.
 //
-// Applies visibility-based filtering: private context sees only own
-// accomplishments; group context sees the group's accomplishments.
-// Fallback: if private context yields sparse results (<2), also searches
-// by sender_id across all visibility scopes — so a user's group
-// accomplishments follow them to DMs.
+// Primary source: weighted episodic episodes (importance-scored, recency-decayed)
+// combined with consolidated wisdom notes from the WisdomStore.
+//
+// Fallback: legacy vector store entries (type=accomplishment) for backward
+// compatibility with entries stored before the episodic pipeline migration.
 func (c *orchestrator) recallAccomplishments(ctx context.Context) string {
-	if c.vectorStore == nil {
-		return ""
+	var sb strings.Builder
+
+	// 1. Primary: episodic memory (weighted by recency × importance).
+	episodic := c.episodicMemoryForSender(ctx)
+	episodes := episodic.RetrieveWeighted(ctx, "accomplishment", 5)
+	for _, ep := range episodes {
+		sb.WriteString("- ")
+		sb.WriteString(ep.Trajectory)
+		sb.WriteString("\n")
 	}
 
-	// Build metadata filter based on current sender context.
-	filter := map[string]string{
-		"type": rtmemory.AccomplishmentType,
-	}
-	origin := messenger.MessageOriginFrom(ctx)
-	filter["visibility"] = origin.DeriveVisibility()
-
-	results, err := c.vectorStore.SearchWithFilter(ctx, rtmemory.AccomplishmentType, 50, filter)
-	if err != nil {
-		logger.GetLogger(ctx).Warn("failed to search accomplishments for resume", "error", err)
-		return ""
-	}
-
-	// Fallback: if private context yields sparse results, also search by
-	// sender_id across all visibility scopes. This ensures a user's group
-	// accomplishments follow them when they switch to DMs (blind spot #6).
-	const minResults = 2
-	if origin.IsPrivateContext() && len(results) < minResults {
-		senderFilter := map[string]string{
-			"type":      rtmemory.AccomplishmentType,
-			"sender_id": origin.Sender.ID,
+	// 2. Append consolidated wisdom notes (distilled daily lessons).
+	if c.wisdomStore != nil {
+		notes := c.wisdomStore.RetrieveWisdom(ctx, 3)
+		for _, note := range notes {
+			sb.WriteString("- ")
+			sb.WriteString(note.Summary)
+			sb.WriteString("\n")
 		}
-		extraResults, err := c.vectorStore.SearchWithFilter(ctx, rtmemory.AccomplishmentType, 50, senderFilter)
-		if err == nil {
-			// Deduplicate by ID.
-			seen := make(map[string]bool, len(results))
-			for _, r := range results {
-				seen[r.ID] = true
+	}
+
+	// 3. Fallback: legacy vector store entries for backward compatibility.
+	// Once all entries have been migrated to episodic memory, this can be removed.
+	if sb.Len() == 0 && c.vectorStore != nil {
+		filter := map[string]string{
+			"type": rtmemory.AccomplishmentType,
+		}
+		origin := messenger.MessageOriginFrom(ctx)
+		filter["visibility"] = origin.DeriveVisibility()
+
+		results, err := c.vectorStore.SearchWithFilter(ctx, rtmemory.AccomplishmentType, 50, filter)
+		if err != nil {
+			logger.GetLogger(ctx).Warn("failed to search legacy accomplishments", "error", err)
+			return ""
+		}
+
+		// Fallback: if private context yields sparse results, also search by
+		// sender_id across all visibility scopes.
+		const minResults = 2
+		if origin.IsPrivateContext() && len(results) < minResults {
+			senderFilter := map[string]string{
+				"type":      rtmemory.AccomplishmentType,
+				"sender_id": origin.Sender.ID,
 			}
-			for _, r := range extraResults {
-				if !seen[r.ID] {
-					results = append(results, r)
+			extraResults, err := c.vectorStore.SearchWithFilter(ctx, rtmemory.AccomplishmentType, 50, senderFilter)
+			if err == nil {
+				seen := make(map[string]bool, len(results))
+				for _, r := range results {
+					seen[r.ID] = true
+				}
+				for _, r := range extraResults {
+					if !seen[r.ID] {
+						results = append(results, r)
+					}
 				}
 			}
 		}
+
+		if len(results) == 0 {
+			return ""
+		}
+
+		sort.Slice(results, func(i, j int) bool {
+			return results[i].Score > results[j].Score
+		})
+
+		limit := 5
+		if len(results) < limit {
+			limit = len(results)
+		}
+
+		for i := 0; i < limit; i++ {
+			sb.WriteString("- ")
+			sb.WriteString(results[i].Content)
+			sb.WriteString("\n")
+		}
 	}
 
-	if len(results) == 0 {
+	if sb.Len() == 0 {
 		return ""
-	}
-
-	// Sort by score descending to surface the most relevant accomplishments.
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Score > results[j].Score
-	})
-
-	// Limit to top 5 accomplishments to keep the resume concise.
-	limit := 5
-	if len(results) < limit {
-		limit = len(results)
-	}
-
-	var sb strings.Builder
-	for i := 0; i < limit; i++ {
-		sb.WriteString("- ")
-		sb.WriteString(results[i].Content)
-		sb.WriteString("\n")
 	}
 
 	// Audit: log memory recall.
@@ -1111,7 +1135,7 @@ func (c *orchestrator) recallAccomplishments(ctx context.Context) string {
 		Actor:     "orchestrator",
 		Action:    "recall_accomplishments",
 		Metadata: map[string]interface{}{
-			"results": limit,
+			"episodic_count": len(episodes),
 		},
 	})
 
