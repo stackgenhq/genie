@@ -18,7 +18,7 @@ set -e
 #              openssl,                      — TLS cert inspection / expiry checks
 #              nmap-ncat (nc)                — TCP port reachability testing
 #   DB:         postgresql16-client (psql)   — direct DB diagnostics
-#   SCM:        git, gh                      — clone IaC repos, inspect drift (gh via gh_cli tool)
+#   SCM:        git, gh                      — clone IaC repos, inspect drift (gh via github_cli executable tool)
 #   Shell:      curl, bash, su-exec          — HTTP client, scripting, privilege drop
 apk add --no-cache \
   aws-cli \
@@ -51,9 +51,9 @@ fi
 
 # ── 3. Install gh (GitHub CLI) ──────────────────────────────────────
 # gh is not in Alpine repos — install from GitHub releases.
-# The binary must be on PATH for the gh_cli agent tool to activate.
-# Authentication is handled at runtime by the ghcli tool provider
-# (injects GH_TOKEN per-subprocess), so no `gh auth login` needed here.
+# The binary must be on PATH for the github_cli executable tool to activate.
+# Authentication is handled at runtime by the executable tool provider
+# (injects GH_TOKEN per-subprocess via secret lookup), so no `gh auth login` needed here.
 if ! command -v gh >/dev/null 2>&1; then
   ARCH=$(uname -m)
   case "$ARCH" in

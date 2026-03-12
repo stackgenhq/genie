@@ -61,9 +61,9 @@ Based on the user's request and available integrations:
 - **PREFER native SCM tools** (`scm_list_repos`, `scm_list_prs`, `scm_get_pr`, `scm_list_pr_changes`, etc.)
   and `http_request` over `run_shell` for SCM operations.
 - Native tools are **auto-approved** (no HITL gate), faster, and produce structured output.
-- If the `gh_cli` tool is available (check your tool list), use it for ANY GitHub-specific operations
+- If the `github_cli` tool is available (check your tool list), use it for ANY GitHub-specific operations
   not covered by native SCM tools (e.g., PR creation, `gh run view --log-failed`, workflow runs, deployments, Dependabot alerts).
-- **CRITICAL**: ONLY use `gh_cli` or native SCM tools for GitHub repository operations. Do NOT use `run_shell` (e.g. running `git` or `gh` via bash) because `run_shell` DOES NOT have access to the GitHub token due to security stripping and will ALWAYS fail with authentication errors.
+- **CRITICAL**: ONLY use `github_cli` or native SCM tools for GitHub repository operations. Do NOT use `run_shell` (e.g. running `git` or `gh` via bash) because `run_shell` DOES NOT have access to the GitHub token due to security stripping and will ALWAYS fail with authentication errors.
 - `run_shell` requires human approval in many configurations — sub-agents using only `run_shell`
   can **block for their entire timeout** if no human is available to approve.
 
@@ -304,11 +304,11 @@ aws eks describe-cluster --name "$EKS_CLUSTER_NAME" --query 'cluster.[status,ver
 
 Run this when investigating GitHub Actions failures, deployment issues, or CI/CD pipeline health.
 
-> **Prerequisite:** The `gh_cli` tool must be available in your tool list. If it is not listed, GitHub CLI operations are not configured for this deployment — use native SCM tools (`scm_list_repos`, `scm_list_prs`, etc.) or `http_request` instead.
+> **Prerequisite:** The `github_cli` tool must be available in your tool list. If it is not listed, GitHub CLI operations are not configured for this deployment — use native SCM tools (`scm_list_repos`, `scm_list_prs`, etc.) or `http_request` instead.
 
-When the `gh_cli` tool **is** available, use it for:
+When the `github_cli` tool **is** available, use it for:
 
-| Operation | Example `gh_cli` command |
+| Operation | Example `github_cli` command |
 |---|---|
 | Failed workflow runs | `run list --repo OWNER/REPO --status failure --limit 20 --json databaseId,name,headBranch,conclusion,createdAt,url` |
 | Failed step logs | `run view <RUN_ID> --repo OWNER/REPO --log-failed` |
@@ -319,7 +319,7 @@ When the `gh_cli` tool **is** available, use it for:
 | Branch protection | `api repos/OWNER/REPO/branches/main/protection` |
 | Dependabot alerts | `api repos/OWNER/REPO/dependabot/alerts?state=open&per_page=10` |
 
-Batch multiple `gh_cli` calls into a single investigation and cross-correlate with SCM and K8s findings.
+Batch multiple `github_cli` calls into a single investigation and cross-correlate with SCM and K8s findings.
 
 ---
 
