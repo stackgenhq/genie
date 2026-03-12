@@ -62,6 +62,11 @@ func (p *piiCallbacks) beforeModel(
 			continue
 		}
 
+		// Skip redaction for messages explicitly marked (e.g. auth URL responses).
+		if pii.ContentHasSkipMarker(msg.Content) {
+			continue
+		}
+
 		redacted, pairs := pii.RedactWithPairs(msg.Content)
 		if redacted == msg.Content {
 			continue

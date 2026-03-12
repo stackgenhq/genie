@@ -237,7 +237,7 @@ func (a *FileAuditor) Log(ctx context.Context, req LogRequest) {
 		metaAttrs := make([]any, 0, len(req.Metadata))
 		for k, v := range req.Metadata {
 			if s, ok := v.(string); ok {
-				v = pii.Redact(s)
+				v = pii.Redact(ctx, s)
 			}
 			metaAttrs = append(metaAttrs, slog.Any(k, v))
 		}

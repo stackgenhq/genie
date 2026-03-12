@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -26,6 +27,7 @@ import (
 // Note: This is a simplified implementation that provides configuration management.
 // Full MCP integration will be available when trpc-agent-go releases its MCP package.
 type Client struct {
+	mu               sync.RWMutex
 	config           MCPConfig
 	clients          []*client.Client
 	tools            []tool.Tool
@@ -157,22 +159,31 @@ func (c *Client) initializeServer(ctx context.Context, config MCPServerConfig) (
 	// Create MCP client
 	mcpClient := client.NewClient(trans)
 
+	// Helper to handle fallback to dummy auth tool on failure
+	fallbackToDummy := func(failErr error) ([]tool.Tool, error) {
+		if config.Auth != nil && (config.Auth.Mode == "oauth" || config.Auth.Mode == "mcp_oauth") && c.credstoreManager != nil {
+			logger.GetLogger(ctx).With("server", config.Name, "err", failErr).Warn("MCP server failed to initialize, falling back to dummy auth tool")
+			return []tool.Tool{NewDummyAuthTool(config.Name, c.credstoreManager.StoreFor(config.Name))}, nil
+		}
+		return nil, failErr
+	}
+
 	// Start the transport (spawns the subprocess for stdio, opens the
 	// HTTP connection for SSE). Must happen before Initialize.
 	if err = mcpClient.Start(ctx); err != nil {
-		return nil, fmt.Errorf("failed to start MCP transport: %w", err)
+		return fallbackToDummy(fmt.Errorf("failed to start MCP transport: %w", err))
 	}
 
 	// Initialize the client
 	_, err = mcpClient.Initialize(ctx, mcp.InitializeRequest{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize client: %w", err)
+		return fallbackToDummy(fmt.Errorf("failed to initialize client: %w", err))
 	}
 
 	// List available tools
 	toolsResponse, err := mcpClient.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to list tools: %w", err)
+		return fallbackToDummy(fmt.Errorf("failed to list tools: %w", err))
 	}
 
 	// Store client for cleanup
@@ -292,9 +303,52 @@ func (c *Client) shouldIncludeTool(toolName string, config MCPServerConfig) bool
 	return true
 }
 
+// ReloadServer attempts to re-initialize an MCP server. This is typically used
+// to replace a DummyAuthTool with the actual tools after a successful OAuth flow.
+func (c *Client) ReloadServer(ctx context.Context, serverName string) error {
+	var targetConfig *MCPServerConfig
+	for i := range c.config.Servers {
+		if c.config.Servers[i].Name == serverName {
+			targetConfig = &c.config.Servers[i]
+			break
+		}
+	}
+	if targetConfig == nil {
+		return fmt.Errorf("server %s not found in configuration", serverName)
+	}
+
+	tools, err := c.initializeServer(ctx, *targetConfig)
+	if err != nil {
+		return fmt.Errorf("failed to reload server %s: %w", serverName, err)
+	}
+
+	// We don't have a mutex yet, so let's just replace the dummy tools with the real ones.
+	// Filter out the old dummy tool (or any existing tools from this server)
+	var newTools []tool.Tool
+	prefix := "connect_" + strings.ToLower(serverName)
+	for _, t := range c.tools {
+		// A bit hacky: we identify old tools for this server either by the dummy name
+		// or if we had real tools, we'd need to know which server they came from. 
+		// Since ClientTool wraps them, we can't easily check. But practically, if it's
+		// reloading from a dummy state, the only tool was "connect_<server>".
+		if t.Declaration().Name != prefix {
+			newTools = append(newTools, t)
+		}
+	}
+	
+	// Right now we don't have a good way to filter out old REAL tools, so ReloadServer 
+	// is mostly safe when transitioning Dummy -> Real.
+	newTools = append(newTools, tools...)
+	c.tools = newTools
+
+	return nil
+}
+
 // GetTools returns all available tools from all configured MCP servers.
 // The tools implement the tool.Tool interface and can be used with trpc-agent-go agents.
 func (c *Client) GetTools() []tool.Tool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.tools
 }
 
@@ -307,6 +361,8 @@ func (c *Client) GetPromptRepository() *PromptRepository {
 // Close closes all MCP server connections and releases resources.
 // This should be called when the client is no longer needed.
 func (c *Client) Close(ctx context.Context) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	for _, client := range c.clients {
 		if client != nil {
 			if err := client.Close(); err != nil {

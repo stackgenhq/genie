@@ -15,6 +15,7 @@ import (
 	"github.com/google/shlex"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/security"
+	"github.com/stackgenhq/genie/pkg/tools/unix"
 	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
@@ -157,13 +158,20 @@ func (t *executableTool) Call(ctx context.Context, input []byte) (any, error) {
 		return nil, fmt.Errorf("failed to resolve env: %w", err)
 	}
 
-	// Build a minimal environment for the subprocess. Only expose
-	// PATH, HOME, and explicitly configured env vars.
-	cmd.Env = append([]string{
-		"PATH=" + os.Getenv("PATH"),
-		"HOME=" + os.Getenv("HOME"),
+	// Build a minimal environment for the subprocess.
+	cmd.Env = []string{
 		"NO_COLOR=1", // disable ANSI colours in output for easier parsing
-	}, env...)
+	}
+
+	// Always inject essential Unix variables (PATH, HOME, TMPDIR, XDG_*)
+	// so the tool functions properly without relying on a full shell profile.
+	for _, k := range unix.BaseEnvKeys {
+		if val := os.Getenv(k); val != "" {
+			cmd.Env = append(cmd.Env, k+"="+val)
+		}
+	}
+
+	cmd.Env = append(cmd.Env, env...)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

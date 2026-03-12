@@ -618,8 +618,16 @@ var _ = Describe("CodeOwner", func() {
 			Expect(fakeRouter.SetCacheCallCount()).To(Equal(0))
 		})
 
-		It("should use CheckCache for normal user requests", func() {
-			fakeRouter.CheckCacheReturns("cached response", true)
+		It("should inject cache hint as context for normal user requests", func() {
+			fakeRouter.CheckCacheReturns("cached response about pods", true)
+			fakeRouter.ClassifyReturns(semanticrouter.ClassificationResult{
+				Category: semanticrouter.CategoryComplex,
+			}, nil)
+
+			fakeTreeExecutor.RunReturns(reactree.TreeResult{
+				Output: "fresh execution result",
+				Status: reactree.Success,
+			}, nil)
 
 			outChan := make(chan string, 10)
 			req := CodeQuestion{
@@ -633,8 +641,14 @@ var _ = Describe("CodeOwner", func() {
 			// CheckCache SHOULD have been called
 			Expect(fakeRouter.CheckCacheCallCount()).To(Equal(1))
 
-			// Tree executor should NOT have been called (cache hit)
-			Expect(fakeTreeExecutor.RunCallCount()).To(Equal(0))
+			// Tree executor SHOULD have been called (cache hint is context, not a short-circuit)
+			Expect(fakeTreeExecutor.RunCallCount()).To(Equal(1))
+
+			// The tree request goal should contain the cache hint as context
+			_, treeReq := fakeTreeExecutor.RunArgsForCall(0)
+			Expect(treeReq.Goal).To(ContainSubstring("Prior Cached Answer (Reference Only)"))
+			Expect(treeReq.Goal).To(ContainSubstring("cached response about pods"))
+			Expect(treeReq.Goal).To(ContainSubstring("check pod health in staging"))
 		})
 
 		It("should use SetCache for normal user requests", func() {

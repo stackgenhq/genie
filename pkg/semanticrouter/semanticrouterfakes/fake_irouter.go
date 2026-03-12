@@ -38,6 +38,20 @@ type FakeIRouter struct {
 		result1 semanticrouter.ClassificationResult
 		result2 error
 	}
+	DeleteCacheEntriesStub        func(context.Context, []string) (int, error)
+	deleteCacheEntriesMutex       sync.RWMutex
+	deleteCacheEntriesArgsForCall []struct {
+		arg1 context.Context
+		arg2 []string
+	}
+	deleteCacheEntriesReturns struct {
+		result1 int
+		result2 error
+	}
+	deleteCacheEntriesReturnsOnCall map[int]struct {
+		result1 int
+		result2 error
+	}
 	PruneStaleCacheEntriesStub        func(context.Context) (int, error)
 	pruneStaleCacheEntriesMutex       sync.RWMutex
 	pruneStaleCacheEntriesArgsForCall []struct {
@@ -49,6 +63,21 @@ type FakeIRouter struct {
 	}
 	pruneStaleCacheEntriesReturnsOnCall map[int]struct {
 		result1 int
+		result2 error
+	}
+	SearchCacheStub        func(context.Context, string, int) ([]semanticrouter.CacheEntry, error)
+	searchCacheMutex       sync.RWMutex
+	searchCacheArgsForCall []struct {
+		arg1 context.Context
+		arg2 string
+		arg3 int
+	}
+	searchCacheReturns struct {
+		result1 []semanticrouter.CacheEntry
+		result2 error
+	}
+	searchCacheReturnsOnCall map[int]struct {
+		result1 []semanticrouter.CacheEntry
 		result2 error
 	}
 	SetCacheStub        func(context.Context, string, string) error
@@ -199,6 +228,76 @@ func (fake *FakeIRouter) ClassifyReturnsOnCall(i int, result1 semanticrouter.Cla
 	}{result1, result2}
 }
 
+func (fake *FakeIRouter) DeleteCacheEntries(arg1 context.Context, arg2 []string) (int, error) {
+	var arg2Copy []string
+	if arg2 != nil {
+		arg2Copy = make([]string, len(arg2))
+		copy(arg2Copy, arg2)
+	}
+	fake.deleteCacheEntriesMutex.Lock()
+	ret, specificReturn := fake.deleteCacheEntriesReturnsOnCall[len(fake.deleteCacheEntriesArgsForCall)]
+	fake.deleteCacheEntriesArgsForCall = append(fake.deleteCacheEntriesArgsForCall, struct {
+		arg1 context.Context
+		arg2 []string
+	}{arg1, arg2Copy})
+	stub := fake.DeleteCacheEntriesStub
+	fakeReturns := fake.deleteCacheEntriesReturns
+	fake.recordInvocation("DeleteCacheEntries", []interface{}{arg1, arg2Copy})
+	fake.deleteCacheEntriesMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeIRouter) DeleteCacheEntriesCallCount() int {
+	fake.deleteCacheEntriesMutex.RLock()
+	defer fake.deleteCacheEntriesMutex.RUnlock()
+	return len(fake.deleteCacheEntriesArgsForCall)
+}
+
+func (fake *FakeIRouter) DeleteCacheEntriesCalls(stub func(context.Context, []string) (int, error)) {
+	fake.deleteCacheEntriesMutex.Lock()
+	defer fake.deleteCacheEntriesMutex.Unlock()
+	fake.DeleteCacheEntriesStub = stub
+}
+
+func (fake *FakeIRouter) DeleteCacheEntriesArgsForCall(i int) (context.Context, []string) {
+	fake.deleteCacheEntriesMutex.RLock()
+	defer fake.deleteCacheEntriesMutex.RUnlock()
+	argsForCall := fake.deleteCacheEntriesArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeIRouter) DeleteCacheEntriesReturns(result1 int, result2 error) {
+	fake.deleteCacheEntriesMutex.Lock()
+	defer fake.deleteCacheEntriesMutex.Unlock()
+	fake.DeleteCacheEntriesStub = nil
+	fake.deleteCacheEntriesReturns = struct {
+		result1 int
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeIRouter) DeleteCacheEntriesReturnsOnCall(i int, result1 int, result2 error) {
+	fake.deleteCacheEntriesMutex.Lock()
+	defer fake.deleteCacheEntriesMutex.Unlock()
+	fake.DeleteCacheEntriesStub = nil
+	if fake.deleteCacheEntriesReturnsOnCall == nil {
+		fake.deleteCacheEntriesReturnsOnCall = make(map[int]struct {
+			result1 int
+			result2 error
+		})
+	}
+	fake.deleteCacheEntriesReturnsOnCall[i] = struct {
+		result1 int
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *FakeIRouter) PruneStaleCacheEntries(arg1 context.Context) (int, error) {
 	fake.pruneStaleCacheEntriesMutex.Lock()
 	ret, specificReturn := fake.pruneStaleCacheEntriesReturnsOnCall[len(fake.pruneStaleCacheEntriesArgsForCall)]
@@ -259,6 +358,72 @@ func (fake *FakeIRouter) PruneStaleCacheEntriesReturnsOnCall(i int, result1 int,
 	}
 	fake.pruneStaleCacheEntriesReturnsOnCall[i] = struct {
 		result1 int
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeIRouter) SearchCache(arg1 context.Context, arg2 string, arg3 int) ([]semanticrouter.CacheEntry, error) {
+	fake.searchCacheMutex.Lock()
+	ret, specificReturn := fake.searchCacheReturnsOnCall[len(fake.searchCacheArgsForCall)]
+	fake.searchCacheArgsForCall = append(fake.searchCacheArgsForCall, struct {
+		arg1 context.Context
+		arg2 string
+		arg3 int
+	}{arg1, arg2, arg3})
+	stub := fake.SearchCacheStub
+	fakeReturns := fake.searchCacheReturns
+	fake.recordInvocation("SearchCache", []interface{}{arg1, arg2, arg3})
+	fake.searchCacheMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeIRouter) SearchCacheCallCount() int {
+	fake.searchCacheMutex.RLock()
+	defer fake.searchCacheMutex.RUnlock()
+	return len(fake.searchCacheArgsForCall)
+}
+
+func (fake *FakeIRouter) SearchCacheCalls(stub func(context.Context, string, int) ([]semanticrouter.CacheEntry, error)) {
+	fake.searchCacheMutex.Lock()
+	defer fake.searchCacheMutex.Unlock()
+	fake.SearchCacheStub = stub
+}
+
+func (fake *FakeIRouter) SearchCacheArgsForCall(i int) (context.Context, string, int) {
+	fake.searchCacheMutex.RLock()
+	defer fake.searchCacheMutex.RUnlock()
+	argsForCall := fake.searchCacheArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeIRouter) SearchCacheReturns(result1 []semanticrouter.CacheEntry, result2 error) {
+	fake.searchCacheMutex.Lock()
+	defer fake.searchCacheMutex.Unlock()
+	fake.SearchCacheStub = nil
+	fake.searchCacheReturns = struct {
+		result1 []semanticrouter.CacheEntry
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeIRouter) SearchCacheReturnsOnCall(i int, result1 []semanticrouter.CacheEntry, result2 error) {
+	fake.searchCacheMutex.Lock()
+	defer fake.searchCacheMutex.Unlock()
+	fake.SearchCacheStub = nil
+	if fake.searchCacheReturnsOnCall == nil {
+		fake.searchCacheReturnsOnCall = make(map[int]struct {
+			result1 []semanticrouter.CacheEntry
+			result2 error
+		})
+	}
+	fake.searchCacheReturnsOnCall[i] = struct {
+		result1 []semanticrouter.CacheEntry
 		result2 error
 	}{result1, result2}
 }

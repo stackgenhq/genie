@@ -11,15 +11,33 @@ import (
 // It provides a unified entry point for creating static or OAuth-backed
 // stores and handles the OAuth callback endpoint.
 type Manager struct {
-	mu      sync.RWMutex
-	stores  map[string]Store // serviceName → Store
-	backend Backend
-	pending *PendingAuthStore
+	mu           sync.RWMutex
+	stores       map[string]Store // serviceName → Store
+	backend      Backend
+	pending      *PendingAuthStore
+	onTokenSaved func(serviceName string)
 }
 
 // NewManagerRequest is the request for NewManager.
 type NewManagerRequest struct {
 	Backend Backend
+}
+
+// OnTokenSaved registers a callback that is invoked whenever a new token is successfully saved for a service.
+// This is typically used to trigger hot-reloading of clients (e.g. MCP client) after an OAuth flow.
+func (m *Manager) OnTokenSaved(callback func(serviceName string)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onTokenSaved = callback
+}
+
+func (m *Manager) NotifyTokenSaved(serviceName string) {
+	m.mu.RLock()
+	cb := m.onTokenSaved
+	m.mu.RUnlock()
+	if cb != nil {
+		cb(serviceName)
+	}
 }
 
 // NewManager creates a new credential store manager.

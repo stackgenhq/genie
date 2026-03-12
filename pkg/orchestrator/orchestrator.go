@@ -382,6 +382,13 @@ func NewOrchestrator(
 			logger.Debug("Failed to get tool", "tool_name", toolName, "error", err)
 		}
 	}
+	// Register semantic cache management tool so the orchestrator can
+	// search, delete, and clear cached Q&A entries when needed.
+	if oo.semanticRouter != nil {
+		if cacheTool := semanticrouter.NewCacheTool(oo.semanticRouter); cacheTool != nil {
+			orchestratorToolSlice = append(orchestratorToolSlice, cacheTool)
+		}
+	}
 	orchestratorTools := tools.NewRegistry(ctx, orchestratorToolSlice)
 	logger.Info("Orchestrator tool registry initialized", "count", len(orchestratorTools.ToolNames()))
 
@@ -721,21 +728,16 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	logr := logger.GetLogger(ctx).With("fn", "codeExpert.Chat")
 	logr.Info("codeOwner.Chat invoked", "question", toolwrap.TruncateForAudit(req.Question, 100))
 
-	// Semantic router check for cache hit.
-	// Internal tasks (cron triggers, heartbeats) skip the cache entirely:
-	// cron actions must always execute fresh, and their results should not
-	// pollute the cache for future user queries.
+	// Semantic cache lookup — used as a **guideline hint**, not a direct answer.
+	// The cached response is injected as context so the agent can reference it
+	// but still executes tools for fresh data. This prevents stale kubectl
+	// output (or similar) from being returned verbatim.
+	// Internal tasks (cron triggers, heartbeats) skip the cache entirely.
+	var cacheHint string
 	if c.router != nil && !req.SkipClassification {
-		if cachedResult, hit := c.router.CheckCache(ctx, req.Question); hit {
-			logr.Info("semantic cache hit", "question", toolwrap.TruncateForAudit(req.Question, 50))
-			// Emit via AG-UI event bus so streaming clients (web UI) see the
-			// response.  The outputChan consumer in buildChatHandler skips
-			// emitting for AG-UI (to avoid duplicates with the tree executor),
-			// but the cache-hit path never enters the tree, so we must emit
-			// explicitly — matching the pattern used by emitShortCircuit.
-			agui.EmitAgentMessage(ctx, orchestratorcontext.AgentNameFromContext(ctx), cachedResult)
-			outputChan <- cachedResult
-			return nil
+		if cachedHint, hit := c.router.CheckCache(ctx, req.Question); hit {
+			logr.Info("semantic cache hint found", "question", toolwrap.TruncateForAudit(req.Question, 50))
+			cacheHint = cachedHint
 		}
 	}
 
@@ -765,8 +767,21 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 
 	// Build the message with past conversation context injected.
 	message := req.Question
-	if pastContext != "" || episodicContext != "" {
+	if pastContext != "" || episodicContext != "" || cacheHint != "" {
 		var contextParts []string
+		if cacheHint != "" {
+			// Cap the hint to prevent old verbose answers from bloating context.
+			const maxCacheHint = 1500
+			hint := cacheHint
+			if len(hint) > maxCacheHint {
+				hint = hint[:maxCacheHint] + "\n...(truncated)"
+			}
+			contextParts = append(contextParts,
+				fmt.Sprintf("## Prior Cached Answer (Reference Only)\n"+
+					"The following is a previous answer to a similar question. "+
+					"Use it as a guideline ONLY — do NOT repeat it verbatim. "+
+					"Always re-execute tools to get fresh, up-to-date data.\n\n%s", hint))
+		}
 		if pastContext != "" {
 			contextParts = append(contextParts, fmt.Sprintf("## Relevant Past Conversations\n%s", pastContext))
 		}
@@ -935,7 +950,7 @@ func (c *orchestrator) storeConversation(ctx context.Context, question, answer s
 		toolwrap.TruncateForAudit(answer, 500))
 
 	// Redact PII before persisting to prevent sensitive data leakage.
-	summary = pii.Redact(summary)
+	summary = pii.Redact(ctx, summary)
 
 	topics := []string{"conversation", "chat-turn"}
 
@@ -1000,8 +1015,8 @@ func (c *orchestrator) storeEpisode(ctx context.Context, question string, res re
 	episodic := c.episodicMemoryForSender(ctx)
 
 	// Cap trajectory to prevent large outputs from bloating future prompts.
-	trajectory := pii.Redact(toolwrap.TruncateForAudit(res.Output, 500))
-	goal := pii.Redact(toolwrap.TruncateForAudit(question, 300))
+	trajectory := pii.Redact(ctx, toolwrap.TruncateForAudit(res.Output, 500))
+	goal := pii.Redact(ctx, toolwrap.TruncateForAudit(question, 300))
 
 	// Map tree status to episode status. Successful completions are
 	// stored as pending (awaiting human validation); failures are
@@ -1182,7 +1197,7 @@ func (c *orchestrator) storeAccomplishment(ctx context.Context, question string,
 		toolwrap.TruncateForAudit(res.Output, 500))
 
 	// Redact PII before persisting to prevent sensitive data leakage.
-	trajectory = pii.Redact(trajectory)
+	trajectory = pii.Redact(ctx, trajectory)
 
 	// Score importance using the LLM-backed scorer. Routine lookups
 	// (e.g. "what's the AWS cost?") score 2-3; novel achievements

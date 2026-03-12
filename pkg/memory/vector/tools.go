@@ -124,8 +124,8 @@ func (t *memoryStoreTool) execute(ctx context.Context, req MemoryStoreRequest) (
 		id = uuid.New().String()
 	}
 	// PII-redact text before persisting to vector store.
-	redactedText := pii.Redact(req.Text)
-	redactedMeta := pii.RedactMap(req.Metadata)
+	redactedText := pii.Redact(ctx, req.Text)
+	redactedMeta := pii.RedactMap(ctx, req.Metadata)
 
 	// Enrich metadata with importance score when a scorer is available.
 	if t.scorer != nil {
@@ -283,7 +283,7 @@ func (t *memoryDeleteTool) execute(ctx context.Context, req MemoryDeleteRequest)
 	if len(req.IDs) == 0 {
 		return MemoryDeleteResponse{}, fmt.Errorf("at least one ID is required")
 	}
-	if err := t.store.Delete(ctx, DeleteRequest{IDs: req.IDs}); err != nil {
+	if err := t.store.Delete(ctx, DeleteRequest(req)); err != nil {
 		return MemoryDeleteResponse{}, fmt.Errorf("failed to delete memories: %w", err)
 	}
 	return MemoryDeleteResponse{
@@ -427,8 +427,8 @@ func (t *memoryMergeTool) execute(ctx context.Context, req MemoryMergeRequest) (
 	}
 
 	// PII-redact the merged text before persisting.
-	redactedText := pii.Redact(req.MergedText)
-	redactedMeta := pii.RedactMap(req.Metadata)
+	redactedText := pii.Redact(ctx, req.MergedText)
+	redactedMeta := pii.RedactMap(ctx, req.Metadata)
 
 	// Upsert the merged entry under the first ID.
 	mergedID := req.IDs[0]

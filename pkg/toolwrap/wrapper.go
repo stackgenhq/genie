@@ -104,7 +104,7 @@ type MiddlewareDeps struct {
 func (w *Wrapper) Call(ctx context.Context, jsonArgs []byte) (any, error) {
 	logr := logger.GetLogger(ctx).With("fn", "Wrapper.Call", "tool", w.Tool.Declaration().Name)
 
-	logr.Debug("tool call started", "args", pii.Redact(string(jsonArgs)))
+	logr.Debug("tool call started", "args", pii.Redact(ctx, string(jsonArgs)))
 	defer func(t time.Time) {
 		logr.Debug("tool call completed", "tool", w.Tool.Declaration().Name, "duration", time.Since(t).String())
 	}(time.Now())

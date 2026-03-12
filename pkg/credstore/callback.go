@@ -81,6 +81,9 @@ func (m *Manager) CallbackHandler() http.Handler {
 			return
 		}
 
+		// Notify observers that the token was successfully saved and is ready to use.
+		m.NotifyTokenSaved(pending.ServiceName)
+
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = fmt.Fprintf(w, `<html><body style="font-family: system-ui, sans-serif; max-width: 480px; margin: 2rem auto; padding: 1rem; line-height: 1.5;">
 <h2 style="color: #0a0;">✓ Connected to %s</h2>

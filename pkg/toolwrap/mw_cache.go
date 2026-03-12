@@ -74,7 +74,7 @@ func (m *semanticCacheMiddleware) Wrap(next Handler) Handler {
 			m.mu.Lock()
 			m.cache.Set(semKey, output)
 			m.mu.Unlock()
-			logr.Debug("semantic cache stored", "key", semKey, "ttl", semanticCacheTTL)
+			logr.Debug("semantic cache stored", "key", semKey, "ttl", semanticCacheTTL.String())
 		}
 		return output, err
 	}

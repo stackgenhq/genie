@@ -261,10 +261,12 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 				a.credstoreManager.RegisterMCPOAuth(credstore.NewMCPOAuthStoreRequest{
 					ServiceName: serverCfg.Name,
 					Config: credstore.MCPOAuthConfig{
-						ServerURL:   serverCfg.ServerURL,
-						RedirectURI: redirectURI,
-						ClientName:  a.displayName(),
-						Scopes:      serverCfg.Auth.Scopes,
+						ServerURL:    serverCfg.ServerURL,
+						RedirectURI:  redirectURI,
+						ClientName:   a.displayName(),
+						ClientID:     serverCfg.Auth.ClientID,
+						ClientSecret: serverCfg.Auth.ClientSecret,
+						Scopes:       serverCfg.Auth.Scopes,
 					},
 				})
 				log.Info("Registered MCP OAuth store (DCR)", "server", serverCfg.Name)
@@ -768,7 +770,7 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 		sender := identity.GetSender(ctx)
 		ctx, aguiSpan := trace.Tracer.Start(ctx, a.displayName(), oteltrace.WithAttributes(
 			attribute.String("langfuse.trace.name", a.displayName()),
-			attribute.String("langfuse.trace.input", pii.Redact(message)),
+			attribute.String("langfuse.trace.input", pii.Redact(ctx, message)),
 			attribute.String("langfuse.user.id", sender.ID),
 			attribute.StringSlice("langfuse.trace.tags", []string{
 				a.displayName(),
@@ -883,6 +885,15 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 		a.mcpClient = mcpClient
 		providers = append(providers, mcpClient) // *mcp.Client already satisfies ToolProviders
 		log.Info("MCP client initialized", "server_count", len(a.cfg.MCP.Servers))
+
+		if a.credstoreManager != nil {
+			a.credstoreManager.OnTokenSaved(func(serviceName string) {
+				logger.GetLogger(context.Background()).With("server", serviceName).Info("Token saved for MCP server, reloading tools")
+				if err := a.mcpClient.ReloadServer(context.Background(), serviceName); err != nil {
+					logger.GetLogger(context.Background()).With("server", serviceName, "err", err).Warn("Failed to reload MCP tools")
+				}
+			})
+		}
 	}
 
 	// --- Skills ---
@@ -1544,7 +1555,7 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 
 		traceCtx, span := trace.Tracer.Start(messengerCtx, a.displayName(), oteltrace.WithAttributes(
 			attribute.String("langfuse.trace.name", a.displayName()),
-			attribute.String("langfuse.trace.input", pii.Redact(msg.Content.Text)),
+			attribute.String("langfuse.trace.input", pii.Redact(ctx, msg.Content.Text)),
 			attribute.String("langfuse.user.id", msg.Sender.ID),
 			attribute.String("langfuse.session.id", senderCtx),
 			attribute.StringSlice("langfuse.trace.tags", []string{

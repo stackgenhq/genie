@@ -577,6 +577,11 @@ resource "kubernetes_deployment" "genie" {
             value = "regional"
           }
 
+          env {
+            name  = "EKS_CLUSTER_NAME"
+            value = var.aws.eks_cluster_name
+          }
+
           # NOTE: NO env_from blocks — API keys are NOT in env vars.
           # They are resolved into genie.toml by the init container.
 

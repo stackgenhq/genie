@@ -4,6 +4,7 @@
 package pii_test
 
 import (
+	"context"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -18,44 +19,44 @@ func TestPII(t *testing.T) {
 }
 
 var _ = Describe("Redact", func() {
-	It("redacts high-entropy strings (API keys)", func() {
-		result := pii.Redact("token: sk-1234567890abcdef1234567890abcdef")
+	It("redacts high-entropy strings (API keys)", func(ctx context.Context) {
+		result := pii.Redact(ctx, "token: sk-1234567890abcdef1234567890abcdef")
 		Expect(result).To(ContainSubstring("[HIDDEN:"))
 		Expect(result).NotTo(ContainSubstring("1234567890abcdef"))
 	})
 
-	It("redacts sensitive key=value pairs", func() {
-		result := pii.Redact("password=SuperSecret123!")
+	It("redacts sensitive key=value pairs", func(ctx context.Context) {
+		result := pii.Redact(ctx, "password=SuperSecret123!")
 		Expect(result).To(ContainSubstring("[HIDDEN:"))
 		Expect(result).NotTo(ContainSubstring("SuperSecret123"))
 	})
 
-	It("preserves normal text without PII", func() {
+	It("preserves normal text without PII", func(ctx context.Context) {
 		text := "The deployment was successful."
-		Expect(pii.Redact(text)).To(Equal(text))
+		Expect(pii.Redact(ctx, text)).To(Equal(text))
 	})
 
-	It("handles empty string", func() {
-		Expect(pii.Redact("")).To(Equal(""))
+	It("handles empty string", func(ctx context.Context) {
+		Expect(pii.Redact(ctx, "")).To(Equal(""))
 	})
 
-	It("redacts secret=value pairs via context-aware detection", func() {
-		result := pii.Redact("secret=MyV3ryS3cr3tT0k3n!")
+	It("redacts secret=value pairs via context-aware detection", func(ctx context.Context) {
+		result := pii.Redact(ctx, "secret=MyV3ryS3cr3tT0k3n!")
 		Expect(result).To(ContainSubstring("[HIDDEN:"))
 		Expect(result).NotTo(ContainSubstring("MyV3ryS3cr3tT0k3n"))
 	})
 
-	It("preserves normal code-like text", func() {
+	It("preserves normal code-like text", func(ctx context.Context) {
 		text := "func main() { fmt.Println(\"hello\") }"
-		result := pii.Redact(text)
+		result := pii.Redact(ctx, text)
 		Expect(result).To(ContainSubstring("func"))
 		Expect(result).To(ContainSubstring("main"))
 	})
 
-	It("produces deterministic output for same input", func() {
+	It("produces deterministic output for same input", func(ctx context.Context) {
 		input := "api_key=xK9mP2nQ5rT8wZ3v"
-		result1 := pii.Redact(input)
-		result2 := pii.Redact(input)
+		result1 := pii.Redact(ctx, input)
+		result2 := pii.Redact(ctx, input)
 		Expect(result1).To(Equal(result2))
 	})
 })
@@ -75,19 +76,19 @@ var _ = Describe("ContainsPII", func() {
 })
 
 var _ = Describe("RedactMap", func() {
-	It("redacts all string values in a map", func() {
+	It("redacts all string values in a map", func(ctx context.Context) {
 		input := map[string]string{
 			"safe":     "hello world",
 			"password": "password=s3cr3t!value",
 		}
-		result := pii.RedactMap(input)
+		result := pii.RedactMap(ctx, input)
 		Expect(result["safe"]).To(Equal("hello world"))
 		// The password key-value pair should be redacted
 		Expect(result["password"]).To(ContainSubstring("[HIDDEN:"))
 	})
 
-	It("handles empty map", func() {
-		result := pii.RedactMap(map[string]string{})
+	It("handles empty map", func(ctx context.Context) {
+		result := pii.RedactMap(ctx, map[string]string{})
 		Expect(result).To(BeEmpty())
 	})
 })
@@ -139,24 +140,24 @@ var _ = Describe("Config", func() {
 			Expect(func() { cfg.Apply() }).NotTo(Panic())
 		})
 
-		It("applies custom sensitive keys", func() {
+		It("applies custom sensitive keys", func(ctx context.Context) {
 			cfg := pii.Config{
 				SensitiveKeys: []string{"my_custom_secret"},
 			}
 			cfg.Apply()
 			// After applying, the scanner should detect our custom key
-			result := pii.Redact("my_custom_secret=SuperS3cretValue!")
+			result := pii.Redact(ctx, "my_custom_secret=SuperS3cretValue!")
 			Expect(result).To(ContainSubstring("[HIDDEN:"))
 		})
 
-		It("applies custom regexes", func() {
+		It("applies custom regexes", func(ctx context.Context) {
 			cfg := pii.Config{
 				CustomRegexes: []pii.CustomRegexRule{
 					{Pattern: `\bTEST-[A-Z0-9]{10}\b`, Name: "test_id"},
 				},
 			}
 			cfg.Apply()
-			result := pii.Redact("id: TEST-ABCDEFGHIJ")
+			result := pii.Redact(ctx, "id: TEST-ABCDEFGHIJ")
 			Expect(result).To(ContainSubstring("[HIDDEN"))
 		})
 

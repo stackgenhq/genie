@@ -9,6 +9,7 @@
 package pii
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"regexp"
@@ -140,9 +141,12 @@ func (c Config) Apply() {
 }
 
 // Redact replaces PII and secrets in text with deterministic HMAC hashes.
-func Redact(text string) string {
+func Redact(ctx context.Context, text string) string {
 	if text == "" {
 		return ""
+	}
+	if SkipRedactionFromContext(ctx) {
+		return text
 	}
 	return scanner.ScanAndRedact(text)
 }
@@ -267,10 +271,10 @@ func ContainsPII(text string) bool {
 }
 
 // RedactMap applies redaction to all string values in a metadata map.
-func RedactMap(metadata map[string]string) map[string]string {
+func RedactMap(ctx context.Context, metadata map[string]string) map[string]string {
 	result := make(map[string]string, len(metadata))
 	for k, v := range metadata {
-		result[k] = Redact(v)
+		result[k] = Redact(ctx, v)
 	}
 	return result
 }

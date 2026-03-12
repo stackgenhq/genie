@@ -401,6 +401,71 @@ var _ = Describe("SemanticRouter", func() {
 				Expect(fakeCacheStore.UpsertCallCount()).To(Equal(0))
 			})
 		})
+
+		Describe("SearchCache", func() {
+			It("should return matching cache entries", func(ctx context.Context) {
+				recentTime := strconv.FormatInt(time.Now().Add(-1*time.Minute).Unix(), 10)
+				fakeCacheStore.SearchReturns([]vector.SearchResult{
+					{
+						ID:       "cache_abc",
+						Content:  "deploy the app",
+						Score:    0.95,
+						Metadata: map[string]string{"response": "deployed", "cached_at": recentTime, "type": "semantic_cache"},
+					},
+				}, nil)
+
+				entries, err := rt.SearchCache(ctx, "deploy", 10)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(entries).To(HaveLen(1))
+				Expect(entries[0].ID).To(Equal("cache_abc"))
+				Expect(entries[0].Query).To(Equal("deploy the app"))
+				Expect(entries[0].Response).To(Equal("deployed"))
+				Expect(entries[0].Score).To(Equal(0.95))
+			})
+
+			It("should return nil when caching disabled", func(ctx context.Context) {
+				rt.cfg.EnableCaching = false
+				entries, err := rt.SearchCache(ctx, "test", 10)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(entries).To(BeNil())
+			})
+
+			It("should default limit to 20", func(ctx context.Context) {
+				fakeCacheStore.SearchReturns(nil, nil)
+				_, err := rt.SearchCache(ctx, "test", 0)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(fakeCacheStore.SearchCallCount()).To(Equal(1))
+				_, req := fakeCacheStore.SearchArgsForCall(0)
+				Expect(req.Limit).To(Equal(20))
+			})
+		})
+
+		Describe("DeleteCacheEntries", func() {
+			It("should delete entries by IDs", func(ctx context.Context) {
+				count, err := rt.DeleteCacheEntries(ctx, []string{"id1", "id2"})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(count).To(Equal(2))
+
+				Expect(fakeCacheStore.DeleteCallCount()).To(Equal(1))
+				_, delReq := fakeCacheStore.DeleteArgsForCall(0)
+				Expect(delReq.IDs).To(ConsistOf("id1", "id2"))
+			})
+
+			It("should return 0 when caching disabled", func(ctx context.Context) {
+				rt.cfg.EnableCaching = false
+				count, err := rt.DeleteCacheEntries(ctx, []string{"id1"})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(count).To(Equal(0))
+			})
+
+			It("should return 0 when ids is empty", func(ctx context.Context) {
+				count, err := rt.DeleteCacheEntries(ctx, nil)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(count).To(Equal(0))
+				Expect(fakeCacheStore.DeleteCallCount()).To(Equal(0))
+			})
+		})
 	})
 
 	Describe("extractTextFromChoices", func() {

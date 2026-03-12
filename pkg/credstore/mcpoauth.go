@@ -6,6 +6,7 @@ package credstore
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -41,6 +42,12 @@ type MCPOAuthConfig struct {
 	RedirectURI string
 	// ClientName is the name used during dynamic client registration (e.g. "Genie Agent").
 	ClientName string
+	// ClientID is an optional pre-configured OAuth client ID.
+	// If provided, Dynamic Client Registration is skipped.
+	ClientID string
+	// ClientSecret is an optional pre-configured OAuth client secret.
+	// Used only if ClientID is also provided.
+	ClientSecret string
 	// Scopes is an optional list of OAuth scopes to request.
 	Scopes []string
 }
@@ -59,12 +66,21 @@ type NewMCPOAuthStoreRequest struct {
 // registration endpoint.
 func NewMCPOAuthStore(req NewMCPOAuthStoreRequest) Store {
 	oauthHandler := transport.NewOAuthHandler(transport.OAuthConfig{
-		RedirectURI: req.Config.RedirectURI,
-		Scopes:      req.Config.Scopes,
-		PKCEEnabled: true, // Always use PKCE for public clients with DCR
+		RedirectURI:  req.Config.RedirectURI,
+		ClientID:     req.Config.ClientID,
+		ClientSecret: req.Config.ClientSecret,
+		Scopes:       req.Config.Scopes,
+		PKCEEnabled:  true, // Always use PKCE for public clients with DCR
 	})
-	// Set the base URL so mcp-go can discover server metadata
-	oauthHandler.SetBaseURL(req.Config.ServerURL)
+	// Set the base URL so mcp-go can discover server metadata.
+	// We extract just the scheme and host because .well-known endpoints
+	// are typically located at the root of the domain (e.g., https://example.com/.well-known/...)
+	// rather than relative to the SSE path.
+	if parsed, err := url.Parse(req.Config.ServerURL); err == nil && parsed.Host != "" {
+		oauthHandler.SetBaseURL(fmt.Sprintf("%s://%s", parsed.Scheme, parsed.Host))
+	} else {
+		oauthHandler.SetBaseURL(req.Config.ServerURL)
+	}
 
 	return &mcpOAuthStore{
 		serviceName: req.ServiceName,

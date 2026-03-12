@@ -69,6 +69,17 @@ type IRouter interface {
 	CheckCache(ctx context.Context, query string) (string, bool)
 	SetCache(ctx context.Context, query string, response string) error
 	PruneStaleCacheEntries(ctx context.Context) (int, error)
+	SearchCache(ctx context.Context, query string, limit int) ([]CacheEntry, error)
+	DeleteCacheEntries(ctx context.Context, ids []string) (int, error)
+}
+
+// CacheEntry represents a single entry in the semantic cache.
+type CacheEntry struct {
+	ID       string    `json:"id"`
+	Query    string    `json:"query"`
+	Response string    `json:"response"`
+	CachedAt time.Time `json:"cached_at"`
+	Score    float64   `json:"score"`
 }
 
 // Router provides semantic routing (intent classification), semantic caching,
@@ -534,7 +545,7 @@ func (r *Router) CheckCache(ctx context.Context, query string) (string, bool) {
 			age := time.Since(time.Unix(cachedAt, 0))
 			if age > ttl {
 				logger.GetLogger(ctx).Debug("semantic cache entry expired",
-					"age", age, "ttl", ttl)
+					"age", age, "ttl", ttl.String())
 				return "", false
 			}
 		}
@@ -620,8 +631,66 @@ func (r *Router) PruneStaleCacheEntries(ctx context.Context) (int, error) {
 	}
 
 	logger.GetLogger(ctx).Info("pruned stale cache entries",
-		"count", len(staleIDs), "ttl", ttl)
+		"count", len(staleIDs), "ttl", ttl.String())
 	return len(staleIDs), nil
+}
+
+// SearchCache returns cache entries matching a query text, sorted by similarity.
+// This enables the agent to inspect what's in the cache.
+func (r *Router) SearchCache(ctx context.Context, query string, limit int) ([]CacheEntry, error) {
+	if r.cfg.Disabled || !r.cfg.EnableCaching || r.cacheStore == nil {
+		return nil, nil
+	}
+
+	if limit <= 0 {
+		limit = 20
+	}
+
+	results, err := r.cacheStore.Search(ctx, vector.SearchRequest{
+		Query:  query,
+		Limit:  limit,
+		Filter: map[string]string{"type": "semantic_cache"},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("cache search failed: %w", err)
+	}
+
+	entries := make([]CacheEntry, 0, len(results))
+	for _, res := range results {
+		entry := CacheEntry{
+			ID:       res.ID,
+			Query:    res.Content,
+			Response: res.Metadata["response"],
+			Score:    res.Score,
+		}
+		if ts, ok := res.Metadata["cached_at"]; ok {
+			if parsed, parseErr := strconv.ParseInt(ts, 10, 64); parseErr == nil {
+				entry.CachedAt = time.Unix(parsed, 0)
+			}
+		}
+		entries = append(entries, entry)
+	}
+
+	return entries, nil
+}
+
+// DeleteCacheEntries removes specific cache entries by their IDs.
+// Returns the number of entries deleted.
+func (r *Router) DeleteCacheEntries(ctx context.Context, ids []string) (int, error) {
+	if r.cfg.Disabled || !r.cfg.EnableCaching || r.cacheStore == nil {
+		return 0, nil
+	}
+
+	if len(ids) == 0 {
+		return 0, nil
+	}
+
+	if err := r.cacheStore.Delete(ctx, vector.DeleteRequest{IDs: ids}); err != nil {
+		return 0, fmt.Errorf("cache delete failed: %w", err)
+	}
+
+	logger.GetLogger(ctx).Info("deleted cache entries", "count", len(ids))
+	return len(ids), nil
 }
 
 // builtinRoutes returns sensible defaults to replicate vllm-semantic-router out of the box.
