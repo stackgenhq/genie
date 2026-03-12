@@ -1,0 +1,88 @@
+# StackGen MCP with OAuth2 Dynamic Client Registration
+#
+# This example demonstrates using credstore's MCP OAuth flow with
+# Dynamic Client Registration (RFC 7591) to authenticate users to
+# the StackGen MCP server over SSE (Server-Sent Events).
+#
+# With DCR, NO pre-configured client_id or client_secret is needed.
+# Genie automatically:
+#   1. Discovers the OAuth server via /.well-known/oauth-protected-resource
+#   2. Registers itself as an OAuth client with the authorization server
+#   3. Gets a client_id/secret dynamically from the /register endpoint
+#   4. Initiates the OAuth flow when tools need authentication
+#
+# Prerequisites:
+#   1. StackGen MCP server running at the specified URL
+#   2. Genie accessible at a URL for OAuth callback (redirect_uri)
+
+agent_name = "stackgen-agent"
+
+[persona]
+file = "./AGENTS.md"
+disable_resume = true
+
+[db_config]
+db_file = "${PWD}/.genie.db"
+
+# ── Model Configuration ─────────────────────────────────────────────
+[model_config]
+
+[[model_config.providers]]
+provider = "anthropic"
+model_name = "claude-sonnet-4-5-20250929"
+token = "${ANTHROPIC_API_KEY}"
+good_for_task = "planning"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "tool_calling"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "frontdesk"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "efficiency"
+
+# ── MCP Servers ─────────────────────────────────────────────────────
+[mcp]
+
+# StackGen Platform — cloud discovery, IaC generation, AppStack management.
+# Uses OAuth2 Dynamic Client Registration (RFC 7591).
+# No client_id/secret needed — Genie registers itself automatically.
+[[mcp.servers]]
+name = "stackgen"
+transport = "sse"
+server_url = "http://poc.cloud.stackgen.com/api/mcp/sse"
+timeout = "120s"
+
+# MCP OAuth with Dynamic Client Registration.
+# Genie discovers the auth server via the MCP server's well-known endpoints
+# and registers as a client automatically. No credentials to configure.
+[mcp.servers.auth]
+mode = "mcp_oauth"
+scopes = ["openid", "email", "profile", "federated:id"]
+# redirect_uri is auto-configured from Genie's callback handler
+
+# ── GitHub (SCM) ────────────────────────────────────────────────────
+# Static PAT for source control operations (no OAuth dance needed).
+[scm]
+provider = "github"
+token = "${GITHUB_TOKEN}"
+
+# ── AG-UI Server ────────────────────────────────────────────────────
+[messenger.agui]
+port = 9876
+cors_origins = ["https://stackgenhq.github.io", "http://localhost:9877"]
+
+# ── Application Settings ────────────────────────────────────────────
+[ops]
+max_pages = 5
+enable_verification = true

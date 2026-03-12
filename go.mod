@@ -28,6 +28,7 @@ require (
 	github.com/infracloudio/msbotbuilder-go v0.2.5
 	github.com/klauspost/compress v1.18.4
 	github.com/mark3labs/mcp-go v0.45.0
+	github.com/markbates/goth v1.82.0
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
 	github.com/openai/openai-go v1.12.0

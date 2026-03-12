@@ -57,6 +57,26 @@ type MCPServerConfig struct {
 	// SessionReconnect enables automatic session reconnection with max retry attempts
 	// Set to 0 to disable session reconnection
 	SessionReconnect int `json:"session_reconnect,omitempty" yaml:"session_reconnect,omitempty" toml:"session_reconnect,omitempty,omitzero"`
+
+	// Auth configures credentials and authentication flows for this server.
+	// Optional; if omitted, no auth is attempted (relies on Env or no auth).
+	Auth *MCPAuthConfig `json:"auth,omitempty" yaml:"auth,omitempty" toml:"auth,omitempty"`
+}
+
+// MCPAuthConfig configures how credentials are obtained.
+type MCPAuthConfig struct {
+	// Mode determines the auth type: "static", "oauth", or "mcp_oauth" (DCR).
+	Mode string `json:"mode,omitempty" yaml:"mode,omitempty" toml:"mode,omitempty"`
+	// Provider is the goth provider name for "oauth" mode (e.g. "github", "google").
+	Provider string `json:"provider,omitempty" yaml:"provider,omitempty" toml:"provider,omitempty"`
+	// ClientID is the OAuth client ID for "oauth" mode.
+	ClientID string `json:"client_id,omitempty" yaml:"client_id,omitempty" toml:"client_id,omitempty"`
+	// ClientSecret is the OAuth client secret for "oauth" mode. Supports ${VAR} expansion.
+	ClientSecret string `json:"client_secret,omitempty" yaml:"client_secret,omitempty" toml:"client_secret,omitempty"`
+	// Scopes are the OAuth scopes requested.
+	Scopes []string `json:"scopes,omitempty" yaml:"scopes,omitempty" toml:"scopes,omitempty"`
+	// TokenEnv is the secret name for "static" mode to lookup (e.g. "GITHUB_TOKEN").
+	TokenEnv string `json:"token_env,omitempty" yaml:"token_env,omitempty" toml:"token_env,omitempty"`
 }
 
 // Validate validates the MCP configuration and returns an error if invalid.

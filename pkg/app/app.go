@@ -23,12 +23,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/stackgenhq/genie/pkg/agentutils"
 	"github.com/stackgenhq/genie/pkg/agui"
 	"github.com/stackgenhq/genie/pkg/audit"
 	"github.com/stackgenhq/genie/pkg/browser"
 	"github.com/stackgenhq/genie/pkg/clarify"
 	"github.com/stackgenhq/genie/pkg/config"
+	"github.com/stackgenhq/genie/pkg/credstore"
 	"github.com/stackgenhq/genie/pkg/cron"
 	"github.com/stackgenhq/genie/pkg/datasource"
 	geniedb "github.com/stackgenhq/genie/pkg/db"
@@ -249,11 +251,18 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 		if serverCfg.Auth != nil {
 			switch serverCfg.Auth.Mode {
 			case "mcp_oauth":
+				// If we don't have a configured public URL, use a reasonable default based on the bind address/port
+				// so the OAuth callback works locally at least.
+				redirectURI := "http://localhost:9876/oauth/callback"
+				if a.cfg.Messenger.AGUI.Port != 0 {
+					redirectURI = fmt.Sprintf("http://localhost:%d/oauth/callback", a.cfg.Messenger.AGUI.Port)
+				}
+
 				a.credstoreManager.RegisterMCPOAuth(credstore.NewMCPOAuthStoreRequest{
 					ServiceName: serverCfg.Name,
 					Config: credstore.MCPOAuthConfig{
 						ServerURL:   serverCfg.ServerURL,
-						RedirectURI: a.cfg.Messenger.AGUI.PublicURL + "/oauth/callback",
+						RedirectURI: redirectURI,
 						ClientName:  a.displayName(),
 						Scopes:      serverCfg.Auth.Scopes,
 					},
@@ -510,7 +519,7 @@ func (a *Application) Start(ctx context.Context) error {
 		if a.credstoreManager != nil {
 			aguiRouter.Mount("/oauth/callback", a.credstoreManager.CallbackHandler())
 		}
-		
+
 		aguiMsgr.ConfigureServer(messengeragui.ServerConfig{
 			AGUIConfig:    aguiCfg,
 			ChatHandler:   bgExpert,

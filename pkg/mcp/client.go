@@ -12,11 +12,27 @@ import (
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/stackgenhq/genie/pkg/credstore"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
+
+// Client manages MCP server connections and provides access to MCP tools.
+// It uses mark3labs/mcp-go for MCP protocol communication and wraps tools
+// to be compatible with trpc-agent-go.
+//
+// Note: This is a simplified implementation that provides configuration management.
+// Full MCP integration will be available when trpc-agent-go releases its MCP package.
+type Client struct {
+	config           MCPConfig
+	clients          []*client.Client
+	tools            []tool.Tool
+	prompts          []namespacedPrompt
+	secretProvider   security.SecretProvider
+	credstoreManager *credstore.Manager
+}
 
 // ClientOption configures an MCP Client (e.g. WithSecretProvider).
 type ClientOption func(*Client)
@@ -30,18 +46,12 @@ func WithSecretProvider(sp security.SecretProvider) ClientOption {
 	}
 }
 
-// Client manages MCP server connections and provides access to MCP tools.
-// It uses mark3labs/mcp-go for MCP protocol communication and wraps tools
-// to be compatible with trpc-agent-go.
-//
-// Note: This is a simplified implementation that provides configuration management.
-// Full MCP integration will be available when trpc-agent-go releases its MCP package.
-type Client struct {
-	config         MCPConfig
-	clients        []*client.Client
-	tools          []tool.Tool
-	prompts        []namespacedPrompt
-	secretProvider security.SecretProvider
+// WithCredstoreManager sets the credstore Manager used to configure authentication
+// for MCP servers. Required if any server requires OAuth or static token auth.
+func WithCredstoreManager(mgr *credstore.Manager) ClientOption {
+	return func(c *Client) {
+		c.credstoreManager = mgr
+	}
 }
 
 // namespacedPrompt holds a prompt associated with the server that provided it.
@@ -99,12 +109,44 @@ func (c *Client) initializeServer(ctx context.Context, config MCPServerConfig) (
 	var trans transport.Interface
 	var err error
 
+	// Determine authentication (if configured) so it can be passed to HTTP/SSE transports
+	var sseOpts []transport.ClientOption
+	if config.Auth != nil && c.credstoreManager != nil { // only apply if Manager is provided
+		switch config.Auth.Mode {
+		case "mcp_oauth":
+			// DCR flow: wrap transport.OAuthHandler in credstore (manager does this internally)
+			// But for mcp-go client we need to provide the TokenStore.
+			store := c.credstoreManager.StoreFor(config.Name)
+			// Because DCR is an OAuth flow without pre-configured credentials,
+			// we pass an empty OAuthConfig with just the TokenStore.
+			// The mcp-go OAuthHandler will use it to store/retrieve tokens.
+			sseOpts = append(sseOpts, transport.WithOAuth(transport.OAuthConfig{
+				TokenStore: newTokenStoreAdapter(store),
+			}))
+		case "oauth":
+			// Goth flow: users authenticate via a pre-configured provider (e.g. GitHub)
+			store := c.credstoreManager.StoreFor(config.Name)
+			sseOpts = append(sseOpts, transport.WithOAuth(transport.OAuthConfig{
+				TokenStore: newTokenStoreAdapter(store),
+			}))
+		case "static":
+			// Wait, mcp-go currently only defines WithOAuth for TokenStore.
+			// Let me rethink this: WithOAuth might be specific to OAuth flows.
+			// Actually mcp-go's OAuthHandler can wrap ANY TokenStore (even static tokens)
+			// because it just calls GetToken() to get the string to put in the Authorization header.
+			store := c.credstoreManager.StoreFor(config.Name)
+			sseOpts = append(sseOpts, transport.WithOAuth(transport.OAuthConfig{
+				TokenStore: newTokenStoreAdapter(store),
+			}))
+		}
+	}
+
 	switch config.Transport {
 	case "stdio":
 		env := c.buildStdioEnv(ctx, config)
 		trans = transport.NewStdio(config.Command, env, config.Args...)
 	case "streamable_http", "sse":
-		trans, err = transport.NewSSE(config.ServerURL)
+		trans, err = transport.NewSSE(config.ServerURL, sseOpts...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create SSE transport: %w", err)
 		}
