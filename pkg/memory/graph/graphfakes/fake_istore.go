@@ -44,6 +44,30 @@ type FakeIStore struct {
 	closeReturnsOnCall map[int]struct {
 		result1 error
 	}
+	DeleteEntityStub        func(context.Context, string) error
+	deleteEntityMutex       sync.RWMutex
+	deleteEntityArgsForCall []struct {
+		arg1 context.Context
+		arg2 string
+	}
+	deleteEntityReturns struct {
+		result1 error
+	}
+	deleteEntityReturnsOnCall map[int]struct {
+		result1 error
+	}
+	DeleteRelationStub        func(context.Context, graph.Relation) error
+	deleteRelationMutex       sync.RWMutex
+	deleteRelationArgsForCall []struct {
+		arg1 context.Context
+		arg2 graph.Relation
+	}
+	deleteRelationReturns struct {
+		result1 error
+	}
+	deleteRelationReturnsOnCall map[int]struct {
+		result1 error
+	}
 	GetEntityStub        func(context.Context, string) (*graph.Entity, error)
 	getEntityMutex       sync.RWMutex
 	getEntityArgsForCall []struct {
@@ -301,6 +325,130 @@ func (fake *FakeIStore) CloseReturnsOnCall(i int, result1 error) {
 		})
 	}
 	fake.closeReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeIStore) DeleteEntity(arg1 context.Context, arg2 string) error {
+	fake.deleteEntityMutex.Lock()
+	ret, specificReturn := fake.deleteEntityReturnsOnCall[len(fake.deleteEntityArgsForCall)]
+	fake.deleteEntityArgsForCall = append(fake.deleteEntityArgsForCall, struct {
+		arg1 context.Context
+		arg2 string
+	}{arg1, arg2})
+	stub := fake.DeleteEntityStub
+	fakeReturns := fake.deleteEntityReturns
+	fake.recordInvocation("DeleteEntity", []interface{}{arg1, arg2})
+	fake.deleteEntityMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeIStore) DeleteEntityCallCount() int {
+	fake.deleteEntityMutex.RLock()
+	defer fake.deleteEntityMutex.RUnlock()
+	return len(fake.deleteEntityArgsForCall)
+}
+
+func (fake *FakeIStore) DeleteEntityCalls(stub func(context.Context, string) error) {
+	fake.deleteEntityMutex.Lock()
+	defer fake.deleteEntityMutex.Unlock()
+	fake.DeleteEntityStub = stub
+}
+
+func (fake *FakeIStore) DeleteEntityArgsForCall(i int) (context.Context, string) {
+	fake.deleteEntityMutex.RLock()
+	defer fake.deleteEntityMutex.RUnlock()
+	argsForCall := fake.deleteEntityArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeIStore) DeleteEntityReturns(result1 error) {
+	fake.deleteEntityMutex.Lock()
+	defer fake.deleteEntityMutex.Unlock()
+	fake.DeleteEntityStub = nil
+	fake.deleteEntityReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeIStore) DeleteEntityReturnsOnCall(i int, result1 error) {
+	fake.deleteEntityMutex.Lock()
+	defer fake.deleteEntityMutex.Unlock()
+	fake.DeleteEntityStub = nil
+	if fake.deleteEntityReturnsOnCall == nil {
+		fake.deleteEntityReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.deleteEntityReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeIStore) DeleteRelation(arg1 context.Context, arg2 graph.Relation) error {
+	fake.deleteRelationMutex.Lock()
+	ret, specificReturn := fake.deleteRelationReturnsOnCall[len(fake.deleteRelationArgsForCall)]
+	fake.deleteRelationArgsForCall = append(fake.deleteRelationArgsForCall, struct {
+		arg1 context.Context
+		arg2 graph.Relation
+	}{arg1, arg2})
+	stub := fake.DeleteRelationStub
+	fakeReturns := fake.deleteRelationReturns
+	fake.recordInvocation("DeleteRelation", []interface{}{arg1, arg2})
+	fake.deleteRelationMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeIStore) DeleteRelationCallCount() int {
+	fake.deleteRelationMutex.RLock()
+	defer fake.deleteRelationMutex.RUnlock()
+	return len(fake.deleteRelationArgsForCall)
+}
+
+func (fake *FakeIStore) DeleteRelationCalls(stub func(context.Context, graph.Relation) error) {
+	fake.deleteRelationMutex.Lock()
+	defer fake.deleteRelationMutex.Unlock()
+	fake.DeleteRelationStub = stub
+}
+
+func (fake *FakeIStore) DeleteRelationArgsForCall(i int) (context.Context, graph.Relation) {
+	fake.deleteRelationMutex.RLock()
+	defer fake.deleteRelationMutex.RUnlock()
+	argsForCall := fake.deleteRelationArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeIStore) DeleteRelationReturns(result1 error) {
+	fake.deleteRelationMutex.Lock()
+	defer fake.deleteRelationMutex.Unlock()
+	fake.DeleteRelationStub = nil
+	fake.deleteRelationReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeIStore) DeleteRelationReturnsOnCall(i int, result1 error) {
+	fake.deleteRelationMutex.Lock()
+	defer fake.deleteRelationMutex.Unlock()
+	fake.DeleteRelationStub = nil
+	if fake.deleteRelationReturnsOnCall == nil {
+		fake.deleteRelationReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.deleteRelationReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }

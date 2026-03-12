@@ -427,6 +427,10 @@ func (s *Server) Handler() http.Handler {
 	// Protected endpoints in a new chi.Group that applies authMiddleware
 	s.registerProtectedRoutes(r)
 
+	// Apply handler wrapper if set (e.g. OAuth callback, guild agent routing).
+	if s.handlerWrapper != nil {
+		return s.handlerWrapper(r)
+	}
 	return r
 }
 

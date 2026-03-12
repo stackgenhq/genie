@@ -89,6 +89,84 @@ func (s *InMemoryStore) AddEntity(ctx context.Context, e Entity) error {
 	return s.saveLocked(ctx)
 }
 
+// DeleteEntity removes an entity and all its incident edges from the graph.
+// Returns nil if the entity does not exist (idempotent).
+func (s *InMemoryStore) DeleteEntity(ctx context.Context, id string) error {
+	if id == "" {
+		return fmt.Errorf("entity id required: %w", ErrInvalidInput)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// If vertex doesn't exist, treat as idempotent success.
+	if _, err := s.g.Vertex(id); err != nil {
+		if errors.Is(err, graph.ErrVertexNotFound) {
+			return nil
+		}
+		return err
+	}
+	// Remove all incident edges before removing the vertex.
+	adj, err := s.g.AdjacencyMap()
+	if err != nil {
+		return err
+	}
+	pred, err := s.g.PredecessorMap()
+	if err != nil {
+		return err
+	}
+	for target := range adj[id] {
+		_ = s.g.RemoveEdge(id, target)
+	}
+	for source := range pred[id] {
+		_ = s.g.RemoveEdge(source, id)
+	}
+	if err := s.g.RemoveVertex(id); err != nil {
+		return fmt.Errorf("remove vertex: %w", err)
+	}
+	return s.saveLocked(ctx)
+}
+
+// DeleteRelation removes a specific predicate from the edge between subject and object.
+// If the removed predicate was the last one on the edge, the edge itself is removed.
+// Returns nil if the relation does not exist (idempotent).
+func (s *InMemoryStore) DeleteRelation(ctx context.Context, r Relation) error {
+	if r.SubjectID == "" || r.Predicate == "" || r.ObjectID == "" {
+		return fmt.Errorf("relation subject_id, predicate, and object_id required: %w", ErrInvalidInput)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	edge, err := s.g.Edge(r.SubjectID, r.ObjectID)
+	if err != nil {
+		if errors.Is(err, graph.ErrEdgeNotFound) {
+			return nil // idempotent
+		}
+		return fmt.Errorf("get edge: %w", err)
+	}
+	preds, _ := edge.Properties.Data.(edgePredicates)
+	// Find and remove the target predicate.
+	idx := -1
+	for i, p := range preds {
+		if p == r.Predicate {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return nil // predicate not found — idempotent
+	}
+	preds = append(preds[:idx], preds[idx+1:]...)
+	if len(preds) == 0 {
+		// Last predicate removed — remove the entire edge.
+		if err := s.g.RemoveEdge(r.SubjectID, r.ObjectID); err != nil {
+			return fmt.Errorf("remove edge: %w", err)
+		}
+	} else {
+		if err := s.g.UpdateEdge(r.SubjectID, r.ObjectID, graph.EdgeData(preds)); err != nil {
+			return fmt.Errorf("update edge: %w", err)
+		}
+	}
+	return s.saveLocked(ctx)
+}
+
 // replaceVertex removes the vertex and all its incident edges, then re-adds the vertex and edges.
 func (s *InMemoryStore) replaceVertex(id string, entity Entity) error {
 	adj, err := s.g.AdjacencyMap()

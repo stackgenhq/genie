@@ -516,10 +516,17 @@ func (a *Application) Start(ctx context.Context) error {
 	aguiCfg := a.cfg.Messenger.AGUI
 
 	if aguiMsgr := unwrapAGUI(a.msgr); aguiMsgr != nil {
-		aguiRouter := chi.NewRouter()
-
+		// Mount the OAuth callback handler on the HTTP server via the
+		// handler wrapper. The wrapper intercepts /oauth/callback before
+		// the request reaches the AG-UI server routes.
 		if a.credstoreManager != nil {
-			aguiRouter.Mount("/oauth/callback", a.credstoreManager.CallbackHandler())
+			callbackHandler := a.credstoreManager.CallbackHandler()
+			aguiMsgr.SetHandlerWrapper(func(next http.Handler) http.Handler {
+				mux := chi.NewRouter()
+				mux.Mount("/oauth/callback", callbackHandler)
+				mux.NotFound(next.ServeHTTP)
+				return mux
+			})
 		}
 
 		aguiMsgr.ConfigureServer(messengeragui.ServerConfig{

@@ -19,6 +19,12 @@ type IStore interface {
 	AddEntity(ctx context.Context, e Entity) error
 	// AddRelation stores a directed relation; idempotent (same triple is a no-op).
 	AddRelation(ctx context.Context, r Relation) error
+	// DeleteEntity removes an entity and all its incident relations by ID.
+	// Returns nil if the entity does not exist (idempotent).
+	DeleteEntity(ctx context.Context, id string) error
+	// DeleteRelation removes a specific directed relation triple.
+	// Returns nil if the relation does not exist (idempotent).
+	DeleteRelation(ctx context.Context, r Relation) error
 	// GetEntity returns the entity by id, or nil if not found.
 	GetEntity(ctx context.Context, id string) (*Entity, error)
 	// RelationsOut returns relations where subject_id equals id (outgoing edges).

@@ -24,6 +24,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/messenger"
+	"github.com/stackgenhq/genie/pkg/pii"
 	"github.com/stackgenhq/genie/pkg/reactree/memory"
 	"github.com/stackgenhq/genie/pkg/retrier"
 	"github.com/stackgenhq/genie/pkg/tools"
@@ -469,6 +470,38 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	scopedRegistry := t.subAgentRegistry
 	if len(req.ToolNames) > 0 {
 		scopedRegistry = scopedRegistry.Include(req.ToolNames...)
+
+		// Validate that all requested tools were found. If the planner
+		// requested tools that don't exist (e.g. MCP tools that aren't
+		// available until after authentication), return an informative
+		// error so the orchestrator can course-correct.
+		resolvedNames := scopedRegistry.ToolNames()
+		resolved := make(map[string]struct{}, len(resolvedNames))
+		for _, n := range resolvedNames {
+			resolved[n] = struct{}{}
+		}
+		var missing []string
+		for _, requested := range req.ToolNames {
+			if _, ok := resolved[requested]; !ok {
+				missing = append(missing, requested)
+			}
+		}
+		if len(missing) > 0 {
+			allAvailable := t.subAgentRegistry.ToolNames()
+			logr.Warn("requested tools not found in registry",
+				"missing", missing,
+				"available_count", len(allAvailable))
+			return CreateAgentResponse{
+				Status: "error",
+				Output: fmt.Sprintf(
+					"The following tools are not available: %s. "+
+						"These tools may require authentication first. "+
+						"Available tools: %s",
+					strings.Join(missing, ", "),
+					strings.Join(allAvailable, ", "),
+				),
+			}, nil
+		}
 	}
 
 	// Create ephemeral states for dynamic skill loaders so sub-agents
@@ -617,6 +650,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	timedOut := false
 	toolCallCount := 0
 	seenToolIDs := make(map[string]struct{})
+	hasSkipPIIMarker := false // Tracks if any tool result contains the PII skip marker
 	for ev := range evCh {
 		if ev.Error != nil {
 			lastErr = ev.Error.Message
@@ -658,6 +692,12 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 				if (choice.Message.ToolID != "" || ev.Object == model.ObjectTypeToolResponse) && choice.Message.Content != "" && toolResultsSB.Len() < maxToolResultsLen {
 					remaining := maxToolResultsLen - toolResultsSB.Len()
 					content := choice.Message.Content
+					// Check if this tool result carries the PII skip marker.
+					// If so, we must propagate it to the final create_agent
+					// output so the orchestrator's PII callback sees it.
+					if !hasSkipPIIMarker && pii.ContentHasSkipMarker(content) {
+						hasSkipPIIMarker = true
+					}
 					if len(content) > remaining {
 						cut := remaining
 						for cut > 0 && !utf8.RuneStart(content[cut]) {
@@ -699,6 +739,14 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	}
 
 	result := sb.String()
+
+	// Propagate the PII skip marker from tool results to the final output.
+	// The sub-agent's LLM text may contain auth URLs from tool responses but
+	// won't include the __SKIP_PII_REDACTION__ marker. Prepending it ensures
+	// the orchestrator's PII callback skips redaction for this output.
+	if hasSkipPIIMarker && !pii.ContentHasSkipMarker(result) {
+		result = pii.SkipRedactionMarker + result
+	}
 
 	// When the sub-agent produced no LLM output (e.g. deadline hit mid-generation),
 	// check working memory for data stored by tool calls that completed before

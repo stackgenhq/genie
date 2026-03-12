@@ -128,12 +128,120 @@ var _ = Describe("graph tools via CallableTool", func() {
 
 		It("returns error for unknown action", func() {
 			input, _ := json.Marshal(graph.GraphStoreRequest{
-				Action: "delete",
+				Action: "drop",
 			})
 
 			_, err := storeTool.Call(ctx, input)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("action must be"))
+		})
+
+		It("deletes an entity via action=delete_entity", func() {
+			// Verify bob exists before deletion
+			entity, err := store.GetEntity(ctx, "bob")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(entity).NotTo(BeNil())
+
+			input, _ := json.Marshal(graph.GraphStoreRequest{
+				Action: "delete_entity",
+				ID:     "bob",
+			})
+
+			result, err := storeTool.Call(ctx, input)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).NotTo(BeNil())
+
+			// Verify bob is gone
+			entity, err = store.GetEntity(ctx, "bob")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(entity).To(BeNil())
+		})
+
+		It("deletes an entity and its incident relations", func() {
+			// bob has outgoing: WORKS_ON→proj-x, OWNS→repo-1 and incoming: alice MENTORS→bob
+			input, _ := json.Marshal(graph.GraphStoreRequest{
+				Action: "delete_entity",
+				ID:     "bob",
+			})
+			_, err := storeTool.Call(ctx, input)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify alice's neighbors no longer include bob
+			neighbors, err := store.Neighbors(ctx, "alice", 20)
+			Expect(err).NotTo(HaveOccurred())
+			for _, n := range neighbors {
+				Expect(n.Entity.ID).NotTo(Equal("bob"))
+			}
+		})
+
+		It("returns error for action=delete_entity with empty ID", func() {
+			input, _ := json.Marshal(graph.GraphStoreRequest{
+				Action: "delete_entity",
+				ID:     "",
+			})
+
+			_, err := storeTool.Call(ctx, input)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("id is required"))
+		})
+
+		It("delete_entity is idempotent for non-existent entity", func() {
+			input, _ := json.Marshal(graph.GraphStoreRequest{
+				Action: "delete_entity",
+				ID:     "nonexistent",
+			})
+
+			result, err := storeTool.Call(ctx, input)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).NotTo(BeNil())
+		})
+
+		It("deletes a relation via action=delete_relation", func() {
+			input, _ := json.Marshal(graph.GraphStoreRequest{
+				Action:    "delete_relation",
+				SubjectID: "alice",
+				Predicate: "MENTORS",
+				ObjectID:  "bob",
+			})
+
+			result, err := storeTool.Call(ctx, input)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).NotTo(BeNil())
+
+			// Verify the relation is gone — alice should still have WORKS_ON→proj-x
+			neighbors, err := store.Neighbors(ctx, "alice", 20)
+			Expect(err).NotTo(HaveOccurred())
+			for _, n := range neighbors {
+				if n.Entity.ID == "bob" {
+					Fail("Expected MENTORS→bob relation to be deleted")
+				}
+			}
+		})
+
+		It("returns error for action=delete_relation with empty fields", func() {
+			input, _ := json.Marshal(graph.GraphStoreRequest{
+				Action:    "delete_relation",
+				SubjectID: "alice",
+				Predicate: "",
+				ObjectID:  "bob",
+			})
+
+			_, err := storeTool.Call(ctx, input)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("subject_id, predicate, and object_id are required"))
+		})
+
+		It("delete_relation is idempotent for non-existent relation", func() {
+			input, _ := json.Marshal(graph.GraphStoreRequest{
+				Action:    "delete_relation",
+				SubjectID: "alice",
+				Predicate: "NONEXISTENT",
+				ObjectID:  "bob",
+			})
+
+			result, err := storeTool.Call(ctx, input)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).NotTo(BeNil())
 		})
 	})
 

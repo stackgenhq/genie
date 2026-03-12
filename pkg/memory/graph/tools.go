@@ -36,7 +36,7 @@ type batchEntityStore interface {
 // GraphStoreRequest is the input for the unified graph_store tool.
 // Set Action to "entity", "relation", or "batch" to choose what to store.
 type GraphStoreRequest struct {
-	Action string `json:"action" jsonschema:"description=What to store: 'entity' or 'relation' or 'batch' (for storing multiple items at once),required,enum=entity,enum=relation,enum=batch"`
+	Action string `json:"action" jsonschema:"description=What to do: 'entity' (store entity)  'relation' (store relation)  'delete_entity' (delete entity and its relations)  'delete_relation' (delete a specific relation)  'batch' (multiple items at once),required,enum=entity,enum=relation,enum=delete_entity,enum=delete_relation,enum=batch"`
 
 	// Fields for action=entity
 	ID    string            `json:"id,omitempty" jsonschema:"description=Unique identifier for the entity (required when action=entity)"`
@@ -54,7 +54,7 @@ type GraphStoreRequest struct {
 
 // BatchStoreItem represents a single entity or relation within a batch store request.
 type BatchStoreItem struct {
-	Action string `json:"action" jsonschema:"description=What to store: 'entity' or 'relation'. Note: 'batch' cannot be nested.,required,enum=entity,enum=relation"`
+	Action string `json:"action" jsonschema:"description=What to do: 'entity' 'relation' 'delete_entity' or 'delete_relation'. Note: 'batch' cannot be nested.,required,enum=entity,enum=relation,enum=delete_entity,enum=delete_relation"`
 
 	// Fields for action=entity
 	ID    string            `json:"id,omitempty" jsonschema:"description=Entity ID (required when action=entity)"`
@@ -92,13 +92,15 @@ func newGraphStoreTool(store IStore) tool.Tool {
 		t.execute,
 		function.WithName(GraphStoreToolName),
 		function.WithDescription(
-			"Store entities and relations in the knowledge graph. "+
+			"Store, update, or delete entities and relations in the knowledge graph. "+
 				"Use action='entity' with id, type, and optional attrs to store a node. "+
 				"Use action='relation' with subject_id, predicate, object_id to store a directed edge. "+
-				"**Use action='batch'** with items array to store MULTIPLE entities/relations in ONE call — "+
+				"Use action='delete_entity' with id to delete an entity and all its incident relations. "+
+				"Use action='delete_relation' with subject_id, predicate, object_id to delete a specific relation. "+
+				"**Use action='batch'** with items array to process MULTIPLE items in ONE call — "+
 				"this is much more efficient than making separate calls. "+
 				"Example: {\"action\":\"batch\",\"items\":[{\"action\":\"entity\",\"id\":\"alice\",\"type\":\"person\"},{\"action\":\"relation\",\"subject_id\":\"alice\",\"predicate\":\"WORKS_ON\",\"object_id\":\"project-1\"}]}. "+
-				"Entities are overwritten if the same id is used. Relations are idempotent. "+
+				"Entities are overwritten if the same id is used. Relations and deletes are idempotent. "+
 				"EFFICIENCY: batch > multiple separate calls.",
 		),
 	)
@@ -143,11 +145,33 @@ func (t *graphStoreTool) execute(ctx context.Context, req GraphStoreRequest) (Gr
 		}
 		return GraphStoreResponse{Message: "Relation stored"}, nil
 
+	case "delete_entity":
+		if req.ID == "" {
+			return GraphStoreResponse{}, fmt.Errorf("%w: id is required for action=delete_entity", ErrInvalidInput)
+		}
+		if err := t.store.DeleteEntity(ctx, req.ID); err != nil {
+			return GraphStoreResponse{}, err
+		}
+		return GraphStoreResponse{Message: "Entity deleted"}, nil
+
+	case "delete_relation":
+		if req.SubjectID == "" || req.Predicate == "" || req.ObjectID == "" {
+			return GraphStoreResponse{}, fmt.Errorf("%w: subject_id, predicate, and object_id are required for action=delete_relation", ErrInvalidInput)
+		}
+		if err := t.store.DeleteRelation(ctx, Relation{
+			SubjectID: req.SubjectID,
+			Predicate: req.Predicate,
+			ObjectID:  req.ObjectID,
+		}); err != nil {
+			return GraphStoreResponse{}, err
+		}
+		return GraphStoreResponse{Message: "Relation deleted"}, nil
+
 	case "batch":
 		return t.executeBatch(ctx, req.Items)
 
 	default:
-		return GraphStoreResponse{}, fmt.Errorf("%w: action must be 'entity', 'relation', or 'batch', got %q", ErrInvalidInput, req.Action)
+		return GraphStoreResponse{}, fmt.Errorf("%w: action must be 'entity', 'relation', 'delete_entity', 'delete_relation', or 'batch', got %q", ErrInvalidInput, req.Action)
 	}
 }
 
@@ -190,6 +214,34 @@ func (t *graphStoreTool) executeBatch(ctx context.Context, items []BatchStoreIte
 			})
 		case "relation":
 			relationIndices = append(relationIndices, i)
+		case "delete_entity":
+			if item.ID == "" {
+				results[i] = BatchStoreResult{Index: i, Action: "delete_entity", Error: "id is required"}
+				continue
+			}
+			br := BatchStoreResult{Index: i, Action: "delete_entity"}
+			if err := t.store.DeleteEntity(ctx, item.ID); err != nil {
+				br.Error = err.Error()
+			} else {
+				br.Message = "Entity deleted"
+			}
+			results[i] = br
+		case "delete_relation":
+			if item.SubjectID == "" || item.Predicate == "" || item.ObjectID == "" {
+				results[i] = BatchStoreResult{Index: i, Action: "delete_relation", Error: "subject_id, predicate, and object_id are required"}
+				continue
+			}
+			br := BatchStoreResult{Index: i, Action: "delete_relation"}
+			if err := t.store.DeleteRelation(ctx, Relation{
+				SubjectID: item.SubjectID,
+				Predicate: item.Predicate,
+				ObjectID:  item.ObjectID,
+			}); err != nil {
+				br.Error = err.Error()
+			} else {
+				br.Message = "Relation deleted"
+			}
+			results[i] = br
 		default:
 			results[i] = BatchStoreResult{Index: i, Action: item.Action, Error: fmt.Sprintf("unsupported batch sub-action %q", item.Action)}
 		}
@@ -227,7 +279,7 @@ func (t *graphStoreTool) executeBatch(ctx context.Context, items []BatchStoreIte
 	// Count successes for the summary message.
 	ok := 0
 	for _, r := range results {
-		if r.Error == "" && r.Action != "" {
+		if r.Error == "" && r.Message != "" {
 			ok++
 		}
 	}

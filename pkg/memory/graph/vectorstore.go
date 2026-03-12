@@ -141,6 +141,69 @@ func (s *VectorBackedStore) AddRelation(ctx context.Context, r Relation) error {
 	}}})
 }
 
+// DeleteEntity removes an entity and all its incident relations from the vector store.
+// Returns nil if the entity does not exist (idempotent).
+func (s *VectorBackedStore) DeleteEntity(ctx context.Context, id string) error {
+	if id == "" {
+		return fmt.Errorf("entity id required: %w", ErrInvalidInput)
+	}
+	// Delete the entity document.
+	_ = s.vs.Delete(ctx, vector.DeleteRequest{IDs: []string{entityDocID(id)}})
+
+	// Find and delete all outgoing relations (subject_id == id).
+	outResults, err := s.vs.Search(ctx, vector.SearchRequest{
+		Query: "", Limit: vectorStoreSearchLimit,
+		Filter: map[string]string{
+			graphDocType:  graphTypeRelation,
+			metaSubjectID: id,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("search outgoing relations for %q: %w", id, err)
+	}
+
+	// Find and delete all incoming relations (object_id == id).
+	inResults, err := s.vs.Search(ctx, vector.SearchRequest{
+		Query: "", Limit: vectorStoreSearchLimit,
+		Filter: map[string]string{
+			graphDocType: graphTypeRelation,
+			metaObjectID: id,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("search incoming relations for %q: %w", id, err)
+	}
+
+	// Collect all relation doc IDs to delete.
+	var relIDs []string
+	for _, r := range outResults {
+		relIDs = append(relIDs, r.ID)
+	}
+	for _, r := range inResults {
+		relIDs = append(relIDs, r.ID)
+	}
+	if len(relIDs) > 0 {
+		if err := s.vs.Delete(ctx, vector.DeleteRequest{IDs: relIDs}); err != nil {
+			return fmt.Errorf("delete incident relations for %q: %w", id, err)
+		}
+	}
+	return nil
+}
+
+// DeleteRelation removes a specific directed relation triple from the vector store.
+// Returns nil if the relation does not exist (idempotent).
+func (s *VectorBackedStore) DeleteRelation(ctx context.Context, r Relation) error {
+	if r.SubjectID == "" || r.Predicate == "" || r.ObjectID == "" {
+		return fmt.Errorf("relation subject_id, predicate, and object_id required: %w", ErrInvalidInput)
+	}
+	// Delete the relation document by its deterministic ID. Errors from
+	// deleting a non-existent document are ignored (idempotent).
+	_ = s.vs.Delete(ctx, vector.DeleteRequest{
+		IDs: []string{relationDocID(r.SubjectID, r.Predicate, r.ObjectID)},
+	})
+	return nil
+}
+
 // GetEntity looks up an entity by ID using metadata filter.
 func (s *VectorBackedStore) GetEntity(ctx context.Context, id string) (*Entity, error) {
 	if id == "" {

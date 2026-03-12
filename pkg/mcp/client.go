@@ -328,15 +328,15 @@ func (c *Client) ReloadServer(ctx context.Context, serverName string) error {
 	prefix := "connect_" + strings.ToLower(serverName)
 	for _, t := range c.tools {
 		// A bit hacky: we identify old tools for this server either by the dummy name
-		// or if we had real tools, we'd need to know which server they came from. 
+		// or if we had real tools, we'd need to know which server they came from.
 		// Since ClientTool wraps them, we can't easily check. But practically, if it's
 		// reloading from a dummy state, the only tool was "connect_<server>".
 		if t.Declaration().Name != prefix {
 			newTools = append(newTools, t)
 		}
 	}
-	
-	// Right now we don't have a good way to filter out old REAL tools, so ReloadServer 
+
+	// Right now we don't have a good way to filter out old REAL tools, so ReloadServer
 	// is mostly safe when transitioning Dummy -> Real.
 	newTools = append(newTools, tools...)
 	c.tools = newTools
