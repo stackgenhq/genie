@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stackgenhq/genie/pkg/agui"
 	"github.com/stackgenhq/genie/pkg/clarify"
 	"github.com/stackgenhq/genie/pkg/expert"
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
@@ -190,6 +191,13 @@ func NewAgentNodeFunc(cfg AgentNodeConfig) graph.NodeFunc {
 		//      again only causes redundant "working on it" messages and
 		//      unnecessary follow-up questions.
 		taskCompleted := toolCallCount == 0 || (toolCallCount > 0 && allTerminal)
+
+		// If any tool result contains the user-action-required marker,
+		// the user must act (e.g. OAuth sign-in) before the agent can
+		// proceed. Treat as task completion to stop the adaptive loop.
+		if strings.Contains(output, agui.UserActionRequiredMarker) {
+			taskCompleted = true
+		}
 
 		// Clear output when send_message was used — it already delivered the
 		// response to the user, so the runner text is just mangled JSON.

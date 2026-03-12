@@ -95,12 +95,12 @@ func (t *DummyAuthTool) Call(ctx context.Context, _ []byte) (any, error) {
 			})
 
 			return fmt.Sprintf(
-				"%s🔐 **Authentication required for %s**\n\n"+
+				"%s%s🔐 **Authentication required for %s**\n\n"+
 					"A sign-in card has been shown to the user in the chat UI.\n\n"+
 					"IMPORTANT: Do NOT call this tool again. "+
 					"The user must complete sign-in in their browser first. "+
 					"Tell the user to click the Sign In button and stop.",
-				pii.SkipRedactionMarker, t.serverName,
+				pii.SkipRedactionMarker, aguitypes.UserActionRequiredMarker, t.serverName,
 			), nil
 		}
 		// For non-auth errors, return as error.

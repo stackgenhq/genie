@@ -379,6 +379,17 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 		logr.Warn("duplicate create_agent call coalesced", "agent_name", req.AgentName)
 	}
 
+	// Detect user-action-required marker in the sub-agent output.
+	// When present, the user must complete an action (e.g. OAuth sign-in)
+	// before the agent can proceed. Mark as non-retriable so the
+	// orchestrator's adaptive loop stops iterating.
+	if err == nil && strings.Contains(resp.Output, agui.UserActionRequiredMarker) {
+		resp.Status = "user_action_required"
+		logr.Info("sub-agent requires user action, marking non-retriable",
+			"agent_name", req.AgentName)
+		return resp, nil
+	}
+
 	// Auto-retry on tool_use_failure: the sub-agent echoed commands as text
 	// instead of calling run_shell. Retry once with a reinforced prompt that
 	// leaves no ambiguity. Only retry once to avoid infinite loops.
@@ -667,9 +678,11 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	const maxToolResultsLen = 16000
 	var lastErr string
 	timedOut := false
+	hasUserActionRequired := false
 	toolCallCount := 0
 	seenToolIDs := make(map[string]struct{})
-	hasSkipPIIMarker := false // Tracks if any tool result contains the PII skip marker
+	usedToolNames := make(map[string]struct{}) // Track unique tool names for co-occurrence
+	hasSkipPIIMarker := false                  // Tracks if any tool result contains the PII skip marker
 	for ev := range evCh {
 		if ev.Error != nil {
 			lastErr = ev.Error.Message
@@ -701,6 +714,10 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 							toolCallCount++
 						}
 					}
+					// Capture tool name for co-occurrence graph.
+					if tc.Function.Name != "" {
+						usedToolNames[tc.Function.Name] = struct{}{}
+					}
 				}
 
 				// Capture tool result content as partial findings.
@@ -716,6 +733,9 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 					// output so the orchestrator's PII callback sees it.
 					if !hasSkipPIIMarker && pii.ContentHasSkipMarker(content) {
 						hasSkipPIIMarker = true
+					}
+					if !hasUserActionRequired && strings.Contains(content, agui.UserActionRequiredMarker) {
+						hasUserActionRequired = true
 					}
 					if len(content) > remaining {
 						cut := remaining
@@ -767,6 +787,14 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 		result = pii.SkipRedactionMarker + result
 	}
 
+	// Propagate the user-action-required marker from tool results to the
+	// final output. The sub-agent's LLM text won't contain the marker
+	// because the LLM generates free-form text. Prepending ensures the
+	// execute() method's marker check detects it and stops the loop.
+	if hasUserActionRequired && !strings.Contains(result, agui.UserActionRequiredMarker) {
+		result = agui.UserActionRequiredMarker + result
+	}
+
 	// When the sub-agent produced no LLM output (e.g. deadline hit mid-generation),
 	// check working memory for data stored by tool calls that completed before
 	// the deadline (http_request → summarize → memory_store pipeline).
@@ -785,6 +813,12 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 
 	// --- Post-execution pipeline ---
 	// Each stage is an independently testable method.
+	// Convert used tool names set to slice for co-occurrence tracking.
+	usedNames := make([]string, 0, len(usedToolNames))
+	for name := range usedToolNames {
+		usedNames = append(usedNames, name)
+	}
+
 	sar := subAgentResult{
 		output:        result,
 		status:        status,
@@ -792,11 +826,13 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 		timedOut:      timedOut,
 		toolNameList:  toolNameList,
 		numTools:      len(selectedTools),
+		usedToolNames: usedNames,
 	}
 
 	sar = t.applyZeroToolUseGuard(ctx, req, sar)
 	sar = t.runHalGuardPostCheck(ctx, req, sar, modelToUse)
 	t.storeResults(ctx, req, sar)
+	t.recordToolCooccurrence(sar)
 	sar = t.summarizeOutput(ctx, req, sar)
 
 	return CreateAgentResponse{
@@ -816,6 +852,7 @@ type subAgentResult struct {
 	timedOut      bool
 	toolNameList  []string
 	numTools      int
+	usedToolNames []string // Tools actually invoked (for co-occurrence graph)
 }
 
 // applyZeroToolUseGuard detects when a sub-agent had action tools but made
@@ -955,6 +992,16 @@ func (t *createAgentTool) storeResults(ctx context.Context, req CreateAgentReque
 			"importance", importance,
 		)
 	}
+}
+
+// recordToolCooccurrence feeds the tools actually used by a sub-agent into
+// the co-occurrence graph so future tool recommendations are context-aware.
+// Only records when >= 2 tools were used (co-occurrence requires pairs).
+func (t *createAgentTool) recordToolCooccurrence(sar subAgentResult) {
+	if t.toolIndex == nil || len(sar.usedToolNames) < 2 {
+		return
+	}
+	t.toolIndex.RecordToolUsage(sar.usedToolNames)
 }
 
 // summarizeOutput compresses large sub-agent output when the caller

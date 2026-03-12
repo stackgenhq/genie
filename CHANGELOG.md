@@ -45,6 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Graph memory deletion** — `DeleteEntity`, `DeleteRelation`, and `DeleteAll` methods on `IStore` interface with implementations in `InMemoryStore` (vertex + incident edge removal, graph reinit) and `VectorBackedStore` (cascading relation doc cleanup, batch delete). `graph_store` tool now supports `delete_entity`, `delete_relation`, and `delete_all` actions, including bulk operations via `action=batch`.
 - **Semantic cache management tool** (`semantic_cache`) — orchestrator-level tool for searching, inspecting, and deleting cached Q&A entries. Registered automatically when the semantic router is enabled.
 - `SearchCache` and `DeleteCacheEntries` methods on `IRouter` interface for programmatic cache management.
+- **Vector-based tool provider** (`pkg/tools/vector_tool_provider.go`) — indexes all tool declarations into the vector store at startup and provides semantic search (`SearchTools`) for goal-based tool discovery. Replaces the hardcoded `availableToolNames` list in the orchestrator with dynamic lookup, reducing prompt bloat and tool hallucination.
+- **Tool co-occurrence graph** — in-memory graph that learns which tools are commonly used together from `TreeResult.ToolCallCounts` after each sub-agent run. `RecordToolUsage` records pairwise edges; `CooccurrenceScore` returns log-normalized [0,1] affinity; `SearchToolsWithContext` blends 70% semantic similarity + 30% co-occurrence for context-aware tool recommendations (AutoTool-style, AAAI 2026).
+- Sub-agent tool name capture — `create_agent.go` now tracks `usedToolNames` from streaming `ToolCalls[].Function.Name` events and feeds them to the co-occurrence graph via `recordToolCooccurrence()`.
 
 ### Changed
 
@@ -69,6 +72,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Langfuse tracing (`withPrincipalBaggage`) reads user identity from `identity.GetSender(ctx)` and maps `DisplayName` (was `Name`) to `langfuse.trace.metadata.user_name`.
 - **`IStore` interface refactored to 2-parameter pattern** — `Search` and `SearchWithFilter` unified into `Search(ctx, SearchRequest)` with optional `Filter`; `Add`, `Upsert`, `Delete` now accept `AddRequest`, `UpsertRequest`, `DeleteRequest` structs. All callers across `orchestrator`, `semanticrouter`, `graph`, `reactree`, `report`, and `app` packages updated.
 - **Semantic cache changed from direct answer to context hint** — cached responses are no longer returned verbatim as short-circuit answers. Instead, the cached response is injected as a `## Prior Cached Answer (Reference Only)` section in the agent prompt, so the agent always re-executes tools for fresh data while using the cached answer as a guideline. Prevents stale `kubectl` output and similar operational data from being served verbatim.
+- **Orchestrator tool management refactored** — replaced hardcoded `availableToolNames` field with `toolIndex *tools.VectorToolProvider`; introduced categorized `orchestratorDirectTools` constant; `createResume` now uses `SearchToolsWithContext` for context-aware tool capability listing in the agent resume.
+- **`create_agent` tool description updated** — static 30+ tool list removed from the `create_agent` description; when `toolIndex` is available, the LLM is instructed to specify tools by capability instead of by name.
 
 ### Fixed
 

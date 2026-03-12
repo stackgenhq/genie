@@ -505,9 +505,11 @@ Recent Accomplishments (things I have successfully done):
 	toolsSection := ""
 	toolsInstruction := ""
 	if c.toolIndex != nil {
-		// Use semantic search to find the ~20 most representative tools
-		// instead of dumping all 30+ tool descriptions into the prompt.
-		toolResults, searchErr := c.toolIndex.SearchTools(ctx, "capabilities tools actions", 20)
+		// Use semantic search and co-occurrence to find the ~20 most
+		// representative tools. Context tools = orchestrator's own direct
+		// tools, so the co-occurrence graph boosts tools commonly used
+		// alongside them.
+		toolResults, searchErr := c.toolIndex.SearchToolsWithContext(ctx, "capabilities tools actions", orchestratorDirectTools, 20)
 		if searchErr != nil {
 			logger.Warn("tool index search failed for resume", "error", searchErr)
 		} else if len(toolResults) > 0 {

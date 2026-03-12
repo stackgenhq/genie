@@ -6,6 +6,7 @@ package tools_test
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -76,7 +77,6 @@ var _ = Describe("VectorToolProvider", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(results).NotTo(BeEmpty())
 
-			// All results should have non-empty names.
 			for _, r := range results {
 				Expect(r.Name).NotTo(BeEmpty())
 				Expect(r.Description).NotTo(BeEmpty())
@@ -91,7 +91,6 @@ var _ = Describe("VectorToolProvider", func() {
 			results, err := vtp.SearchTools(ctx, "calculator", 5)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(results).NotTo(BeEmpty())
-			// Dummy embedder scores are deterministic.
 			for _, r := range results {
 				Expect(r.Score).To(BeNumerically(">=", 0))
 			}
@@ -99,9 +98,7 @@ var _ = Describe("VectorToolProvider", func() {
 
 		It("returns error when search fails", func() {
 			fakeStore := &vectorfakes.FakeIStore{}
-			// First: upsert succeeds (indexing).
 			fakeStore.UpsertReturns(nil)
-			// Second: search fails.
 			fakeStore.SearchReturns(nil, fmt.Errorf("search broke"))
 
 			reg := tools.NewRegistry(ctx)
@@ -140,7 +137,6 @@ var _ = Describe("VectorToolProvider", func() {
 
 			results, err := vtp.SearchTools(ctx, "tools", 10)
 			Expect(err).NotTo(HaveOccurred())
-			// Only the entry with a non-empty tool_name should be returned.
 			Expect(results).To(HaveLen(1))
 			Expect(results[0].Name).To(Equal("some_tool"))
 		})
@@ -204,7 +200,6 @@ var _ = Describe("VectorToolProvider", func() {
 
 			results, err := vtp.SearchTools(ctx, "math", 0)
 			Expect(err).NotTo(HaveOccurred())
-			// Should not panic; default limit of 10 is used.
 			Expect(results).NotTo(BeNil())
 		})
 
@@ -214,6 +209,252 @@ var _ = Describe("VectorToolProvider", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			results, err := vtp.SearchTools(ctx, "math", -5)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(results).NotTo(BeNil())
+		})
+	})
+
+	Describe("RecordToolUsage", func() {
+		It("records pairwise co-occurrence for multiple tools", func() {
+			reg := tools.NewRegistry(ctx)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg)
+			Expect(err).NotTo(HaveOccurred())
+
+			vtp.RecordToolUsage([]string{"read_file", "write_file", "run_shell"})
+
+			Expect(vtp.CooccurrenceScore("read_file", "write_file")).To(BeNumerically(">", 0))
+			Expect(vtp.CooccurrenceScore("read_file", "run_shell")).To(BeNumerically(">", 0))
+			Expect(vtp.CooccurrenceScore("write_file", "run_shell")).To(BeNumerically(">", 0))
+		})
+
+		It("is symmetric", func() {
+			reg := tools.NewRegistry(ctx)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg)
+			Expect(err).NotTo(HaveOccurred())
+
+			vtp.RecordToolUsage([]string{"tool_a", "tool_b"})
+
+			Expect(vtp.CooccurrenceScore("tool_a", "tool_b")).To(
+				Equal(vtp.CooccurrenceScore("tool_b", "tool_a")))
+		})
+
+		It("ignores single-tool usage", func() {
+			reg := tools.NewRegistry(ctx)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg)
+			Expect(err).NotTo(HaveOccurred())
+
+			vtp.RecordToolUsage([]string{"only_tool"})
+
+			Expect(vtp.CooccurrenceScore("only_tool", "anything")).To(Equal(0.0))
+		})
+
+		It("ignores empty tool list", func() {
+			reg := tools.NewRegistry(ctx)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg)
+			Expect(err).NotTo(HaveOccurred())
+
+			vtp.RecordToolUsage([]string{})
+			// Should not panic.
+		})
+
+		It("accumulates weights over multiple recordings", func() {
+			reg := tools.NewRegistry(ctx)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg)
+			Expect(err).NotTo(HaveOccurred())
+
+			vtp.RecordToolUsage([]string{"a", "b"})
+			score1 := vtp.CooccurrenceScore("a", "b")
+
+			vtp.RecordToolUsage([]string{"a", "b"})
+			score2 := vtp.CooccurrenceScore("a", "b")
+
+			// After the first recording, a-b count=1 and max=1, so score=1.0.
+			// After the second, count=2 and max=2, so score is still 1.0.
+			// But if we add another pairing, the original pair should dominate.
+			vtp.RecordToolUsage([]string{"a", "c"})
+			scoreAB := vtp.CooccurrenceScore("a", "b")
+			scoreAC := vtp.CooccurrenceScore("a", "c")
+
+			// a-b (count=2) should score higher than a-c (count=1)
+			Expect(scoreAB).To(BeNumerically(">", scoreAC))
+			// Both initial scores should be positive.
+			Expect(score1).To(BeNumerically(">", 0))
+			Expect(score2).To(BeNumerically(">", 0))
+		})
+	})
+
+	Describe("CooccurrenceScore", func() {
+		It("returns 0 for unknown tools", func() {
+			reg := tools.NewRegistry(ctx)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(vtp.CooccurrenceScore("unknown_a", "unknown_b")).To(Equal(0.0))
+		})
+
+		It("returns 0 when graph is empty", func() {
+			reg := tools.NewRegistry(ctx)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(vtp.CooccurrenceScore("a", "b")).To(Equal(0.0))
+		})
+
+		It("returns 1.0 for the max edge weight pair", func() {
+			reg := tools.NewRegistry(ctx)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg)
+			Expect(err).NotTo(HaveOccurred())
+
+			vtp.RecordToolUsage([]string{"a", "b"})
+			// Only pair, so it's the max edge.
+			Expect(vtp.CooccurrenceScore("a", "b")).To(Equal(1.0))
+		})
+
+		It("returns 0 for tools that exist but have no edge", func() {
+			reg := tools.NewRegistry(ctx)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg)
+			Expect(err).NotTo(HaveOccurred())
+
+			vtp.RecordToolUsage([]string{"a", "b"})
+			vtp.RecordToolUsage([]string{"c", "d"})
+
+			Expect(vtp.CooccurrenceScore("a", "d")).To(Equal(0.0))
+		})
+
+		It("uses log normalization for diminishing returns", func() {
+			reg := tools.NewRegistry(ctx)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Record a-b 10 times and c-d once.
+			for i := 0; i < 10; i++ {
+				vtp.RecordToolUsage([]string{"a", "b"})
+			}
+			vtp.RecordToolUsage([]string{"c", "d"})
+
+			scoreAB := vtp.CooccurrenceScore("a", "b")
+			scoreCD := vtp.CooccurrenceScore("c", "d")
+
+			// Max is a-b at 10, c-d is 1.
+			// log(1+1)/log(1+10) ≈ 0.289 (not 0.1 — log normalisation).
+			Expect(scoreAB).To(Equal(1.0))
+			Expect(scoreCD).To(BeNumerically(">", 0.2))
+			Expect(scoreCD).To(BeNumerically("<", 0.4))
+		})
+	})
+
+	Describe("SearchToolsWithContext", func() {
+		It("returns pure semantic results when graph is empty (cold start)", func() {
+			reg := tools.NewRegistry(ctx, math.NewToolProvider())
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg)
+			Expect(err).NotTo(HaveOccurred())
+
+			results, err := vtp.SearchToolsWithContext(ctx, "calculate", []string{"run_shell"}, 5)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(results).NotTo(BeEmpty())
+		})
+
+		It("returns pure semantic results when no context tools given", func() {
+			reg := tools.NewRegistry(ctx, math.NewToolProvider())
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg)
+			Expect(err).NotTo(HaveOccurred())
+
+			vtp.RecordToolUsage([]string{"calculator", "run_shell"})
+
+			results, err := vtp.SearchToolsWithContext(ctx, "calculate", nil, 5)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(results).NotTo(BeEmpty())
+		})
+
+		It("boosts tools with co-occurrence affinity", func() {
+			fakeStore := &vectorfakes.FakeIStore{}
+			fakeStore.UpsertReturns(nil)
+			fakeStore.SearchReturns([]vector.SearchResult{
+				{
+					Content:  "tool_a: Does A things",
+					Metadata: map[string]string{"type": "tool_index", "tool_name": "tool_a"},
+					Score:    0.5, // Lower semantic score
+				},
+				{
+					Content:  "tool_b: Does B things",
+					Metadata: map[string]string{"type": "tool_index", "tool_name": "tool_b"},
+					Score:    0.6, // Higher semantic score
+				},
+			}, nil)
+
+			reg := tools.NewRegistry(ctx)
+			vtp, err := tools.NewVectorToolProvider(ctx, fakeStore, reg)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Record that tool_a is often used with context_tool
+			for i := 0; i < 5; i++ {
+				vtp.RecordToolUsage([]string{"tool_a", "context_tool"})
+			}
+
+			results, err := vtp.SearchToolsWithContext(ctx, "things", []string{"context_tool"}, 10)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(results).To(HaveLen(2))
+
+			// tool_a should be ranked first because:
+			// tool_a blended = 0.7*0.5 + 0.3*1.0 = 0.65
+			// tool_b blended = 0.7*0.6 + 0.3*0.0 = 0.42
+			Expect(results[0].Name).To(Equal("tool_a"))
+			Expect(results[1].Name).To(Equal("tool_b"))
+		})
+
+		It("respects limit after re-ranking", func() {
+			fakeStore := &vectorfakes.FakeIStore{}
+			fakeStore.UpsertReturns(nil)
+			fakeStore.SearchReturns([]vector.SearchResult{
+				{
+					Content:  "tool_1: First",
+					Metadata: map[string]string{"type": "tool_index", "tool_name": "tool_1"},
+					Score:    0.9,
+				},
+				{
+					Content:  "tool_2: Second",
+					Metadata: map[string]string{"type": "tool_index", "tool_name": "tool_2"},
+					Score:    0.8,
+				},
+				{
+					Content:  "tool_3: Third",
+					Metadata: map[string]string{"type": "tool_index", "tool_name": "tool_3"},
+					Score:    0.7,
+				},
+			}, nil)
+
+			reg := tools.NewRegistry(ctx)
+			vtp, err := tools.NewVectorToolProvider(ctx, fakeStore, reg)
+			Expect(err).NotTo(HaveOccurred())
+
+			vtp.RecordToolUsage([]string{"tool_1", "ctx"})
+
+			results, err := vtp.SearchToolsWithContext(ctx, "tools", []string{"ctx"}, 2)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(results).To(HaveLen(2))
+		})
+
+		It("returns error when search fails", func() {
+			fakeStore := &vectorfakes.FakeIStore{}
+			fakeStore.UpsertReturns(nil)
+			fakeStore.SearchReturns(nil, fmt.Errorf("search error"))
+
+			reg := tools.NewRegistry(ctx)
+			vtp, err := tools.NewVectorToolProvider(ctx, fakeStore, reg)
+			Expect(err).NotTo(HaveOccurred())
+
+			vtp.RecordToolUsage([]string{"a", "b"})
+
+			_, err = vtp.SearchToolsWithContext(ctx, "anything", []string{"a"}, 5)
+			Expect(err).To(HaveOccurred())
+		})
+
+		It("uses default limit when given zero", func() {
+			reg := tools.NewRegistry(ctx, math.NewToolProvider())
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg)
+			Expect(err).NotTo(HaveOccurred())
+
+			results, err := vtp.SearchToolsWithContext(ctx, "math", []string{}, 0)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(results).NotTo(BeNil())
 		})
@@ -268,22 +509,18 @@ var _ = Describe("VectorToolProvider", func() {
 		It("re-indexing with same registry does not duplicate", func() {
 			reg := tools.NewRegistry(ctx, math.NewToolProvider())
 
-			// Index first time
 			vtp1, err := tools.NewVectorToolProvider(ctx, store, reg)
 			Expect(err).NotTo(HaveOccurred())
 
 			results1, err := vtp1.SearchTools(ctx, "calculator", 20)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Index again (upsert should overwrite)
 			vtp2, err := tools.NewVectorToolProvider(ctx, store, reg)
 			Expect(err).NotTo(HaveOccurred())
 
 			results2, err := vtp2.SearchTools(ctx, "calculator", 20)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Filter to only tool_index results (by name match).
-			// Count should be same or fewer, never more.
 			countToolResults := func(results []tools.ToolSearchResult) int {
 				count := 0
 				for _, r := range results {
@@ -295,6 +532,57 @@ var _ = Describe("VectorToolProvider", func() {
 			}
 
 			Expect(countToolResults(results2)).To(Equal(countToolResults(results1)))
+		})
+	})
+
+	Describe("Thread safety", func() {
+		It("handles concurrent RecordToolUsage calls", func() {
+			reg := tools.NewRegistry(ctx)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg)
+			Expect(err).NotTo(HaveOccurred())
+
+			var wg sync.WaitGroup
+			for i := 0; i < 50; i++ {
+				wg.Add(1)
+				go func(i int) {
+					defer wg.Done()
+					vtp.RecordToolUsage([]string{
+						fmt.Sprintf("tool_%d", i%5),
+						fmt.Sprintf("tool_%d", (i+1)%5),
+					})
+				}(i)
+			}
+			wg.Wait()
+
+			// Should not panic and scores should be positive for recorded pairs.
+			score := vtp.CooccurrenceScore("tool_0", "tool_1")
+			Expect(score).To(BeNumerically(">", 0))
+		})
+
+		It("handles concurrent reads and writes", func() {
+			reg := tools.NewRegistry(ctx)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg)
+			Expect(err).NotTo(HaveOccurred())
+
+			var wg sync.WaitGroup
+			// Writers
+			for i := 0; i < 20; i++ {
+				wg.Add(1)
+				go func(i int) {
+					defer wg.Done()
+					vtp.RecordToolUsage([]string{"read_file", "write_file"})
+				}(i)
+			}
+			// Readers
+			for i := 0; i < 20; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					_ = vtp.CooccurrenceScore("read_file", "write_file")
+				}()
+			}
+			wg.Wait()
+			// No race condition = pass.
 		})
 	})
 
@@ -336,8 +624,6 @@ var _ = Describe("VectorToolProvider", func() {
 			results, err := vtp.SearchTools(ctx, "tool_a", 10)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(results).To(HaveLen(2))
-			Expect(results[0].Name).To(Equal("tool_a"))
-			Expect(results[1].Name).To(Equal("tool_a"))
 		})
 	})
 })

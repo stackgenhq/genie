@@ -291,6 +291,12 @@ type UserInputMsg struct {
 
 func (m UserInputMsg) AGUIType() string { return EventCustom }
 
+// UserActionRequiredMarker is a sentinel string embedded in tool results
+// to signal that the user must perform an action (e.g. OAuth sign-in)
+// before the agent can proceed. Detection of this marker causes the
+// adaptive loop and sub-agent retry logic to stop.
+const UserActionRequiredMarker = "__USER_ACTION_REQUIRED__"
+
 // UserActionRequiredMsg signals that the user must perform an action (e.g. OAuth login,
 // confirmation, opening a URL). It is emitted as a CUSTOM AG-UI event with the name
 // "user_action_required". The chat UI renders a native card with action buttons.

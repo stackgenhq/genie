@@ -358,7 +358,7 @@ var _ = Describe("SemanticRouter", func() {
 				}, nil)
 				rt.cfg.CacheTTL = 5 * time.Minute
 
-			resp, ok := rt.CheckCache(ctx, "cache query")
+				resp, ok := rt.CheckCache(ctx, "cache query")
 				Expect(ok).To(BeTrue())
 				Expect(resp.Response).To(Equal("fresh answer"))
 			})
