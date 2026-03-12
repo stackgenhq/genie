@@ -237,6 +237,12 @@ func NewOrchestrator(
 	for _, fn := range extraOpts {
 		fn(&oo)
 	}
+
+	// Create a parent span so every downstream vector-store, graph-store and
+	// memory operation during bootstrap is grouped into a single trace rather
+	// than appearing as orphaned root-level spans in Langfuse.
+	ctx, bootstrapSpan := trace.Tracer.Start(ctx, orchestratorcontext.AgentNameFromContext(ctx)+".bootstrap")
+	defer bootstrapSpan.End()
 	// Resolve agent name from context (set by app.Bootstrap via
 	// orchestratorcontext.WithAgent).
 	agentName := orchestratorcontext.AgentFromContext(ctx).Name
@@ -489,21 +495,19 @@ Recent Accomplishments (things I have successfully done):
 
 	toolsSection := ""
 	toolsInstruction := ""
-	if c.toolIndex != nil {
-		// Use semantic search and co-occurrence to find the ~20 most
-		// representative tools. Context tools = orchestrator's own direct
-		// tools, so the co-occurrence graph boosts tools commonly used
-		// alongside them.
-		toolResults, searchErr := c.toolIndex.SearchToolsWithContext(ctx, "capabilities tools actions", orchestratorDirectTools, 20)
-		if searchErr != nil {
-			logger.Warn("tool index search failed for resume", "error", searchErr)
-		} else if len(toolResults) > 0 {
-			toolsSection = fmt.Sprintf(`
+	// Use semantic search and co-occurrence to find the ~20 most
+	// representative tools. Context tools = orchestrator's own direct
+	// tools, so the co-occurrence graph boosts tools commonly used
+	// alongside them.
+	toolResults, searchErr := c.toolIndex.SearchToolsWithContext(ctx, "capabilities tools actions", orchestratorDirectTools, 20)
+	if searchErr != nil {
+		logger.Warn("tool index search failed for resume", "error", searchErr)
+	} else if len(toolResults) > 0 {
+		toolsSection = fmt.Sprintf(`
 
 Key Capabilities (via sub-agents):
 %s`, toolResults.String())
-			toolsInstruction = "\n- The Key Capabilities section highlights representative tools the agent can delegate to sub-agents. Mention the key capability areas they enable (e.g. email, source control, browsing, file management)."
-		}
+		toolsInstruction = "\n- The Key Capabilities section highlights representative tools the agent can delegate to sub-agents. Mention the key capability areas they enable (e.g. email, source control, browsing, file management)."
 	}
 
 	result, err := summarizer.Summarize(ctx, agentutils.SummarizeRequest{

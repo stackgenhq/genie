@@ -107,14 +107,13 @@ type VectorToolProvider struct {
 // document with ID "tool:<name>", text "<name>: <description>", and
 // metadata type=tool_index.
 //
-// When graphStore is non-nil, the co-occurrence graph is persisted via
-// graph.IStore entities so it survives restarts. Pass nil for ephemeral mode.
-//
 // The indexing is idempotent (upsert) so repeated calls with the same
 // registry are safe.
 func NewVectorToolProvider(ctx context.Context, store vector.IStore, registry *Registry, graphStore graph.IStore) (*VectorToolProvider, error) {
-	if store == nil {
-		return nil, fmt.Errorf("vector store is nil; cannot create VectorToolProvider")
+	logr := logger.GetLogger(ctx).With("fn", "NewVectorToolProvider")
+
+	if store == nil || graphStore == nil {
+		return nil, fmt.Errorf("vector store or graph store is nil; cannot create VectorToolProvider")
 	}
 
 	vtp := &VectorToolProvider{
@@ -128,10 +127,9 @@ func NewVectorToolProvider(ctx context.Context, store vector.IStore, registry *R
 	}
 
 	// Hydrate co-occurrence graph from persistent storage.
-	if graphStore != nil {
-		if err := vtp.loadCooccurrence(ctx); err != nil {
-			logger.GetLogger(ctx).Warn("failed to load co-occurrence graph from graph store, starting fresh", "error", err)
-		}
+	logr.Info("loading co-occurrence graph from graph store")
+	if err := vtp.loadCooccurrence(ctx); err != nil {
+		logr.Warn("failed to load co-occurrence graph from graph store, starting fresh", "error", err)
 	}
 
 	return vtp, nil
@@ -173,6 +171,8 @@ func (v *VectorToolProvider) indexTools(ctx context.Context, registry *Registry)
 // returning tools whose descriptions are most relevant to the query.
 // Results are ordered by similarity score (highest first).
 func (v *VectorToolProvider) SearchTools(ctx context.Context, query string, limit int) (ToolSearchResults, error) {
+	logr := logger.GetLogger(ctx).With("fn", "VectorToolProvider.SearchTools")
+
 	if limit <= 0 {
 		limit = 10
 	}
@@ -185,10 +185,13 @@ func (v *VectorToolProvider) SearchTools(ctx context.Context, query string, limi
 		},
 	})
 	if err != nil {
+		logr.Warn("tool index search failed", "query", query, "error", err)
 		return nil, fmt.Errorf("tool index search failed: %w", err)
 	}
 
-	return v.parseSearchResults(results), nil
+	parsed := v.parseSearchResults(results)
+	logr.Info("tool search completed", "query", query, "limit", limit, "results", len(parsed))
+	return parsed, nil
 }
 
 // SearchToolsWithContext performs a semantic search and then re-ranks results
@@ -199,6 +202,8 @@ func (v *VectorToolProvider) SearchTools(ctx context.Context, query string, limi
 // used alongside the context tools rank higher. If the co-occurrence graph
 // is empty (cold start), results are ranked purely by semantic similarity.
 func (v *VectorToolProvider) SearchToolsWithContext(ctx context.Context, query string, contextTools []string, limit int) (ToolSearchResults, error) {
+	logr := logger.GetLogger(ctx).With("fn", "VectorToolProvider.SearchToolsWithContext")
+
 	if limit <= 0 {
 		limit = 10
 	}
@@ -217,6 +222,7 @@ func (v *VectorToolProvider) SearchToolsWithContext(ctx context.Context, query s
 		},
 	})
 	if err != nil {
+		logr.Warn("tool index search failed", "query", query, "error", err)
 		return nil, fmt.Errorf("tool index search failed: %w", err)
 	}
 
@@ -231,6 +237,7 @@ func (v *VectorToolProvider) SearchToolsWithContext(ctx context.Context, query s
 		if len(parsed) > limit {
 			parsed = parsed[:limit]
 		}
+		logr.Info("returning pure semantic results (no co-occurrence data)", "query", query, "results", len(parsed))
 		return parsed, nil
 	}
 
@@ -258,6 +265,8 @@ func (v *VectorToolProvider) SearchToolsWithContext(ctx context.Context, query s
 	if len(parsed) > limit {
 		parsed = parsed[:limit]
 	}
+
+	logr.Info("blended search completed", "query", query, "context_tools", len(contextTools), "results", len(parsed), "maxEdgeWeight", v.maxEdgeWeight)
 	return parsed, nil
 }
 
@@ -304,9 +313,7 @@ func (v *VectorToolProvider) RecordToolUsage(ctx context.Context, toolNames []st
 	v.mu.Unlock()
 
 	// Persist changed entities to graph store (best-effort, outside lock).
-	if v.graphStore != nil {
-		v.persistCooccurrence(ctx, changed)
-	}
+	v.persistCooccurrence(ctx, changed)
 }
 
 // loadCooccurrence hydrates the in-memory co-occurrence map from entities
@@ -314,10 +321,6 @@ func (v *VectorToolProvider) RecordToolUsage(ctx context.Context, toolNames []st
 // attrs like "cooc:write_file" → "5" encoding pairwise counts.
 func (v *VectorToolProvider) loadCooccurrence(ctx context.Context) error {
 	logr := logger.GetLogger(ctx).With("fn", "VectorToolProvider.loadCooccurrence")
-
-	if v.graphStore == nil {
-		return nil
-	}
 
 	// We need to discover all cooccurrence_tool entities. The graph store
 	// doesn't have a "list all by type" API, but we can look up entities

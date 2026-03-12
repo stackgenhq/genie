@@ -304,14 +304,8 @@ func NewCreateAgentTool(
 	// Build description. If a tool index is available, instruct the LLM to
 	// specify tools by capability instead of embedding a static list that
 	// goes stale and causes hallucination.
-	toolSection := ""
-	if toolIndex != nil {
-		toolSection = "Use tool_names to specify which tools the sub-agent needs. " +
-			"If unsure which tools exist, leave tool_names empty and all tools will be available."
-	} else {
-		toolList := subAgentRegistry.ToolNames()
-		toolSection = fmt.Sprintf("Available tools: %s", strings.Join(toolList, ", "))
-	}
+	toolSection := "Use tool_names to specify which tools the sub-agent needs. " +
+		"If unsure which tools exist, leave tool_names empty and all tools will be available."
 
 	t.description = fmt.Sprintf(
 		"Spawn a sub-agent with selected tools for multi-step tasks. "+

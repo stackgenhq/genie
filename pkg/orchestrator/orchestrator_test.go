@@ -22,6 +22,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/expert/expertfakes"
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider/modelproviderfakes"
 	"github.com/stackgenhq/genie/pkg/hitl/hitlfakes"
+	"github.com/stackgenhq/genie/pkg/memory/graph/graphfakes"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/memory/vector/vectorfakes"
 	"github.com/stackgenhq/genie/pkg/messenger"
@@ -32,6 +33,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/semanticrouter"
 	"github.com/stackgenhq/genie/pkg/semanticrouter/semanticrouterfakes"
 	"github.com/stackgenhq/genie/pkg/tools"
+	"github.com/stackgenhq/genie/pkg/tools/toolsfakes"
 	"github.com/stackgenhq/genie/pkg/ttlcache"
 	"go.opentelemetry.io/otel/baggage"
 	oteltrace "go.opentelemetry.io/otel/trace"
@@ -398,6 +400,11 @@ var _ = Describe("CodeOwner", func() {
 		})
 
 		It("should generate a resume using the summarizer and accomplishments", func() {
+			// Provide a mock toolIndex since createResume now always calls it.
+			fakeToolIndex := &toolsfakes.FakeSmartToolProvider{}
+			fakeToolIndex.SearchToolsWithContextReturns(nil, nil)
+			co.toolIndex = fakeToolIndex
+
 			// Mock findings in vector store
 			fakeStore := &vectorfakes.FakeIStore{}
 			fakeStore.SearchReturns([]vector.SearchResult{
@@ -434,7 +441,7 @@ var _ = Describe("CodeOwner", func() {
 				newStubTool("email_read", "Read email messages"),
 				newStubTool("email_send", "Send email messages"),
 			})
-			toolIdx, idxErr := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			toolIdx, idxErr := tools.NewVectorToolProvider(ctx, store, reg, &graphfakes.FakeIStore{})
 			Expect(idxErr).NotTo(HaveOccurred())
 			co.toolIndex = toolIdx
 
@@ -452,8 +459,10 @@ var _ = Describe("CodeOwner", func() {
 			Expect(req.Content).To(ContainSubstring("email_send"))
 		})
 
-		It("should omit the tools section when toolIndex is nil", func() {
-			co.toolIndex = nil
+		It("should omit the tools section when search returns empty", func(ctx context.Context) {
+			fakeToolIndex := &toolsfakes.FakeSmartToolProvider{}
+			fakeToolIndex.SearchToolsWithContextReturns(nil, nil)
+			co.toolIndex = fakeToolIndex
 
 			fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
 			fakeSummarizer.SummarizeReturns("resume without tools", nil)

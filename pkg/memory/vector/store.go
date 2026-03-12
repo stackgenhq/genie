@@ -329,6 +329,13 @@ func (s *Store) addSingle(ctx context.Context, item BatchItem) error {
 // Upsert replaces documents with the same ID (delete then add). Use a stable ID
 // (e.g. source:external_id) so that re-ingestion overwrites rather than duplicates.
 func (s *Store) Upsert(ctx context.Context, req UpsertRequest) error {
+	ctx, span := trace.Tracer.Start(ctx, "vectorstore.upsert")
+	span.SetAttributes(
+		attribute.Int("vectorstore.batch_size", len(req.Items)),
+		attribute.String("vectorstore.agent", orchestratorcontext.AgentNameFromContext(ctx)),
+	)
+	defer span.End()
+
 	ids := make([]string, 0, len(req.Items))
 	for _, item := range req.Items {
 		ids = append(ids, item.ID)
@@ -410,6 +417,13 @@ func (s *Store) Search(ctx context.Context, req SearchRequest) ([]SearchResult, 
 // A single snapshot is taken at the end. Errors from individual deletes
 // are collected but do not stop processing of remaining items.
 func (s *Store) Delete(ctx context.Context, req DeleteRequest) error {
+	ctx, span := trace.Tracer.Start(ctx, "vectorstore.delete")
+	span.SetAttributes(
+		attribute.Int("vectorstore.delete_count", len(req.IDs)),
+		attribute.String("vectorstore.agent", orchestratorcontext.AgentNameFromContext(ctx)),
+	)
+	defer span.End()
+
 	var errs []error
 	for _, id := range req.IDs {
 		if err := s.vs.Delete(ctx, id); err != nil {
@@ -450,6 +464,10 @@ func (s *Store) saveSnapshot(ctx context.Context) error {
 	if s.persistDir == "" {
 		return nil
 	}
+
+	_, span := trace.Tracer.Start(ctx, "vectorstore.save_snapshot")
+	defer span.End()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -487,6 +505,9 @@ func (s *Store) saveSnapshot(ctx context.Context) error {
 // loadSnapshot restores documents and embeddings from a previously
 // saved JSON snapshot file. If no snapshot exists, this is a no-op.
 func (s *Store) loadSnapshot(ctx context.Context) error {
+	_, span := trace.Tracer.Start(ctx, "vectorstore.load_snapshot")
+	defer span.End()
+
 	data, err := os.ReadFile(s.snapshotPath())
 	if err != nil {
 		if os.IsNotExist(err) {

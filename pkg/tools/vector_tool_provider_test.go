@@ -11,6 +11,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stackgenhq/genie/pkg/memory/graph"
+	"github.com/stackgenhq/genie/pkg/memory/graph/graphfakes"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/memory/vector/vectorfakes"
 	"github.com/stackgenhq/genie/pkg/tools"
@@ -20,7 +21,8 @@ import (
 
 var _ = Describe("VectorToolProvider", func() {
 	var (
-		store vector.IStore
+		store          vector.IStore
+		fakeGraphStore *graphfakes.FakeIStore
 	)
 
 	BeforeEach(func(ctx context.Context) {
@@ -29,6 +31,7 @@ var _ = Describe("VectorToolProvider", func() {
 			VectorStoreProvider: "inmemory",
 			EmbeddingProvider:   "dummy",
 		}
+		fakeGraphStore = &graphfakes.FakeIStore{}
 		store, err = cfg.NewStore(ctx)
 		Expect(err).NotTo(HaveOccurred())
 	})
@@ -38,19 +41,19 @@ var _ = Describe("VectorToolProvider", func() {
 			reg := tools.NewRegistry(ctx, math.NewToolProvider())
 			_, err := tools.NewVectorToolProvider(ctx, nil, reg, nil)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("vector store is nil"))
+			Expect(err.Error()).To(ContainSubstring("vector store or graph store is nil; cannot create VectorToolProvider"))
 		})
 
 		It("indexes tools from the registry", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx, math.NewToolProvider(), datetime.NewToolProvider())
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(vtp).NotTo(BeNil())
 		})
 
 		It("succeeds with an empty registry", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(vtp).NotTo(BeNil())
 		})
@@ -60,7 +63,7 @@ var _ = Describe("VectorToolProvider", func() {
 			fakeStore.UpsertReturns(fmt.Errorf("upsert exploded"))
 
 			reg := tools.NewRegistry(ctx, math.NewToolProvider())
-			_, err := tools.NewVectorToolProvider(ctx, fakeStore, reg, nil)
+			_, err := tools.NewVectorToolProvider(ctx, fakeStore, reg, fakeGraphStore)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("upsert"))
 		})
@@ -69,7 +72,7 @@ var _ = Describe("VectorToolProvider", func() {
 	Describe("SearchTools", func() {
 		It("returns relevant tools for a query", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx, math.NewToolProvider(), datetime.NewToolProvider())
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			results, err := vtp.SearchTools(ctx, "calculate math", 10)
@@ -84,7 +87,7 @@ var _ = Describe("VectorToolProvider", func() {
 
 		It("returns results with scores", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx, math.NewToolProvider())
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			results, err := vtp.SearchTools(ctx, "calculator", 5)
@@ -101,7 +104,7 @@ var _ = Describe("VectorToolProvider", func() {
 			fakeStore.SearchReturns(nil, fmt.Errorf("search broke"))
 
 			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, fakeStore, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, fakeStore, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			_, err = vtp.SearchTools(ctx, "anything", 5)
@@ -131,7 +134,7 @@ var _ = Describe("VectorToolProvider", func() {
 			}, nil)
 
 			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, fakeStore, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, fakeStore, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			results, err := vtp.SearchTools(ctx, "tools", 10)
@@ -152,7 +155,7 @@ var _ = Describe("VectorToolProvider", func() {
 			}, nil)
 
 			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, fakeStore, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, fakeStore, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			results, err := vtp.SearchTools(ctx, "amazing", 5)
@@ -173,7 +176,7 @@ var _ = Describe("VectorToolProvider", func() {
 			}, nil)
 
 			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, fakeStore, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, fakeStore, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			results, err := vtp.SearchTools(ctx, "weird", 5)
@@ -184,7 +187,7 @@ var _ = Describe("VectorToolProvider", func() {
 
 		It("respects limit parameter", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx, math.NewToolProvider(), datetime.NewToolProvider())
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			results, err := vtp.SearchTools(ctx, "tools", 1)
@@ -194,7 +197,7 @@ var _ = Describe("VectorToolProvider", func() {
 
 		It("uses default limit when given zero", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx, math.NewToolProvider())
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			results, err := vtp.SearchTools(ctx, "math", 0)
@@ -204,7 +207,7 @@ var _ = Describe("VectorToolProvider", func() {
 
 		It("uses default limit when given negative value", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx, math.NewToolProvider())
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			results, err := vtp.SearchTools(ctx, "math", -5)
@@ -216,7 +219,7 @@ var _ = Describe("VectorToolProvider", func() {
 	Describe("RecordToolUsage", func() {
 		It("records pairwise co-occurrence for multiple tools", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			vtp.RecordToolUsage(ctx, []string{"read_file", "write_file", "run_shell"})
@@ -228,7 +231,7 @@ var _ = Describe("VectorToolProvider", func() {
 
 		It("is symmetric", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			vtp.RecordToolUsage(ctx, []string{"tool_a", "tool_b"})
@@ -239,7 +242,7 @@ var _ = Describe("VectorToolProvider", func() {
 
 		It("ignores single-tool usage", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			vtp.RecordToolUsage(ctx, []string{"only_tool"})
@@ -249,7 +252,7 @@ var _ = Describe("VectorToolProvider", func() {
 
 		It("ignores empty tool list", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			vtp.RecordToolUsage(ctx, []string{})
@@ -258,7 +261,7 @@ var _ = Describe("VectorToolProvider", func() {
 
 		It("accumulates weights over multiple recordings", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			vtp.RecordToolUsage(ctx, []string{"a", "b"})
@@ -285,7 +288,7 @@ var _ = Describe("VectorToolProvider", func() {
 	Describe("CooccurrenceScore", func() {
 		It("returns 0 for unknown tools", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(vtp.CooccurrenceScore("unknown_a", "unknown_b")).To(Equal(0.0))
@@ -293,7 +296,7 @@ var _ = Describe("VectorToolProvider", func() {
 
 		It("returns 0 when graph is empty", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(vtp.CooccurrenceScore("a", "b")).To(Equal(0.0))
@@ -301,7 +304,7 @@ var _ = Describe("VectorToolProvider", func() {
 
 		It("returns 1.0 for the max edge weight pair", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			vtp.RecordToolUsage(ctx, []string{"a", "b"})
@@ -311,7 +314,7 @@ var _ = Describe("VectorToolProvider", func() {
 
 		It("returns 0 for tools that exist but have no edge", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			vtp.RecordToolUsage(ctx, []string{"a", "b"})
@@ -322,7 +325,7 @@ var _ = Describe("VectorToolProvider", func() {
 
 		It("uses log normalization for diminishing returns", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Record a-b 10 times and c-d once.
@@ -345,7 +348,7 @@ var _ = Describe("VectorToolProvider", func() {
 	Describe("SearchToolsWithContext", func() {
 		It("returns pure semantic results when graph is empty (cold start)", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx, math.NewToolProvider())
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			results, err := vtp.SearchToolsWithContext(ctx, "calculate", []string{"run_shell"}, 5)
@@ -355,7 +358,7 @@ var _ = Describe("VectorToolProvider", func() {
 
 		It("returns pure semantic results when no context tools given", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx, math.NewToolProvider())
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			vtp.RecordToolUsage(ctx, []string{"calculator", "run_shell"})
@@ -382,7 +385,7 @@ var _ = Describe("VectorToolProvider", func() {
 			}, nil)
 
 			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, fakeStore, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, fakeStore, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Record that tool_a is often used with context_tool
@@ -423,7 +426,7 @@ var _ = Describe("VectorToolProvider", func() {
 			}, nil)
 
 			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, fakeStore, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, fakeStore, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			vtp.RecordToolUsage(ctx, []string{"tool_1", "ctx"})
@@ -439,7 +442,7 @@ var _ = Describe("VectorToolProvider", func() {
 			fakeStore.SearchReturns(nil, fmt.Errorf("search error"))
 
 			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, fakeStore, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, fakeStore, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			vtp.RecordToolUsage(ctx, []string{"a", "b"})
@@ -450,7 +453,7 @@ var _ = Describe("VectorToolProvider", func() {
 
 		It("uses default limit when given zero", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx, math.NewToolProvider())
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			results, err := vtp.SearchToolsWithContext(ctx, "math", []string{}, 0)
@@ -492,13 +495,13 @@ var _ = Describe("VectorToolProvider", func() {
 		It("re-indexing with same registry does not duplicate", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx, math.NewToolProvider())
 
-			vtp1, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp1, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			results1, err := vtp1.SearchTools(ctx, "calculator", 20)
 			Expect(err).NotTo(HaveOccurred())
 
-			vtp2, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp2, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			results2, err := vtp2.SearchTools(ctx, "calculator", 20)
@@ -521,7 +524,7 @@ var _ = Describe("VectorToolProvider", func() {
 	Describe("Thread safety", func() {
 		It("handles concurrent RecordToolUsage calls", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx, math.NewToolProvider())
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			var wg sync.WaitGroup
@@ -544,7 +547,7 @@ var _ = Describe("VectorToolProvider", func() {
 
 		It("handles concurrent reads and writes", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			var wg sync.WaitGroup
@@ -576,7 +579,7 @@ var _ = Describe("VectorToolProvider", func() {
 			fakeStore.SearchReturns([]vector.SearchResult{}, nil)
 
 			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, fakeStore, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, fakeStore, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			results, err := vtp.SearchTools(ctx, "anything", 10)
@@ -601,7 +604,7 @@ var _ = Describe("VectorToolProvider", func() {
 			}, nil)
 
 			reg := tools.NewRegistry(ctx, math.NewToolProvider())
-			vtp, err := tools.NewVectorToolProvider(ctx, fakeStore, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, fakeStore, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			results, err := vtp.SearchTools(ctx, "tool_a", 10)
@@ -659,7 +662,7 @@ var _ = Describe("VectorToolProvider", func() {
 
 		It("works without graph store (nil, ephemeral mode)", func(ctx context.Context) {
 			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, nil)
+			vtp, err := tools.NewVectorToolProvider(ctx, store, reg, fakeGraphStore)
 			Expect(err).NotTo(HaveOccurred())
 
 			vtp.RecordToolUsage(ctx, []string{"a", "b"})
