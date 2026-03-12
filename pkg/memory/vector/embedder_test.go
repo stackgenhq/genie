@@ -29,10 +29,10 @@ var _ = Describe("dummyEmbedder", func() {
 
 	Describe("determinism", func() {
 		It("should produce identical embeddings for the same text across calls", func(ctx context.Context) {
-			err := store.Add(ctx, vector.BatchItem{ID: "d1", Text: "hello world"})
+			err := store.Add(ctx, vector.AddRequest{Items: []vector.BatchItem{{ID: "d1", Text: "hello world"}}})
 			Expect(err).NotTo(HaveOccurred())
 
-			results, err := store.Search(ctx, "hello world", 1)
+			results, err := store.Search(ctx, vector.SearchRequest{Query: "hello world", Limit: 1})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(results).To(HaveLen(1))
 			// An exact-match search on the same text should return the highest
@@ -44,13 +44,13 @@ var _ = Describe("dummyEmbedder", func() {
 
 	Describe("differentiation", func() {
 		It("should produce distinct embeddings for different texts", func(ctx context.Context) {
-			err := store.Add(ctx,
-				vector.BatchItem{ID: "a", Text: "the quick brown fox"},
-				vector.BatchItem{ID: "b", Text: "completely unrelated string xyz 12345"},
-			)
+			err := store.Add(ctx, vector.AddRequest{Items: []vector.BatchItem{
+				{ID: "a", Text: "the quick brown fox"},
+				{ID: "b", Text: "completely unrelated string xyz 12345"},
+			}})
 			Expect(err).NotTo(HaveOccurred())
 
-			results, err := store.Search(ctx, "the quick brown fox", 2)
+			results, err := store.Search(ctx, vector.SearchRequest{Query: "the quick brown fox", Limit: 2})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(results).To(HaveLen(2))
 			// The exact-match document must rank first with a higher score.
@@ -67,13 +67,13 @@ var _ = Describe("dummyEmbedder", func() {
 			textA := "abcdefghijklmnopqrstuvwxyz0123 ALPHA"
 			textB := "abcdefghijklmnopqrstuvwxyz0123 BRAVO"
 
-			err := store.Add(ctx,
-				vector.BatchItem{ID: "pa", Text: textA},
-				vector.BatchItem{ID: "pb", Text: textB},
-			)
+			err := store.Add(ctx, vector.AddRequest{Items: []vector.BatchItem{
+				{ID: "pa", Text: textA},
+				{ID: "pb", Text: textB},
+			}})
 			Expect(err).NotTo(HaveOccurred())
 
-			results, err := store.Search(ctx, textA, 2)
+			results, err := store.Search(ctx, vector.SearchRequest{Query: textA, Limit: 2})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(results).To(HaveLen(2))
 			Expect(results[0].ID).To(Equal("pa"))
@@ -87,10 +87,10 @@ var _ = Describe("dummyEmbedder", func() {
 			// Indirectly verified: the store was created with the dummy
 			// embedder without error, and search works. If the dimension
 			// were inconsistent the store would fail internally.
-			err := store.Add(ctx, vector.BatchItem{ID: "dim", Text: "dimension check"})
+			err := store.Add(ctx, vector.AddRequest{Items: []vector.BatchItem{{ID: "dim", Text: "dimension check"}}})
 			Expect(err).NotTo(HaveOccurred())
 
-			results, err := store.Search(ctx, "dimension check", 1)
+			results, err := store.Search(ctx, vector.SearchRequest{Query: "dimension check", Limit: 1})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(results).To(HaveLen(1))
 			Expect(results[0].Score).To(BeNumerically("~", 1.0, 1e-9))
@@ -101,10 +101,10 @@ var _ = Describe("dummyEmbedder", func() {
 		It("should return nil usage without error", func(ctx context.Context) {
 			// Verified through the store lifecycle — the store may internally
 			// call GetEmbeddingWithUsage. We ensure no error surfaces.
-			err := store.Add(ctx, vector.BatchItem{ID: "u1", Text: "usage test"})
+			err := store.Add(ctx, vector.AddRequest{Items: []vector.BatchItem{{ID: "u1", Text: "usage test"}}})
 			Expect(err).NotTo(HaveOccurred())
 
-			results, err := store.Search(ctx, "usage test", 1)
+			results, err := store.Search(ctx, vector.SearchRequest{Query: "usage test", Limit: 1})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(results).To(HaveLen(1))
 		})

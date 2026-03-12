@@ -1117,7 +1117,7 @@ func (t *createAgentTool) isMemoryEmpty(ctx context.Context) bool {
 	if t.vectorStore == nil {
 		return true
 	}
-	results, err := t.vectorStore.Search(ctx, "memory", 1)
+	results, err := t.vectorStore.Search(ctx, vector.SearchRequest{Query: "memory", Limit: 1})
 	if err != nil {
 		// If the probe fails, assume memory is non-empty to avoid
 		// false positives — better to run a possibly-futile sub-agent

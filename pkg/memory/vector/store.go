@@ -30,14 +30,38 @@ import (
 
 //counterfeiter:generate . IStore
 type IStore interface {
-	Search(ctx context.Context, query string, limit int) ([]SearchResult, error)
-	SearchWithFilter(ctx context.Context, query string, limit int, filter map[string]string) ([]SearchResult, error)
-	Add(ctx context.Context, items ...BatchItem) error
+	Search(ctx context.Context, req SearchRequest) ([]SearchResult, error)
+	Add(ctx context.Context, req AddRequest) error
 	// Upsert replaces existing documents with the same ID, or inserts if not present.
 	// Use a stable ID (e.g. source:external_id) to overwrite memory when appropriate.
-	Upsert(ctx context.Context, items ...BatchItem) error
-	Delete(ctx context.Context, ids ...string) error
+	Upsert(ctx context.Context, req UpsertRequest) error
+	Delete(ctx context.Context, req DeleteRequest) error
 	Close(ctx context.Context) error
+}
+
+// SearchRequest holds the parameters for a vector store search.
+// When Filter is non-nil, only documents whose metadata contains ALL
+// specified entries are returned. This replaces the former SearchWithFilter
+// method — an unfiltered search simply leaves Filter nil.
+type SearchRequest struct {
+	Query  string
+	Limit  int
+	Filter map[string]string
+}
+
+// AddRequest holds the items to insert into the vector store.
+type AddRequest struct {
+	Items []BatchItem
+}
+
+// UpsertRequest holds the items to upsert (replace-or-insert) in the vector store.
+type UpsertRequest struct {
+	Items []BatchItem
+}
+
+// DeleteRequest holds the IDs to remove from the vector store.
+type DeleteRequest struct {
+	IDs []string
 }
 
 // BatchItem represents a single document to be stored via Add.
@@ -207,27 +231,27 @@ type embeddedDoc struct {
 // are provided, their embeddings are generated concurrently via errgroup,
 // reducing wall-clock latency from N×round-trip to max(round-trip).
 // A single disk snapshot is taken at the end.
-func (s *Store) Add(ctx context.Context, items ...BatchItem) error {
+func (s *Store) Add(ctx context.Context, req AddRequest) error {
 	// Create a parent span so individual per-item embedding spans (created by
 	// the upstream embedder) are nested under this operation rather than
 	// appearing as orphaned root-level traces in Langfuse.
 	ctx, span := trace.Tracer.Start(ctx, "vectorstore.add")
 	span.SetAttributes(
-		attribute.Int("vectorstore.batch_size", len(items)),
+		attribute.Int("vectorstore.batch_size", len(req.Items)),
 		attribute.String("vectorstore.agent", orchestratorcontext.AgentNameFromContext(ctx)),
 	)
 	defer span.End()
 
 	// Fast path: single item avoids errgroup overhead.
-	if len(items) == 1 {
-		return s.addSingle(ctx, items[0])
+	if len(req.Items) == 1 {
+		return s.addSingle(ctx, req.Items[0])
 	}
 
 	// Parallel path: generate embeddings concurrently.
-	results := make([]embeddedDoc, len(items))
+	results := make([]embeddedDoc, len(req.Items))
 	g, gctx := errgroup.WithContext(ctx)
 
-	for i, item := range items {
+	for i, item := range req.Items {
 		i, item := i, item // capture loop variables
 		g.Go(func() error {
 			embedding, err := s.embedder.GetEmbedding(gctx, item.Text)
@@ -304,45 +328,39 @@ func (s *Store) addSingle(ctx context.Context, item BatchItem) error {
 
 // Upsert replaces documents with the same ID (delete then add). Use a stable ID
 // (e.g. source:external_id) so that re-ingestion overwrites rather than duplicates.
-func (s *Store) Upsert(ctx context.Context, items ...BatchItem) error {
-	ids := make([]string, 0, len(items))
-	for _, item := range items {
+func (s *Store) Upsert(ctx context.Context, req UpsertRequest) error {
+	ids := make([]string, 0, len(req.Items))
+	for _, item := range req.Items {
 		ids = append(ids, item.ID)
 	}
 	// Delete is best-effort for missing IDs; continue to Add.
-	_ = s.Delete(ctx, ids...)
-	return s.Add(ctx, items...)
+	_ = s.Delete(ctx, DeleteRequest{IDs: ids})
+	return s.Add(ctx, AddRequest(req))
 }
 
-// Search finds the most semantically similar documents to the query text.
-// It returns up to limit results ordered by descending similarity.
-func (s *Store) Search(ctx context.Context, query string, limit int) ([]SearchResult, error) {
-	return s.SearchWithFilter(ctx, query, limit, nil)
-}
-
-// SearchWithFilter finds semantically similar documents, optionally filtered
+// Search finds semantically similar documents, optionally filtered
 // by metadata key-value pairs. Only documents whose metadata contains ALL
-// specified filter entries are returned. Pass nil for unfiltered search.
+// specified filter entries are returned. Pass nil Filter for unfiltered search.
 // This enables source-based memory isolation (e.g. per-sender, per-channel).
-func (s *Store) SearchWithFilter(ctx context.Context, query string, limit int, filter map[string]string) ([]SearchResult, error) {
+func (s *Store) Search(ctx context.Context, req SearchRequest) ([]SearchResult, error) {
 	// Create a parent span so the embedding call inside search is nested
 	// rather than appearing as an orphaned root trace in Langfuse.
 	ctx, span := trace.Tracer.Start(ctx, "vectorstore.search")
 	span.SetAttributes(
-		attribute.Int("vectorstore.limit", limit),
-		attribute.Int("vectorstore.filter_count", len(filter)),
+		attribute.Int("vectorstore.limit", req.Limit),
+		attribute.Int("vectorstore.filter_count", len(req.Filter)),
 		attribute.String("vectorstore.agent", orchestratorcontext.AgentNameFromContext(ctx)),
 	)
 	defer span.End()
 
 	searchQuery := &vectorstore.SearchQuery{
-		Limit: limit,
+		Limit: req.Limit,
 	}
 
 	// Apply metadata filter if provided.
-	if len(filter) > 0 {
-		metaFilter := make(map[string]any, len(filter))
-		for k, v := range filter {
+	if len(req.Filter) > 0 {
+		metaFilter := make(map[string]any, len(req.Filter))
+		for k, v := range req.Filter {
 			metaFilter[k] = v
 		}
 		searchQuery.Filter = &vectorstore.SearchFilter{
@@ -351,16 +369,14 @@ func (s *Store) SearchWithFilter(ctx context.Context, query string, limit int, f
 	}
 
 	// When query is empty and filters are present, use filter-only mode
-	// to skip embedding entirely. This fixes the "text cannot be empty"
-	// error that occurs when graph GetEntity calls SearchWithFilter("", ...)
-	// for metadata-based entity lookups.
-	if query == "" && len(filter) > 0 {
+	// to skip embedding entirely.
+	if req.Query == "" && len(req.Filter) > 0 {
 		searchQuery.SearchMode = vectorstore.SearchModeFilter
-	} else if query == "" {
+	} else if req.Query == "" {
 		// No query and no filter — nothing meaningful to search for.
-		return nil, fmt.Errorf("SearchWithFilter requires a non-empty query or at least one filter")
+		return nil, fmt.Errorf("Search requires a non-empty query or at least one filter")
 	} else {
-		embedding, err := s.embedder.GetEmbedding(ctx, query)
+		embedding, err := s.embedder.GetEmbedding(ctx, req.Query)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate query embedding: %w", err)
 		}
@@ -393,9 +409,9 @@ func (s *Store) SearchWithFilter(ctx context.Context, query string, limit int, f
 // Delete removes one or more documents by their IDs from the vector store.
 // A single snapshot is taken at the end. Errors from individual deletes
 // are collected but do not stop processing of remaining items.
-func (s *Store) Delete(ctx context.Context, ids ...string) error {
+func (s *Store) Delete(ctx context.Context, req DeleteRequest) error {
 	var errs []error
-	for _, id := range ids {
+	for _, id := range req.IDs {
 		if err := s.vs.Delete(ctx, id); err != nil {
 			errs = append(errs, fmt.Errorf("failed to delete %s: %w", id, err))
 		}

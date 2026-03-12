@@ -1077,7 +1077,9 @@ func (c *orchestrator) recallAccomplishments(ctx context.Context) string {
 		origin := messenger.MessageOriginFrom(ctx)
 		filter["visibility"] = origin.DeriveVisibility()
 
-		results, err := c.vectorStore.SearchWithFilter(ctx, rtmemory.AccomplishmentType, 50, filter)
+		results, err := c.vectorStore.Search(ctx, vector.SearchRequest{
+			Query: rtmemory.AccomplishmentType, Limit: 50, Filter: filter,
+		})
 		if err != nil {
 			logger.GetLogger(ctx).Warn("failed to search legacy accomplishments", "error", err)
 			return ""
@@ -1091,7 +1093,9 @@ func (c *orchestrator) recallAccomplishments(ctx context.Context) string {
 				"type":      rtmemory.AccomplishmentType,
 				"sender_id": origin.Sender.ID,
 			}
-			extraResults, err := c.vectorStore.SearchWithFilter(ctx, rtmemory.AccomplishmentType, 50, senderFilter)
+			extraResults, err := c.vectorStore.Search(ctx, vector.SearchRequest{
+				Query: rtmemory.AccomplishmentType, Limit: 50, Filter: senderFilter,
+			})
 			if err == nil {
 				seen := make(map[string]bool, len(results))
 				for _, r := range results {
@@ -1310,8 +1314,9 @@ func (c *orchestrator) ForgetUser(ctx context.Context, senderID string) error {
 	// Vector store entries are tagged with sender_id metadata, so we
 	// search and delete matching entries.
 	if c.vectorStore != nil {
-		results, err := c.vectorStore.SearchWithFilter(ctx, rtmemory.AccomplishmentType, 100, map[string]string{
-			"sender_id": senderID,
+		results, err := c.vectorStore.Search(ctx, vector.SearchRequest{
+			Query: rtmemory.AccomplishmentType, Limit: 100,
+			Filter: map[string]string{"sender_id": senderID},
 		})
 		if err == nil {
 			ids := make([]string, 0, len(results))
@@ -1319,7 +1324,7 @@ func (c *orchestrator) ForgetUser(ctx context.Context, senderID string) error {
 				ids = append(ids, r.ID)
 			}
 			if len(ids) > 0 {
-				_ = c.vectorStore.Delete(ctx, ids...)
+				_ = c.vectorStore.Delete(ctx, vector.DeleteRequest{IDs: ids})
 			}
 		}
 	}

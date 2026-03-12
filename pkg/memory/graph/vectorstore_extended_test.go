@@ -65,22 +65,22 @@ var _ = Describe("VectorBackedStore extended coverage", func() {
 	Describe("Neighbors", func() {
 		It("returns neighbors from outgoing and incoming relations", func() {
 			callCount := 0
-			fakeStore.SearchWithFilterStub = func(
-				_ context.Context, _ string, _ int, filter map[string]string,
+			fakeStore.SearchStub = func(
+				_ context.Context, req vector.SearchRequest,
 			) ([]vector.SearchResult, error) {
 				callCount++
 				// First two calls: RelationsOut + RelationsIn for the target entity
-				if filter["graph_subject_id"] == "alice" {
+				if req.Filter["graph_subject_id"] == "alice" {
 					return []vector.SearchResult{relResult("alice", "WORKS_ON", "proj-x")}, nil
 				}
-				if filter["graph_object_id"] == "alice" {
+				if req.Filter["graph_object_id"] == "alice" {
 					return []vector.SearchResult{relResult("bob", "MENTORS", "alice")}, nil
 				}
 				// Entity lookups for neighbors
-				if filter["graph_entity_id"] == "proj-x" {
+				if req.Filter["graph_entity_id"] == "proj-x" {
 					return []vector.SearchResult{entityResult("proj-x", "project")}, nil
 				}
-				if filter["graph_entity_id"] == "bob" {
+				if req.Filter["graph_entity_id"] == "bob" {
 					return []vector.SearchResult{entityResult("bob", "person")}, nil
 				}
 				return nil, nil
@@ -104,10 +104,10 @@ var _ = Describe("VectorBackedStore extended coverage", func() {
 		})
 
 		It("returns error when RelationsOut fails", func() {
-			fakeStore.SearchWithFilterStub = func(
-				_ context.Context, _ string, _ int, filter map[string]string,
+			fakeStore.SearchStub = func(
+				_ context.Context, req vector.SearchRequest,
 			) ([]vector.SearchResult, error) {
-				if filter["graph_subject_id"] != "" {
+				if req.Filter["graph_subject_id"] != "" {
 					return nil, fmt.Errorf("relations out error")
 				}
 				return nil, nil
@@ -119,13 +119,13 @@ var _ = Describe("VectorBackedStore extended coverage", func() {
 		})
 
 		It("returns error when RelationsIn fails", func() {
-			fakeStore.SearchWithFilterStub = func(
-				_ context.Context, _ string, _ int, filter map[string]string,
+			fakeStore.SearchStub = func(
+				_ context.Context, req vector.SearchRequest,
 			) ([]vector.SearchResult, error) {
-				if filter["graph_subject_id"] != "" {
+				if req.Filter["graph_subject_id"] != "" {
 					return nil, nil // RelationsOut succeeds with no results
 				}
-				if filter["graph_object_id"] != "" {
+				if req.Filter["graph_object_id"] != "" {
 					return nil, fmt.Errorf("relations in error")
 				}
 				return nil, nil
@@ -137,16 +137,16 @@ var _ = Describe("VectorBackedStore extended coverage", func() {
 		})
 
 		It("returns error when GetEntity fails for a neighbor", func() {
-			fakeStore.SearchWithFilterStub = func(
-				_ context.Context, _ string, _ int, filter map[string]string,
+			fakeStore.SearchStub = func(
+				_ context.Context, req vector.SearchRequest,
 			) ([]vector.SearchResult, error) {
-				if filter["graph_subject_id"] == "alice" {
+				if req.Filter["graph_subject_id"] == "alice" {
 					return []vector.SearchResult{relResult("alice", "OWNS", "repo-1")}, nil
 				}
-				if filter["graph_object_id"] == "alice" {
+				if req.Filter["graph_object_id"] == "alice" {
 					return nil, nil
 				}
-				if filter["graph_entity_id"] == "repo-1" {
+				if req.Filter["graph_entity_id"] == "repo-1" {
 					return nil, fmt.Errorf("entity lookup failed")
 				}
 				return nil, nil
@@ -158,17 +158,17 @@ var _ = Describe("VectorBackedStore extended coverage", func() {
 		})
 
 		It("creates unknown entity when neighbor entity not found", func() {
-			fakeStore.SearchWithFilterStub = func(
-				_ context.Context, _ string, _ int, filter map[string]string,
+			fakeStore.SearchStub = func(
+				_ context.Context, req vector.SearchRequest,
 			) ([]vector.SearchResult, error) {
-				if filter["graph_subject_id"] == "alice" {
+				if req.Filter["graph_subject_id"] == "alice" {
 					return []vector.SearchResult{relResult("alice", "OWNS", "orphan-entity")}, nil
 				}
-				if filter["graph_object_id"] == "alice" {
+				if req.Filter["graph_object_id"] == "alice" {
 					return nil, nil
 				}
 				// Entity lookup returns empty (not found)
-				if filter["graph_entity_id"] == "orphan-entity" {
+				if req.Filter["graph_entity_id"] == "orphan-entity" {
 					return nil, nil
 				}
 				return nil, nil
@@ -182,22 +182,22 @@ var _ = Describe("VectorBackedStore extended coverage", func() {
 		})
 
 		It("respects the limit parameter", func() {
-			fakeStore.SearchWithFilterStub = func(
-				_ context.Context, _ string, _ int, filter map[string]string,
+			fakeStore.SearchStub = func(
+				_ context.Context, req vector.SearchRequest,
 			) ([]vector.SearchResult, error) {
-				if filter["graph_subject_id"] == "alice" {
+				if req.Filter["graph_subject_id"] == "alice" {
 					return []vector.SearchResult{
 						relResult("alice", "OWNS", "repo-1"),
 						relResult("alice", "OWNS", "repo-2"),
 						relResult("alice", "OWNS", "repo-3"),
 					}, nil
 				}
-				if filter["graph_object_id"] == "alice" {
+				if req.Filter["graph_object_id"] == "alice" {
 					return nil, nil
 				}
 				// Entity lookups
-				if filter["graph_entity_id"] != "" {
-					return []vector.SearchResult{entityResult(filter["graph_entity_id"], "repo")}, nil
+				if req.Filter["graph_entity_id"] != "" {
+					return []vector.SearchResult{entityResult(req.Filter["graph_entity_id"], "repo")}, nil
 				}
 				return nil, nil
 			}
@@ -208,19 +208,19 @@ var _ = Describe("VectorBackedStore extended coverage", func() {
 		})
 
 		It("deduplicates neighbors by directional key", func() {
-			fakeStore.SearchWithFilterStub = func(
-				_ context.Context, _ string, _ int, filter map[string]string,
+			fakeStore.SearchStub = func(
+				_ context.Context, req vector.SearchRequest,
 			) ([]vector.SearchResult, error) {
-				if filter["graph_subject_id"] == "alice" {
+				if req.Filter["graph_subject_id"] == "alice" {
 					return []vector.SearchResult{
 						relResult("alice", "OWNS", "repo-1"),
 						relResult("alice", "OWNS", "repo-1"), // duplicate
 					}, nil
 				}
-				if filter["graph_object_id"] == "alice" {
+				if req.Filter["graph_object_id"] == "alice" {
 					return nil, nil
 				}
-				if filter["graph_entity_id"] == "repo-1" {
+				if req.Filter["graph_entity_id"] == "repo-1" {
 					return []vector.SearchResult{entityResult("repo-1", "repo")}, nil
 				}
 				return nil, nil
@@ -234,10 +234,10 @@ var _ = Describe("VectorBackedStore extended coverage", func() {
 
 	Describe("ShortestPath", func() {
 		It("returns single-element path when source == target", func() {
-			fakeStore.SearchWithFilterStub = func(
-				_ context.Context, _ string, _ int, filter map[string]string,
+			fakeStore.SearchStub = func(
+				_ context.Context, req vector.SearchRequest,
 			) ([]vector.SearchResult, error) {
-				if filter["graph_entity_id"] == "alice" {
+				if req.Filter["graph_entity_id"] == "alice" {
 					return []vector.SearchResult{entityResult("alice", "person")}, nil
 				}
 				return nil, nil
@@ -249,8 +249,8 @@ var _ = Describe("VectorBackedStore extended coverage", func() {
 		})
 
 		It("returns error when source does not exist", func() {
-			fakeStore.SearchWithFilterStub = func(
-				_ context.Context, _ string, _ int, filter map[string]string,
+			fakeStore.SearchStub = func(
+				_ context.Context, req vector.SearchRequest,
 			) ([]vector.SearchResult, error) {
 				return nil, nil // no results = entity not found
 			}
@@ -261,10 +261,10 @@ var _ = Describe("VectorBackedStore extended coverage", func() {
 		})
 
 		It("returns error when target does not exist", func() {
-			fakeStore.SearchWithFilterStub = func(
-				_ context.Context, _ string, _ int, filter map[string]string,
+			fakeStore.SearchStub = func(
+				_ context.Context, req vector.SearchRequest,
 			) ([]vector.SearchResult, error) {
-				if filter["graph_entity_id"] == "alice" {
+				if req.Filter["graph_entity_id"] == "alice" {
 					return []vector.SearchResult{entityResult("alice", "person")}, nil
 				}
 				return nil, nil // target not found
@@ -276,10 +276,10 @@ var _ = Describe("VectorBackedStore extended coverage", func() {
 		})
 
 		It("returns error when GetEntity fails for source", func() {
-			fakeStore.SearchWithFilterStub = func(
-				_ context.Context, _ string, _ int, filter map[string]string,
+			fakeStore.SearchStub = func(
+				_ context.Context, req vector.SearchRequest,
 			) ([]vector.SearchResult, error) {
-				if filter["graph_entity_id"] == "src" {
+				if req.Filter["graph_entity_id"] == "src" {
 					return nil, fmt.Errorf("db error")
 				}
 				return nil, nil
@@ -291,11 +291,11 @@ var _ = Describe("VectorBackedStore extended coverage", func() {
 		})
 
 		It("finds a 2-hop path via BFS", func() {
-			fakeStore.SearchWithFilterStub = func(
-				_ context.Context, _ string, _ int, filter map[string]string,
+			fakeStore.SearchStub = func(
+				_ context.Context, req vector.SearchRequest,
 			) ([]vector.SearchResult, error) {
 				// Entity lookups
-				eid := filter["graph_entity_id"]
+				eid := req.Filter["graph_entity_id"]
 				if eid == "alice" {
 					return []vector.SearchResult{entityResult("alice", "person")}, nil
 				}
@@ -307,15 +307,15 @@ var _ = Describe("VectorBackedStore extended coverage", func() {
 				}
 
 				// RelationsOut
-				if filter["graph_subject_id"] == "alice" {
+				if req.Filter["graph_subject_id"] == "alice" {
 					return []vector.SearchResult{relResult("alice", "MENTORS", "bob")}, nil
 				}
-				if filter["graph_subject_id"] == "bob" {
+				if req.Filter["graph_subject_id"] == "bob" {
 					return []vector.SearchResult{relResult("bob", "OWNS", "repo")}, nil
 				}
 
 				// RelationsIn — return empty for simplicity
-				if filter["graph_object_id"] != "" {
+				if req.Filter["graph_object_id"] != "" {
 					return nil, nil
 				}
 				return nil, nil
@@ -327,10 +327,10 @@ var _ = Describe("VectorBackedStore extended coverage", func() {
 		})
 
 		It("returns nil path for disconnected entities", func() {
-			fakeStore.SearchWithFilterStub = func(
-				_ context.Context, _ string, _ int, filter map[string]string,
+			fakeStore.SearchStub = func(
+				_ context.Context, req vector.SearchRequest,
 			) ([]vector.SearchResult, error) {
-				eid := filter["graph_entity_id"]
+				eid := req.Filter["graph_entity_id"]
 				if eid == "a" {
 					return []vector.SearchResult{entityResult("a", "type")}, nil
 				}
@@ -348,10 +348,10 @@ var _ = Describe("VectorBackedStore extended coverage", func() {
 
 		It("returns error when BFS Neighbors fails", func() {
 			callCount := 0
-			fakeStore.SearchWithFilterStub = func(
-				_ context.Context, _ string, _ int, filter map[string]string,
+			fakeStore.SearchStub = func(
+				_ context.Context, req vector.SearchRequest,
 			) ([]vector.SearchResult, error) {
-				eid := filter["graph_entity_id"]
+				eid := req.Filter["graph_entity_id"]
 				if eid == "a" {
 					return []vector.SearchResult{entityResult("a", "type")}, nil
 				}
@@ -359,7 +359,7 @@ var _ = Describe("VectorBackedStore extended coverage", func() {
 					return []vector.SearchResult{entityResult("b", "type")}, nil
 				}
 				// First RelationsOut call succeeds, subsequent fail
-				if filter["graph_subject_id"] == "a" {
+				if req.Filter["graph_subject_id"] == "a" {
 					callCount++
 					if callCount <= 1 {
 						return nil, fmt.Errorf("BFS neighbor error")
@@ -379,10 +379,10 @@ var _ = Describe("VectorBackedStore extended coverage", func() {
 			rel := graph.Relation{SubjectID: "a", Predicate: "OWNS", ObjectID: "b"}
 			relJSON, _ := json.Marshal(rel)
 
-			fakeStore.SearchWithFilterStub = func(
-				_ context.Context, _ string, _ int, filter map[string]string,
+			fakeStore.SearchStub = func(
+				_ context.Context, req vector.SearchRequest,
 			) ([]vector.SearchResult, error) {
-				if filter["graph_subject_id"] != "" {
+				if req.Filter["graph_subject_id"] != "" {
 					return []vector.SearchResult{
 						{
 							Content: string(relJSON),
@@ -401,10 +401,10 @@ var _ = Describe("VectorBackedStore extended coverage", func() {
 		})
 
 		It("returns error when JSON fallback fails", func() {
-			fakeStore.SearchWithFilterStub = func(
-				_ context.Context, _ string, _ int, filter map[string]string,
+			fakeStore.SearchStub = func(
+				_ context.Context, req vector.SearchRequest,
 			) ([]vector.SearchResult, error) {
-				if filter["graph_subject_id"] != "" {
+				if req.Filter["graph_subject_id"] != "" {
 					return []vector.SearchResult{
 						{
 							Content:  "not valid json",
