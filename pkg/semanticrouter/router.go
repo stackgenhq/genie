@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -85,6 +86,7 @@ type Router struct {
 	// stopPrune signals the background prune goroutine to stop.
 	// It is nil when pruning is not active.
 	stopPrune chan struct{}
+	closeOnce sync.Once
 }
 
 // Route defines a semantic category alongside example utterances.
@@ -165,10 +167,12 @@ func (r *Router) startPruneTicker() {
 
 // Close stops the background prune goroutine. It is safe to call multiple times.
 func (r *Router) Close() {
-	if r.stopPrune != nil {
-		close(r.stopPrune)
-		r.stopPrune = nil
+	if r.stopPrune == nil {
+		return
 	}
+	r.closeOnce.Do(func() {
+		close(r.stopPrune)
+	})
 }
 
 // buildClassifyChain assembles the middleware chain based on router configuration.

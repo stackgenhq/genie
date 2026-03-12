@@ -573,7 +573,9 @@ var _ = Describe("SemanticRouter", func() {
 			}, 500*time.Millisecond, 10*time.Millisecond).Should(BeNumerically(">=", 1))
 
 			rt.Close()
-			Expect(rt.stopPrune).To(BeNil())
+			// The channel should be closed (not nil) after Close().
+			_, open := <-rt.stopPrune
+			Expect(open).To(BeFalse())
 
 			// Snapshot after a brief settle to let any in-flight call finish.
 			time.Sleep(100 * time.Millisecond)
