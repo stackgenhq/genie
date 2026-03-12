@@ -454,7 +454,52 @@ func (ls *loopState) toResult() TreeResult {
 		Output:        ls.lastOutput,
 		NodeCount:     ls.iteration,
 		ContextBudget: ls.lastBudgetEvent,
+		Confidence:    ls.computeConfidence(),
 	}
+}
+
+// computeConfidence derives a 0.0–1.0 confidence score from execution signals.
+// The score gates whether the output is stored as an accomplishment.
+//
+// Weights:
+//   - Task completed naturally:  0.4
+//   - Status == Success:         0.2
+//   - Iteration efficiency:      0.2  (fewer iterations → higher)
+//   - No repetition detected:    0.1
+//   - Non-empty output:          0.1
+func (ls *loopState) computeConfidence() float64 {
+	var score float64
+
+	// Task completion: the strongest signal that work was done correctly.
+	if ls.capturedTaskCompleted {
+		score += confidenceWeightTaskCompleted
+	}
+
+	// Status: Success vs Failure.
+	if ls.lastStatus == Success {
+		score += confidenceWeightStatusSuccess
+	}
+
+	// Iteration efficiency: solving in fewer iterations signals higher confidence.
+	if ls.maxIterations > 0 {
+		efficiency := 1.0 - float64(ls.iteration)/float64(ls.maxIterations)
+		if efficiency < 0 {
+			efficiency = 0
+		}
+		score += efficiency * confidenceWeightIterationEfficiency
+	}
+
+	// No repetition: absence of stuck loops is a positive signal.
+	if ls.repetitionCount < maxRepetitions {
+		score += confidenceWeightNoRepetition
+	}
+
+	// Non-empty output: the agent produced something to show.
+	if ls.lastOutput != "" {
+		score += confidenceWeightNonEmptyOutput
+	}
+
+	return score
 }
 
 func (t *tree) emitIterationProgress(ctx context.Context, ls *loopState) {

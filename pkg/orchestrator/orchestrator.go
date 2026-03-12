@@ -121,8 +121,9 @@ type orchestrator struct {
 	episodicMemories  sync.Map // map[string]rtmemory.EpisodicMemory
 	episodicMemoryCfg rtmemory.EpisodicMemoryConfig
 
-	disableResume bool
-	agentPersona  string
+	disableResume                     bool
+	agentPersona                      string
+	accomplishmentConfidenceThreshold float64
 }
 
 // Resume returns a natural language description of the agent's capabilities.
@@ -141,10 +142,11 @@ func (c *orchestrator) Resume(ctx context.Context) string {
 type OrchestratorOption func(*orchestratorOpts)
 
 type orchestratorOpts struct {
-	toolwrapOpts   []toolwrap.ServiceOption
-	disableResume  bool
-	halGuardConfig halguard.Config
-	semanticRouter semanticrouter.IRouter
+	toolwrapOpts                      []toolwrap.ServiceOption
+	disableResume                     bool
+	halGuardConfig                    halguard.Config
+	semanticRouter                    semanticrouter.IRouter
+	accomplishmentConfidenceThreshold float64
 }
 
 // WithToolwrapOptions passes per-agent middleware configuration to the
@@ -176,6 +178,16 @@ func WithHalGuardConfig(cfg halguard.Config) OrchestratorOption {
 func WithSemanticRouter(router semanticrouter.IRouter) OrchestratorOption {
 	return func(o *orchestratorOpts) {
 		o.semanticRouter = router
+	}
+}
+
+// WithAccomplishmentConfidenceThreshold sets the minimum confidence score
+// (0.0–1.0) required for a tree result to be stored as an accomplishment.
+// Results below this threshold are discarded to prevent storing error
+// outputs or low-quality responses as accomplishments. Default is 0.5.
+func WithAccomplishmentConfidenceThreshold(threshold float64) OrchestratorOption {
+	return func(o *orchestratorOpts) {
+		o.accomplishmentConfidenceThreshold = threshold
 	}
 }
 
@@ -355,7 +367,7 @@ func NewOrchestrator(
 	// Lift Pensieve note tools and notify so the orchestrator can write/read persistent
 	// notes across its own turns, distil sub-agent results into concise
 	// summaries before composing a final answer, and send notifications.
-	for _, toolName := range []string{"note", "read_notes", "delete_context", "check_budget", "notify", "memory_search", "memory_store"} {
+	for _, toolName := range []string{"note", "read_notes", "delete_context", "check_budget", "notify", "memory_search", "memory_store", "memory_delete", "memory_list", "memory_merge"} {
 		if t, err := availableTools.GetTool(toolName); err == nil {
 			orchestratorToolSlice = append(orchestratorToolSlice, t)
 		} else {
@@ -366,18 +378,23 @@ func NewOrchestrator(
 	logger.Info("Orchestrator tool registry initialized", "count", len(orchestratorTools.ToolNames()))
 
 	orchestrator := &orchestrator{
-		expert:             exp,
-		treeExecutor:       treeExec,
-		memorySvc:          memorySvc,
-		memoryUserKey:      memoryUserKey,
-		toolRegistry:       orchestratorTools,
-		auditor:            auditor,
-		vectorStore:        vectorStore,
-		router:             oo.semanticRouter,
-		episodicMemoryCfg:  episodicMemoryCfg,
-		availableToolNames: availableTools.GetToolDescriptions(),
-		disableResume:      oo.disableResume,
-		agentPersona:       agentPersona,
+		expert:                            exp,
+		treeExecutor:                      treeExec,
+		memorySvc:                         memorySvc,
+		memoryUserKey:                     memoryUserKey,
+		toolRegistry:                      orchestratorTools,
+		auditor:                           auditor,
+		vectorStore:                       vectorStore,
+		router:                            oo.semanticRouter,
+		episodicMemoryCfg:                 episodicMemoryCfg,
+		availableToolNames:                availableTools.GetToolDescriptions(),
+		disableResume:                     oo.disableResume,
+		agentPersona:                      agentPersona,
+		accomplishmentConfidenceThreshold: oo.accomplishmentConfidenceThreshold,
+	}
+	// Apply default threshold if not explicitly set.
+	if orchestrator.accomplishmentConfidenceThreshold == 0 {
+		orchestrator.accomplishmentConfidenceThreshold = reactree.DefaultAccomplishmentConfidenceThreshold
 	}
 	// keep updating the resume less than 24 hours
 	// Create a dedicated context for the background refresher that we can cancel on Close()
@@ -1111,10 +1128,17 @@ func (c *orchestrator) storeAccomplishment(ctx context.Context, question string,
 	}
 
 	// Only store as an accomplishment if the tree completed successfully
-	// and produced non-empty output. We intentionally avoid filtering on
-	// output text (e.g. checking for "error") because valid accomplishments
-	// often mention errors they fixed (e.g. "Fixed error handling in auth").
+	// and produced non-empty output with sufficient confidence.
+	// Confidence is computed from execution signals (task completion,
+	// status, iteration efficiency, repetition, output presence).
 	if res.Status != reactree.Success || strings.TrimSpace(res.Output) == "" {
+		return
+	}
+	if res.Confidence < c.accomplishmentConfidenceThreshold {
+		logger.GetLogger(ctx).Debug("skipping accomplishment storage: confidence below threshold",
+			"confidence", res.Confidence,
+			"threshold", c.accomplishmentConfidenceThreshold,
+		)
 		return
 	}
 

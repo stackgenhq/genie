@@ -128,6 +128,92 @@ var _ = Describe("Loop State", func() {
 		})
 	})
 
+	Describe("computeConfidence", func() {
+		DescribeTable("returns expected score",
+			func(ls loopState, expected float64) {
+				Expect(ls.computeConfidence()).To(BeNumerically("~", expected, 0.001))
+			},
+			Entry("perfect run: task completed + success + 1/3 iterations + no repetition + output",
+				loopState{
+					capturedTaskCompleted: true,
+					lastStatus:            Success,
+					lastOutput:            "done",
+					iteration:             1,
+					maxIterations:         3,
+				},
+				// 0.4 + 0.2 + (1 - 1/3)*0.2 + 0.1 + 0.1 = 0.933
+				0.933,
+			),
+			Entry("success without task completion (error-like output)",
+				loopState{
+					capturedTaskCompleted: false,
+					lastStatus:            Success,
+					lastOutput:            "error: something failed",
+					iteration:             1,
+					maxIterations:         3,
+				},
+				// 0.0 + 0.2 + (1 - 1/3)*0.2 + 0.1 + 0.1 = 0.533
+				0.533,
+			),
+			Entry("failure status — below threshold",
+				loopState{
+					capturedTaskCompleted: false,
+					lastStatus:            Failure,
+					lastOutput:            "I got stuck",
+					iteration:             3,
+					maxIterations:         3,
+				},
+				// 0.0 + 0.0 + (1 - 3/3)*0.2 + 0.1 + 0.1 = 0.2
+				0.2,
+			),
+			Entry("success at max iterations — low efficiency",
+				loopState{
+					capturedTaskCompleted: true,
+					lastStatus:            Success,
+					lastOutput:            "finally done",
+					iteration:             3,
+					maxIterations:         3,
+				},
+				// 0.4 + 0.2 + 0.0 + 0.1 + 0.1 = 0.8
+				0.8,
+			),
+			Entry("stuck in repetition loop",
+				loopState{
+					capturedTaskCompleted: false,
+					lastStatus:            Failure,
+					lastOutput:            "repeating",
+					iteration:             3,
+					maxIterations:         3,
+					repetitionCount:       maxRepetitions,
+				},
+				// 0.0 + 0.0 + 0.0 + 0.0 + 0.1 = 0.1
+				0.1,
+			),
+			Entry("empty output",
+				loopState{
+					capturedTaskCompleted: false,
+					lastStatus:            Success,
+					lastOutput:            "",
+					iteration:             1,
+					maxIterations:         3,
+				},
+				// 0.0 + 0.2 + (1 - 1/3)*0.2 + 0.1 + 0.0 = 0.433
+				0.433,
+			),
+			Entry("zero maxIterations (edge case)",
+				loopState{
+					capturedTaskCompleted: true,
+					lastStatus:            Success,
+					lastOutput:            "done",
+					iteration:             1,
+					maxIterations:         0,
+				},
+				// 0.4 + 0.2 + 0.0 (skipped) + 0.1 + 0.1 = 0.8
+				0.8,
+			),
+		)
+	})
+
 	Describe("accumulateContext", func() {
 		It("appends output", func() {
 			ls := &loopState{iteration: 1, capturedOutput: "found 3 files"}

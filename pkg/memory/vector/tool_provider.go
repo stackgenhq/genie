@@ -27,5 +27,8 @@ func (p *ToolProvider) GetTools() []tool.Tool {
 	return []tool.Tool{
 		NewMemoryStoreTool(p.store, p.cfg),
 		NewMemorySearchTool(p.store, p.cfg),
+		NewMemoryDeleteTool(p.store),
+		NewMemoryListTool(p.store, p.cfg),
+		NewMemoryMergeTool(p.store, p.cfg),
 	}
 }

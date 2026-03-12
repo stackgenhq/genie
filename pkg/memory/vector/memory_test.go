@@ -236,6 +236,140 @@ var _ = Describe("NewMemorySearchTool", func() {
 	})
 })
 
+var _ = Describe("NewMemoryDeleteTool", func() {
+	It("should create a tool with the correct name", func() {
+		cfg := vector.Config{EmbeddingProvider: "dummy"}
+		store, err := cfg.NewStore(context.Background())
+		Expect(err).NotTo(HaveOccurred())
+
+		t := vector.NewMemoryDeleteTool(store)
+		Expect(t.Declaration().Name).To(Equal("memory_delete"))
+	})
+
+	It("should delete a stored entry by ID", func() {
+		cfg := vector.Config{EmbeddingProvider: "dummy"}
+		store, err := cfg.NewStore(context.Background())
+		Expect(err).NotTo(HaveOccurred())
+
+		err = store.Add(context.Background(), vector.BatchItem{ID: "del-tool-1", Text: "stale error data", Metadata: map[string]string{}})
+		Expect(err).NotTo(HaveOccurred())
+
+		t := vector.NewMemoryDeleteTool(store)
+		ct := t.(tool.CallableTool)
+
+		result, err := ct.Call(context.Background(), []byte(`{"ids":["del-tool-1"]}`))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result).NotTo(BeNil())
+		Expect(fmt.Sprint(result)).To(ContainSubstring("Successfully deleted 1"))
+
+		// Verify the entry is gone.
+		results, err := store.Search(context.Background(), "stale error data", 1)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(results).To(BeEmpty())
+	})
+
+	It("should reject empty IDs", func() {
+		cfg := vector.Config{EmbeddingProvider: "dummy"}
+		store, err := cfg.NewStore(context.Background())
+		Expect(err).NotTo(HaveOccurred())
+
+		t := vector.NewMemoryDeleteTool(store)
+		ct := t.(tool.CallableTool)
+
+		_, err = ct.Call(context.Background(), []byte(`{"ids":[]}`))
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("at least one ID"))
+	})
+})
+
+var _ = Describe("NewMemoryListTool", func() {
+	It("should create a tool with the correct name", func() {
+		cfg := vector.Config{EmbeddingProvider: "dummy"}
+		store, err := cfg.NewStore(context.Background())
+		Expect(err).NotTo(HaveOccurred())
+
+		t := vector.NewMemoryListTool(store, nil)
+		Expect(t.Declaration().Name).To(Equal("memory_list"))
+	})
+
+	It("should list stored entries", func() {
+		cfg := vector.Config{EmbeddingProvider: "dummy"}
+		store, err := cfg.NewStore(context.Background())
+		Expect(err).NotTo(HaveOccurred())
+
+		err = store.Add(context.Background(),
+			vector.BatchItem{ID: "list-1", Text: "first memory", Metadata: map[string]string{"type": "test"}},
+			vector.BatchItem{ID: "list-2", Text: "second memory", Metadata: map[string]string{"type": "test"}},
+		)
+		Expect(err).NotTo(HaveOccurred())
+
+		t := vector.NewMemoryListTool(store, nil)
+		ct := t.(tool.CallableTool)
+
+		result, err := ct.Call(context.Background(), []byte(`{"limit": 10}`))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result).NotTo(BeNil())
+	})
+})
+
+var _ = Describe("NewMemoryMergeTool", func() {
+	It("should create a tool with the correct name", func() {
+		cfg := vector.Config{EmbeddingProvider: "dummy"}
+		store, err := cfg.NewStore(context.Background())
+		Expect(err).NotTo(HaveOccurred())
+
+		t := vector.NewMemoryMergeTool(store, nil)
+		Expect(t.Declaration().Name).To(Equal("memory_merge"))
+	})
+
+	It("should merge two entries into one and delete the second", func() {
+		cfg := vector.Config{EmbeddingProvider: "dummy"}
+		store, err := cfg.NewStore(context.Background())
+		Expect(err).NotTo(HaveOccurred())
+
+		err = store.Add(context.Background(),
+			vector.BatchItem{ID: "merge-1", Text: "part one", Metadata: map[string]string{}},
+			vector.BatchItem{ID: "merge-2", Text: "part two", Metadata: map[string]string{}},
+		)
+		Expect(err).NotTo(HaveOccurred())
+
+		t := vector.NewMemoryMergeTool(store, nil)
+		ct := t.(tool.CallableTool)
+
+		result, err := ct.Call(context.Background(), []byte(`{"ids":["merge-1","merge-2"],"merged_text":"combined part one and two"}`))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result).NotTo(BeNil())
+		Expect(fmt.Sprint(result)).To(ContainSubstring("Successfully merged 2"))
+
+		// Verify merge-1 has the new content.
+		results, err := store.Search(context.Background(), "combined part one and two", 1)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(results).To(HaveLen(1))
+		Expect(results[0].ID).To(Equal("merge-1"))
+		Expect(results[0].Content).To(Equal("combined part one and two"))
+
+		// Verify merge-2 is deleted.
+		results, err = store.Search(context.Background(), "part two", 1)
+		Expect(err).NotTo(HaveOccurred())
+		for _, r := range results {
+			Expect(r.ID).NotTo(Equal("merge-2"))
+		}
+	})
+
+	It("should reject fewer than 2 IDs", func() {
+		cfg := vector.Config{EmbeddingProvider: "dummy"}
+		store, err := cfg.NewStore(context.Background())
+		Expect(err).NotTo(HaveOccurred())
+
+		t := vector.NewMemoryMergeTool(store, nil)
+		ct := t.(tool.CallableTool)
+
+		_, err = ct.Call(context.Background(), []byte(`{"ids":["only-one"],"merged_text":"text"}`))
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("at least 2 IDs"))
+	})
+})
+
 var _ = Describe("AllowedMetadataKeys", func() {
 	It("memory_store rejects metadata keys not in allowed list when configured", func() {
 		cfg := vector.Config{EmbeddingProvider: "dummy", AllowedMetadataKeys: []string{"product", "category"}}
