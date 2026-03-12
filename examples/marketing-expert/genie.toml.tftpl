@@ -12,6 +12,9 @@
 #   qdrant_port           — Qdrant gRPC port
 #   qdrant_api_key        — Qdrant API key (optional, empty = disabled)
 #   agui_port             — AG-UI server port
+#   gdrive_credentials_secret_path — Secrets Manager path for GDrive SA key (optional)
+#   gdrive_folder_ids              — list of Google Drive folder IDs to sync
+#   slack_channel_ids              — list of Slack channel IDs to sync
 #
 # Runtime placeholders (resolved by envsubst in init container):
 #   $${MARKETING_POSTGRES_DSN}  — PostgreSQL DSN for genie_marketing db
@@ -125,6 +128,14 @@ cors_origins = ["https://stackgenhq.github.io", "http://localhost:8123"]
 rate_limit = 16.67
 rate_burst = 100
 
+# ── Google Drive (Service Account) ──────────────────────────────────
+# When gdrive_credentials_secret_path is set, the init container pulls
+# the SA key JSON from Secrets Manager and writes it to a file.
+%{ if gdrive_credentials_secret_path != "" ~}
+[google_drive]
+credentials_file = "/shared-credentials/gdrive-sa.json"
+%{ endif ~}
+
 # ── Data Sources (vectorized for RAG) ───────────────────────────────
 # Google Drive folders and Slack channels are synced into the vector
 # store for semantic search. Update folder_ids and channel_ids with
@@ -135,12 +146,12 @@ sync_interval = "30m"
 search_keywords = ["marketing", "competitive", "campaign", "brand", "positioning", "pipeline"]
 
 [data_sources.gdrive]
-enabled = true
-folder_ids = []  # Add your Google Drive folder IDs here
+enabled = ${length(gdrive_folder_ids) > 0 ? "true" : "false"}
+folder_ids = [${join(", ", [for id in gdrive_folder_ids : "\"${id}\""])}]
 
 [data_sources.slack]
-enabled = true
-channel_ids = []  # Add your Slack channel IDs here
+enabled = ${length(slack_channel_ids) > 0 ? "true" : "false"}
+channel_ids = [${join(", ", [for id in slack_channel_ids : "\"${id}\""])}]
 
 # ── Application Settings ────────────────────────────────────────────
 [ops]

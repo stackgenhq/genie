@@ -919,15 +919,24 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 		log.Warn("failed to initialize email service, skipping email tools", "provider", a.cfg.Email.Provider, "error", err)
 	}
 
-	// --- Google Drive tools (same logged-in user token as Gmail/Calendar via secret provider) ---
-	if gdSvc, err := gdrive.NewFromSecretProvider(ctx, sp); err == nil {
+	// --- Google Drive tools ---
+	// Prefer explicit credentials_file from [google_drive] config (service account or
+	// user JSON key). Fall back to OAuth secret provider path when not configured.
+	var gdSvc gdrive.Service
+	var gdErr error
+	if a.cfg.GDrive.CredentialsFile != "" {
+		gdSvc, gdErr = gdrive.New(ctx, a.cfg.GDrive)
+	} else {
+		gdSvc, gdErr = gdrive.NewFromSecretProvider(ctx, sp)
+	}
+	if gdErr == nil {
 		if vErr := gdSvc.Validate(ctx); vErr != nil {
 			log.Warn("Google Drive health check failed, tools still registered", "error", vErr)
 		}
 		providers = append(providers, tools.Tools(gdrive.NewToolProvider(gdSvc).GetTools("google_drive")))
-		log.Info("Google Drive tool provider added (OAuth)")
+		log.Info("Google Drive tool provider added", "has_credentials_file", a.cfg.GDrive.CredentialsFile != "")
 	} else if a.cfg.GDrive.CredentialsFile != "" {
-		log.Warn("failed to initialize Google Drive service, skipping gdrive tools", "error", err)
+		log.Warn("failed to initialize Google Drive service, skipping gdrive tools", "error", gdErr)
 	}
 
 	// --- Gmail tools (shared OAuth with calendar/contacts/drive) ---
@@ -1047,24 +1056,28 @@ var graphLearnPrompt string
 // ctx is used so the goroutine is cancelled when the app shuts down. AG-UI
 // emissions are suppressed so the internal task does not leak into user UI.
 func (a *Application) maybeRunGraphLearn(ctx context.Context) {
-	if a.graphStore == nil || a.codeOwner == nil || strings.TrimSpace(a.cfg.AgentName) == "" {
+	if a.graphStore == nil || strings.TrimSpace(a.cfg.AgentName) == "" {
 		return
 	}
+	logger := logger.GetLogger(ctx).With("fn", "app.maybeRunGraphLearn")
 	pendingPath := graph.PendingGraphLearnPath(a.cfg.AgentName)
 	if _, err := os.Stat(pendingPath); err != nil {
+		logger.Warn("Graph learn pending file not found", "path", pendingPath, "error", err)
 		return
 	}
 	// Remove immediately so a concurrent caller won't also start a learn pass.
 	if err := os.Remove(pendingPath); err != nil {
-		logger.GetLogger(ctx).Warn("Could not remove graph learn pending file", "path", pendingPath, "error", err)
+		logger.Warn("Could not remove graph learn pending file", "path", pendingPath, "error", err)
 		return
 	}
 	go func() {
+		defer func(startTime time.Time) {
+			logger.Info("Graph learn pass completed", "duration", time.Since(startTime).String())
+		}(time.Now())
 		learnCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 		defer cancel()
 		learnCtx = agui.WithSuppressEmit(learnCtx)
-		log := logger.GetLogger(learnCtx).With("fn", "app.maybeRunGraphLearn")
-		log.Info("Starting one-time graph learn from synced data")
+		logger.Info("Starting one-time graph learn from synced data")
 		outputChan := make(chan string, 64)
 		var learnErr error
 		go func() {
@@ -1074,7 +1087,7 @@ func (a *Application) maybeRunGraphLearn(ctx context.Context) {
 				SkipClassification: true,
 			}, outputChan)
 			if learnErr != nil {
-				log.Warn("Graph learn pass failed", "error", learnErr)
+				logger.Warn("Graph learn pass failed", "error", learnErr)
 			}
 		}()
 		for range outputChan {
@@ -1083,11 +1096,11 @@ func (a *Application) maybeRunGraphLearn(ctx context.Context) {
 		if learnErr != nil {
 			// Re-create pending file so the next successful sync can retry the learn pass.
 			if wErr := os.WriteFile(pendingPath, []byte{}, 0o600); wErr != nil {
-				log.Warn("Could not re-create graph learn pending file for retry", "path", pendingPath, "error", wErr)
+				logger.Warn("Could not re-create graph learn pending file for retry", "path", pendingPath, "error", wErr)
 			}
 			return
 		}
-		log.Info("Graph learn pass completed")
+		logger.Info("Graph learn pass completed")
 	}()
 }
 
@@ -1099,10 +1112,12 @@ func (a *Application) maybeRunGraphLearn(ctx context.Context) {
 // the next run to avoid hammering external APIs.
 func (a *Application) runDataSourcesSync(ctx context.Context) {
 	cfg := &a.cfg.DataSources
+	logger := logger.GetLogger(ctx).With("fn", "app.runDataSourcesSync")
 	interval := cfg.SyncInterval
 	if interval <= 0 {
 		interval = 15 * time.Minute
 	}
+	logger.Info("Data sources sync started; learning from your data in the background", "interval", interval.String())
 	sp := a.sp
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -1111,6 +1126,7 @@ func (a *Application) runDataSourcesSync(ctx context.Context) {
 	// Run one sync immediately, then on interval (with backoff on failures).
 	hadErrors := a.runOneDataSourcesSync(ctx, cfg, sp)
 	if !hadErrors {
+		logger.Info("Data sources sync completed", "hadErrors", hadErrors)
 		a.maybeRunGraphLearn(ctx)
 	}
 	for {
@@ -1119,12 +1135,14 @@ func (a *Application) runDataSourcesSync(ctx context.Context) {
 			return
 		case <-ticker.C:
 			hadErrors = a.runOneDataSourcesSync(ctx, cfg, sp)
+			logger.Info("Data sources sync completed", "hadErrors", hadErrors)
 			if hadErrors {
 				consecutiveFailures++
 				backoff := interval * time.Duration(1<<uint(consecutiveFailures))
 				if backoff > maxBackoff || backoff <= 0 {
 					backoff = maxBackoff
 				}
+				logger.Warn("Data sources sync failed, retrying in", "backoff", backoff.String())
 				select {
 				case <-ctx.Done():
 					return
@@ -1171,13 +1189,18 @@ func (a *Application) runOneDataSourcesSync(ctx context.Context, cfg *datasource
 			}
 			conn = gmail.NewGmailConnector(gmailSvc)
 		case "gdrive":
-			gdSvc, err := gdrive.NewFromSecretProvider(ctx, sp)
+			var gdSvc gdrive.Service
+			if a.cfg.GDrive.CredentialsFile != "" {
+				gdSvc, err = gdrive.New(ctx, a.cfg.GDrive)
+			} else {
+				gdSvc, err = gdrive.NewFromSecretProvider(ctx, sp)
+			}
 			if err != nil {
 				log.Warn("data sources: skip gdrive, failed to create service", "error", err)
 				hadErrors = true
 				continue
 			}
-			conn = gdrive.NewGDriveConnector(gdSvc)
+			conn = gdrive.NewGDriveConnector(gdSvc, a.cfg.GDrive.MaxDepth)
 		case "github", "gitlab":
 			if a.cfg.SCM.Provider != name {
 				log.Debug("data sources: skip SCM source, provider mismatch", "source", name, "provider", a.cfg.SCM.Provider)

@@ -204,13 +204,16 @@ locals {
 
 locals {
   genie_toml_rendered = templatefile("${path.module}/genie.toml.tftpl", {
-    secrets_manager_name = var.aws.secrets_manager_name
-    aws_region           = var.aws.region
-    qdrant_host          = var.qdrant.host
-    qdrant_port          = var.qdrant.port
-    qdrant_api_key       = var.qdrant.api_key
-    agui_port            = var.genie.port
-    allowed_senders      = var.messenger.allowed_senders
+    secrets_manager_name           = var.aws.secrets_manager_name
+    aws_region                     = var.aws.region
+    qdrant_host                    = var.qdrant.host
+    qdrant_port                    = var.qdrant.port
+    qdrant_api_key                 = var.qdrant.api_key
+    agui_port                      = var.genie.port
+    allowed_senders                = var.messenger.allowed_senders
+    gdrive_credentials_secret_path = var.aws.gdrive_credentials_secret_path
+    gdrive_folder_ids              = var.data_sources.gdrive_folder_ids
+    slack_channel_ids              = var.data_sources.slack_channel_ids
   })
 }
 
@@ -352,6 +355,11 @@ resource "kubernetes_deployment" "marketing" {
             value = var.kubernetes.namespace
           }
 
+          env {
+            name  = "GDRIVE_SA_SECRET_PATH"
+            value = var.aws.gdrive_credentials_secret_path != "" ? var.aws.secrets_manager_name : ""
+          }
+
           volume_mount {
             name       = "aws-iam-token"
             mount_path = "/var/run/secrets/eks.amazonaws.com/serviceaccount"
@@ -396,6 +404,14 @@ resource "kubernetes_deployment" "marketing" {
           env {
             name  = "TMPDIR"
             value = "/tmp"
+          }
+
+          dynamic "env" {
+            for_each = var.aws.gdrive_credentials_secret_path != "" ? [1] : []
+            content {
+              name  = "GOOGLE_APPLICATION_CREDENTIALS"
+              value = "/shared-credentials/gdrive-sa.json"
+            }
           }
 
           volume_mount {

@@ -28,16 +28,40 @@ yum install -y -q gettext >/dev/null 2>&1
 #    postgres-credentials secret, but point to the marketing database.
 export MARKETING_POSTGRES_DSN="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres.${NAMESPACE:-genie}.svc.cluster.local:5432/genie_marketing?sslmode=disable"
 
-# 2. Resolve genie.toml: substitute MARKETING_POSTGRES_DSN.
+# 2. Pull Google Drive Service Account key from Secrets Manager (if configured).
+#    The SA JSON is stored as a string value under the GDRIVE_SA_JSON key inside
+#    the same Secrets Manager secret used for other credentials.
+if [ -n "${GDRIVE_SA_SECRET_PATH:-}" ]; then
+  echo "[credential-bootstrap] Fetching Google Drive SA key from Secrets Manager..."
+  GDRIVE_SA_JSON=$(aws secretsmanager get-secret-value \
+    --region "${AWS_REGION}" \
+    --secret-id "${GDRIVE_SA_SECRET_PATH}" \
+    --query 'SecretString' \
+    --output text 2>/dev/null | python3 -c "
+import sys, json
+secret = json.loads(sys.stdin.read())
+print(secret.get('GDRIVE_SA_JSON', ''))
+" 2>/dev/null || true)
+
+  if [ -n "${GDRIVE_SA_JSON}" ]; then
+    echo "${GDRIVE_SA_JSON}" > /shared-credentials/gdrive-sa.json
+    chmod 0640 /shared-credentials/gdrive-sa.json
+    echo "[credential-bootstrap] Google Drive SA key written to /shared-credentials/gdrive-sa.json"
+  else
+    echo "[credential-bootstrap] WARNING: GDRIVE_SA_JSON not found in Secrets Manager, skipping Google Drive SA setup"
+  fi
+fi
+
+# 3. Resolve genie.toml: substitute MARKETING_POSTGRES_DSN.
 cp /app-config/genie.toml /tmp/genie.toml.tpl
 envsubst '$MARKETING_POSTGRES_DSN' < /tmp/genie.toml.tpl > /shared-credentials/genie.toml
 chmod 0640 /shared-credentials/genie.toml
 
-# 3. Copy AGENTS.md (not sensitive, but keeps mounts clean)
+# 4. Copy AGENTS.md (not sensitive, but keeps mounts clean)
 cp /app-config/AGENTS.md /shared-credentials/AGENTS.md
 chmod 0644 /shared-credentials/AGENTS.md
 
-# 4. Ensure the genie user (65532) can read everything
+# 5. Ensure the genie user (65532) can read everything
 chown -R 65532:65532 /shared-credentials
 
 echo "[credential-bootstrap] Credentials bootstrapped successfully."

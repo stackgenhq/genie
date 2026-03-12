@@ -23,14 +23,14 @@ var _ = Describe("GDriveConnector", func() {
 
 	Describe("Name", func() {
 		It("returns gdrive", func() {
-			conn := gdrive.NewGDriveConnector(fake)
+			conn := gdrive.NewGDriveConnector(fake, 0)
 			Expect(conn.Name()).To(Equal("gdrive"))
 		})
 	})
 
 	Describe("ListItems", func() {
 		It("returns nil when scope has no GDrive folder IDs", func(ctx context.Context) {
-			conn := gdrive.NewGDriveConnector(fake)
+			conn := gdrive.NewGDriveConnector(fake, 0)
 			items, err := conn.ListItems(ctx, datasource.Scope{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(items).To(BeNil())
@@ -43,7 +43,7 @@ var _ = Describe("GDriveConnector", func() {
 			}, nil)
 			fake.ReadFileReturns("Document body text", nil)
 
-			conn := gdrive.NewGDriveConnector(fake)
+			conn := gdrive.NewGDriveConnector(fake, 0)
 			scope := datasource.Scope{GDriveFolderIDs: []string{"folder1"}}
 
 			items, err := conn.ListItems(ctx, scope)
@@ -60,18 +60,29 @@ var _ = Describe("GDriveConnector", func() {
 			Expect(folderID).To(Equal("folder1"))
 		})
 
-		It("skips folders", func(ctx context.Context) {
-			fake.ListFolderReturns([]gdrive.FileInfo{
+		It("recursively lists items in subfolders", func(ctx context.Context) {
+			// First call returns a subfolder, second call returns a file inside it.
+			fake.ListFolderReturnsOnCall(0, []gdrive.FileInfo{
 				{ID: "d1", Name: "Subfolder", IsFolder: true},
 			}, nil)
+			fake.ListFolderReturnsOnCall(1, []gdrive.FileInfo{
+				{ID: "f2", Name: "Nested.txt", MimeType: "text/plain", ModifiedTime: "2025-01-20T08:00:00Z", IsFolder: false},
+			}, nil)
+			fake.ReadFileReturns("Hello from subfolder", nil)
 
-			conn := gdrive.NewGDriveConnector(fake)
+			conn := gdrive.NewGDriveConnector(fake, 0)
 			scope := datasource.Scope{GDriveFolderIDs: []string{"root"}}
 
 			items, err := conn.ListItems(ctx, scope)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(items).To(BeEmpty())
-			Expect(fake.ReadFileCallCount()).To(Equal(0))
+			Expect(items).To(HaveLen(1))
+			Expect(items[0].ID).To(Equal("gdrive:f2"))
+			Expect(items[0].Content).To(ContainSubstring("Hello from subfolder"))
+
+			// ListFolder called twice: once for root, once for subfolder d1.
+			Expect(fake.ListFolderCallCount()).To(Equal(2))
+			_, subFolderID, _ := fake.ListFolderArgsForCall(1)
+			Expect(subFolderID).To(Equal("d1"))
 		})
 	})
 })

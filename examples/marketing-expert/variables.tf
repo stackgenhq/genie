@@ -3,10 +3,11 @@
 variable "aws" {
   description = "AWS Configuration"
   type = object({
-    region               = optional(string, "us-east-1")
-    eks_cluster_name     = string
-    secrets_manager_arn  = string
-    secrets_manager_name = string
+    region                         = optional(string, "us-east-1")
+    eks_cluster_name               = string
+    secrets_manager_arn            = string
+    secrets_manager_name           = string
+    gdrive_credentials_secret_path = optional(string, "") # Key path in Secrets Manager for GDrive SA JSON
   })
 }
 
@@ -51,6 +52,15 @@ variable "messenger" {
   description = "Messenger access control"
   type = object({
     allowed_senders = optional(list(string), [])
+  })
+  default = {}
+}
+
+variable "data_sources" {
+  description = "Data sources configuration for RAG vectorization"
+  type = object({
+    gdrive_folder_ids = optional(list(string), [])
+    slack_channel_ids = optional(list(string), [])
   })
   default = {}
 }

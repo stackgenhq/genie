@@ -46,6 +46,10 @@ type Service interface {
 type Config struct {
 	CredentialsFile string `yaml:"credentials_file,omitempty" toml:"credentials_file,omitempty"` // Path to service account JSON
 	// Alternatively, set GOOGLE_APPLICATION_CREDENTIALS env var.
+
+	// MaxDepth limits how deep recursive folder traversal goes during data
+	// source sync. 0 or unset defaults to defaultMaxRecurseDepth (10).
+	MaxDepth int `yaml:"max_depth,omitempty" toml:"max_depth,omitempty"`
 }
 
 // ── Domain Types ────────────────────────────────────────────────────────

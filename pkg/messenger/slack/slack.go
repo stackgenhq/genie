@@ -283,6 +283,16 @@ func (m *Messenger) Send(ctx context.Context, req messenger.SendRequest) (messen
 		return messenger.SendResponse{}, fmt.Errorf("%w: %s", messenger.ErrSendFailed, err)
 	}
 
+	// Track the thread so subsequent user replies are processed without
+	// requiring another @mention. This covers threads the bot creates
+	// or participates in (e.g. responding to a top-level @mention).
+	threadTS := req.ThreadID
+	if threadTS == "" {
+		// Bot sent a top-level message — its own ts becomes the thread parent.
+		threadTS = ts
+	}
+	m.mentionedThreads.Store(channelID+":"+threadTS, true)
+
 	return messenger.SendResponse{
 		MessageID: channelID + ":" + ts,
 		Timestamp: time.Now(),
