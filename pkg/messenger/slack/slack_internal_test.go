@@ -137,4 +137,31 @@ var _ = Describe("Slack Internal", func() {
 			Expect(m.containsBotMention("hello <@U1234> world")).To(BeFalse())
 		})
 	})
+
+	Describe("stripBotMention", func() {
+		It("removes bot mention from text", func() {
+			m := &Messenger{botUserID: "U_BOT"}
+			Expect(m.stripBotMention("<@U_BOT> help me")).To(Equal("help me"))
+		})
+
+		It("removes bot mention with colon suffix", func() {
+			m := &Messenger{botUserID: "U_BOT"}
+			Expect(m.stripBotMention("<@U_BOT>: good day")).To(Equal("good day"))
+		})
+
+		It("removes bot mention mid-text", func() {
+			m := &Messenger{botUserID: "U_BOT"}
+			Expect(m.stripBotMention("hey <@U_BOT> deploy this")).To(Equal("hey  deploy this"))
+		})
+
+		It("returns text unchanged when botUserID is empty", func() {
+			m := &Messenger{}
+			Expect(m.stripBotMention("<@U_BOT> hello")).To(Equal("<@U_BOT> hello"))
+		})
+
+		It("returns text unchanged when no mention present", func() {
+			m := &Messenger{botUserID: "U_BOT"}
+			Expect(m.stripBotMention("just a regular message")).To(Equal("just a regular message"))
+		})
+	})
 })

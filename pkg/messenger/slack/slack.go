@@ -516,6 +516,39 @@ func (m *Messenger) containsBotMention(text string) bool {
 	return strings.Contains(text, "<@"+m.botUserID+">")
 }
 
+// stripBotMention removes the bot's <@BOT_USER_ID> mention from message text
+// so the LLM receives clean input without raw Slack mention syntax.
+func (m *Messenger) stripBotMention(text string) string {
+	if m.botUserID == "" {
+		return text
+	}
+	cleaned := strings.ReplaceAll(text, "<@"+m.botUserID+">", "")
+	// Trim leading/trailing whitespace and any leftover colon+space.
+	cleaned = strings.TrimSpace(cleaned)
+	cleaned = strings.TrimLeft(cleaned, ":")
+	return strings.TrimSpace(cleaned)
+}
+
+// resolveDisplayName looks up a Slack user's display name via the users.info API.
+// Returns the user ID as fallback if the API call fails.
+func (m *Messenger) resolveDisplayName(ctx context.Context, userID string) string {
+	if m.api == nil {
+		return userID
+	}
+	user, err := m.api.GetUserInfoContext(ctx, userID)
+	if err != nil {
+		logger.GetLogger(ctx).Debug("failed to resolve Slack display name", "userID", userID, "error", err)
+		return userID
+	}
+	if user.Profile.DisplayName != "" {
+		return user.Profile.DisplayName
+	}
+	if user.RealName != "" {
+		return user.RealName
+	}
+	return userID
+}
+
 func (m *Messenger) handleEventsAPI(ctx context.Context, event slackevents.EventsAPIEvent) {
 	switch event.Type {
 	case slackevents.CallbackEvent:
@@ -532,6 +565,12 @@ func (m *Messenger) handleEventsAPI(ctx context.Context, event slackevents.Event
 				return
 			}
 
+			// Strip the bot mention from text so the LLM gets clean input.
+			cleanText := m.stripBotMention(ev.Text)
+
+			// Resolve sender display name for better attribution.
+			displayName := m.resolveDisplayName(ctx, ev.User)
+
 			msg := messenger.IncomingMessage{
 				ID:       ev.TimeStamp,
 				Platform: messenger.PlatformSlack,
@@ -540,11 +579,12 @@ func (m *Messenger) handleEventsAPI(ctx context.Context, event slackevents.Event
 					Type: messenger.ChannelTypeChannel,
 				},
 				Sender: messenger.Sender{
-					ID:       ev.User,
-					Username: ev.User,
+					ID:          ev.User,
+					Username:    ev.User,
+					DisplayName: displayName,
 				},
 				Content: messenger.MessageContent{
-					Text: ev.Text,
+					Text: cleanText,
 				},
 				ThreadID:  ev.ThreadTimeStamp,
 				Timestamp: time.Now(),

@@ -47,6 +47,14 @@ variable "postgres" {
   default = {}
 }
 
+variable "messenger" {
+  description = "Messenger access control"
+  type = object({
+    allowed_senders = optional(list(string), [])
+  })
+  default = {}
+}
+
 variable "tags" {
   description = "Custom tags to apply to all resources"
   type        = map(string)

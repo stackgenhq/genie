@@ -210,6 +210,7 @@ locals {
     qdrant_port          = var.qdrant.port
     qdrant_api_key       = var.qdrant.api_key
     agui_port            = var.genie.port
+    allowed_senders      = var.messenger.allowed_senders
   })
 }
 

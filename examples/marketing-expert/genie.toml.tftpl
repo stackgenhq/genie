@@ -110,6 +110,9 @@ cross_model_samples = 3
 # The agent listens for messages and thread mentions via WebSocket.
 [messenger]
 platform = "slack"
+%{ if length(allowed_senders) > 0 ~}
+allowed_senders = [${join(", ", [for s in allowed_senders : "\"${s}\""])}]
+%{ endif ~}
 
 [messenger.slack]
 app_token = "$${SLACK_APP_TOKEN}"

@@ -16,3 +16,5 @@ examples/**/.genie/*
 installation/k8s/.terraform
 backend.tf
 examples/cloud-discovery/terraform.tfstate
+*.local.toml
+run-local.sh
