@@ -100,7 +100,7 @@ cross_model_samples = 3
 [[mcp.servers]]
 name = "stackgen"
 transport = "stdio"
-command = "/Users/sabithks/src/github.com/appcd-dev/stackgen-cli/build/stackgen"
+command = "stackgen"
 args = ["mcp"]
 
 
