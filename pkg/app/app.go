@@ -778,7 +778,7 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 		sender := identity.GetSender(ctx)
 		ctx, aguiSpan := trace.Tracer.Start(ctx, a.displayName(), oteltrace.WithAttributes(
 			attribute.String("langfuse.trace.name", a.displayName()),
-			attribute.String("langfuse.trace.input", pii.Redact(ctx, message)),
+			attribute.String("langfuse.trace.input", pii.Redact(message)),
 			attribute.String("langfuse.user.id", sender.ID),
 			attribute.StringSlice("langfuse.trace.tags", []string{
 				a.displayName(),

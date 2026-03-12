@@ -63,7 +63,7 @@ func Middleware(cfg Config, oidcHandler ...*OIDCHandler) func(http.Handler) http
 
 			if p := auth.Authenticate(w, r); p != nil {
 				ctx := identity.WithSender(r.Context(), *p)
-				ctx = logger.WithArgs(ctx, "principal", p, "request_id", uuid.NewString())
+				ctx = logger.WithArgs(ctx, "sender", p, "request_id", uuid.NewString())
 				logger.GetLogger(ctx).Info("user authenticated", "user", p, "ip", getIPAddress(r))
 				next.ServeHTTP(w, r.WithContext(ctx))
 			}
