@@ -127,6 +127,9 @@ func (c *GDriveConnector) listFolderItems(ctx context.Context, folderID string, 
 		if f.MimeType != "" {
 			meta["mime_type"] = f.MimeType
 		}
+		if f.WebViewLink != "" {
+			meta["url"] = f.WebViewLink
+		}
 		out = append(out, datasource.NormalizedItem{
 			ID:        "gdrive:" + f.ID,
 			Source:    datasourceNameGDrive,

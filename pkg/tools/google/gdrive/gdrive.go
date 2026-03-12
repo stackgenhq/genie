@@ -61,6 +61,7 @@ type FileInfo struct {
 	MimeType     string `json:"mime_type"`
 	Size         int64  `json:"size,omitempty"`
 	ModifiedTime string `json:"modified_time,omitempty"`
+	WebViewLink  string `json:"web_view_link,omitempty"`
 	IsFolder     bool   `json:"is_folder"`
 }
 

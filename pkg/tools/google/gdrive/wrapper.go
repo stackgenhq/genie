@@ -125,7 +125,7 @@ func (w *driveWrapper) Search(ctx context.Context, query string, maxResults int)
 		Context(ctx).
 		Q(query).
 		PageSize(int64(maxResults)).
-		Fields("files(id, name, mimeType, size, modifiedTime)")
+		Fields("files(id, name, mimeType, size, modifiedTime, webViewLink)")
 
 	result, err := call.Do()
 	if err != nil {
@@ -158,7 +158,7 @@ func (w *driveWrapper) listFolderWithQuery(ctx context.Context, query string, ma
 		Context(ctx).
 		Q(query).
 		PageSize(int64(maxResults)).
-		Fields("files(id, name, mimeType, size, modifiedTime)")
+		Fields("files(id, name, mimeType, size, modifiedTime, webViewLink)")
 
 	result, err := call.Do()
 	if err != nil {
@@ -259,6 +259,7 @@ func filesToInfos(files []*drive.File) []FileInfo {
 			MimeType:     f.MimeType,
 			Size:         f.Size,
 			ModifiedTime: f.ModifiedTime,
+			WebViewLink:  f.WebViewLink,
 			IsFolder:     f.MimeType == folderMimeType,
 		})
 	}

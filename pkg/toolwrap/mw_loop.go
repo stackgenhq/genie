@@ -16,6 +16,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/memory/graph"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
+	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 )
 
 // maxConsecutiveRepeatCalls is the number of consecutive identical tool calls
@@ -100,6 +101,14 @@ func (m *loopDetectionMiddleware) Wrap(next Handler) Handler {
 			return next(ctx, tc)
 		}
 
+		// Internal tasks (e.g. graph learn) legitimately call the same tool
+		// many times with different arguments. Skip same-tool loop detection
+		// but keep identical-args loop detection to guard against true loops.
+		isInternal := orchestratorcontext.IsInternalTask(ctx)
+		if isInternal {
+			return next(ctx, tc)
+		}
+
 		argsStr := string(tc.Args)
 		if cleaned, err := sjson.Delete(argsStr, "_justification"); err == nil {
 			argsStr = cleaned
@@ -108,7 +117,7 @@ func (m *loopDetectionMiddleware) Wrap(next Handler) Handler {
 
 		m.mu.Lock()
 		identicalLoop := m.isLooping(fingerprint)
-		sameToolLoop := m.isSameToolLooping(tc.ToolName)
+		sameToolLoop := !isInternal && m.isSameToolLooping(tc.ToolName)
 		if !identicalLoop && !sameToolLoop {
 			m.recordCall(fingerprint)
 			m.recordSameToolCall(tc.ToolName)

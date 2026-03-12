@@ -527,7 +527,7 @@ func (a *Application) Start(ctx context.Context) error {
 	}
 
 	// --- Data sources sync (learn from Gmail, Calendar, etc. when user opted in during setup) ---
-	if a.cfg.DataSources.Enabled && a.vectorStore != nil {
+	if a.cfg.DataSources.Enabled {
 		a.replayWG.Add(1)
 		go func() {
 			defer a.replayWG.Done()
@@ -1049,10 +1049,10 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 //go:embed graph_learn_prompt.txt
 var graphLearnPrompt string
 
-// maybeRunGraphLearn checks for the graph-learn pending file written by setup.
-// If present and the app has a graph store and orchestrator, it runs a one-off
-// graph-learn pass in a goroutine (so the sync loop is not blocked). The file
-// is removed immediately so only one pass can run even if called concurrently.
+// maybeRunGraphLearn runs a one-off graph-learn pass in a background
+// goroutine after the first successful data sources sync. The learn pass is
+// idempotent and runs on every restart by default; to opt out, place a
+// graph_learn_stop file in the agent's data dir (~/.genie/<agent>/).
 // ctx is used so the goroutine is cancelled when the app shuts down. AG-UI
 // emissions are suppressed so the internal task does not leak into user UI.
 func (a *Application) maybeRunGraphLearn(ctx context.Context) {
@@ -1060,16 +1060,14 @@ func (a *Application) maybeRunGraphLearn(ctx context.Context) {
 		return
 	}
 	logger := logger.GetLogger(ctx).With("fn", "app.maybeRunGraphLearn")
-	pendingPath := graph.PendingGraphLearnPath(a.cfg.AgentName)
-	if _, err := os.Stat(pendingPath); err != nil {
-		logger.Warn("Graph learn pending file not found", "path", pendingPath, "error", err)
+
+	// Check for stop file — if present, skip graph learn entirely.
+	stopPath := graph.StopGraphLearnPath(a.cfg.AgentName)
+	if _, err := os.Stat(stopPath); err == nil {
+		logger.Info("Graph learn stop file found, skipping learn pass", "path", stopPath)
 		return
 	}
-	// Remove immediately so a concurrent caller won't also start a learn pass.
-	if err := os.Remove(pendingPath); err != nil {
-		logger.Warn("Could not remove graph learn pending file", "path", pendingPath, "error", err)
-		return
-	}
+
 	go func() {
 		defer func(startTime time.Time) {
 			logger.Info("Graph learn pass completed", "duration", time.Since(startTime).String())
@@ -1077,7 +1075,8 @@ func (a *Application) maybeRunGraphLearn(ctx context.Context) {
 		learnCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 		defer cancel()
 		learnCtx = agui.WithSuppressEmit(learnCtx)
-		logger.Info("Starting one-time graph learn from synced data")
+		learnCtx = orchestratorcontext.WithInternalTask(learnCtx)
+		logger.Info("Starting graph learn from synced data")
 		outputChan := make(chan string, 64)
 		var learnErr error
 		go func() {
@@ -1094,13 +1093,9 @@ func (a *Application) maybeRunGraphLearn(ctx context.Context) {
 			// Drain output; not sent to any user.
 		}
 		if learnErr != nil {
-			// Re-create pending file so the next successful sync can retry the learn pass.
-			if wErr := os.WriteFile(pendingPath, []byte{}, 0o600); wErr != nil {
-				logger.Warn("Could not re-create graph learn pending file for retry", "path", pendingPath, "error", wErr)
-			}
 			return
 		}
-		logger.Info("Graph learn pass completed")
+		logger.Info("Graph learn pass completed successfully")
 	}()
 }
 
@@ -1123,6 +1118,7 @@ func (a *Application) runDataSourcesSync(ctx context.Context) {
 	defer ticker.Stop()
 	const maxBackoff = 15 * time.Minute
 	consecutiveFailures := 0
+	ctx = orchestratorcontext.WithInternalTask(ctx)
 	// Run one sync immediately, then on interval (with backoff on failures).
 	hadErrors := a.runOneDataSourcesSync(ctx, cfg, sp)
 	if !hadErrors {
