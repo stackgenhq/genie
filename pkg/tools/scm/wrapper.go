@@ -46,6 +46,14 @@ func (s *scmWrapper) ListPullRequests(ctx context.Context, repo string, opts go_
 	return prs, nil
 }
 
+func (s *scmWrapper) GetRepoContent(ctx context.Context, req GetRepoContentRequest) (*go_scm.Content, error) {
+	content, _, err := s.client.Contents.Find(ctx, req.Repo, req.Path, req.Ref)
+	if err != nil {
+		return nil, fmt.Errorf("scm: failed to get repo content for %s in %s: %w", req.Path, req.Repo, err)
+	}
+	return content, nil
+}
+
 // GetPullRequest returns a single pull request by repository slug and number.
 func (s *scmWrapper) GetPullRequest(ctx context.Context, repo string, id int) (*go_scm.PullRequest, error) {
 	pr, _, err := s.client.PullRequests.Find(ctx, repo, id)

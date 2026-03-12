@@ -31,6 +31,8 @@ type Service interface {
 	ListPullRequestCommits(ctx context.Context, repo string, number int, opts go_scm.ListOptions) ([]*go_scm.Commit, error)
 	MergePullRequest(ctx context.Context, repo string, number int) error
 
+	GetRepoContent(ctx context.Context, req GetRepoContentRequest) (*go_scm.Content, error)
+
 	// Validate performs a lightweight health check to verify that the
 	// provider's token is valid and the endpoint is reachable.
 	Validate(ctx context.Context) error
@@ -236,6 +238,7 @@ func AllTools(s Service) []tool.Tool {
 		NewCreatePRCommentTool(s),
 		NewListPRCommitsTool(s),
 		NewMergePRTool(s),
+		NewGetRepoContentTool(s),
 	}
 }
 
@@ -379,4 +382,24 @@ func (ts *toolSet) mergePR(ctx context.Context, req PRNumberRequest) (string, er
 		return "", err
 	}
 	return fmt.Sprintf("PR #%d merged successfully", req.Number), nil
+}
+
+// NewGetRepoContentTool
+func NewGetRepoContentTool(s Service) tool.CallableTool {
+	ts := &toolSet{s: s}
+	return function.NewFunctionTool(
+		ts.getRepoContent,
+		function.WithName("scm_get_repo_content"),
+		function.WithDescription("Get the content of a file in a repository."),
+	)
+}
+
+type GetRepoContentRequest struct {
+	Repo string `json:"repo" jsonschema:"description=Repository name (e.g. owner/name),required"`
+	Path string `json:"path" jsonschema:"description=Path to the file,required"`
+	Ref  string `json:"ref" jsonschema:"description=Branch,tag, or commit SHA,required"`
+}
+
+func (ts *toolSet) getRepoContent(ctx context.Context, req GetRepoContentRequest) (*go_scm.Content, error) {
+	return ts.s.GetRepoContent(ctx, req)
 }

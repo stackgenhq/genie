@@ -39,7 +39,7 @@ var _ = Describe("CreateAgentTool", func() {
 			)
 			Expect(cat).NotTo(BeNil())
 			Expect(cat.expert).To(Equal(fakeExpert))
-			Expect(cat.description).To(ContainSubstring("run_shell"))
+			Expect(cat.description).To(ContainSubstring("Spawn a sub-agent"))
 		})
 
 		It("applies options", func() {
