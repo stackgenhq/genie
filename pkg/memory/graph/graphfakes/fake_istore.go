@@ -44,6 +44,17 @@ type FakeIStore struct {
 	closeReturnsOnCall map[int]struct {
 		result1 error
 	}
+	DeleteAllStub        func(context.Context) error
+	deleteAllMutex       sync.RWMutex
+	deleteAllArgsForCall []struct {
+		arg1 context.Context
+	}
+	deleteAllReturns struct {
+		result1 error
+	}
+	deleteAllReturnsOnCall map[int]struct {
+		result1 error
+	}
 	DeleteEntityStub        func(context.Context, string) error
 	deleteEntityMutex       sync.RWMutex
 	deleteEntityArgsForCall []struct {
@@ -325,6 +336,67 @@ func (fake *FakeIStore) CloseReturnsOnCall(i int, result1 error) {
 		})
 	}
 	fake.closeReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeIStore) DeleteAll(arg1 context.Context) error {
+	fake.deleteAllMutex.Lock()
+	ret, specificReturn := fake.deleteAllReturnsOnCall[len(fake.deleteAllArgsForCall)]
+	fake.deleteAllArgsForCall = append(fake.deleteAllArgsForCall, struct {
+		arg1 context.Context
+	}{arg1})
+	stub := fake.DeleteAllStub
+	fakeReturns := fake.deleteAllReturns
+	fake.recordInvocation("DeleteAll", []interface{}{arg1})
+	fake.deleteAllMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeIStore) DeleteAllCallCount() int {
+	fake.deleteAllMutex.RLock()
+	defer fake.deleteAllMutex.RUnlock()
+	return len(fake.deleteAllArgsForCall)
+}
+
+func (fake *FakeIStore) DeleteAllCalls(stub func(context.Context) error) {
+	fake.deleteAllMutex.Lock()
+	defer fake.deleteAllMutex.Unlock()
+	fake.DeleteAllStub = stub
+}
+
+func (fake *FakeIStore) DeleteAllArgsForCall(i int) context.Context {
+	fake.deleteAllMutex.RLock()
+	defer fake.deleteAllMutex.RUnlock()
+	argsForCall := fake.deleteAllArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeIStore) DeleteAllReturns(result1 error) {
+	fake.deleteAllMutex.Lock()
+	defer fake.deleteAllMutex.Unlock()
+	fake.DeleteAllStub = nil
+	fake.deleteAllReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeIStore) DeleteAllReturnsOnCall(i int, result1 error) {
+	fake.deleteAllMutex.Lock()
+	defer fake.deleteAllMutex.Unlock()
+	fake.DeleteAllStub = nil
+	if fake.deleteAllReturnsOnCall == nil {
+		fake.deleteAllReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.deleteAllReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }

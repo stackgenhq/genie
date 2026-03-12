@@ -36,7 +36,7 @@ type batchEntityStore interface {
 // GraphStoreRequest is the input for the unified graph_store tool.
 // Set Action to "entity", "relation", or "batch" to choose what to store.
 type GraphStoreRequest struct {
-	Action string `json:"action" jsonschema:"description=What to do: 'entity' (store entity)  'relation' (store relation)  'delete_entity' (delete entity and its relations)  'delete_relation' (delete a specific relation)  'batch' (multiple items at once),required,enum=entity,enum=relation,enum=delete_entity,enum=delete_relation,enum=batch"`
+	Action string `json:"action" jsonschema:"description=What to do: 'entity' (store entity)  'relation' (store relation)  'delete_entity' (delete entity and its relations)  'delete_relation' (delete a specific relation)  'delete_all' (remove ALL graph data)  'batch' (multiple items at once),required,enum=entity,enum=relation,enum=delete_entity,enum=delete_relation,enum=delete_all,enum=batch"`
 
 	// Fields for action=entity
 	ID    string            `json:"id,omitempty" jsonschema:"description=Unique identifier for the entity (required when action=entity)"`
@@ -167,11 +167,17 @@ func (t *graphStoreTool) execute(ctx context.Context, req GraphStoreRequest) (Gr
 		}
 		return GraphStoreResponse{Message: "Relation deleted"}, nil
 
+	case "delete_all":
+		if err := t.store.DeleteAll(ctx); err != nil {
+			return GraphStoreResponse{}, err
+		}
+		return GraphStoreResponse{Message: "All graph data deleted"}, nil
+
 	case "batch":
 		return t.executeBatch(ctx, req.Items)
 
 	default:
-		return GraphStoreResponse{}, fmt.Errorf("%w: action must be 'entity', 'relation', 'delete_entity', 'delete_relation', or 'batch', got %q", ErrInvalidInput, req.Action)
+		return GraphStoreResponse{}, fmt.Errorf("%w: action must be 'entity', 'relation', 'delete_entity', 'delete_relation', 'delete_all', or 'batch', got %q", ErrInvalidInput, req.Action)
 	}
 }
 

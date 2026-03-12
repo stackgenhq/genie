@@ -421,6 +421,14 @@ func (s *InMemoryStore) ShortestPath(ctx context.Context, sourceID, targetID str
 	return path, nil
 }
 
+// DeleteAll removes all entities and relations from the in-memory graph.
+func (s *InMemoryStore) DeleteAll(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.g = graph.New(entityHash, graph.Directed())
+	return s.saveLocked(ctx)
+}
+
 func (s *InMemoryStore) Close(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

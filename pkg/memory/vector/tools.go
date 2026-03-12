@@ -27,6 +27,12 @@ const (
 	MemoryMergeToolName  = "memory_merge"
 )
 
+// graphDocTypeKey is the metadata key used by the graph memory package to tag
+// entity and relation documents stored in the shared vector collection. Results
+// carrying this key are filtered out of memory_search / memory_list so that
+// graph documents don't pollute user-facing memory queries.
+const graphDocTypeKey = "__graph_type"
+
 // allowedMetadataKeys returns a set of allowed keys for validation. If cfg is nil
 // or AllowedMetadataKeys is empty, nil is returned meaning "allow any key".
 func allowedMetadataKeys(cfg *Config) map[string]bool {
@@ -227,6 +233,11 @@ func (t *memorySearchTool) execute(ctx context.Context, req MemorySearchRequest)
 
 	items := make([]MemorySearchResultItem, 0, len(results))
 	for _, r := range results {
+		// Skip graph memory documents — they belong to the knowledge graph
+		// and should only be queried via graph_query, not memory_search.
+		if r.Metadata[graphDocTypeKey] != "" {
+			continue
+		}
 		items = append(items, MemorySearchResultItem{
 			ID:         r.ID,
 			Content:    r.Content,
@@ -356,6 +367,10 @@ func (t *memoryListTool) execute(ctx context.Context, req MemoryListRequest) (Me
 
 	items := make([]MemorySearchResultItem, 0, len(results))
 	for _, r := range results {
+		// Skip graph memory documents — same as memory_search.
+		if r.Metadata[graphDocTypeKey] != "" {
+			continue
+		}
 		items = append(items, MemorySearchResultItem{
 			ID:         r.ID,
 			Content:    r.Content,

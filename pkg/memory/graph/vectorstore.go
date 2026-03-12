@@ -391,6 +391,45 @@ func (s *VectorBackedStore) ShortestPath(ctx context.Context, sourceID, targetID
 	return nil, nil // no path found
 }
 
+// DeleteAll removes all graph entities and relations from the vector store.
+// It searches for all documents tagged with __graph_type and deletes them.
+func (s *VectorBackedStore) DeleteAll(ctx context.Context) error {
+	// Search for all entity documents.
+	entities, err := s.vs.Search(ctx, vector.SearchRequest{
+		Query:  "",
+		Limit:  vectorStoreSearchLimit,
+		Filter: map[string]string{graphDocType: graphTypeEntity},
+	})
+	if err != nil {
+		return fmt.Errorf("delete all: failed to find entities: %w", err)
+	}
+
+	// Search for all relation documents.
+	relations, err := s.vs.Search(ctx, vector.SearchRequest{
+		Query:  "",
+		Limit:  vectorStoreSearchLimit,
+		Filter: map[string]string{graphDocType: graphTypeRelation},
+	})
+	if err != nil {
+		return fmt.Errorf("delete all: failed to find relations: %w", err)
+	}
+
+	// Collect all IDs and batch-delete.
+	ids := make([]string, 0, len(entities)+len(relations))
+	for _, e := range entities {
+		ids = append(ids, e.ID)
+	}
+	for _, r := range relations {
+		ids = append(ids, r.ID)
+	}
+
+	if len(ids) == 0 {
+		return nil
+	}
+
+	return s.vs.Delete(ctx, vector.DeleteRequest{IDs: ids})
+}
+
 // Close is a no-op for the vector-backed store because the vector store
 // lifecycle is managed by the caller (app.go closes vectorStore separately).
 func (s *VectorBackedStore) Close(_ context.Context) error {

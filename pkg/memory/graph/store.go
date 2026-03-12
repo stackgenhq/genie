@@ -40,6 +40,9 @@ type IStore interface {
 	// source or target vertex does not exist. Not all implementations may support
 	// this; they may return an error.
 	ShortestPath(ctx context.Context, sourceID, targetID string) ([]string, error)
+	// DeleteAll removes all entities and relations from the graph.
+	// This is a destructive operation — use with caution.
+	DeleteAll(ctx context.Context) error
 	// Close releases resources (e.g. flush snapshot, close connection).
 	Close(ctx context.Context) error
 }
