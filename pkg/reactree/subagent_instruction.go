@@ -26,10 +26,14 @@ func buildSubAgentInstruction(toolNames []string) string {
 		"If your goal contains a shell script or command, call run_shell to EXECUTE it. " +
 		"Do NOT echo, display, or render scripts as markdown code blocks. "
 
-	// Embed explicit tool allowlist right after the mandate.
+	// Embed explicit tool allowlist right after the mandate. This is the
+	// HARD constraint — the LLM must not call anything outside this list.
 	if len(toolNames) > 0 {
 		instruction += fmt.Sprintf(
-			"\nAVAILABLE TOOLS (you MUST ONLY call these): %s. ",
+			"\nAVAILABLE TOOLS (you MUST ONLY call these — no exceptions): %s. "+
+				"Do NOT invent, fabricate, or guess tool names that are not in this list. "+
+				"If you need a capability that none of your tools provide, STOP and report: "+
+				"\"Required tool [name] is not available. Please respawn with it included.\" ",
 			strings.Join(toolNames, ", "),
 		)
 	}
@@ -46,6 +50,13 @@ func buildSubAgentInstruction(toolNames []string) string {
 		"For code or infra changes, prefer small, reversible steps. " +
 		"Do NOT try to call send_message — the parent agent handles user communication. " +
 		"Any 'Working Memory' section contains data from sibling agents — use it directly, do NOT re-fetch. "
+
+	// Anti-exploration — prevents wasteful discovery loops.
+	instruction += "\nANTI-EXPLORATION: Do NOT paginate through API results or list endpoints to discover " +
+		"information you already have. If your goal specifies a target (repo name, URL, file path, " +
+		"resource ID), use it DIRECTLY with the action tool instead of browsing or listing first. " +
+		"For example: if asked to create a PR in repo 'owner/name', call the PR creation tool directly — " +
+		"do NOT call list_repos to find it first. "
 
 	// Incremental reporting and shared memory.
 	instruction += "\nINCREMENTAL REPORTING: Report per-item results as you complete each one. " +

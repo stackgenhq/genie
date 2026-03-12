@@ -22,6 +22,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/expert/expertfakes"
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider/modelproviderfakes"
 	"github.com/stackgenhq/genie/pkg/hitl/hitlfakes"
+	"github.com/stackgenhq/genie/pkg/memory/graph/graphfakes"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/memory/vector/vectorfakes"
 	"github.com/stackgenhq/genie/pkg/messenger"
@@ -32,12 +33,15 @@ import (
 	"github.com/stackgenhq/genie/pkg/semanticrouter"
 	"github.com/stackgenhq/genie/pkg/semanticrouter/semanticrouterfakes"
 	"github.com/stackgenhq/genie/pkg/tools"
+	"github.com/stackgenhq/genie/pkg/tools/toolsfakes"
 	"github.com/stackgenhq/genie/pkg/ttlcache"
 	"go.opentelemetry.io/otel/baggage"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 	"trpc.group/trpc-go/trpc-agent-go/memory"
 	"trpc.group/trpc-go/trpc-agent-go/memory/inmemory"
+	"trpc.group/trpc-go/trpc-agent-go/tool"
+	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )
 
 var _ = Describe("CodeOwner", func() {
@@ -91,6 +95,7 @@ var _ = Describe("CodeOwner", func() {
 				fakeProvider,
 				fakeRegistry,
 				&vectorfakes.FakeIStore{},
+				nil, // graphStore
 				&auditfakes.FakeAuditor{},
 				&hitlfakes.FakeApprovalStore{},
 				nil,
@@ -395,6 +400,11 @@ var _ = Describe("CodeOwner", func() {
 		})
 
 		It("should generate a resume using the summarizer and accomplishments", func() {
+			// Provide a mock toolIndex since createResume now always calls it.
+			fakeToolIndex := &toolsfakes.FakeSmartToolProvider{}
+			fakeToolIndex.SearchToolsWithContextReturns(nil, nil)
+			co.toolIndex = fakeToolIndex
+
 			// Mock findings in vector store
 			fakeStore := &vectorfakes.FakeIStore{}
 			fakeStore.SearchReturns([]vector.SearchResult{
@@ -419,9 +429,21 @@ var _ = Describe("CodeOwner", func() {
 			Expect(req.Content).To(ContainSubstring("SysPrompt"))
 		})
 
-		It("should include available tool names in the summarizer prompt", func() {
-			co.vectorStore = nil
-			co.availableToolNames = []string{"email_read", "email_send", "scm_list_prs", "browser_navigate"}
+		It("should include tool capabilities when toolIndex is available", func(ctx context.Context) {
+			cfg := vector.Config{
+				VectorStoreProvider: "inmemory",
+				EmbeddingProvider:   "dummy",
+			}
+			store, storeErr := cfg.NewStore(ctx)
+			Expect(storeErr).NotTo(HaveOccurred())
+
+			reg := tools.NewRegistry(ctx, tools.Tools{
+				newStubTool("email_read", "Read email messages"),
+				newStubTool("email_send", "Send email messages"),
+			})
+			toolIdx, idxErr := tools.NewVectorToolProvider(ctx, store, reg, &graphfakes.FakeIStore{})
+			Expect(idxErr).NotTo(HaveOccurred())
+			co.toolIndex = toolIdx
 
 			fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
 			fakeSummarizer.SummarizeReturns("Resume with tools", nil)
@@ -432,34 +454,15 @@ var _ = Describe("CodeOwner", func() {
 
 			Expect(fakeSummarizer.SummarizeCallCount()).To(Equal(1))
 			_, req := fakeSummarizer.SummarizeArgsForCall(0)
-			Expect(req.Content).To(ContainSubstring("Available Tools"))
+			Expect(req.Content).To(ContainSubstring("Key Capabilities"))
 			Expect(req.Content).To(ContainSubstring("email_read"))
 			Expect(req.Content).To(ContainSubstring("email_send"))
-			Expect(req.Content).To(ContainSubstring("scm_list_prs"))
-			Expect(req.Content).To(ContainSubstring("browser_navigate"))
 		})
 
-		It("should sort tool names alphabetically in the prompt", func() {
-			co.vectorStore = nil
-			co.availableToolNames = []string{"z_tool", "a_tool", "m_tool"}
-
-			fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
-			fakeSummarizer.SummarizeReturns("sorted resume", nil)
-
-			_, err := co.createResume(ctx, fakeSummarizer, "TestPersona")
-			Expect(err).NotTo(HaveOccurred())
-
-			_, req := fakeSummarizer.SummarizeArgsForCall(0)
-			aIdx := strings.Index(req.Content, "a_tool")
-			mIdx := strings.Index(req.Content, "m_tool")
-			zIdx := strings.Index(req.Content, "z_tool")
-			Expect(aIdx).To(BeNumerically("<", mIdx))
-			Expect(mIdx).To(BeNumerically("<", zIdx))
-		})
-
-		It("should omit the tools section when no tools are available", func() {
-			co.vectorStore = nil
-			co.availableToolNames = nil
+		It("should omit the tools section when search returns empty", func(ctx context.Context) {
+			fakeToolIndex := &toolsfakes.FakeSmartToolProvider{}
+			fakeToolIndex.SearchToolsWithContextReturns(nil, nil)
+			co.toolIndex = fakeToolIndex
 
 			fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
 			fakeSummarizer.SummarizeReturns("resume without tools", nil)
@@ -468,7 +471,7 @@ var _ = Describe("CodeOwner", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			_, req := fakeSummarizer.SummarizeArgsForCall(0)
-			Expect(req.Content).NotTo(ContainSubstring("Available Tools"))
+			Expect(req.Content).NotTo(ContainSubstring("Key Capabilities"))
 		})
 	})
 
@@ -735,3 +738,15 @@ var _ = Describe("bridgeBrowserTab", func() {
 		Expect(bridgedDeadline).To(BeTemporally("~", deadline, time.Second))
 	})
 })
+
+// newStubTool creates a lightweight tool.Tool with a given name and description.
+// The tool has a no-op Call implementation; it's used only for testing tool
+// indexing and registry interactions.
+func newStubTool(name, description string) tool.Tool {
+	type noopReq struct{}
+	return function.NewFunctionTool(
+		func(_ context.Context, _ noopReq) (string, error) { return "", nil },
+		function.WithName(name),
+		function.WithDescription(description),
+	)
+}

@@ -30,6 +30,24 @@ type Service interface {
 	CreatePullRequestComment(ctx context.Context, repo string, number int, input *go_scm.CommentInput) (*go_scm.Comment, error)
 	ListPullRequestCommits(ctx context.Context, repo string, number int, opts go_scm.ListOptions) ([]*go_scm.Commit, error)
 	MergePullRequest(ctx context.Context, repo string, number int) error
+	CreateOrUpdateFile(ctx context.Context, repo, path string, params *go_scm.ContentParams) error
+	FindBranch(ctx context.Context, repo, name string) (*go_scm.Reference, error)
+	CreateBranch(ctx context.Context, repo string, params *go_scm.ReferenceInput) error
+
+	// Tool-facing methods: these accept a single request struct and return
+	// tool-friendly responses so that each NewXTool constructor can simply
+	// pass the method reference to NewFunctionTool.
+	ListReposTool(ctx context.Context, req go_scm.ListOptions) (ListReposResponse, error)
+	ListPullRequestsTool(ctx context.Context, req ListPullRequestsRequest) ([]PullRequestSummary, error)
+	GetPullRequestTool(ctx context.Context, req GetPullRequestRequest) (*go_scm.PullRequest, error)
+	CreatePullRequestTool(ctx context.Context, req CreatePullRequestRequest) (*go_scm.PullRequest, error)
+	ListPRChangesTool(ctx context.Context, req PRNumberRequest) ([]ChangeSummary, error)
+	ListPRCommentsTool(ctx context.Context, req PRNumberRequest) ([]CommentSummary, error)
+	CreatePRCommentTool(ctx context.Context, req CreatePRCommentRequest) (*go_scm.Comment, error)
+	ListPRCommitsTool(ctx context.Context, req PRNumberRequest) ([]CommitSummary, error)
+	MergePRTool(ctx context.Context, req PRNumberRequest) (string, error)
+	GetRepoContent(ctx context.Context, req GetRepoContentRequest) (*go_scm.Content, error)
+	CommitAndPRTool(ctx context.Context, req CommitAndPRRequest) (CommitAndPRResponse, error)
 
 	// Validate performs a lightweight health check to verify that the
 	// provider's token is valid and the endpoint is reachable.
@@ -71,7 +89,7 @@ func (cfg Config) getClient() (*go_scm.Client, error) {
 	}
 }
 
-// ── Tool Definitions ────────────────────────────────────────────────────
+// ── Request / Response Types ────────────────────────────────────────────
 
 type ListReposResponse struct {
 	Repositories []string `json:"repositories"`
@@ -104,6 +122,38 @@ type CreatePRCommentRequest struct {
 	Repo   string `json:"repo" jsonschema:"description=Repository name (e.g. owner/name),required"`
 	Number int    `json:"number" jsonschema:"description=Pull Request number,required"`
 	Body   string `json:"body" jsonschema:"description=Comment body text,required"`
+}
+
+type GetRepoContentRequest struct {
+	Repo string `json:"repo" jsonschema:"description=Repository name (e.g. owner/name),required"`
+	Path string `json:"path" jsonschema:"description=Path to the file,required"`
+	Ref  string `json:"ref" jsonschema:"description=Branch,tag, or commit SHA,required"`
+}
+
+// FileChange describes a single file to create or update.
+type FileChange struct {
+	Path    string `json:"path" jsonschema:"description=File path in the repository (e.g. pkg/main.go),required"`
+	Content string `json:"content" jsonschema:"description=Full file content as plain text,required"`
+}
+
+// CommitAndPRRequest is the input for the uber commit-and-PR tool.
+type CommitAndPRRequest struct {
+	Repo          string       `json:"repo" jsonschema:"description=Repository name (e.g. owner/name),required"`
+	Branch        string       `json:"branch" jsonschema:"description=Target branch for commits,required"`
+	BaseBranch    string       `json:"base_branch" jsonschema:"description=Base branch to create the target branch from (default: main)"`
+	CommitMessage string       `json:"commit_message" jsonschema:"description=Commit message for the file changes,required"`
+	Files         []FileChange `json:"files" jsonschema:"description=List of files to create or update,required"`
+	CreatePR      bool         `json:"create_pr" jsonschema:"description=If true also open a Pull Request against the base branch"`
+	PRTitle       string       `json:"pr_title" jsonschema:"description=PR title (required when create_pr is true)"`
+	PRBody        string       `json:"pr_body" jsonschema:"description=PR description"`
+}
+
+// CommitAndPRResponse is the output of the uber commit-and-PR tool.
+type CommitAndPRResponse struct {
+	CommittedFiles []string `json:"committed_files"`
+	Branch         string   `json:"branch"`
+	PRNumber       int      `json:"pr_number,omitempty"`
+	PRLink         string   `json:"pr_link,omitempty"`
 }
 
 // PullRequestSummary is a simplified PR response for listing.
@@ -140,88 +190,94 @@ type CommitSummary struct {
 
 // ── Tool Constructors ───────────────────────────────────────────────────
 
-type toolSet struct {
-	s Service
-}
-
 func NewListReposTool(s Service) tool.CallableTool {
-	ts := &toolSet{s: s}
 	return function.NewFunctionTool(
-		ts.listRepos,
+		s.ListReposTool,
 		function.WithName("scm_list_repos"),
 		function.WithDescription("List repositories accessible to the current user."),
 	)
 }
 
 func NewListPullRequestsTool(s Service) tool.CallableTool {
-	ts := &toolSet{s: s}
 	return function.NewFunctionTool(
-		ts.listPullRequests,
+		s.ListPullRequestsTool,
 		function.WithName("scm_list_prs"),
 		function.WithDescription("List pull requests for a repository. Returns open PRs by default."),
 	)
 }
 
 func NewGetPullRequestTool(s Service) tool.CallableTool {
-	ts := &toolSet{s: s}
 	return function.NewFunctionTool(
-		ts.getPullRequest,
+		s.GetPullRequestTool,
 		function.WithName("scm_get_pr"),
 		function.WithDescription("Get details of a specific Pull Request."),
 	)
 }
 
 func NewCreatePullRequestTool(s Service) tool.CallableTool {
-	ts := &toolSet{s: s}
 	return function.NewFunctionTool(
-		ts.createPullRequest,
+		s.CreatePullRequestTool,
 		function.WithName("scm_create_pr"),
-		function.WithDescription("Create a new Pull Request."),
+		function.WithDescription("Create a new Pull Request from an existing branch that already has commits. Do not use this to make code changes; use scm_commit_and_pr instead if you need to modify files and open a PR."),
 	)
 }
 
 func NewListPRChangesTool(s Service) tool.CallableTool {
-	ts := &toolSet{s: s}
 	return function.NewFunctionTool(
-		ts.listPRChanges,
+		s.ListPRChangesTool,
 		function.WithName("scm_list_pr_changes"),
 		function.WithDescription("List files changed in a Pull Request."),
 	)
 }
 
 func NewListPRCommentsTool(s Service) tool.CallableTool {
-	ts := &toolSet{s: s}
 	return function.NewFunctionTool(
-		ts.listPRComments,
+		s.ListPRCommentsTool,
 		function.WithName("scm_list_pr_comments"),
 		function.WithDescription("List comments on a Pull Request."),
 	)
 }
 
 func NewCreatePRCommentTool(s Service) tool.CallableTool {
-	ts := &toolSet{s: s}
 	return function.NewFunctionTool(
-		ts.createPRComment,
+		s.CreatePRCommentTool,
 		function.WithName("scm_create_pr_comment"),
 		function.WithDescription("Add a comment to a Pull Request."),
 	)
 }
 
 func NewListPRCommitsTool(s Service) tool.CallableTool {
-	ts := &toolSet{s: s}
 	return function.NewFunctionTool(
-		ts.listPRCommits,
+		s.ListPRCommitsTool,
 		function.WithName("scm_list_pr_commits"),
 		function.WithDescription("List commits in a Pull Request."),
 	)
 }
 
 func NewMergePRTool(s Service) tool.CallableTool {
-	ts := &toolSet{s: s}
 	return function.NewFunctionTool(
-		ts.mergePR,
+		s.MergePRTool,
 		function.WithName("scm_merge_pr"),
 		function.WithDescription("Merge a Pull Request."),
+	)
+}
+
+// NewGetRepoContentTool creates a tool that retrieves the content of a file in a repository.
+func NewGetRepoContentTool(s Service) tool.CallableTool {
+	return function.NewFunctionTool(
+		s.GetRepoContent,
+		function.WithName("scm_get_repo_content"),
+		function.WithDescription("Get the content of a file in a repository."),
+	)
+}
+
+// NewCommitAndPRTool creates a tool that commits multiple file changes to a branch
+// and optionally opens a Pull Request.
+func NewCommitAndPRTool(s Service) tool.CallableTool {
+	return function.NewFunctionTool(
+		s.CommitAndPRTool,
+		function.WithName("scm_commit_and_pr"),
+		function.WithDescription("Create or update multiple files in a branch, commit them, and optionally open a Pull Request. Use this tool when you need to write code changes to the repository. Each file produces a separate commit."),
 	)
 }
 
@@ -236,147 +292,7 @@ func AllTools(s Service) []tool.Tool {
 		NewCreatePRCommentTool(s),
 		NewListPRCommitsTool(s),
 		NewMergePRTool(s),
+		NewGetRepoContentTool(s),
+		NewCommitAndPRTool(s),
 	}
-}
-
-// ── Tool Implementations ────────────────────────────────────────────────
-
-func (ts *toolSet) listRepos(ctx context.Context, listReposRequest go_scm.ListOptions) (ListReposResponse, error) {
-	repos, err := ts.s.ListRepos(ctx, listReposRequest)
-	if err != nil {
-		return ListReposResponse{}, err
-	}
-	names := make([]string, len(repos))
-	for i, r := range repos {
-		// Return full namespace/name (e.g. "stackgenhq/genie") so the
-		// agent can pass it directly to scm_list_prs without guessing
-		// the org/owner prefix.
-		if r.Namespace != "" {
-			names[i] = r.Namespace + "/" + r.Name
-		} else {
-			names[i] = r.Name
-		}
-	}
-	return ListReposResponse{Repositories: names}, nil
-}
-
-func (ts *toolSet) listPullRequests(ctx context.Context, req ListPullRequestsRequest) ([]PullRequestSummary, error) {
-	opts := go_scm.PullRequestListOptions{
-		Page:   1,
-		Size:   50,
-		Open:   true,
-		Closed: false,
-	}
-	if req.State == "closed" {
-		opts.Open = false
-		opts.Closed = true
-	}
-
-	prs, err := ts.s.ListPullRequests(ctx, req.Repo, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	summaries := make([]PullRequestSummary, 0, len(prs))
-	for _, pr := range prs {
-		author := ""
-		if pr.Author.Login != "" {
-			author = pr.Author.Login
-		}
-		state := "open"
-		if pr.Closed {
-			state = "closed"
-		}
-		if pr.Merged {
-			state = "merged"
-		}
-		summaries = append(summaries, PullRequestSummary{
-			Number: pr.Number,
-			Title:  pr.Title,
-			State:  state,
-			Source: pr.Source,
-			Target: pr.Target,
-			Author: author,
-		})
-	}
-	return summaries, nil
-}
-
-func (ts *toolSet) getPullRequest(ctx context.Context, req GetPullRequestRequest) (*go_scm.PullRequest, error) {
-	return ts.s.GetPullRequest(ctx, req.Repo, req.ID)
-}
-
-func (ts *toolSet) createPullRequest(ctx context.Context, req CreatePullRequestRequest) (*go_scm.PullRequest, error) {
-	input := &go_scm.PullRequestInput{
-		Title:  req.Title,
-		Body:   req.Body,
-		Source: req.Head,
-		Target: req.Base,
-	}
-	return ts.s.CreatePullRequest(ctx, req.Repo, input)
-}
-
-func (ts *toolSet) listPRChanges(ctx context.Context, req PRNumberRequest) ([]ChangeSummary, error) {
-	changes, err := ts.s.ListPullRequestChanges(ctx, req.Repo, req.Number, go_scm.ListOptions{Page: 1, Size: 100})
-	if err != nil {
-		return nil, err
-	}
-	out := make([]ChangeSummary, 0, len(changes))
-	for _, c := range changes {
-		out = append(out, ChangeSummary{
-			Path:    c.Path,
-			Added:   c.Added,
-			Deleted: c.Deleted,
-			Renamed: c.Renamed,
-		})
-	}
-	return out, nil
-}
-
-func (ts *toolSet) listPRComments(ctx context.Context, req PRNumberRequest) ([]CommentSummary, error) {
-	comments, err := ts.s.ListPullRequestComments(ctx, req.Repo, req.Number, go_scm.ListOptions{Page: 1, Size: 100})
-	if err != nil {
-		return nil, err
-	}
-	out := make([]CommentSummary, 0, len(comments))
-	for _, c := range comments {
-		out = append(out, CommentSummary{
-			ID:     c.ID,
-			Body:   c.Body,
-			Author: c.Author.Login,
-		})
-	}
-	return out, nil
-}
-
-func (ts *toolSet) createPRComment(ctx context.Context, req CreatePRCommentRequest) (*go_scm.Comment, error) {
-	return ts.s.CreatePullRequestComment(ctx, req.Repo, req.Number, &go_scm.CommentInput{Body: req.Body})
-}
-
-func (ts *toolSet) listPRCommits(ctx context.Context, req PRNumberRequest) ([]CommitSummary, error) {
-	commits, err := ts.s.ListPullRequestCommits(ctx, req.Repo, req.Number, go_scm.ListOptions{Page: 1, Size: 100})
-	if err != nil {
-		return nil, err
-	}
-	out := make([]CommitSummary, 0, len(commits))
-	for _, c := range commits {
-		author := c.Author.Login
-		if author == "" {
-			author = c.Author.Name
-		}
-		out = append(out, CommitSummary{
-			Sha:     c.Sha,
-			Message: c.Message,
-			Author:  author,
-		})
-	}
-	return out, nil
-}
-
-func (ts *toolSet) mergePR(ctx context.Context, req PRNumberRequest) (string, error) {
-	err := ts.s.MergePullRequest(ctx, req.Repo, req.Number)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("PR #%d merged successfully", req.Number), nil
 }

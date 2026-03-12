@@ -163,9 +163,10 @@ type persistedEntry struct {
 // its state to disk after every Add and restores it on startup.
 // When using Qdrant, persistence is handled by the external store itself.
 type Store struct {
+	cfg              Config
 	vs               vectorstore.VectorStore
 	embedder         embedder.Embedder
-	mu               sync.Mutex
+	mu               sync.RWMutex
 	persistDir       string
 	useExternalStore bool // true if using Qdrant (skip snapshots)
 }
@@ -202,6 +203,7 @@ func (cfg Config) NewStore(ctx context.Context) (*Store, error) {
 	}
 
 	s := &Store{
+		cfg:              cfg,
 		vs:               vs,
 		embedder:         emb,
 		persistDir:       cfg.PersistenceDir,
@@ -281,8 +283,16 @@ func (s *Store) Add(ctx context.Context, req AddRequest) error {
 	}
 
 	// Sequential insert — the underlying vector store may not be concurrency-safe.
+	vs := s.getVS()
 	for _, r := range results {
-		if err := s.vs.Add(ctx, r.doc, r.embedding); err != nil {
+		err := vs.Add(ctx, r.doc, r.embedding)
+		if err != nil && s.useExternalStore && isCollectionNotFoundError(err) {
+			if reErr := s.reconnect(ctx); reErr == nil {
+				vs = s.getVS()
+				err = vs.Add(ctx, r.doc, r.embedding)
+			}
+		}
+		if err != nil {
 			return fmt.Errorf("failed to store document %s: %w", r.doc.ID, err)
 		}
 	}
@@ -314,7 +324,15 @@ func (s *Store) addSingle(ctx context.Context, item BatchItem) error {
 		Metadata: meta,
 	}
 
-	if err := s.vs.Add(ctx, doc, embedding); err != nil {
+	vs := s.getVS()
+	err = vs.Add(ctx, doc, embedding)
+	if err != nil && s.useExternalStore && isCollectionNotFoundError(err) {
+		if reErr := s.reconnect(ctx); reErr == nil {
+			vs = s.getVS()
+			err = vs.Add(ctx, doc, embedding)
+		}
+	}
+	if err != nil {
 		return fmt.Errorf("failed to store document %s: %w", item.ID, err)
 	}
 
@@ -329,6 +347,13 @@ func (s *Store) addSingle(ctx context.Context, item BatchItem) error {
 // Upsert replaces documents with the same ID (delete then add). Use a stable ID
 // (e.g. source:external_id) so that re-ingestion overwrites rather than duplicates.
 func (s *Store) Upsert(ctx context.Context, req UpsertRequest) error {
+	ctx, span := trace.Tracer.Start(ctx, "vectorstore.upsert")
+	span.SetAttributes(
+		attribute.Int("vectorstore.batch_size", len(req.Items)),
+		attribute.String("vectorstore.agent", orchestratorcontext.AgentNameFromContext(ctx)),
+	)
+	defer span.End()
+
 	ids := make([]string, 0, len(req.Items))
 	for _, item := range req.Items {
 		ids = append(ids, item.ID)
@@ -384,7 +409,14 @@ func (s *Store) Search(ctx context.Context, req SearchRequest) ([]SearchResult, 
 		searchQuery.SearchMode = vectorstore.SearchModeVector
 	}
 
-	res, err := s.vs.Search(ctx, searchQuery)
+	vs := s.getVS()
+	res, err := vs.Search(ctx, searchQuery)
+	if err != nil && s.useExternalStore && isCollectionNotFoundError(err) {
+		if reErr := s.reconnect(ctx); reErr == nil {
+			vs = s.getVS()
+			res, err = vs.Search(ctx, searchQuery)
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("vector search failed: %w", err)
 	}
@@ -410,9 +442,24 @@ func (s *Store) Search(ctx context.Context, req SearchRequest) ([]SearchResult, 
 // A single snapshot is taken at the end. Errors from individual deletes
 // are collected but do not stop processing of remaining items.
 func (s *Store) Delete(ctx context.Context, req DeleteRequest) error {
+	ctx, span := trace.Tracer.Start(ctx, "vectorstore.delete")
+	span.SetAttributes(
+		attribute.Int("vectorstore.delete_count", len(req.IDs)),
+		attribute.String("vectorstore.agent", orchestratorcontext.AgentNameFromContext(ctx)),
+	)
+	defer span.End()
+
 	var errs []error
+	vs := s.getVS()
 	for _, id := range req.IDs {
-		if err := s.vs.Delete(ctx, id); err != nil {
+		err := vs.Delete(ctx, id)
+		if err != nil && s.useExternalStore && isCollectionNotFoundError(err) {
+			if reErr := s.reconnect(ctx); reErr == nil {
+				vs = s.getVS()
+				err = vs.Delete(ctx, id)
+			}
+		}
+		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to delete %s: %w", id, err))
 		}
 	}
@@ -434,8 +481,9 @@ func (s *Store) Delete(ctx context.Context, req DeleteRequest) error {
 // For Qdrant stores, it closes the client connection.
 // It is safe to call multiple times.
 func (s *Store) Close(ctx context.Context) error {
-	if s.vs != nil {
-		return s.vs.Close()
+	vs := s.getVS()
+	if vs != nil {
+		return vs.Close()
 	}
 	return s.saveSnapshot(ctx)
 }
@@ -450,6 +498,10 @@ func (s *Store) saveSnapshot(ctx context.Context) error {
 	if s.persistDir == "" {
 		return nil
 	}
+
+	_, span := trace.Tracer.Start(ctx, "vectorstore.save_snapshot")
+	defer span.End()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -487,6 +539,9 @@ func (s *Store) saveSnapshot(ctx context.Context) error {
 // loadSnapshot restores documents and embeddings from a previously
 // saved JSON snapshot file. If no snapshot exists, this is a no-op.
 func (s *Store) loadSnapshot(ctx context.Context) error {
+	_, span := trace.Tracer.Start(ctx, "vectorstore.load_snapshot")
+	defer span.End()
+
 	data, err := os.ReadFile(s.snapshotPath())
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -500,10 +555,50 @@ func (s *Store) loadSnapshot(ctx context.Context) error {
 		return fmt.Errorf("failed to unmarshal snapshot: %w", err)
 	}
 
+	vs := s.getVS()
 	for _, e := range entries {
-		if err := s.vs.Add(ctx, e.Doc, e.Embedding); err != nil {
+		if err := vs.Add(ctx, e.Doc, e.Embedding); err != nil {
 			return fmt.Errorf("failed to restore document %s: %w", e.Doc.ID, err)
 		}
 	}
 	return nil
+}
+
+func (s *Store) getVS() vectorstore.VectorStore {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.vs
+}
+
+func (s *Store) reconnect(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var vs vectorstore.VectorStore
+	var err error
+
+	vectorStoreProvider := strings.ToLower(strings.TrimSpace(s.cfg.VectorStoreProvider))
+	switch vectorStoreProvider {
+	case "qdrant":
+		vs, err = qdrantstore.New(ctx, qdrantstore.Config(s.cfg.Qdrant), s.embedder)
+		if err != nil {
+			return fmt.Errorf("failed to recreate Qdrant store: %w", err)
+		}
+	default:
+		return fmt.Errorf("reconnect not supported for provider %q", vectorStoreProvider)
+	}
+
+	if s.vs != nil {
+		_ = s.vs.Close()
+	}
+	s.vs = vs
+	return nil
+}
+
+func isCollectionNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := string(err.Error()) // force string usage
+	return strings.Contains(msg, "NotFound") && strings.Contains(msg, "Collection") && strings.Contains(msg, "doesn't exist")
 }

@@ -223,6 +223,12 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 	ctx = orchestratorcontext.WithAgent(ctx, orchestratorcontext.Agent{
 		Name: a.displayName(),
 	})
+
+	// Create a top-level span so every vector-store, graph-store and tool
+	// indexing operation during startup is grouped into one trace.
+	ctx, bootstrapSpan := trace.Tracer.Start(ctx, a.displayName()+".bootstrap")
+	defer bootstrapSpan.End()
+
 	log := logger.GetLogger(ctx).With("fn", "app.Bootstrap")
 
 	// --- Crypto / TLS (NIST 2030 defaults: TLS 1.2+, optional cipher restriction) ---
@@ -386,6 +392,7 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 		modelProvider,
 		a.toolRegistry,
 		vectorStore,
+		a.graphStore,
 		a.auditor,
 		a.approvalStore,
 		memorySvc,

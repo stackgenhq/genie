@@ -151,7 +151,7 @@ var _ = Describe("TUI event emission", func() {
 })
 
 var _ = Describe("loop detection", func() {
-	It("should detect a loop after 3 identical consecutive calls", func() {
+	It("should detect a loop after 2 identical consecutive calls", func() {
 		ft := newFakeTool("list_issues", "data")
 		w := toolwrap.NewWrapper(ft, toolwrap.MiddlewareDeps{})
 		args := []byte(`{"status":"open"}`)
@@ -159,11 +159,9 @@ var _ = Describe("loop detection", func() {
 		_, err := w.Call(context.Background(), args)
 		Expect(err).NotTo(HaveOccurred())
 		_, err = w.Call(context.Background(), args)
-		Expect(err).NotTo(HaveOccurred())
-		_, err = w.Call(context.Background(), args)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("loop detected"))
-		Expect(ft.CallCallCount()).To(Equal(2))
+		Expect(ft.CallCallCount()).To(Equal(1))
 	})
 
 	It("should NOT flag calls with different arguments as a loop", func() {

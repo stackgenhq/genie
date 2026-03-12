@@ -19,11 +19,17 @@ import (
 )
 
 // maxConsecutiveRepeatCalls is the number of consecutive identical tool calls
-// that triggers loop detection. Set to 3 so that the third identical call is
-// blocked — this tolerates one accidental retry (common with Gemini Flash which
-// sometimes re-calls a tool before processing its result) while still catching
-// true infinite loops.
-const maxConsecutiveRepeatCalls = 3
+// (same name + same args) that triggers loop detection. Set to 2 so that the
+// second identical call is blocked. Combined with the cancel-cause mechanism
+// that terminates the sub-agent run, this prevents wasting budget on retries.
+const maxConsecutiveRepeatCalls = 2
+
+// maxConsecutiveSameToolCalls is the number of consecutive calls to the SAME
+// tool (regardless of arguments) that triggers loop detection. This catches
+// pagination/exploration loops where the LLM calls the same API with different
+// parameters each time (e.g. scm_list_repos with Page=1, Page=2, Page=3...)
+// instead of using the action tool directly.
+const maxConsecutiveSameToolCalls = 4
 
 // maxConsecutiveEmptyResults is the number of consecutive empty results from
 // a retrieval tool (even with different arguments) that triggers cancellation.
@@ -70,9 +76,10 @@ var loopExemptTools = map[string]bool{
 // Each Wrapper gets its own instance so per-tool history is isolated.
 // Concurrency-safe via mutex.
 type loopDetectionMiddleware struct {
-	mu           sync.Mutex
-	history      []string       // bounded ring of "toolName:args" fingerprints
-	emptyStreaks map[string]int // toolName → consecutive empty result count
+	mu              sync.Mutex
+	history         []string       // bounded ring of "toolName:args" fingerprints
+	sameToolHistory []string       // bounded ring of tool names (no args)
+	emptyStreaks    map[string]int // toolName → consecutive empty result count
 }
 
 // LoopDetectionMiddleware returns a Middleware that blocks a tool after
@@ -100,28 +107,36 @@ func (m *loopDetectionMiddleware) Wrap(next Handler) Handler {
 		fingerprint := uuid.NewSHA1(uuid.Nil, []byte(tc.ToolName+":"+argsStr)).String()
 
 		m.mu.Lock()
-		looping := m.isLooping(fingerprint)
-		if !looping {
+		identicalLoop := m.isLooping(fingerprint)
+		sameToolLoop := m.isSameToolLooping(tc.ToolName)
+		if !identicalLoop && !sameToolLoop {
 			m.recordCall(fingerprint)
+			m.recordSameToolCall(tc.ToolName)
 		}
 		m.mu.Unlock()
 
-		if looping {
+		if identicalLoop {
 			loopErr := fmt.Errorf(
 				"loop detected: tool %s has been called with identical arguments %d times consecutively. "+
 					"Stop calling this tool and summarize the results you already have",
 				tc.ToolName, maxConsecutiveRepeatCalls)
 
-			// Cancel the sub-agent's context so the runner stops
-			// immediately. Without this, the LLM ignores the error
-			// and keeps retrying, burning the entire call budget.
-			// The cancel function is only set for sub-agents (via
-			// WithCancelCause in create_agent.go); parent agents
-			// get the error-only path for backward compatibility.
 			if cancel := cancelCauseFromContext(ctx); cancel != nil {
 				cancel(loopErr)
 			}
+			return nil, loopErr
+		}
 
+		if sameToolLoop {
+			loopErr := fmt.Errorf(
+				"exploration loop detected: tool %s has been called %d times consecutively with different arguments. "+
+					"This looks like unnecessary pagination or discovery. Use the information you already have "+
+					"or call a different tool to complete the task",
+				tc.ToolName, maxConsecutiveSameToolCalls)
+
+			if cancel := cancelCauseFromContext(ctx); cancel != nil {
+				cancel(loopErr)
+			}
 			return nil, loopErr
 		}
 
@@ -197,6 +212,34 @@ func (m *loopDetectionMiddleware) recordCall(fingerprint string) {
 	const maxHistory = 10
 	if len(m.history) > maxHistory {
 		m.history = m.history[len(m.history)-maxHistory:]
+	}
+}
+
+// isSameToolLooping returns true when the most recent entries in the
+// same-tool history all match the given tool name, indicating the LLM
+// is calling the same tool repeatedly with different arguments (e.g.
+// pagination loops). Caller must hold m.mu.
+func (m *loopDetectionMiddleware) isSameToolLooping(toolName string) bool {
+	n := len(m.sameToolHistory)
+	needed := maxConsecutiveSameToolCalls - 1
+	if n < needed {
+		return false
+	}
+	for i := n - needed; i < n; i++ {
+		if m.sameToolHistory[i] != toolName {
+			return false
+		}
+	}
+	return true
+}
+
+// recordSameToolCall appends a tool name to the same-tool history.
+// Caller must hold m.mu.
+func (m *loopDetectionMiddleware) recordSameToolCall(toolName string) {
+	m.sameToolHistory = append(m.sameToolHistory, toolName)
+	const maxHistory = 10
+	if len(m.sameToolHistory) > maxHistory {
+		m.sameToolHistory = m.sameToolHistory[len(m.sameToolHistory)-maxHistory:]
 	}
 }
 
