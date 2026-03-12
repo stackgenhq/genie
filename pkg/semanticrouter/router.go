@@ -81,6 +81,10 @@ type Router struct {
 
 	// classifyChain is built once during New() and executed per Classify call.
 	classifyChain mw.ClassifyFunc
+
+	// stopPrune signals the background prune goroutine to stop.
+	// It is nil when pruning is not active.
+	stopPrune chan struct{}
 }
 
 // Route defines a semantic category alongside example utterances.
@@ -125,7 +129,46 @@ func New(ctx context.Context, cfg Config, provider modelprovider.ModelProvider) 
 		provider:   provider,
 	}
 	r.classifyChain = r.buildClassifyChain()
+	r.startPruneTicker()
 	return r, nil
+}
+
+// startPruneTicker starts a background goroutine that periodically prunes stale
+// cache entries. It is a no-op when caching is disabled or PruneInterval is 0.
+func (r *Router) startPruneTicker() {
+	if r.cfg.Disabled || !r.cfg.EnableCaching || r.cacheStore == nil {
+		return
+	}
+
+	interval := r.cfg.PruneInterval
+	if interval == 0 {
+		return
+	}
+
+	r.stopPrune = make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				ctx := context.Background()
+				if _, err := r.PruneStaleCacheEntries(ctx); err != nil {
+					logger.GetLogger(ctx).Warn("background cache pruning failed", "error", err)
+				}
+			case <-r.stopPrune:
+				return
+			}
+		}
+	}()
+}
+
+// Close stops the background prune goroutine. It is safe to call multiple times.
+func (r *Router) Close() {
+	if r.stopPrune != nil {
+		close(r.stopPrune)
+		r.stopPrune = nil
+	}
 }
 
 // buildClassifyChain assembles the middleware chain based on router configuration.

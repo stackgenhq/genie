@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Confidence-gated accomplishment storage** — `TreeResult` now carries a `Confidence` score (0.0–1.0) computed from execution signals (task completion, status, iteration efficiency, repetition, output presence). Only results above a configurable threshold (default 0.5) are stored, preventing failed/garbage outputs from polluting memory.
+- **`AccomplishmentConfidenceThreshold`** config field in `[persona]` — controls the minimum confidence required to store an accomplishment (default 0.5 / 50%). Exposed in Config Builder UI under the Persona section with TOML/YAML serialization.
 - Agent learning from failures — previously, failed task outputs were discarded; the agent now stores them as episodic memories with LLM-generated verbal reflections, enabling it to avoid repeating the same mistakes.
 - Recency-weighted episodic memory retrieval using exponential decay (`e^(-0.01 × hours)`), so recent lessons surface first and old episodes naturally fade over ~2 weeks without manual pruning.
 - Importance scoring for episodic memories — each stored episode receives a 1-10 importance score via a cheap LLM call (`TaskEfficiency`), boosting critical lessons in weighted retrieval.
@@ -29,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Follow-up bypass middleware** — ensures messages flagged as follow-ups by L0 skip the expensive L2 LLM call, even when L1 doesn't match (e.g. dummy embedder).
 - **`follow_up` L1 route** — new built-in route with 10 utterances for common continuation patterns, expanded from the original 2 routes (jailbreak + salutation) to 3.
 - **Semantic cache TTL** — `CacheTTL` config field (default 5m) enforces temporal decay on cached responses. Operational queries (health checks, pod listings) no longer return stale data.
+- **Background cache pruning** — `PruneStaleCacheEntries` is now wired to a background ticker (default every 1h, configurable via `prune_interval`). Expired cache entries are cleaned up automatically, preventing unbounded vector store growth. The ticker starts with the router and stops gracefully on `Close()`.
 - 34 Ginkgo/Gomega test specs for the `semanticmiddleware` package covering chain building, L0 regex matching, L1 vector routing, and follow-up bypass behavior.
 - **Langfuse trace analyzer** (`pkg/langfuse/trace_analyzer.go`) — queries the Langfuse API to produce per-trace execution breakdowns: user request, tool calls (with parent), sub-agent detection (spans with child generations), LLM call counts, vector store operation counts, token usage, cost, and duration. Filterable by user, session, agent name, tags, and time window. Includes `FormatReport()` for human-readable markdown reports.
 - **Internal task context marker** (`orchestratorcontext.WithInternalTask`) — background events (cron triggers, heartbeats, webhooks) bypass the semantic cache and classification pipeline entirely. Prevents cron tasks from receiving stale cached responses and keeps cron results from polluting the cache for future user queries.
@@ -40,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Accomplishments routed through episodic memory pipeline** — `storeAccomplishment()` no longer writes raw Q&A directly to the vector store. Results are now scored by `ImportanceScorer` (1–10 significance), stored as episodes with recency decay (λ=0.01, ~3% weight after 14 days), and consolidated into wisdom notes by the daily `EpisodeConsolidator`. This prevents ephemeral data (e.g. AWS cost lookups) from permanently polluting vector memory.
 - `Toggles` struct refactored: boolean feature flags (`EnableCriticMiddleware`, `EnableActionReflection`, `EnableDryRunSimulation`, `EnableMCPServerAccess`, `EnableAuditDashboard`) removed; only `DryRun.Enabled` (via `FeaturesConfig`) and runtime-injected dependencies remain.
 - `FeaturesConfig` simplified from 5 boolean flags to a single `DryRun DryRunConfig` struct; config files use `[features.dry_run] enabled = true` instead of individual flags.
 - `ActionReflector` is now activated purely by setting `Toggles.Reflector` (non-nil); the redundant `EnableActionReflection` boolean guard was removed.
@@ -323,7 +327,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Chat UI: scroll propagation, fullscreen background, and duplicate messages
 
-[Unreleased]: https://github.com/stackgenhq/genie/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/stackgenhq/genie/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/stackgenhq/genie/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/stackgenhq/genie/compare/v0.1.6-rc.2...v0.1.6
 [0.1.6-rc.2]: https://github.com/stackgenhq/genie/compare/v0.1.6-rc.1...v0.1.6-rc.2
 [0.1.6-rc.1]: https://github.com/stackgenhq/genie/compare/v0.1.5...v0.1.6-rc.1

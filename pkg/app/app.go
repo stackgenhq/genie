@@ -111,6 +111,7 @@ type Application struct {
 	mcpClient        *mcp.Client
 	auditor          audit.Auditor
 	sp               security.SecretProvider // same provider used everywhere; audits lookups when [security.secrets] set
+	semRouter        *semanticrouter.Router  // stored for Close() to stop background prune ticker
 
 	// pendingReplays holds approvals recovered during Bootstrap that can be
 	// replayed once the chat handler is available in Start().
@@ -365,6 +366,7 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize semantic router gatekeeper: %w", err)
 	}
+	a.semRouter = semRouter
 
 	orchestratorOpts := []orchestrator.OrchestratorOption{
 		orchestrator.WithToolwrapOptions(
@@ -672,6 +674,9 @@ func (a *Application) Close(ctx context.Context) {
 	}
 	if a.browser != nil {
 		a.browser.Close()
+	}
+	if a.semRouter != nil {
+		a.semRouter.Close()
 	}
 	if a.msgr != nil {
 		if err := a.msgr.Disconnect(context.Background()); err != nil {
