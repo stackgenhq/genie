@@ -115,6 +115,9 @@ type Messenger struct {
 	// Key format: "channelID:threadTS". Subsequent messages in these threads
 	// are processed without requiring another @mention.
 	mentionedThreads sync.Map
+	// userInfoCache caches resolved Slack user info (email, display name)
+	// keyed by Slack user ID. Avoids repeated users.info API calls.
+	userInfoCache sync.Map
 }
 
 // New creates a new Slack Messenger with the given config and options.
@@ -529,24 +532,53 @@ func (m *Messenger) stripBotMention(text string) string {
 	return strings.TrimSpace(cleaned)
 }
 
-// resolveDisplayName looks up a Slack user's display name via the users.info API.
-// Returns the user ID as fallback if the API call fails.
-func (m *Messenger) resolveDisplayName(ctx context.Context, userID string) string {
-	if m.api == nil {
-		return userID
+// cachedUserInfo holds resolved Slack user metadata.
+type cachedUserInfo struct {
+	email       string
+	displayName string
+}
+
+// resolveUserInfo looks up a Slack user's email and display name via the
+// users.info API, caching the result so each user is only looked up once.
+// Returns (email, displayName) — email falls back to userID, displayName
+// falls back to userID.
+func (m *Messenger) resolveUserInfo(ctx context.Context, userID string) (string, string) {
+	// Check cache first.
+	if cached, ok := m.userInfoCache.Load(userID); ok {
+		info := cached.(cachedUserInfo)
+		return info.email, info.displayName
 	}
+
+	if m.api == nil {
+		return userID, userID
+	}
+
 	user, err := m.api.GetUserInfoContext(ctx, userID)
 	if err != nil {
-		logger.GetLogger(ctx).Debug("failed to resolve Slack display name", "userID", userID, "error", err)
-		return userID
+		logger.GetLogger(ctx).Debug("failed to resolve Slack user info", "userID", userID, "error", err)
+		return userID, userID
 	}
-	if user.Profile.DisplayName != "" {
-		return user.Profile.DisplayName
+
+	email := user.Profile.Email
+	if email == "" {
+		email = userID // fallback if email is not available
 	}
-	if user.RealName != "" {
-		return user.RealName
+
+	displayName := user.Profile.DisplayName
+	if displayName == "" {
+		displayName = user.RealName
 	}
-	return userID
+	if displayName == "" {
+		displayName = userID
+	}
+
+	// Cache the result.
+	m.userInfoCache.Store(userID, cachedUserInfo{email: email, displayName: displayName})
+
+	logger.GetLogger(ctx).Info("resolved Slack user info",
+		"slackUID", userID, "email", email, "displayName", displayName)
+
+	return email, displayName
 }
 
 func (m *Messenger) handleEventsAPI(ctx context.Context, event slackevents.EventsAPIEvent) {
@@ -568,8 +600,8 @@ func (m *Messenger) handleEventsAPI(ctx context.Context, event slackevents.Event
 			// Strip the bot mention from text so the LLM gets clean input.
 			cleanText := m.stripBotMention(ev.Text)
 
-			// Resolve sender display name for better attribution.
-			displayName := m.resolveDisplayName(ctx, ev.User)
+			// Resolve sender email and display name (cached per user).
+			email, displayName := m.resolveUserInfo(ctx, ev.User)
 
 			msg := messenger.IncomingMessage{
 				ID:       ev.TimeStamp,
@@ -579,7 +611,7 @@ func (m *Messenger) handleEventsAPI(ctx context.Context, event slackevents.Event
 					Type: messenger.ChannelTypeChannel,
 				},
 				Sender: messenger.Sender{
-					ID:          ev.User,
+					ID:          email,
 					Username:    ev.User,
 					DisplayName: displayName,
 				},

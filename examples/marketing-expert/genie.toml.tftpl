@@ -175,7 +175,18 @@ collection_name = "genie_marketing_documents"
 api_key = "$${QDRANT_API_KEY}"
 %{ endif ~}
 
+# ── MCP Servers ──────────────────────────────────────────────────────
+# Sybill.ai — sales call summaries, deal insights, buyer intelligence.
+# Get your API key at: https://app.sybill.ai/settings/integrations/api-keys
+[[mcp.servers]]
+name = "sybill"
+transport = "sse"
+server_url = "https://mcp.sybill.ai/mcp"
+
+[mcp.servers.headers]
+Authorization = "Bearer $${SYBILL_API_KEY}"
+
 [hitl]
-# Auto-approve graph and Google Drive tools for autonomous agents.
-always_allowed = ["graph_*", "google_drive_*", "http_request", "notify"]
+# Auto-approve graph, Google Drive, and Sybill tools for autonomous agents.
+always_allowed = ["graph_*", "google_drive_*", "http_request", "notify", "ask_sybill", "list_conversations", "get_conversation", "list_deals", "get_deal"]
 background_behavior = "approve"
