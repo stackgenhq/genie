@@ -335,7 +335,7 @@ func (s *Store) Upsert(ctx context.Context, req UpsertRequest) error {
 	}
 	// Delete is best-effort for missing IDs; continue to Add.
 	_ = s.Delete(ctx, DeleteRequest{IDs: ids})
-	return s.Add(ctx, AddRequest{Items: req.Items})
+	return s.Add(ctx, AddRequest(req))
 }
 
 // Search finds semantically similar documents, optionally filtered

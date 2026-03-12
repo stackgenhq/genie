@@ -13,7 +13,7 @@ import (
 	"sync"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-	"github.com/stackgenhq/genie/pkg/security/authcontext"
+	"github.com/stackgenhq/genie/pkg/identity"
 )
 
 // jwtValidator verifies JWTs against one or more trusted OIDC issuers,
@@ -39,7 +39,7 @@ func newJWTValidator(cfg JWTConfig) *jwtValidator {
 }
 
 // Authenticate implements the Authenticator interface.
-func (v *jwtValidator) Authenticate(w http.ResponseWriter, r *http.Request) *authcontext.Principal {
+func (v *jwtValidator) Authenticate(w http.ResponseWriter, r *http.Request) *identity.Sender {
 	authHeader := r.Header.Get("Authorization")
 	if !strings.HasPrefix(authHeader, "Bearer ") {
 		writeJSONWithIP(w, r, http.StatusUnauthorized, "missing_token", "Authorization: Bearer <token> required", "jwt")
@@ -64,9 +64,9 @@ func (v *jwtValidator) Authenticate(w http.ResponseWriter, r *http.Request) *aut
 	if id == "" {
 		id = claims.Sub
 	}
-	return &authcontext.Principal{
+	return &identity.Sender{
 		ID:               id,
-		Name:             claims.Name,
+		DisplayName:      claims.Name,
 		Role:             "user",
 		AuthenticatedVia: "jwt",
 	}

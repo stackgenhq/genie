@@ -29,7 +29,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-	"github.com/stackgenhq/genie/pkg/security/authcontext"
+	"github.com/stackgenhq/genie/pkg/identity"
 	"golang.org/x/oauth2"
 )
 
@@ -85,11 +85,11 @@ func NewOIDCHandler(cfg Config) *OIDCHandler {
 }
 
 // Authenticate implements the Authenticator interface.
-func (h *OIDCHandler) Authenticate(w http.ResponseWriter, r *http.Request) *authcontext.Principal {
+func (h *OIDCHandler) Authenticate(w http.ResponseWriter, r *http.Request) *identity.Sender {
 	if session := h.ValidateSession(r); session != nil {
-		return &authcontext.Principal{
+		return &identity.Sender{
 			ID:               session.Email,
-			Name:             session.Email,
+			DisplayName:      session.Email,
 			Role:             "user",
 			AuthenticatedVia: "oidc",
 		}

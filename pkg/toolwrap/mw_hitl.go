@@ -13,12 +13,12 @@ import (
 	"github.com/stackgenhq/genie/pkg/agui"
 	"github.com/stackgenhq/genie/pkg/audit"
 	"github.com/stackgenhq/genie/pkg/hitl"
+	"github.com/stackgenhq/genie/pkg/identity"
 	"github.com/stackgenhq/genie/pkg/interrupt"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
-	"github.com/stackgenhq/genie/pkg/security/authcontext"
 	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 )
 
@@ -254,7 +254,7 @@ func (m *hitlApprovalMiddleware) Wrap(next Handler) Handler {
 			RunID:         rid,
 			ToolName:      tc.ToolName,
 			Args:          string(tc.Args),
-			CreatedBy:     authcontext.GetPrincipal(ctx).ID,
+			CreatedBy:     identity.GetSender(ctx).ID,
 			SenderContext: messenger.MessageOriginFrom(ctx).String(),
 			Question:      OriginalQuestionFrom(ctx),
 		})
