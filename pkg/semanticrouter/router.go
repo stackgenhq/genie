@@ -66,21 +66,28 @@ type ClassificationResult struct {
 // IRouter defines the interface for the semantic router, enabling mocking and testing.
 type IRouter interface {
 	Classify(ctx context.Context, question, resume string) (ClassificationResult, error)
-	CheckCache(ctx context.Context, query string) (string, bool)
-	SetCache(ctx context.Context, query string, response string) error
+	CheckCache(ctx context.Context, query string) (CacheHit, bool)
+	SetCache(ctx context.Context, query string, response string, trajectory string) error
 	PruneStaleCacheEntries(ctx context.Context) (int, error)
 	SearchCache(ctx context.Context, query string, limit int) ([]CacheEntry, error)
 	DeleteCacheEntries(ctx context.Context, ids []string) (int, error)
 	ClearCache(ctx context.Context) (int, error)
 }
 
+// CacheHit is returned by CheckCache when a cache entry matches.
+type CacheHit struct {
+	Response   string
+	Trajectory string
+}
+
 // CacheEntry represents a single entry in the semantic cache.
 type CacheEntry struct {
-	ID       string    `json:"id"`
-	Query    string    `json:"query"`
-	Response string    `json:"response"`
-	CachedAt time.Time `json:"cached_at"`
-	Score    float64   `json:"score"`
+	ID         string    `json:"id"`
+	Query      string    `json:"query"`
+	Response   string    `json:"response"`
+	Trajectory string    `json:"trajectory,omitempty"`
+	CachedAt   time.Time `json:"cached_at"`
+	Score      float64   `json:"score"`
 }
 
 // Router provides semantic routing (intent classification), semantic caching,
@@ -518,9 +525,9 @@ func GetClassifyPrompt() string {
 
 // CheckCache looks up the input query in the semantic cache.
 // Cache entries are subject to TTL: entries older than Config.CacheTTL are ignored.
-func (r *Router) CheckCache(ctx context.Context, query string) (string, bool) {
+func (r *Router) CheckCache(ctx context.Context, query string) (CacheHit, bool) {
 	if r.cfg.Disabled || !r.cfg.EnableCaching {
-		return "", false
+		return CacheHit{}, false
 	}
 
 	results, err := r.cacheStore.Search(ctx, vector.SearchRequest{Query: query, Limit: 1})
@@ -528,11 +535,11 @@ func (r *Router) CheckCache(ctx context.Context, query string) (string, bool) {
 		if err != nil {
 			logger.GetLogger(ctx).Warn("semantic cache search query failed", "error", err)
 		}
-		return "", false
+		return CacheHit{}, false
 	}
 
 	if results[0].Score < r.cfg.Threshold {
-		return "", false
+		return CacheHit{}, false
 	}
 
 	// TTL enforcement: ignore stale entries.
@@ -547,17 +554,20 @@ func (r *Router) CheckCache(ctx context.Context, query string) (string, bool) {
 			if age > ttl {
 				logger.GetLogger(ctx).Debug("semantic cache entry expired",
 					"age", age, "ttl", ttl.String())
-				return "", false
+				return CacheHit{}, false
 			}
 		}
 	}
 
-	return results[0].Metadata["response"], true
+	return CacheHit{
+		Response:   results[0].Metadata["response"],
+		Trajectory: results[0].Metadata["trajectory"],
+	}, true
 }
 
 // SetCache stores the query and response pair for future semantic hits.
 // A timestamp is stored alongside the response for TTL enforcement.
-func (r *Router) SetCache(ctx context.Context, query string, response string) error {
+func (r *Router) SetCache(ctx context.Context, query string, response string, trajectory string) error {
 	if r.cfg.Disabled || !r.cfg.EnableCaching {
 		return nil
 	}
@@ -566,14 +576,19 @@ func (r *Router) SetCache(ctx context.Context, query string, response string) er
 	hash := sha256.Sum256([]byte(query))
 	id := hex.EncodeToString(hash[:])
 
+	metadata := map[string]string{
+		"response":  response,
+		"cached_at": strconv.FormatInt(time.Now().Unix(), 10),
+		"type":      "semantic_cache",
+	}
+	if trajectory != "" {
+		metadata["trajectory"] = trajectory
+	}
+
 	err := r.cacheStore.Upsert(ctx, vector.UpsertRequest{Items: []vector.BatchItem{{
-		ID:   "cache_" + id,
-		Text: query,
-		Metadata: map[string]string{
-			"response":  response,
-			"cached_at": strconv.FormatInt(time.Now().Unix(), 10),
-			"type":      "semantic_cache",
-		},
+		ID:       "cache_" + id,
+		Text:     query,
+		Metadata: metadata,
 	}}})
 	if err != nil {
 		return fmt.Errorf("semantic cache upsert failed: %w", err)
@@ -659,10 +674,11 @@ func (r *Router) SearchCache(ctx context.Context, query string, limit int) ([]Ca
 	entries := make([]CacheEntry, 0, len(results))
 	for _, res := range results {
 		entry := CacheEntry{
-			ID:       res.ID,
-			Query:    res.Content,
-			Response: res.Metadata["response"],
-			Score:    res.Score,
+			ID:         res.ID,
+			Query:      res.Content,
+			Response:   res.Metadata["response"],
+			Trajectory: res.Metadata["trajectory"],
+			Score:      res.Score,
 		}
 		if ts, ok := res.Metadata["cached_at"]; ok {
 			if parsed, parseErr := strconv.ParseInt(ts, 10, 64); parseErr == nil {

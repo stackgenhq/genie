@@ -755,11 +755,11 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	// but still executes tools for fresh data. This prevents stale kubectl
 	// output (or similar) from being returned verbatim.
 	// Internal tasks (cron triggers, heartbeats) skip the cache entirely.
-	var cacheHint string
+	var cacheHint semanticrouter.CacheHit
 	if c.router != nil && !req.SkipClassification {
-		if cachedHint, hit := c.router.CheckCache(ctx, req.Question); hit {
+		if hit, ok := c.router.CheckCache(ctx, req.Question); ok {
 			logr.Info("semantic cache hint found", "question", toolwrap.TruncateForAudit(req.Question, 50))
-			cacheHint = cachedHint
+			cacheHint = hit
 		}
 	}
 
@@ -789,20 +789,29 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 
 	// Build the message with past conversation context injected.
 	message := req.Question
-	if pastContext != "" || episodicContext != "" || cacheHint != "" {
+	if pastContext != "" || episodicContext != "" || cacheHint.Response != "" {
 		var contextParts []string
-		if cacheHint != "" {
+		if cacheHint.Response != "" {
 			// Cap the hint to prevent old verbose answers from bloating context.
 			const maxCacheHint = 1500
-			hint := cacheHint
+			hint := cacheHint.Response
 			if len(hint) > maxCacheHint {
 				hint = hint[:maxCacheHint] + "\n...(truncated)"
 			}
-			contextParts = append(contextParts,
-				fmt.Sprintf("## Prior Cached Answer (Reference Only)\n"+
-					"The following is a previous answer to a similar question. "+
-					"Use it as a guideline ONLY — do NOT repeat it verbatim. "+
-					"Always re-execute tools to get fresh, up-to-date data.\n\n%s", hint))
+			cacheSection := fmt.Sprintf("## Prior Cached Answer (Reference Only)\n"+
+				"The following is a previous answer to a similar question. "+
+				"Use it as a guideline ONLY — do NOT repeat it verbatim. "+
+				"Always re-execute tools to get fresh, up-to-date data.\n\n%s", hint)
+			// Include trajectory (how the previous answer was obtained) when available.
+			if cacheHint.Trajectory != "" {
+				const maxTrajectory = 1000
+				trajectory := cacheHint.Trajectory
+				if len(trajectory) > maxTrajectory {
+					trajectory = trajectory[:maxTrajectory] + "\n...(truncated)"
+				}
+				cacheSection += fmt.Sprintf("\n\n### How it was obtained\n%s", trajectory)
+			}
+			contextParts = append(contextParts, cacheSection)
 		}
 		if pastContext != "" {
 			contextParts = append(contextParts, fmt.Sprintf("## Relevant Past Conversations\n%s", pastContext))
@@ -861,7 +870,8 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	// when cached responses are later injected as context hints.
 	if c.router != nil && !req.SkipClassification {
 		redactedOutput := pii.Redact(ctx, res.Output)
-		if err := c.router.SetCache(ctx, req.Question, redactedOutput); err != nil {
+		redactedTrajectory := pii.Redact(ctx, res.Trajectory)
+		if err := c.router.SetCache(ctx, req.Question, redactedOutput, redactedTrajectory); err != nil {
 			logr.Warn("failed to set semantic cache", "error", err)
 		}
 	}

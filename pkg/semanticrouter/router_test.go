@@ -316,7 +316,7 @@ var _ = Describe("SemanticRouter", func() {
 
 				resp, ok := rt.CheckCache(ctx, "cache query")
 				Expect(ok).To(BeTrue())
-				Expect(resp).To(Equal("cached answer"))
+				Expect(resp.Response).To(Equal("cached answer"))
 			})
 
 			It("should return false when disabled or cache disabled", func(ctx context.Context) {
@@ -358,9 +358,9 @@ var _ = Describe("SemanticRouter", func() {
 				}, nil)
 				rt.cfg.CacheTTL = 5 * time.Minute
 
-				resp, ok := rt.CheckCache(ctx, "cache query")
+			resp, ok := rt.CheckCache(ctx, "cache query")
 				Expect(ok).To(BeTrue())
-				Expect(resp).To(Equal("fresh answer"))
+				Expect(resp.Response).To(Equal("fresh answer"))
 			})
 
 			It("should accept cache entry when cached_at is missing (pre-existing entries)", func(ctx context.Context) {
@@ -371,20 +371,20 @@ var _ = Describe("SemanticRouter", func() {
 
 				resp, ok := rt.CheckCache(ctx, "cache query")
 				Expect(ok).To(BeTrue())
-				Expect(resp).To(Equal("legacy answer"))
+				Expect(resp.Response).To(Equal("legacy answer"))
 			})
 		})
 
 		Describe("SetCache", func() {
 			It("should store the response to cache memory", func(ctx context.Context) {
-				err := rt.SetCache(ctx, "query", "answer")
+				err := rt.SetCache(ctx, "query", "answer", "")
 				Expect(err).NotTo(HaveOccurred())
 				Expect(fakeCacheStore.UpsertCallCount()).To(Equal(1))
 			})
 
 			It("should hash keys in SetCache", func(ctx context.Context) {
 				longQuery := strings.Repeat("A", 100)
-				err := rt.SetCache(ctx, longQuery, "answer")
+				err := rt.SetCache(ctx, longQuery, "answer", "")
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(fakeCacheStore.UpsertCallCount()).To(Equal(1))
@@ -396,7 +396,7 @@ var _ = Describe("SemanticRouter", func() {
 
 			It("should return nil immediately if caching disabled", func(ctx context.Context) {
 				rt.cfg.EnableCaching = false
-				err := rt.SetCache(ctx, "query", "answer")
+				err := rt.SetCache(ctx, "query", "answer", "")
 				Expect(err).NotTo(HaveOccurred())
 				Expect(fakeCacheStore.UpsertCallCount()).To(Equal(0))
 			})

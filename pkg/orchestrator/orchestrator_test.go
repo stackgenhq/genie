@@ -587,7 +587,7 @@ var _ = Describe("CodeOwner", func() {
 
 		It("should skip CheckCache when SkipClassification is true", func() {
 			// Set up a cache hit that would normally short-circuit
-			fakeRouter.CheckCacheReturns("cached response", true)
+			fakeRouter.CheckCacheReturns(semanticrouter.CacheHit{Response: "cached response"}, true)
 			fakeRouter.ClassifyReturns(semanticrouter.ClassificationResult{
 				Category: semanticrouter.CategoryComplex,
 			}, nil)
@@ -637,7 +637,7 @@ var _ = Describe("CodeOwner", func() {
 		})
 
 		It("should inject cache hint as context for normal user requests", func() {
-			fakeRouter.CheckCacheReturns("cached response about pods", true)
+			fakeRouter.CheckCacheReturns(semanticrouter.CacheHit{Response: "cached response about pods"}, true)
 			fakeRouter.ClassifyReturns(semanticrouter.ClassificationResult{
 				Category: semanticrouter.CategoryComplex,
 			}, nil)
@@ -670,7 +670,7 @@ var _ = Describe("CodeOwner", func() {
 		})
 
 		It("should use SetCache for normal user requests", func() {
-			fakeRouter.CheckCacheReturns("", false)
+			fakeRouter.CheckCacheReturns(semanticrouter.CacheHit{}, false)
 			fakeRouter.ClassifyReturns(semanticrouter.ClassificationResult{
 				Category: semanticrouter.CategoryComplex,
 			}, nil)

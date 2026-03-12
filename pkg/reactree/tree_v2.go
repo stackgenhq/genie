@@ -450,11 +450,13 @@ func (t *tree) ensureUserFeedback(ctx context.Context, ls *loopState) {
 
 func (ls *loopState) toResult() TreeResult {
 	return TreeResult{
-		Status:        ls.lastStatus,
-		Output:        ls.lastOutput,
-		NodeCount:     ls.iteration,
-		ContextBudget: ls.lastBudgetEvent,
-		Confidence:    ls.computeConfidence(),
+		Status:         ls.lastStatus,
+		Output:         ls.lastOutput,
+		NodeCount:      ls.iteration,
+		ContextBudget:  ls.lastBudgetEvent,
+		Confidence:     ls.computeConfidence(),
+		Trajectory:     ls.contextBuffer.String(),
+		ToolCallCounts: ls.toolCallCounts,
 	}
 }
 

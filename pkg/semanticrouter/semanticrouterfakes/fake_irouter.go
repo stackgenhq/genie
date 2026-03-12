@@ -9,18 +9,18 @@ import (
 )
 
 type FakeIRouter struct {
-	CheckCacheStub        func(context.Context, string) (string, bool)
+	CheckCacheStub        func(context.Context, string) (semanticrouter.CacheHit, bool)
 	checkCacheMutex       sync.RWMutex
 	checkCacheArgsForCall []struct {
 		arg1 context.Context
 		arg2 string
 	}
 	checkCacheReturns struct {
-		result1 string
+		result1 semanticrouter.CacheHit
 		result2 bool
 	}
 	checkCacheReturnsOnCall map[int]struct {
-		result1 string
+		result1 semanticrouter.CacheHit
 		result2 bool
 	}
 	ClassifyStub        func(context.Context, string, string) (semanticrouter.ClassificationResult, error)
@@ -93,12 +93,13 @@ type FakeIRouter struct {
 		result1 []semanticrouter.CacheEntry
 		result2 error
 	}
-	SetCacheStub        func(context.Context, string, string) error
+	SetCacheStub        func(context.Context, string, string, string) error
 	setCacheMutex       sync.RWMutex
 	setCacheArgsForCall []struct {
 		arg1 context.Context
 		arg2 string
 		arg3 string
+		arg4 string
 	}
 	setCacheReturns struct {
 		result1 error
@@ -110,7 +111,7 @@ type FakeIRouter struct {
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeIRouter) CheckCache(arg1 context.Context, arg2 string) (string, bool) {
+func (fake *FakeIRouter) CheckCache(arg1 context.Context, arg2 string) (semanticrouter.CacheHit, bool) {
 	fake.checkCacheMutex.Lock()
 	ret, specificReturn := fake.checkCacheReturnsOnCall[len(fake.checkCacheArgsForCall)]
 	fake.checkCacheArgsForCall = append(fake.checkCacheArgsForCall, struct {
@@ -136,7 +137,7 @@ func (fake *FakeIRouter) CheckCacheCallCount() int {
 	return len(fake.checkCacheArgsForCall)
 }
 
-func (fake *FakeIRouter) CheckCacheCalls(stub func(context.Context, string) (string, bool)) {
+func (fake *FakeIRouter) CheckCacheCalls(stub func(context.Context, string) (semanticrouter.CacheHit, bool)) {
 	fake.checkCacheMutex.Lock()
 	defer fake.checkCacheMutex.Unlock()
 	fake.CheckCacheStub = stub
@@ -149,28 +150,28 @@ func (fake *FakeIRouter) CheckCacheArgsForCall(i int) (context.Context, string) 
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeIRouter) CheckCacheReturns(result1 string, result2 bool) {
+func (fake *FakeIRouter) CheckCacheReturns(result1 semanticrouter.CacheHit, result2 bool) {
 	fake.checkCacheMutex.Lock()
 	defer fake.checkCacheMutex.Unlock()
 	fake.CheckCacheStub = nil
 	fake.checkCacheReturns = struct {
-		result1 string
+		result1 semanticrouter.CacheHit
 		result2 bool
 	}{result1, result2}
 }
 
-func (fake *FakeIRouter) CheckCacheReturnsOnCall(i int, result1 string, result2 bool) {
+func (fake *FakeIRouter) CheckCacheReturnsOnCall(i int, result1 semanticrouter.CacheHit, result2 bool) {
 	fake.checkCacheMutex.Lock()
 	defer fake.checkCacheMutex.Unlock()
 	fake.CheckCacheStub = nil
 	if fake.checkCacheReturnsOnCall == nil {
 		fake.checkCacheReturnsOnCall = make(map[int]struct {
-			result1 string
+			result1 semanticrouter.CacheHit
 			result2 bool
 		})
 	}
 	fake.checkCacheReturnsOnCall[i] = struct {
-		result1 string
+		result1 semanticrouter.CacheHit
 		result2 bool
 	}{result1, result2}
 }
@@ -505,20 +506,21 @@ func (fake *FakeIRouter) SearchCacheReturnsOnCall(i int, result1 []semanticroute
 	}{result1, result2}
 }
 
-func (fake *FakeIRouter) SetCache(arg1 context.Context, arg2 string, arg3 string) error {
+func (fake *FakeIRouter) SetCache(arg1 context.Context, arg2 string, arg3 string, arg4 string) error {
 	fake.setCacheMutex.Lock()
 	ret, specificReturn := fake.setCacheReturnsOnCall[len(fake.setCacheArgsForCall)]
 	fake.setCacheArgsForCall = append(fake.setCacheArgsForCall, struct {
 		arg1 context.Context
 		arg2 string
 		arg3 string
-	}{arg1, arg2, arg3})
+		arg4 string
+	}{arg1, arg2, arg3, arg4})
 	stub := fake.SetCacheStub
 	fakeReturns := fake.setCacheReturns
-	fake.recordInvocation("SetCache", []interface{}{arg1, arg2, arg3})
+	fake.recordInvocation("SetCache", []interface{}{arg1, arg2, arg3, arg4})
 	fake.setCacheMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2, arg3)
+		return stub(arg1, arg2, arg3, arg4)
 	}
 	if specificReturn {
 		return ret.result1
@@ -532,17 +534,17 @@ func (fake *FakeIRouter) SetCacheCallCount() int {
 	return len(fake.setCacheArgsForCall)
 }
 
-func (fake *FakeIRouter) SetCacheCalls(stub func(context.Context, string, string) error) {
+func (fake *FakeIRouter) SetCacheCalls(stub func(context.Context, string, string, string) error) {
 	fake.setCacheMutex.Lock()
 	defer fake.setCacheMutex.Unlock()
 	fake.SetCacheStub = stub
 }
 
-func (fake *FakeIRouter) SetCacheArgsForCall(i int) (context.Context, string, string) {
+func (fake *FakeIRouter) SetCacheArgsForCall(i int) (context.Context, string, string, string) {
 	fake.setCacheMutex.RLock()
 	defer fake.setCacheMutex.RUnlock()
 	argsForCall := fake.setCacheArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4
 }
 
 func (fake *FakeIRouter) SetCacheReturns(result1 error) {

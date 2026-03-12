@@ -140,6 +140,16 @@ type TreeResult struct {
 	// Signals: task completion (0.4), success status (0.2), iteration efficiency (0.2),
 	// no repetition (0.1), non-empty output (0.1).
 	Confidence float64
+
+	// Trajectory is the accumulated iteration context showing intermediate
+	// tool outputs and reasoning steps across iterations. Empty for
+	// single-iteration runs. Used to enrich cache hints so future runs
+	// can see HOW a previous answer was obtained.
+	Trajectory string
+
+	// ToolCallCounts records how many times each tool was called during
+	// execution. Used to enrich cache hints with execution metadata.
+	ToolCallCounts map[string]int
 }
 
 //go:generate go tool counterfeiter -generate
