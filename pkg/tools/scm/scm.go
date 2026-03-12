@@ -218,7 +218,7 @@ func NewCreatePullRequestTool(s Service) tool.CallableTool {
 	return function.NewFunctionTool(
 		s.CreatePullRequestTool,
 		function.WithName("scm_create_pr"),
-		function.WithDescription("Create a new Pull Request."),
+		function.WithDescription("Create a new Pull Request from an existing branch that already has commits. Do not use this to make code changes; use scm_commit_and_pr instead if you need to modify files and open a PR."),
 	)
 }
 
@@ -277,7 +277,7 @@ func NewCommitAndPRTool(s Service) tool.CallableTool {
 	return function.NewFunctionTool(
 		s.CommitAndPRTool,
 		function.WithName("scm_commit_and_pr"),
-		function.WithDescription("Create or update multiple files in a branch, commit them, and optionally open a Pull Request. Each file produces a separate commit."),
+		function.WithDescription("Create or update multiple files in a branch, commit them, and optionally open a Pull Request. Use this tool when you need to write code changes to the repository. Each file produces a separate commit."),
 	)
 }
 
