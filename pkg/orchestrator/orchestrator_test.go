@@ -27,6 +27,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/reactree"
 	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
+	"github.com/stackgenhq/genie/pkg/reactree/memory/memoryfakes"
 	"github.com/stackgenhq/genie/pkg/reactree/reactreefakes"
 	"github.com/stackgenhq/genie/pkg/semanticrouter"
 	"github.com/stackgenhq/genie/pkg/semanticrouter/semanticrouterfakes"
@@ -59,8 +60,10 @@ var _ = Describe("CodeOwner", func() {
 				AppName: "test",
 				UserID:  "test",
 			},
-			auditor:      &auditfakes.FakeAuditor{},
-			toolRegistry: tools.NewRegistry(ctx),
+			auditor:           &auditfakes.FakeAuditor{},
+			toolRegistry:      tools.NewRegistry(ctx),
+			importanceScorer:  rtmemory.NewNoOpImportanceScorer(),
+			episodicMemoryCfg: rtmemory.DefaultEpisodicMemoryConfig(),
 			resume: ttlcache.NewItem(func(_ context.Context) (string, error) {
 				return "Kubernetes triage specialist with shell and kubectl tools.", nil
 			}, 5*time.Minute),
@@ -213,32 +216,42 @@ var _ = Describe("CodeOwner", func() {
 	})
 
 	Describe("storeAccomplishment", func() {
-		It("should not panic when vectorStore is nil", func() {
-			co.vectorStore = nil
+		var (
+			fakeEpisodicMem *memoryfakes.FakeEpisodicMemory
+			fakeScorer      *memoryfakes.FakeImportanceScorer
+		)
+
+		BeforeEach(func() {
+			fakeEpisodicMem = &memoryfakes.FakeEpisodicMemory{}
+			fakeScorer = &memoryfakes.FakeImportanceScorer{}
+			fakeScorer.ScoreReturns(7) // default importance score
+
+			co.importanceScorer = fakeScorer
+			// Pre-populate the sync.Map so episodicMemoryForSender returns our fake.
+			// DeriveVisibility() returns "global" when no MessageOrigin is in context.
+			co.episodicMemories.Store("global", fakeEpisodicMem)
+		})
+
+		It("should not panic when importanceScorer is no-op", func() {
+			co.importanceScorer = rtmemory.NewNoOpImportanceScorer()
 			Expect(func() {
 				co.storeAccomplishment(ctx, "question", reactree.TreeResult{Output: "answer", Status: reactree.Success})
 			}).NotTo(Panic())
 		})
 
-		It("should store accomplishment with correct metadata", func() {
-			fakeStore := &vectorfakes.FakeIStore{}
-			co.vectorStore = fakeStore
-
+		It("should store accomplishment as an episode with correct fields", func() {
 			co.storeAccomplishment(ctx, "refactor the database", reactree.TreeResult{Output: "done, refactored 3 files", Status: reactree.Success})
 
-			Expect(fakeStore.AddCallCount()).To(Equal(1))
-			_, items := fakeStore.AddArgsForCall(0)
-			Expect(items).To(HaveLen(1))
-			Expect(items[0].ID).To(HavePrefix(rtmemory.AccomplishmentType + "-"))
-			Expect(items[0].Text).To(ContainSubstring("Q: refactor the database"))
-			Expect(items[0].Text).To(ContainSubstring("A: done, refactored 3 files"))
-			Expect(items[0].Metadata).To(HaveKeyWithValue("type", rtmemory.AccomplishmentType))
+			Expect(fakeEpisodicMem.StoreCallCount()).To(Equal(1))
+			_, episode := fakeEpisodicMem.StoreArgsForCall(0)
+			Expect(episode.Goal).To(ContainSubstring("refactor the database"))
+			Expect(episode.Trajectory).To(ContainSubstring("Q: refactor the database"))
+			Expect(episode.Trajectory).To(ContainSubstring("A: done, refactored 3 files"))
+			Expect(episode.Status).To(Equal(rtmemory.EpisodeSuccess))
+			Expect(episode.Importance).To(Equal(7))
 		})
 
 		It("should truncate long questions and answers", func() {
-			fakeStore := &vectorfakes.FakeIStore{}
-			co.vectorStore = fakeStore
-
 			longQuestion := strings.Repeat("q", 500)
 			longAnswer := strings.Repeat("a", 1000)
 			co.storeAccomplishment(ctx, longQuestion, reactree.TreeResult{
@@ -246,28 +259,26 @@ var _ = Describe("CodeOwner", func() {
 				Status: reactree.Success,
 			})
 
-			Expect(fakeStore.AddCallCount()).To(Equal(1))
-			_, items := fakeStore.AddArgsForCall(0)
-			Expect(items).To(HaveLen(1))
+			Expect(fakeEpisodicMem.StoreCallCount()).To(Equal(1))
+			_, episode := fakeEpisodicMem.StoreArgsForCall(0)
 			// Should be truncated — total shouldn't exceed Q(200) + A(500) + formatting
-			Expect(len(items[0].Text)).To(BeNumerically("<", 800))
+			Expect(len(episode.Trajectory)).To(BeNumerically("<", 800))
 		})
 
-		It("should handle Add errors gracefully without panicking", func() {
-			fakeStore := &vectorfakes.FakeIStore{}
-			fakeStore.AddReturns(errors.New("disk full"))
-			co.vectorStore = fakeStore
+		It("should call importance scorer with correct request", func() {
+			co.storeAccomplishment(ctx, "deploy the app", reactree.TreeResult{
+				Output: "successfully deployed",
+				Status: reactree.Success,
+			})
 
-			Expect(func() {
-				co.storeAccomplishment(ctx, "question", reactree.TreeResult{Output: "answer", Status: reactree.Success})
-			}).NotTo(Panic())
-			Expect(fakeStore.AddCallCount()).To(Equal(1))
+			Expect(fakeScorer.ScoreCallCount()).To(Equal(1))
+			_, req := fakeScorer.ScoreArgsForCall(0)
+			Expect(req.Goal).To(ContainSubstring("deploy the app"))
+			Expect(req.Output).To(ContainSubstring("A: successfully deployed"))
+			Expect(req.Status).To(Equal(rtmemory.EpisodeSuccess))
 		})
 
 		It("should store accomplishments even if output mentions 'error' (status is Success)", func() {
-			fakeStore := &vectorfakes.FakeIStore{}
-			co.vectorStore = fakeStore
-
 			// These should all be stored because Status is Success — the agent
 			// fixed errors, which is a valid accomplishment.
 			phrases := []string{
@@ -280,19 +291,16 @@ var _ = Describe("CodeOwner", func() {
 				co.storeAccomplishment(ctx, "do something", reactree.TreeResult{Output: phrase, Status: reactree.Success})
 			}
 
-			Expect(fakeStore.AddCallCount()).To(Equal(3))
+			Expect(fakeEpisodicMem.StoreCallCount()).To(Equal(3))
 		})
 
 		It("should NOT store accomplishment when status is not Success", func() {
-			fakeStore := &vectorfakes.FakeIStore{}
-			co.vectorStore = fakeStore
-
 			co.storeAccomplishment(ctx, "do something", reactree.TreeResult{
 				Output: "completed the task",
 				Status: reactree.Failure,
 			})
 
-			Expect(fakeStore.AddCallCount()).To(Equal(0))
+			Expect(fakeEpisodicMem.StoreCallCount()).To(Equal(0))
 		})
 	})
 

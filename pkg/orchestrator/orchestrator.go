@@ -121,6 +121,10 @@ type orchestrator struct {
 	episodicMemories  sync.Map // map[string]rtmemory.EpisodicMemory
 	episodicMemoryCfg rtmemory.EpisodicMemoryConfig
 
+	// importanceScorer assigns a 1-10 significance score to episodes.
+	// Used by storeAccomplishment to score results before episodic storage.
+	importanceScorer rtmemory.ImportanceScorer
+
 	disableResume                     bool
 	agentPersona                      string
 	accomplishmentConfidenceThreshold float64
@@ -387,6 +391,7 @@ func NewOrchestrator(
 		vectorStore:                       vectorStore,
 		router:                            oo.semanticRouter,
 		episodicMemoryCfg:                 episodicMemoryCfg,
+		importanceScorer:                  importanceScorer,
 		availableToolNames:                availableTools.GetToolDescriptions(),
 		disableResume:                     oo.disableResume,
 		agentPersona:                      agentPersona,
@@ -1113,65 +1118,69 @@ func (c *orchestrator) recallAccomplishments(ctx context.Context) string {
 	return sb.String()
 }
 
-// storeAccomplishment persists a concise summary of a successfully completed
-// task into the vector store. These entries are later retrieved by
-// recallAccomplishments to enrich the agent's resume with evidence of real
-// work. Without this, the agent would have no way to demonstrate its track
-// record to users.
+// storeAccomplishment routes a completed task through the episodic memory
+// pipeline instead of writing raw Q&A directly to the vector store.
 //
-// Each entry is tagged with source metadata (platform, sender, channel,
-// visibility) so that privacy-aware filtering can be applied during retrieval.
+// The episodic pipeline provides:
+//   - ImportanceScorer: LLM-scored 1-10 significance (routine lookups → 2-3,
+//     novel lessons → 8-9) prevents trivial or ephemeral results from
+//     inflating the memory corpus.
+//   - Recency decay: older episodes naturally lose weight (λ=0.01,
+//     ~3% after 14 days) so time-sensitive data fades automatically.
+//   - EpisodeConsolidator: daily cron batches raw episodes into wisdom
+//     notes, distilling 20 raw entries into 1-2 concise lessons.
+//
 // PII is redacted before storage to prevent sensitive data leakage.
 func (c *orchestrator) storeAccomplishment(ctx context.Context, question string, res reactree.TreeResult) {
-	if c.vectorStore == nil {
-		return
-	}
+	logr := logger.GetLogger(ctx).With("fn", "storeAccomplishment")
 
-	// Only store as an accomplishment if the tree completed successfully
-	// and produced non-empty output with sufficient confidence.
-	// Confidence is computed from execution signals (task completion,
-	// status, iteration efficiency, repetition, output presence).
+	// Only store if the tree completed successfully with non-empty output
+	// and sufficient confidence.
 	if res.Status != reactree.Success || strings.TrimSpace(res.Output) == "" {
 		return
 	}
 	if res.Confidence < c.accomplishmentConfidenceThreshold {
-		logger.GetLogger(ctx).Debug("skipping accomplishment storage: confidence below threshold",
+		logr.Debug("skipping accomplishment storage: confidence below threshold",
 			"confidence", res.Confidence,
 			"threshold", c.accomplishmentConfidenceThreshold,
 		)
 		return
 	}
 
-	// Build a concise accomplishment summary from the Q&A turn.
-	summary := fmt.Sprintf("Q: %s\nA: %s",
-		toolwrap.TruncateForAudit(question, 200),
+	// Build a concise trajectory from the Q&A turn.
+	goalText := toolwrap.TruncateForAudit(question, 200)
+	trajectory := fmt.Sprintf("Q: %s\nA: %s",
+		goalText,
 		toolwrap.TruncateForAudit(res.Output, 500))
 
 	// Redact PII before persisting to prevent sensitive data leakage.
-	summary = pii.Redact(summary)
+	trajectory = pii.Redact(trajectory)
 
-	metadata := map[string]string{
-		"type":      rtmemory.AccomplishmentType,
-		"timestamp": time.Now().Format(time.RFC3339),
-	}
+	// Score importance using the LLM-backed scorer. Routine lookups
+	// (e.g. "what's the AWS cost?") score 2-3; novel achievements
+	// (e.g. "refactored the auth module") score 8-9.
+	importance := c.importanceScorer.Score(ctx, rtmemory.ImportanceScoringRequest{
+		Goal:   goalText,
+		Output: trajectory,
+		Status: rtmemory.EpisodeSuccess,
+	})
 
-	// Tag with source attribution for privacy-aware filtering.
-	if origin := messenger.MessageOriginFrom(ctx); !origin.IsZero() {
-		metadata["platform"] = string(origin.Platform)
-		metadata["sender_id"] = origin.Sender.ID
-		metadata["channel_id"] = origin.Channel.ID
-		metadata["visibility"] = origin.DeriveVisibility()
-	} else {
-		metadata["visibility"] = "global"
-	}
+	// Store as an episode in the per-sender episodic memory.
+	// This feeds into the existing consolidation pipeline:
+	//   EpisodicMemory → ImportanceScorer → EpisodeConsolidator → WisdomStore
+	episodic := c.episodicMemoryForSender(ctx)
+	episodic.Store(ctx, rtmemory.Episode{
+		Goal:       goalText,
+		Trajectory: trajectory,
+		Status:     rtmemory.EpisodeSuccess,
+		Importance: importance,
+	})
 
-	if err := c.vectorStore.Add(ctx, vector.BatchItem{
-		ID:       fmt.Sprintf("%s-%d", rtmemory.AccomplishmentType, time.Now().UnixNano()),
-		Text:     summary,
-		Metadata: metadata,
-	}); err != nil {
-		logger.GetLogger(ctx).Warn("failed to store accomplishment", "error", err)
-	}
+	logr.Info("accomplishment stored as episode",
+		"importance", importance,
+		"goal_length", len(goalText),
+		"trajectory_length", len(trajectory),
+	)
 
 	// Audit: log memory write.
 	c.auditor.Log(ctx, audit.LogRequest{
@@ -1179,7 +1188,8 @@ func (c *orchestrator) storeAccomplishment(ctx context.Context, question string,
 		Actor:     "orchestrator",
 		Action:    "store_accomplishment",
 		Metadata: map[string]interface{}{
-			"summary_length": len(summary),
+			"trajectory_length": len(trajectory),
+			"importance":        importance,
 		},
 	})
 }
