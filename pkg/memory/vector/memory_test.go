@@ -191,7 +191,7 @@ var _ = Describe("NewMemoryStoreTool", func() {
 		store, err := cfg.NewStore(context.Background())
 		Expect(err).NotTo(HaveOccurred())
 
-		t := vector.NewMemoryStoreTool(store, nil)
+		t := vector.NewMemoryStoreTool(store, nil, nil)
 		Expect(t.Declaration().Name).To(Equal("memory_store"))
 	})
 
@@ -200,7 +200,7 @@ var _ = Describe("NewMemoryStoreTool", func() {
 		store, err := cfg.NewStore(context.Background())
 		Expect(err).NotTo(HaveOccurred())
 
-		t := vector.NewMemoryStoreTool(store, nil)
+		t := vector.NewMemoryStoreTool(store, nil, nil)
 		ct := t.(tool.CallableTool)
 
 		result, err := ct.Call(context.Background(), []byte(`{"text":"Remember this"}`))
@@ -376,7 +376,7 @@ var _ = Describe("AllowedMetadataKeys", func() {
 		store, err := cfg.NewStore(context.Background())
 		Expect(err).NotTo(HaveOccurred())
 
-		t := vector.NewMemoryStoreTool(store, &cfg)
+		t := vector.NewMemoryStoreTool(store, &cfg, nil)
 		ct := t.(tool.CallableTool)
 
 		_, err = ct.Call(context.Background(), []byte(`{"text":"x","metadata":{"product":"p1","unknown_key":"y"}}`))
@@ -389,7 +389,7 @@ var _ = Describe("AllowedMetadataKeys", func() {
 		store, err := cfg.NewStore(context.Background())
 		Expect(err).NotTo(HaveOccurred())
 
-		t := vector.NewMemoryStoreTool(store, &cfg)
+		t := vector.NewMemoryStoreTool(store, &cfg, nil)
 		ct := t.(tool.CallableTool)
 
 		result, err := ct.Call(context.Background(), []byte(`{"text":"fact","metadata":{"product":"AI SRE","category":"roadmap"}}`))

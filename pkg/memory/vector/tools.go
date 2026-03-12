@@ -63,6 +63,16 @@ func mapKeys(m map[string]bool) []string {
 	return keys
 }
 
+// MemoryImportanceScorer scores text content for importance on a 1-10 scale.
+// This is a local interface to avoid importing reactree/memory; callers can
+// satisfy it with rtmemory.ImportanceScorer or a no-op implementation.
+//
+//counterfeiter:generate . MemoryImportanceScorer
+type MemoryImportanceScorer interface {
+	// ScoreText returns an importance score (1-10) for the given text.
+	ScoreText(ctx context.Context, text string) int
+}
+
 // ---- memory_store tool ----
 
 // MemoryStoreRequest is the input for the memory_store tool.
@@ -87,8 +97,10 @@ func (r MemoryStoreResponse) MarshalJSON() ([]byte, error) {
 // NewMemoryStoreTool creates a tool that stores text into the vector memory.
 // When cfg.AllowedMetadataKeys is set, only those keys are accepted in metadata.
 // If req.ID is set, the store is upserted (existing document with that ID is replaced).
-func NewMemoryStoreTool(store IStore, cfg *Config) tool.Tool {
-	s := &memoryStoreTool{store: store, cfg: cfg}
+// If scorer is non-nil, each write is scored for importance and the score is
+// stored as "_importance" metadata for retrieval-time quality filtering.
+func NewMemoryStoreTool(store IStore, cfg *Config, scorer MemoryImportanceScorer) tool.Tool {
+	s := &memoryStoreTool{store: store, cfg: cfg, scorer: scorer}
 	return function.NewFunctionTool(
 		s.execute,
 		function.WithName(MemoryStoreToolName),
@@ -97,8 +109,9 @@ func NewMemoryStoreTool(store IStore, cfg *Config) tool.Tool {
 }
 
 type memoryStoreTool struct {
-	store IStore
-	cfg   *Config
+	store  IStore
+	cfg    *Config
+	scorer MemoryImportanceScorer
 }
 
 func (t *memoryStoreTool) execute(ctx context.Context, req MemoryStoreRequest) (MemoryStoreResponse, error) {
@@ -113,6 +126,16 @@ func (t *memoryStoreTool) execute(ctx context.Context, req MemoryStoreRequest) (
 	// PII-redact text before persisting to vector store.
 	redactedText := pii.Redact(req.Text)
 	redactedMeta := pii.RedactMap(req.Metadata)
+
+	// Enrich metadata with importance score when a scorer is available.
+	if t.scorer != nil {
+		score := t.scorer.ScoreText(ctx, redactedText)
+		if redactedMeta == nil {
+			redactedMeta = make(map[string]string)
+		}
+		redactedMeta["_importance"] = fmt.Sprintf("%d", score)
+	}
+
 	item := BatchItem{ID: id, Text: redactedText, Metadata: redactedMeta}
 	if req.ID != "" {
 		if err := t.store.Upsert(ctx, item); err != nil {

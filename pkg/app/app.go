@@ -1005,7 +1005,7 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 
 	// --- Vector memory tools ---
 	if vectorStore != nil {
-		providers = append(providers, vector.NewToolProvider(vectorStore, &a.cfg.VectorMemory))
+		providers = append(providers, vector.NewToolProvider(vectorStore, &a.cfg.VectorMemory, nil))
 		log.Debug("Vector memory tool provider added")
 	}
 
