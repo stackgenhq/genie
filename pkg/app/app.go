@@ -1906,8 +1906,11 @@ func (a *Application) resolveApprovalAndNotify(ctx context.Context, ch messenger
 // sendApprovalResolution notifies the user of an approval resolution: when the
 // original approval message ID is known and the resolution was successful
 // (approve or reject), it adds a checkmark or thumbs-down reaction to that
-// message instead of sending a separate reply. Otherwise it sends replyText.
+// message and updates the original message to remove interactive buttons
+// (replacing them with the resolution text). Otherwise it sends replyText.
 func (a *Application) sendApprovalResolution(ctx context.Context, ch messenger.Channel, threadID, originalMessageID string, status hitl.ApprovalStatus, hadError bool, replyText string) {
+	log := logger.GetLogger(ctx)
+
 	if originalMessageID != "" && !hadError && (status == hitl.StatusApproved || status == hitl.StatusRejected) {
 		emoji := "✅"
 		if status == hitl.StatusRejected {
@@ -1920,17 +1923,30 @@ func (a *Application) sendApprovalResolution(ctx context.Context, ch messenger.C
 			ReplyToMessageID: originalMessageID,
 			Emoji:            emoji,
 		})
+		if err != nil {
+			log.Debug("failed to add resolution reaction, falling back to text", "error", err)
+		}
+
+		// Update the original approval message to remove interactive buttons
+		// and show the resolution status (e.g. "✅ Approved by sks").
+		if updateErr := a.msgr.UpdateMessage(ctx, messenger.UpdateRequest{
+			MessageID: originalMessageID,
+			Channel:   ch,
+			Content:   messenger.MessageContent{Text: replyText},
+		}); updateErr != nil {
+			log.Debug("failed to update approval message to remove buttons", "error", updateErr)
+		}
+
 		if err == nil {
 			return
 		}
-		logger.GetLogger(ctx).Debug("failed to add resolution reaction, falling back to text", "error", err)
 	}
 	if _, err := a.msgr.Send(ctx, messenger.SendRequest{
 		Channel:  ch,
 		ThreadID: threadID,
 		Content:  messenger.MessageContent{Text: replyText},
 	}); err != nil {
-		logger.GetLogger(ctx).Warn("failed to send approval resolution text", "error", err)
+		log.Warn("failed to send approval resolution text", "error", err)
 	}
 }
 

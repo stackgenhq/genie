@@ -14,6 +14,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/browser"
 	"github.com/stackgenhq/genie/pkg/cron"
 	"github.com/stackgenhq/genie/pkg/datasource"
+	"github.com/stackgenhq/genie/pkg/datasource/docparser"
 	"github.com/stackgenhq/genie/pkg/db"
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
 	"github.com/stackgenhq/genie/pkg/halguard"
@@ -96,6 +97,10 @@ type GenieConfig struct {
 	Cron cron.Config `yaml:"cron,omitempty" toml:"cron,omitempty"`
 	// Unified data sources configuration
 	DataSources datasource.Config `yaml:"data_sources,omitempty" toml:"data_sources,omitempty"`
+
+	// DocParser configures the multi-backend document parser used to convert
+	// files (PDF, DOCX, images) into NormalizedItems for vectorization.
+	DocParser docparser.Config `yaml:"doc_parser,omitempty" toml:"doc_parser,omitempty"`
 
 	Security security.Config           `yaml:"security,omitempty" toml:"security,omitempty"`
 	PII      pii.Config                `yaml:"pii,omitempty" toml:"pii,omitempty"`

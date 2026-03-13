@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`scm_commit_and_pr` tool** — uber tool that accepts multiple file changes, commits them to a branch, and optionally creates a Pull Request in a single LLM call. Resolves the repo's default branch dynamically via API, auto-creates the target branch if it doesn't exist, concurrently fetches existing file SHAs via `errgroup`, and sequentially commits each file.
 - `CreateOrUpdateFile`, `FindBranch`, `CreateBranch` methods added to SCM `Service` interface for file and branch management.
+- **Multi-backend document parser** (`pkg/datasource/docparser`) — interface-based `Provider` abstraction that converts files (PDF, DOCX, images, etc.) into `[]datasource.NormalizedItem` for vectorization. Shipped backends: **Docling Serve** (REST sidecar) and **Gemini** (file-upload + structured extraction). Factory selects backend via `Config.Provider`; secrets resolved through `security.SecretProvider`. Integrated into `GenieConfig.DocParser` and Config Builder UI with TOML/YAML serialization.
 
 ### Changed
 

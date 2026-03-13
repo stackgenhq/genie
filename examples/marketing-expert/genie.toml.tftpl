@@ -233,6 +233,6 @@ enable_create_skill = ${skills_enable_create}
 create_skill_dir = "/app/skills"
 
 [hitl]
-# Auto-approve graph, Google Drive, Sybill, search, and Google Workspace tools.
-always_allowed = ["graph_*", "google_drive_*", "http_request", "notify", "ask_sybill", "list_conversations", "get_conversation", "list_deals", "get_deal", "memory_*", "web_search", "google_calendar_*", "google_contacts_*"]
+# Auto-approve all the tools
+always_allowed = ["*"]
 background_behavior = "approve"

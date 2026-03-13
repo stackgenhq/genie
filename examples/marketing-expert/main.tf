@@ -220,6 +220,7 @@ locals {
     gdrive_credentials_secret_path = var.aws.gdrive_credentials_secret_path
     gdrive_folder_ids              = var.data_sources.gdrive_folder_ids
     slack_channel_ids              = var.data_sources.slack_channel_ids
+    skills_enable_create           = var.skills.enable_create
   })
 }
 
@@ -264,6 +265,31 @@ resource "kubernetes_service_account" "marketing" {
       app = "marketing-expert"
     }
   }
+}
+# ── PVC: Writable skills storage ────────────────────────────────────────────
+resource "kubernetes_persistent_volume_claim" "skills" {
+  metadata {
+    name      = "marketing-skills-pvc"
+    namespace = var.kubernetes.namespace
+
+    labels = {
+      app = "marketing-expert"
+    }
+  }
+
+  spec {
+    access_modes = ["ReadWriteOnce"]
+
+    resources {
+      requests = {
+        storage = var.skills.pvc_size
+      }
+    }
+  }
+
+  # gp2-csi uses WaitForFirstConsumer — PVC stays Pending until a pod mounts it.
+  # Without this, Terraform blocks waiting for the PVC to bind and times out.
+  wait_until_bound = false
 }
 
 # ── Deployment ──────────────────────────────────────────────────────────────
@@ -463,6 +489,11 @@ resource "kubernetes_deployment" "marketing" {
             mount_path = "/var/run/secrets/eks.amazonaws.com/serviceaccount"
             read_only  = true
           }
+
+          volume_mount {
+            name       = "skills-volume"
+            mount_path = "/app/skills"
+          }
         }
 
         volume {
@@ -503,6 +534,14 @@ resource "kubernetes_deployment" "marketing" {
 
           empty_dir {
             medium = "Memory"
+          }
+        }
+
+        volume {
+          name = "skills-volume"
+
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.skills.metadata[0].name
           }
         }
       }

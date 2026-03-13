@@ -64,6 +64,15 @@ variable "data_sources" {
   default = {}
 }
 
+variable "skills" {
+  description = "Skills configuration for runtime skill creation"
+  type = object({
+    pvc_size      = optional(string, "5Gi")
+    enable_create = optional(bool, false)
+  })
+  default = {}
+}
+
 variable "tags" {
   description = "Custom tags to apply to all resources"
   type        = map(string)

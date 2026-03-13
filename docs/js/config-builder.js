@@ -30,6 +30,7 @@
         vector_memory: { persistence_dir: '', embedding_provider: 'dummy', api_key: 'OPENAI_API_KEY', ollama_url: '', ollama_model: '', huggingface_url: '', gemini_api_key: 'GOOGLE_API_KEY', gemini_model: '', vector_store_provider: 'inmemory', allowed_metadata_keys: [], qdrant: { host: '', port: 6334, api_key: 'QDRANT_API_KEY', use_tls: false, collection_name: '', dimension: 0 } },
         graph: { disabled: false, backend: 'inmemory', data_dir: '' },
         data_sources: { enabled: false, sync_interval: '15m', search_keywords: [], gmail: { enabled: false, label_ids: [] }, gdrive: { enabled: false, folder_ids: [] }, github: { enabled: false, repos: [] }, gitlab: { enabled: false, repos: [] } },
+        doc_parser: { provider: '', docling: { base_url: '' }, gemini: { model: '' } },
         messenger: {
             platform: '', buffer_size: 100, allowed_senders: [],
             slack: { app_token: 'SLACK_APP_TOKEN', bot_token: 'SLACK_BOT_TOKEN' },
@@ -94,6 +95,7 @@
     var SEARCH_PROVIDERS = ['duckduckgo', 'google', 'bing', 'serpapi'];
     var SCM_PROVIDERS = ['', 'github', 'gitlab', 'bitbucket'];
     var PM_PROVIDERS = ['', 'jira', 'linear', 'asana'];
+    var DOCPARSER_PROVIDERS = ['', 'docling', 'gemini'];
 
     /* ================================================================
      * 2. DOM HELPERS
@@ -222,6 +224,7 @@
         renderVectorMemory();
         renderGraph();
         renderDataSources();
+        renderDocParser();
         renderMessenger();
         renderNotification();
         renderSCM();
@@ -494,6 +497,26 @@
         ];
         if (g.backend === 'inmemory') {
             fields.push(fieldText('Data Dir', g.data_dir, function (v) { g.data_dir = v; renderOutput(); }, '~/.genie/my-agent', 'Where to save the graph snapshot (memory.bin.zst). If left empty, the graph will not be persisted to disk. Ignored when backend is vectorstore.'));
+        }
+        c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
+    }
+
+    // ── Document Parser ──
+    function renderDocParser() {
+        var c = $('docparser-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var dp = state.doc_parser;
+        var fields = [
+            fieldSelect('Provider', dp.provider, DOCPARSER_PROVIDERS, function (v) { dp.provider = v; renderAll(); },
+                'Which backend to use for parsing documents into structured text — leave empty to disable')
+        ];
+        if (dp.provider === 'docling') {
+            fields.push(fieldText('Docling Base URL', dp.docling.base_url, function (v) { dp.docling.base_url = v; renderOutput(); },
+                'http://localhost:5001', 'URL of the Docling Serve REST API (runs as a sidecar or standalone service)'));
+        } else if (dp.provider === 'gemini') {
+            fields.push(fieldText('Gemini Model', dp.gemini.model, function (v) { dp.gemini.model = v; renderOutput(); },
+                'gemini-2.0-flash', 'Gemini model for document extraction — API key is resolved via security.SecretProvider'));
         }
         c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
     }
@@ -1282,6 +1305,23 @@
         lines.push('');
     }
 
+    function docparserToToml(lines) {
+        var dp = state.doc_parser;
+        if (!dp.provider) return;
+        lines.push('[doc_parser]');
+        lines.push('provider = ' + q(dp.provider));
+        if (dp.provider === 'docling' && dp.docling.base_url) {
+            lines.push('');
+            lines.push('[doc_parser.docling]');
+            lines.push('base_url = ' + q(dp.docling.base_url));
+        } else if (dp.provider === 'gemini' && dp.gemini.model) {
+            lines.push('');
+            lines.push('[doc_parser.gemini]');
+            lines.push('model = ' + q(dp.gemini.model));
+        }
+        lines.push('');
+    }
+
     function messengerToToml(lines) {
         var m = state.messenger;
         if (m.platform) {
@@ -1336,6 +1376,7 @@
         vectorToToml(lines);
         graphToToml(lines);
         dataSourcesToToml(lines);
+        docparserToToml(lines);
         messengerToToml(lines);
         scmToToml(lines);
         ghcliToToml(lines);
@@ -1988,6 +2029,21 @@
         lines.push('');
     }
 
+    function docparserToYaml(lines) {
+        var dp = state.doc_parser;
+        if (!dp.provider) return;
+        lines.push('doc_parser:');
+        lines.push('  provider: ' + dp.provider);
+        if (dp.provider === 'docling' && dp.docling.base_url) {
+            lines.push('  docling:');
+            lines.push('    base_url: ' + yq(dp.docling.base_url));
+        } else if (dp.provider === 'gemini' && dp.gemini.model) {
+            lines.push('  gemini:');
+            lines.push('    model: ' + dp.gemini.model);
+        }
+        lines.push('');
+    }
+
     function messengerToYaml(lines) {
         var m = state.messenger;
         lines.push('messenger:');
@@ -2040,6 +2096,7 @@
         vectorToYaml(lines);
         graphToYaml(lines);
         dataSourcesToYaml(lines);
+        docparserToYaml(lines);
         messengerToYaml(lines);
         scmToYaml(lines);
         ghcliToYaml(lines);

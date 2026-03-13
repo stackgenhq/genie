@@ -7,11 +7,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/skills"
+	"github.com/stackgenhq/genie/pkg/tools/skills/createskill"
 	"github.com/stackgenhq/genie/pkg/tools/skills/dynamicskills"
 	"github.com/stackgenhq/genie/pkg/tools/unix"
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor"
@@ -110,6 +112,14 @@ func (p *PensieveToolProvider) GetTools() []tool.Tool {
 type SkillLoadConfig struct {
 	MaxLoadedSkills int      `yaml:"max_loaded_skills,omitempty" toml:"max_loaded_skills,omitempty"`
 	SkillsRoots     []string `yaml:"skills_roots,omitempty" toml:"skills_roots,omitempty"`
+
+	// EnableCreateSkill enables the create_skill tool for runtime skill creation.
+	// Disabled by default.
+	EnableCreateSkill bool `yaml:"enable_create_skill,omitempty" toml:"enable_create_skill,omitempty"`
+
+	// CreateSkillDir is the writable directory where user-created skills are stored.
+	// Defaults to <workingDir>/user-skills when EnableCreateSkill is true.
+	CreateSkillDir string `yaml:"create_skill_dir,omitempty" toml:"create_skill_dir,omitempty"`
 }
 
 func DefaultSkillLoadConfig() SkillLoadConfig {
@@ -120,9 +130,10 @@ func DefaultSkillLoadConfig() SkillLoadConfig {
 
 // SkillToolProvider wraps the skill loading tools (skill_list_docs, skill_load, skill_run).
 type SkillToolProvider struct {
-	repo   skill.Repository
-	exec   codeexecutor.CodeExecutor
-	loader *dynamicskills.DynamicSkillLoader
+	repo        skill.Repository
+	exec        codeexecutor.CodeExecutor
+	loader      *dynamicskills.DynamicSkillLoader
+	mutableRepo *skills.MutableRepository // non-nil when create_skill is enabled
 }
 
 // NewSkillToolProvider creates a ToolProvider containing skill discovery tools.
@@ -133,6 +144,21 @@ func NewSkillToolProvider(workingDir string, config SkillLoadConfig, additionalR
 	}
 	reposToMerge := []skill.Repository{fsRepo}
 	reposToMerge = append(reposToMerge, additionalRepos...)
+
+	// When create_skill is enabled, add a MutableRepository for runtime skill creation.
+	var mutableRepo *skills.MutableRepository
+	if config.EnableCreateSkill {
+		createDir := config.CreateSkillDir
+		if createDir == "" {
+			createDir = filepath.Join(workingDir, "user-skills")
+		}
+		mutableRepo, err = skills.NewMutableRepository(createDir, 0)
+		if err != nil {
+			return nil, fmt.Errorf("error creating mutable skill repository: %w", err)
+		}
+		reposToMerge = append(reposToMerge, mutableRepo)
+	}
+
 	repo := skills.NewCompositeRepository(reposToMerge...)
 	exec := local.New(
 		local.WithWorkDir(workingDir),
@@ -140,7 +166,7 @@ func NewSkillToolProvider(workingDir string, config SkillLoadConfig, additionalR
 		local.WithCleanTempFiles(true),
 	)
 
-	p := &SkillToolProvider{repo: repo, exec: exec}
+	p := &SkillToolProvider{repo: repo, exec: exec, mutableRepo: mutableRepo}
 	// The provider implements SkillRegistry natively, so it passes itself as the registry
 	p.loader = dynamicskills.NewDynamicSkillLoader(p, config.MaxLoadedSkills)
 
@@ -152,8 +178,9 @@ func NewSkillToolProvider(workingDir string, config SkillLoadConfig, additionalR
 // This implements CloneableToolProvider so that CloneWithEphemeralProviders()
 // can isolate dynamic-skill state per sub-agent — without this, skill
 // load/unload state would be shared across all sub-agents.
+// The mutable repo is shared (writes go to the same directory).
 func (p *SkillToolProvider) Clone() ToolProviders {
-	cloned := &SkillToolProvider{repo: p.repo, exec: p.exec}
+	cloned := &SkillToolProvider{repo: p.repo, exec: p.exec, mutableRepo: p.mutableRepo}
 	cloned.loader = dynamicskills.NewDynamicSkillLoader(cloned, p.loader.MaxSkills())
 	return cloned
 }
@@ -164,6 +191,15 @@ func (p *SkillToolProvider) GetTools() []tool.Tool {
 		dynamicskills.DiscoverSkillsTool(p.loader.Registry()),
 		dynamicskills.LoadSkillTool(p.loader),
 		dynamicskills.UnloadSkillTool(p.loader),
+	}
+
+	// Add skill management tools when enabled
+	if p.mutableRepo != nil {
+		tools = append(tools,
+			createskill.NewCreateSkillTool(p.mutableRepo),
+			createskill.NewUpdateSkillTool(p.mutableRepo),
+			createskill.NewDeleteSkillTool(p.mutableRepo),
+		)
 	}
 
 	// Add currently loaded dynamic skills

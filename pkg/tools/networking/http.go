@@ -147,7 +147,6 @@ func (t *httpTool) Do(ctx context.Context, req HTTPRequest) (string, error) {
 		httpReq.Header.Set("User-Agent", defaultUserAgent)
 	}
 
-
 	log.Info("executing HTTP request", "method", method, "url", req.URL)
 
 	resp, err := t.client.Do(httpReq)
