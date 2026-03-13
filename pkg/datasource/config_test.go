@@ -39,7 +39,7 @@ var _ = Describe("Config", func() {
 				GDrive: &datasource.GDriveSourceConfig{Enabled: true, FolderIDs: []string{"folder1", "folder2"}},
 			}
 			scope := c.ScopeFromConfig("gdrive")
-			Expect(scope.GDriveFolderIDs).To(Equal([]string{"folder1", "folder2"}))
+			Expect(scope.Get("gdrive")).To(Equal([]string{"folder1", "folder2"}))
 		})
 
 		It("returns gmail scope when gmail is enabled with label IDs", func() {
@@ -47,7 +47,7 @@ var _ = Describe("Config", func() {
 				Gmail: &datasource.GmailSourceConfig{Enabled: true, LabelIDs: []string{"INBOX", "Label_1"}},
 			}
 			scope := c.ScopeFromConfig("gmail")
-			Expect(scope.GmailLabelIDs).To(Equal([]string{"INBOX", "Label_1"}))
+			Expect(scope.Get("gmail")).To(Equal([]string{"INBOX", "Label_1"}))
 		})
 
 		It("returns slack scope when slack is enabled with channel IDs", func() {
@@ -55,7 +55,7 @@ var _ = Describe("Config", func() {
 				Slack: &datasource.SlackSourceConfig{Enabled: true, ChannelIDs: []string{"C1", "C2"}},
 			}
 			scope := c.ScopeFromConfig("slack")
-			Expect(scope.SlackChannelIDs).To(Equal([]string{"C1", "C2"}))
+			Expect(scope.Get("slack")).To(Equal([]string{"C1", "C2"}))
 		})
 
 		It("returns linear scope when linear is enabled with team IDs", func() {
@@ -63,29 +63,46 @@ var _ = Describe("Config", func() {
 				Linear: &datasource.LinearSourceConfig{Enabled: true, TeamIDs: []string{"team1"}},
 			}
 			scope := c.ScopeFromConfig("linear")
-			Expect(scope.LinearTeamIDs).To(Equal([]string{"team1"}))
+			Expect(scope.Get("linear")).To(Equal([]string{"team1"}))
 		})
 
-		It("returns github scope when github is enabled with repos", func() {
+		It("returns scope for external sources (e.g. github via SCM)", func() {
 			c := &datasource.Config{
-				GitHub: &datasource.GitHubSourceConfig{Enabled: true, Repos: []string{"owner/repo"}},
+				ExternalSources: map[string]datasource.SourceConfig{
+					"github": &datasource.CalendarSourceConfig{Enabled: true, CalendarIDs: []string{"owner/repo"}},
+				},
 			}
 			scope := c.ScopeFromConfig("github")
-			Expect(scope.GitHubRepos).To(Equal([]string{"owner/repo"}))
+			Expect(scope.Get("github")).To(Equal([]string{"owner/repo"}))
 		})
-		It("returns gitlab scope when gitlab is enabled with repos", func() {
-			c := &datasource.Config{
-				GitLab: &datasource.GitLabSourceConfig{Enabled: true, Repos: []string{"group/project"}},
-			}
-			scope := c.ScopeFromConfig("gitlab")
-			Expect(scope.GitLabRepos).To(Equal([]string{"group/project"}))
-		})
+
 		It("returns calendar scope when calendar is enabled with calendar IDs", func() {
 			c := &datasource.Config{
 				Calendar: &datasource.CalendarSourceConfig{Enabled: true, CalendarIDs: []string{"primary"}},
 			}
 			scope := c.ScopeFromConfig("calendar")
-			Expect(scope.CalendarIDs).To(Equal([]string{"primary"}))
+			Expect(scope.Get("calendar")).To(Equal([]string{"primary"}))
+		})
+		It("returns jira scope when jira is enabled with project keys", func() {
+			c := &datasource.Config{
+				Jira: &datasource.JiraSourceConfig{Enabled: true, ProjectKeys: []string{"ENG", "INFRA"}},
+			}
+			scope := c.ScopeFromConfig("jira")
+			Expect(scope.Get("jira")).To(Equal([]string{"ENG", "INFRA"}))
+		})
+		It("returns confluence scope when confluence is enabled with space keys", func() {
+			c := &datasource.Config{
+				Confluence: &datasource.ConfluenceSourceConfig{Enabled: true, SpaceKeys: []string{"ENG", "OPS"}},
+			}
+			scope := c.ScopeFromConfig("confluence")
+			Expect(scope.Get("confluence")).To(Equal([]string{"ENG", "OPS"}))
+		})
+		It("returns servicenow scope when servicenow is enabled with table names", func() {
+			c := &datasource.Config{
+				ServiceNow: &datasource.ServiceNowSourceConfig{Enabled: true, TableNames: []string{"incident", "change_request"}},
+			}
+			scope := c.ScopeFromConfig("servicenow")
+			Expect(scope.Get("servicenow")).To(Equal([]string{"incident", "change_request"}))
 		})
 
 		It("returns zero scope for unknown source name", func() {
@@ -124,16 +141,18 @@ var _ = Describe("Config", func() {
 
 		It("returns all enabled sources when all have scope", func() {
 			c := &datasource.Config{
-				Enabled:  true,
-				GDrive:   &datasource.GDriveSourceConfig{Enabled: true, FolderIDs: []string{"f1"}},
-				Gmail:    &datasource.GmailSourceConfig{Enabled: true, LabelIDs: []string{"INBOX"}},
-				Slack:    &datasource.SlackSourceConfig{Enabled: true, ChannelIDs: []string{"C1"}},
-				Linear:   &datasource.LinearSourceConfig{Enabled: true, TeamIDs: []string{"t1"}},
-				GitHub:   &datasource.GitHubSourceConfig{Enabled: true, Repos: []string{"o/r"}},
-				Calendar: &datasource.CalendarSourceConfig{Enabled: true, CalendarIDs: []string{"primary"}},
+				Enabled:    true,
+				GDrive:     &datasource.GDriveSourceConfig{Enabled: true, FolderIDs: []string{"f1"}},
+				Gmail:      &datasource.GmailSourceConfig{Enabled: true, LabelIDs: []string{"INBOX"}},
+				Slack:      &datasource.SlackSourceConfig{Enabled: true, ChannelIDs: []string{"C1"}},
+				Linear:     &datasource.LinearSourceConfig{Enabled: true, TeamIDs: []string{"t1"}},
+				Calendar:   &datasource.CalendarSourceConfig{Enabled: true, CalendarIDs: []string{"primary"}},
+				Jira:       &datasource.JiraSourceConfig{Enabled: true, ProjectKeys: []string{"ENG"}},
+				Confluence: &datasource.ConfluenceSourceConfig{Enabled: true, SpaceKeys: []string{"ENG"}},
+				ServiceNow: &datasource.ServiceNowSourceConfig{Enabled: true, TableNames: []string{"incident"}},
 			}
 			names := c.EnabledSourceNames()
-			Expect(names).To(ConsistOf("gdrive", "gmail", "slack", "linear", "github", "calendar"))
+			Expect(names).To(ConsistOf("gdrive", "gmail", "slack", "linear", "calendar", "jira", "confluence", "servicenow"))
 		})
 	})
 

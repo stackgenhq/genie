@@ -63,11 +63,12 @@ func (c *GDriveConnector) ListItemsSince(ctx context.Context, scope datasource.S
 }
 
 func (c *GDriveConnector) listItemsWithSince(ctx context.Context, scope datasource.Scope, since time.Time) ([]datasource.NormalizedItem, error) {
-	if len(scope.GDriveFolderIDs) == 0 {
+	folderIDs := scope.Get("gdrive")
+	if len(folderIDs) == 0 {
 		return nil, nil
 	}
 	var out []datasource.NormalizedItem
-	for _, folderID := range scope.GDriveFolderIDs {
+	for _, folderID := range folderIDs {
 		items, err := c.listFolderItems(ctx, folderID, since, 0, "")
 		if err != nil {
 			return nil, fmt.Errorf("gdrive folder %s: %w", folderID, err)

@@ -47,18 +47,31 @@ type Config struct {
 	// Enabled false to skip.
 	Linear *LinearSourceConfig `yaml:"linear,omitempty" toml:"linear,omitempty"`
 
-	// GitHub scopes vectorization to the given repos (owner/repo). Omit or
-	// set Enabled false to skip.
-	GitHub *GitHubSourceConfig `yaml:"github,omitempty" toml:"github,omitempty"`
-
-	// GitLab scopes vectorization to the given repos (project path or owner/repo). Omit or
-	// set Enabled false to skip.
-	GitLab *GitLabSourceConfig `yaml:"gitlab,omitempty" toml:"gitlab,omitempty"`
-
 	// Calendar scopes vectorization to the given calendar IDs. Omit or set
 	// Enabled false to skip.
 	Calendar *CalendarSourceConfig `yaml:"calendar,omitempty" toml:"calendar,omitempty"`
+
+	// Jira scopes vectorization to the given project keys. Omit or set
+	// Enabled false to skip. Requires a Jira MCP server in [mcp] config.
+	Jira *JiraSourceConfig `yaml:"jira,omitempty" toml:"jira,omitempty"`
+
+	// Confluence scopes vectorization to the given space keys. Omit or set
+	// Enabled false to skip. Requires a Confluence MCP server in [mcp] config.
+	Confluence *ConfluenceSourceConfig `yaml:"confluence,omitempty" toml:"confluence,omitempty"`
+
+	// ServiceNow scopes vectorization to the given table names. Omit or set
+	// Enabled false to skip. Requires a ServiceNow MCP server in [mcp] config.
+	ServiceNow *ServiceNowSourceConfig `yaml:"servicenow,omitempty" toml:"servicenow,omitempty"`
+
+	// ExternalSources holds additional SourceConfig entries registered at
+	// runtime (e.g. by SCM config). These are keyed by source name and
+	// participate in ScopeFromConfig/EnabledSourceNames automatically.
+	ExternalSources map[string]SourceConfig `yaml:"-" toml:"-"`
 }
+
+// ── Source Config Types ──────────────────────────────────────────────────
+// Each type implements datasource.SourceConfig so ScopeFromConfig and
+// EnabledSourceNames work generically.
 
 // GDriveSourceConfig enables and scopes the Google Drive data source.
 type GDriveSourceConfig struct {
@@ -66,11 +79,17 @@ type GDriveSourceConfig struct {
 	FolderIDs []string `yaml:"folder_ids,omitempty" toml:"folder_ids,omitempty"`
 }
 
+func (c *GDriveSourceConfig) IsEnabled() bool       { return c != nil && c.Enabled && len(c.FolderIDs) > 0 }
+func (c *GDriveSourceConfig) ScopeValues() []string { return c.FolderIDs }
+
 // GmailSourceConfig enables and scopes the Gmail data source.
 type GmailSourceConfig struct {
 	Enabled  bool     `yaml:"enabled,omitempty" toml:"enabled,omitempty"`
 	LabelIDs []string `yaml:"label_ids,omitempty" toml:"label_ids,omitempty"`
 }
+
+func (c *GmailSourceConfig) IsEnabled() bool       { return c != nil && c.Enabled && len(c.LabelIDs) > 0 }
+func (c *GmailSourceConfig) ScopeValues() []string { return c.LabelIDs }
 
 // SlackSourceConfig enables and scopes the Slack data source.
 type SlackSourceConfig struct {
@@ -78,28 +97,84 @@ type SlackSourceConfig struct {
 	ChannelIDs []string `yaml:"channel_ids,omitempty" toml:"channel_ids,omitempty"`
 }
 
+func (c *SlackSourceConfig) IsEnabled() bool       { return c != nil && c.Enabled && len(c.ChannelIDs) > 0 }
+func (c *SlackSourceConfig) ScopeValues() []string { return c.ChannelIDs }
+
 // LinearSourceConfig enables and scopes the Linear data source.
 type LinearSourceConfig struct {
 	Enabled bool     `yaml:"enabled,omitempty" toml:"enabled,omitempty"`
 	TeamIDs []string `yaml:"team_ids,omitempty" toml:"team_ids,omitempty"`
 }
 
-// GitHubSourceConfig enables and scopes the GitHub data source.
-type GitHubSourceConfig struct {
-	Enabled bool     `yaml:"enabled,omitempty" toml:"enabled,omitempty"`
-	Repos   []string `yaml:"repos,omitempty" toml:"repos,omitempty"` // "owner/repo"
-}
-
-// GitLabSourceConfig enables and scopes the GitLab data source (same go-scm adapter as GitHub).
-type GitLabSourceConfig struct {
-	Enabled bool     `yaml:"enabled,omitempty" toml:"enabled,omitempty"`
-	Repos   []string `yaml:"repos,omitempty" toml:"repos,omitempty"` // "owner/repo" or project path
-}
+func (c *LinearSourceConfig) IsEnabled() bool       { return c != nil && c.Enabled && len(c.TeamIDs) > 0 }
+func (c *LinearSourceConfig) ScopeValues() []string { return c.TeamIDs }
 
 // CalendarSourceConfig enables and scopes the Calendar data source.
 type CalendarSourceConfig struct {
 	Enabled     bool     `yaml:"enabled,omitempty" toml:"enabled,omitempty"`
 	CalendarIDs []string `yaml:"calendar_ids,omitempty" toml:"calendar_ids,omitempty"`
+}
+
+func (c *CalendarSourceConfig) IsEnabled() bool {
+	return c != nil && c.Enabled && len(c.CalendarIDs) > 0
+}
+func (c *CalendarSourceConfig) ScopeValues() []string { return c.CalendarIDs }
+
+// JiraSourceConfig enables and scopes the Jira data source.
+// Requires a corresponding MCP server named "jira" (or as specified by MCPServer).
+type JiraSourceConfig struct {
+	Enabled     bool     `yaml:"enabled,omitempty" toml:"enabled,omitempty"`
+	ProjectKeys []string `yaml:"project_keys,omitempty" toml:"project_keys,omitempty"`
+	MCPServer   string   `yaml:"mcp_server,omitempty" toml:"mcp_server,omitempty"`
+}
+
+func (c *JiraSourceConfig) IsEnabled() bool       { return c != nil && c.Enabled && len(c.ProjectKeys) > 0 }
+func (c *JiraSourceConfig) ScopeValues() []string { return c.ProjectKeys }
+
+// ConfluenceSourceConfig enables and scopes the Confluence data source.
+// Requires a corresponding MCP server named "confluence" (or as specified by MCPServer).
+type ConfluenceSourceConfig struct {
+	Enabled   bool     `yaml:"enabled,omitempty" toml:"enabled,omitempty"`
+	SpaceKeys []string `yaml:"space_keys,omitempty" toml:"space_keys,omitempty"`
+	MCPServer string   `yaml:"mcp_server,omitempty" toml:"mcp_server,omitempty"`
+}
+
+func (c *ConfluenceSourceConfig) IsEnabled() bool {
+	return c != nil && c.Enabled && len(c.SpaceKeys) > 0
+}
+func (c *ConfluenceSourceConfig) ScopeValues() []string { return c.SpaceKeys }
+
+// ServiceNowSourceConfig enables and scopes the ServiceNow data source.
+// Requires a corresponding MCP server named "servicenow" (or as specified by MCPServer).
+type ServiceNowSourceConfig struct {
+	Enabled    bool     `yaml:"enabled,omitempty" toml:"enabled,omitempty"`
+	TableNames []string `yaml:"table_names,omitempty" toml:"table_names,omitempty"`
+	MCPServer  string   `yaml:"mcp_server,omitempty" toml:"mcp_server,omitempty"`
+}
+
+func (c *ServiceNowSourceConfig) IsEnabled() bool {
+	return c != nil && c.Enabled && len(c.TableNames) > 0
+}
+func (c *ServiceNowSourceConfig) ScopeValues() []string { return c.TableNames }
+
+// sourceConfigs returns a map of source name → SourceConfig for all
+// configured sources (built-in + external). This is the single registry that
+// ScopeFromConfig and EnabledSourceNames iterate.
+func (c *Config) sourceConfigs() map[string]SourceConfig {
+	m := map[string]SourceConfig{
+		"gdrive":     c.GDrive,
+		"gmail":      c.Gmail,
+		"slack":      c.Slack,
+		"linear":     c.Linear,
+		"calendar":   c.Calendar,
+		"jira":       c.Jira,
+		"confluence": c.Confluence,
+		"servicenow": c.ServiceNow,
+	}
+	for name, sc := range c.ExternalSources {
+		m[name] = sc
+	}
+	return m
 }
 
 // ScopeFromConfig builds a Scope from the current Config for the given source name.
@@ -109,45 +184,11 @@ func (c *Config) ScopeFromConfig(sourceName string) Scope {
 	if c == nil {
 		return Scope{}
 	}
-	switch sourceName {
-	case "gdrive":
-		if c.GDrive == nil || !c.GDrive.Enabled || len(c.GDrive.FolderIDs) == 0 {
-			return Scope{}
-		}
-		return Scope{GDriveFolderIDs: c.GDrive.FolderIDs}
-	case "gmail":
-		if c.Gmail == nil || !c.Gmail.Enabled || len(c.Gmail.LabelIDs) == 0 {
-			return Scope{}
-		}
-		return Scope{GmailLabelIDs: c.Gmail.LabelIDs}
-	case "slack":
-		if c.Slack == nil || !c.Slack.Enabled || len(c.Slack.ChannelIDs) == 0 {
-			return Scope{}
-		}
-		return Scope{SlackChannelIDs: c.Slack.ChannelIDs}
-	case "linear":
-		if c.Linear == nil || !c.Linear.Enabled || len(c.Linear.TeamIDs) == 0 {
-			return Scope{}
-		}
-		return Scope{LinearTeamIDs: c.Linear.TeamIDs}
-	case "github":
-		if c.GitHub == nil || !c.GitHub.Enabled || len(c.GitHub.Repos) == 0 {
-			return Scope{}
-		}
-		return Scope{GitHubRepos: c.GitHub.Repos}
-	case "gitlab":
-		if c.GitLab == nil || !c.GitLab.Enabled || len(c.GitLab.Repos) == 0 {
-			return Scope{}
-		}
-		return Scope{GitLabRepos: c.GitLab.Repos}
-	case "calendar":
-		if c.Calendar == nil || !c.Calendar.Enabled || len(c.Calendar.CalendarIDs) == 0 {
-			return Scope{}
-		}
-		return Scope{CalendarIDs: c.Calendar.CalendarIDs}
-	default:
+	sc, ok := c.sourceConfigs()[sourceName]
+	if !ok || sc == nil || !sc.IsEnabled() {
 		return Scope{}
 	}
+	return NewScope(sourceName, sc.ScopeValues())
 }
 
 // SearchKeywordsTrimmed returns SearchKeywords limited to MaxSearchKeywords,
@@ -203,23 +244,10 @@ func (c *Config) EnabledSourceNames() []string {
 		return nil
 	}
 	var out []string
-	if c.GDrive != nil && c.GDrive.Enabled && len(c.GDrive.FolderIDs) > 0 {
-		out = append(out, "gdrive")
-	}
-	if c.Gmail != nil && c.Gmail.Enabled && len(c.Gmail.LabelIDs) > 0 {
-		out = append(out, "gmail")
-	}
-	if c.Slack != nil && c.Slack.Enabled && len(c.Slack.ChannelIDs) > 0 {
-		out = append(out, "slack")
-	}
-	if c.Linear != nil && c.Linear.Enabled && len(c.Linear.TeamIDs) > 0 {
-		out = append(out, "linear")
-	}
-	if c.GitHub != nil && c.GitHub.Enabled && len(c.GitHub.Repos) > 0 {
-		out = append(out, "github")
-	}
-	if c.Calendar != nil && c.Calendar.Enabled && len(c.Calendar.CalendarIDs) > 0 {
-		out = append(out, "calendar")
+	for name, sc := range c.sourceConfigs() {
+		if sc != nil && sc.IsEnabled() {
+			out = append(out, name)
+		}
 	}
 	return out
 }

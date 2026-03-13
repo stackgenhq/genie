@@ -46,7 +46,7 @@ func (c *SCMConnector) Name() string {
 // SCM source. Uses scope.ReposForSCM(c.sourceName) so one connector works for
 // all go-scm providers. Item IDs use sourceName (e.g. "github:repo:owner/repo").
 func (c *SCMConnector) ListItems(ctx context.Context, scope datasource.Scope) ([]datasource.NormalizedItem, error) {
-	repos := scope.ReposForSCM(c.sourceName)
+	repos := scope.Get(c.sourceName)
 	if len(repos) == 0 {
 		return nil, nil
 	}

@@ -39,17 +39,17 @@ var _ = Describe("SourceRefID", func() {
 	})
 })
 
-var _ = Describe("Scope.ReposForSCM", func() {
-	It("returns GitHubRepos for github", func() {
-		s := datasource.Scope{GitHubRepos: []string{"owner/repo"}}
-		Expect(s.ReposForSCM("github")).To(Equal([]string{"owner/repo"}))
+var _ = Describe("Scope.Get", func() {
+	It("returns values for configured source", func() {
+		s := datasource.NewScope("github", []string{"owner/repo"})
+		Expect(s.Get("github")).To(Equal([]string{"owner/repo"}))
 	})
-	It("returns GitLabRepos for gitlab", func() {
-		s := datasource.Scope{GitLabRepos: []string{"group/project"}}
-		Expect(s.ReposForSCM("gitlab")).To(Equal([]string{"group/project"}))
+	It("returns nil for unconfigured source", func() {
+		s := datasource.NewScope("github", []string{"a/b"})
+		Expect(s.Get("gitlab")).To(BeNil())
 	})
-	It("returns nil for unknown source", func() {
-		s := datasource.Scope{GitHubRepos: []string{"a/b"}}
-		Expect(s.ReposForSCM("bitbucket")).To(BeNil())
+	It("returns nil for empty Scope", func() {
+		s := datasource.Scope{}
+		Expect(s.Get("anything")).To(BeNil())
 	})
 })

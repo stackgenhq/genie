@@ -44,8 +44,8 @@ func (c *LinearConnector) Name() string {
 // is title + description; metadata includes status and assignee.
 func (c *LinearConnector) ListItems(ctx context.Context, scope datasource.Scope) ([]datasource.NormalizedItem, error) {
 	// Linear ListIssues currently does not filter by team; we list open issues.
-	// When scope.LinearTeamIDs is set, a future enhancement can pass team filter.
-	_ = scope.LinearTeamIDs
+	// When scope includes linear team IDs, a future enhancement can pass team filter.
+	_ = scope.Get("linear")
 	issues, err := c.svc.ListIssues(ctx, IssueFilter{})
 	if err != nil {
 		return nil, fmt.Errorf("linear list issues: %w", err)
@@ -59,6 +59,21 @@ func (c *LinearConnector) ListItems(ctx context.Context, scope datasource.Scope)
 		if issue.Description != "" {
 			content = issue.Title + "\n\n" + issue.Description
 		}
+		// Fetch and append issue comments for richer context.
+		comments, err := c.svc.ListComments(ctx, issue.ID)
+		if err == nil && len(comments) > 0 {
+			content += "\n\n--- Comments ---"
+			for _, cmt := range comments {
+				if cmt == nil || cmt.Body == "" {
+					continue
+				}
+				header := "\n\n"
+				if cmt.Author != "" {
+					header += cmt.Author + ": "
+				}
+				content += header + cmt.Body
+			}
+		}
 		meta := map[string]string{"title": issue.Title}
 		if issue.Status != "" {
 			meta["status"] = issue.Status
@@ -68,6 +83,9 @@ func (c *LinearConnector) ListItems(ctx context.Context, scope datasource.Scope)
 		}
 		if len(issue.Labels) > 0 {
 			meta["labels"] = strings.Join(issue.Labels, ",")
+		}
+		if comments != nil {
+			meta["comment_count"] = fmt.Sprintf("%d", len(comments))
 		}
 		out = append(out, datasource.NormalizedItem{
 			ID:        "linear:" + issue.ID,

@@ -28,10 +28,17 @@ func (c *Client) ExpandEnvValueForTest(ctx context.Context, value string) string
 // It skips config validation and server initialization.
 func NewClientForTest(opts ...ClientOption) *Client {
 	c := &Client{
-		tools: make([]tool.Tool, 0),
+		tools:           make([]tool.Tool, 0),
+		resourceReaders: make(map[string]MCPResourceReader),
 	}
 	for _, opt := range opts {
 		opt(c)
 	}
 	return c
+}
+
+// SetResourceReaderForTest injects a resource reader for the given server name.
+// Not part of the public API.
+func (c *Client) SetResourceReaderForTest(serverName string, reader MCPResourceReader) {
+	c.resourceReaders[serverName] = reader
 }

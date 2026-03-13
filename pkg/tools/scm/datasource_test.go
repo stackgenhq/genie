@@ -53,7 +53,7 @@ var _ = Describe("SCMConnector", func() {
 				},
 			}, nil)
 			conn := scm.NewGitHubConnector(fake)
-			scope := datasource.Scope{GitHubRepos: []string{"owner/repo"}}
+			scope := datasource.NewScope("github", []string{"owner/repo"})
 
 			items, err := conn.ListItems(ctx, scope)
 			Expect(err).NotTo(HaveOccurred())
@@ -82,7 +82,7 @@ var _ = Describe("SCMConnector", func() {
 			}, nil)
 			fake.ListPullRequestsReturns(nil, nil)
 			conn := scm.NewGitHubConnector(fake)
-			scope := datasource.Scope{GitHubRepos: []string{"owner/repo"}}
+			scope := datasource.NewScope("github", []string{"owner/repo"})
 
 			items, err := conn.ListItems(ctx, scope)
 			Expect(err).NotTo(HaveOccurred())
@@ -100,7 +100,7 @@ var _ = Describe("SCMConnector", func() {
 				{Number: 1, Title: "MR title", Body: "Body", Closed: false, Created: time.Now(), Updated: time.Now(), Author: go_scm.User{Login: "dev"}},
 			}, nil)
 			conn := scm.NewSCMConnector(fake, "gitlab")
-			scope := datasource.Scope{GitLabRepos: []string{"group/project"}}
+			scope := datasource.NewScope("gitlab", []string{"group/project"})
 
 			items, err := conn.ListItems(ctx, scope)
 			Expect(err).NotTo(HaveOccurred())

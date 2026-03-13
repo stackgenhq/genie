@@ -37,11 +37,12 @@ func WithSecretProvider(sp security.SecretProvider) ClientOption {
 // Note: This is a simplified implementation that provides configuration management.
 // Full MCP integration will be available when trpc-agent-go releases its MCP package.
 type Client struct {
-	config         MCPConfig
-	clients        []*client.Client
-	tools          []tool.Tool
-	prompts        []namespacedPrompt
-	secretProvider security.SecretProvider
+	config          MCPConfig
+	clients         []*client.Client
+	tools           []tool.Tool
+	prompts         []namespacedPrompt
+	secretProvider  security.SecretProvider
+	resourceReaders map[string]MCPResourceReader
 }
 
 // namespacedPrompt holds a prompt associated with the server that provided it.
@@ -68,10 +69,11 @@ func NewClient(ctx context.Context, config MCPConfig, opts ...ClientOption) (*Cl
 	}
 
 	mcpClient := &Client{
-		config:  config,
-		clients: make([]*client.Client, 0),
-		tools:   make([]tool.Tool, 0),
-		prompts: make([]namespacedPrompt, 0),
+		config:          config,
+		clients:         make([]*client.Client, 0),
+		tools:           make([]tool.Tool, 0),
+		prompts:         make([]namespacedPrompt, 0),
+		resourceReaders: make(map[string]MCPResourceReader),
 	}
 	for _, opt := range opts {
 		opt(mcpClient)
@@ -144,8 +146,9 @@ func (c *Client) initializeServer(ctx context.Context, config MCPServerConfig) (
 		return nil, fmt.Errorf("failed to list tools: %w", err)
 	}
 
-	// Store client for cleanup
+	// Store client for cleanup and resource reading
 	c.clients = append(c.clients, mcpClient)
+	c.resourceReaders[config.Name] = mcpClient
 
 	// Fetch Prompts
 	promptsResponse, err := mcpClient.ListPrompts(ctx, mcp.ListPromptsRequest{})

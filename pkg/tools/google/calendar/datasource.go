@@ -45,7 +45,8 @@ func (c *CalendarConnector) Name() string {
 // "calendar:calendarID:eventID". Content is summary + description; metadata
 // includes start time and location.
 func (c *CalendarConnector) ListItems(ctx context.Context, scope datasource.Scope) ([]datasource.NormalizedItem, error) {
-	if len(scope.CalendarIDs) == 0 {
+	calIDs := scope.Get("calendar")
+	if len(calIDs) == 0 {
 		return nil, nil
 	}
 	if c.svc == nil {
@@ -55,7 +56,7 @@ func (c *CalendarConnector) ListItems(ctx context.Context, scope datasource.Scop
 	timeMin := now.Format(time.RFC3339)
 	timeMax := now.Add(calendarListWindow).Format(time.RFC3339)
 	var out []datasource.NormalizedItem
-	for _, calID := range scope.CalendarIDs {
+	for _, calID := range calIDs {
 		events, err := c.svc.Events.List(calID).
 			ShowDeleted(false).
 			SingleEvents(true).

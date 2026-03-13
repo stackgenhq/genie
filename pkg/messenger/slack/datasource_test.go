@@ -56,7 +56,7 @@ var _ = Describe("SlackConnector", func() {
 
 			api := slackapi.New("xoxb-test", slackapi.OptionAPIURL(srv.URL+"/api/"))
 			conn := slack.NewSlackConnector(api)
-			scope := datasource.Scope{SlackChannelIDs: []string{"C1"}}
+			scope := datasource.NewScope("slack", []string{"C1"})
 
 			items, err := conn.ListItems(ctx, scope)
 			Expect(err).NotTo(HaveOccurred())
