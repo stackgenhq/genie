@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -16,14 +17,21 @@ import (
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/memory/graph"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
+	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 )
 
 // maxConsecutiveRepeatCalls is the number of consecutive identical tool calls
-// that triggers loop detection. Set to 3 so that the third identical call is
-// blocked — this tolerates one accidental retry (common with Gemini Flash which
-// sometimes re-calls a tool before processing its result) while still catching
-// true infinite loops.
-const maxConsecutiveRepeatCalls = 3
+// (same name + same args) that triggers loop detection. Set to 2 so that the
+// second identical call is blocked. Combined with the cancel-cause mechanism
+// that terminates the sub-agent run, this prevents wasting budget on retries.
+const maxConsecutiveRepeatCalls = 2
+
+// maxConsecutiveSameToolCalls is the number of consecutive calls to the SAME
+// tool (regardless of arguments) that triggers loop detection. This catches
+// pagination/exploration loops where the LLM calls the same API with different
+// parameters each time (e.g. scm_list_repos with Page=1, Page=2, Page=3...)
+// instead of using the action tool directly.
+const maxConsecutiveSameToolCalls = 4
 
 // maxConsecutiveEmptyResults is the number of consecutive empty results from
 // a retrieval tool (even with different arguments) that triggers cancellation.
@@ -51,11 +59,67 @@ func IsRetrievalTool(name string) bool {
 	return retrievalTools[name]
 }
 
-// loopExemptTools lists tool names that are exempt from loop detection.
-// For example, read_notes and note which the agent may need to call multiple times to read or write parts of the notes.
-var loopExemptTools = map[string]bool{
-	"read_notes": true,
-	"note":       true,
+// defaultLoopExemptTools lists tool names that are exempt from loop detection
+// by default. These are merged with any user-configured exempt tools.
+// Exempt categories:
+//   - note/read_notes: agent may call repeatedly to read/write parts of notes
+//   - google_drive_*: read-only, idempotent tools. Sub-agents reading multiple
+//     files sequentially trigger false-positive identical-args detection when
+//     a model re-emits the same file_id after receiving the first result (common
+//     with gemini-2.0-flash). The aggressive threshold=2 kills agents mid-task.
+var defaultLoopExemptTools = []string{
+	"read_notes",
+	"note",
+}
+
+// LoopDetectionConfig controls loop detection behaviour.
+type LoopDetectionConfig struct {
+	// ExemptTools lists additional tool names (or prefix patterns) to exempt
+	// from loop detection. These are merged with the built-in defaults.
+	// Supports exact names ("my_tool") and prefix patterns ("my_prefix_*").
+	// Use this for custom tools that legitimately make many sequential calls
+	// (e.g. read-only MCP tools).
+	ExemptTools []string `yaml:"exempt_tools,omitempty" toml:"exempt_tools,omitempty"`
+}
+
+// loopExemptSet holds both exact tool names and prefix patterns for
+// efficient matching.
+type loopExemptSet struct {
+	exact    map[string]bool
+	prefixes []string
+}
+
+// buildExemptSet merges built-in defaults with user-configured exempt tools.
+// Entries ending with "*" are treated as prefix patterns; all others are
+// exact matches.
+func (c LoopDetectionConfig) buildExemptSet() *loopExemptSet {
+	all := make([]string, 0, len(defaultLoopExemptTools)+len(c.ExemptTools))
+	all = append(all, defaultLoopExemptTools...)
+	all = append(all, c.ExemptTools...)
+
+	set := &loopExemptSet{exact: make(map[string]bool, len(all))}
+	for _, entry := range all {
+		if strings.HasSuffix(entry, "*") {
+			set.prefixes = append(set.prefixes, strings.TrimSuffix(entry, "*"))
+			continue
+		}
+		set.exact[entry] = true
+	}
+	return set
+}
+
+// isExempt returns true if the tool name matches an exact entry or any
+// prefix pattern in the exempt set.
+func (s *loopExemptSet) isExempt(toolName string) bool {
+	if s.exact[toolName] {
+		return true
+	}
+	for _, p := range s.prefixes {
+		if strings.HasPrefix(toolName, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // --- Loop Detection ---
@@ -70,9 +134,11 @@ var loopExemptTools = map[string]bool{
 // Each Wrapper gets its own instance so per-tool history is isolated.
 // Concurrency-safe via mutex.
 type loopDetectionMiddleware struct {
-	mu           sync.Mutex
-	history      []string       // bounded ring of "toolName:args" fingerprints
-	emptyStreaks map[string]int // toolName → consecutive empty result count
+	mu              sync.Mutex
+	exemptTools     *loopExemptSet
+	history         []string       // bounded ring of "toolName:args" fingerprints
+	sameToolHistory []string       // bounded ring of tool names (no args)
+	emptyStreaks    map[string]int // toolName → consecutive empty result count
 }
 
 // LoopDetectionMiddleware returns a Middleware that blocks a tool after
@@ -81,17 +147,30 @@ type loopDetectionMiddleware struct {
 // consecutive empty results from retrieval tools. This prevents infinite
 // agent loops where the LLM keeps issuing the same call or rephrasing
 // queries against an empty store.
-func LoopDetectionMiddleware() Middleware {
+//
+// The config's ExemptTools are merged with built-in defaults so that
+// user-configured exemptions extend (not replace) the safe list.
+func LoopDetectionMiddleware(cfg ...LoopDetectionConfig) Middleware {
+	var c LoopDetectionConfig
+	if len(cfg) > 0 {
+		c = cfg[0]
+	}
 	return &loopDetectionMiddleware{
+		exemptTools:  c.buildExemptSet(),
 		emptyStreaks: make(map[string]int),
 	}
 }
 
 func (m *loopDetectionMiddleware) Wrap(next Handler) Handler {
 	return func(ctx context.Context, tc *ToolCallContext) (any, error) {
-		if loopExemptTools[tc.ToolName] {
+		if m.exemptTools.isExempt(tc.ToolName) {
 			return next(ctx, tc)
 		}
+
+		// Internal tasks (e.g. graph learn) legitimately call the same tool
+		// many times with different arguments. Skip same-tool loop detection
+		// but keep identical-args loop detection to guard against true loops.
+		isInternal := orchestratorcontext.IsInternalTask(ctx)
 
 		argsStr := string(tc.Args)
 		if cleaned, err := sjson.Delete(argsStr, "_justification"); err == nil {
@@ -100,28 +179,36 @@ func (m *loopDetectionMiddleware) Wrap(next Handler) Handler {
 		fingerprint := uuid.NewSHA1(uuid.Nil, []byte(tc.ToolName+":"+argsStr)).String()
 
 		m.mu.Lock()
-		looping := m.isLooping(fingerprint)
-		if !looping {
+		identicalLoop := m.isLooping(fingerprint)
+		sameToolLoop := !isInternal && m.isSameToolLooping(tc.ToolName)
+		if !identicalLoop && !sameToolLoop {
 			m.recordCall(fingerprint)
+			m.recordSameToolCall(tc.ToolName)
 		}
 		m.mu.Unlock()
 
-		if looping {
+		if identicalLoop {
 			loopErr := fmt.Errorf(
 				"loop detected: tool %s has been called with identical arguments %d times consecutively. "+
 					"Stop calling this tool and summarize the results you already have",
 				tc.ToolName, maxConsecutiveRepeatCalls)
 
-			// Cancel the sub-agent's context so the runner stops
-			// immediately. Without this, the LLM ignores the error
-			// and keeps retrying, burning the entire call budget.
-			// The cancel function is only set for sub-agents (via
-			// WithCancelCause in create_agent.go); parent agents
-			// get the error-only path for backward compatibility.
 			if cancel := cancelCauseFromContext(ctx); cancel != nil {
 				cancel(loopErr)
 			}
+			return nil, loopErr
+		}
 
+		if sameToolLoop {
+			loopErr := fmt.Errorf(
+				"exploration loop detected: tool %s has been called %d times consecutively with different arguments. "+
+					"This looks like unnecessary pagination or discovery. Use the information you already have "+
+					"or call a different tool to complete the task",
+				tc.ToolName, maxConsecutiveSameToolCalls)
+
+			if cancel := cancelCauseFromContext(ctx); cancel != nil {
+				cancel(loopErr)
+			}
 			return nil, loopErr
 		}
 
@@ -197,6 +284,34 @@ func (m *loopDetectionMiddleware) recordCall(fingerprint string) {
 	const maxHistory = 10
 	if len(m.history) > maxHistory {
 		m.history = m.history[len(m.history)-maxHistory:]
+	}
+}
+
+// isSameToolLooping returns true when the most recent entries in the
+// same-tool history all match the given tool name, indicating the LLM
+// is calling the same tool repeatedly with different arguments (e.g.
+// pagination loops). Caller must hold m.mu.
+func (m *loopDetectionMiddleware) isSameToolLooping(toolName string) bool {
+	n := len(m.sameToolHistory)
+	needed := maxConsecutiveSameToolCalls - 1
+	if n < needed {
+		return false
+	}
+	for i := n - needed; i < n; i++ {
+		if m.sameToolHistory[i] != toolName {
+			return false
+		}
+	}
+	return true
+}
+
+// recordSameToolCall appends a tool name to the same-tool history.
+// Caller must hold m.mu.
+func (m *loopDetectionMiddleware) recordSameToolCall(toolName string) {
+	m.sameToolHistory = append(m.sameToolHistory, toolName)
+	const maxHistory = 10
+	if len(m.sameToolHistory) > maxHistory {
+		m.sameToolHistory = m.sameToolHistory[len(m.sameToolHistory)-maxHistory:]
 	}
 }
 

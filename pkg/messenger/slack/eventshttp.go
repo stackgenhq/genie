@@ -25,6 +25,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/slack-go/slack/slackevents"
@@ -45,6 +46,12 @@ import (
 type eventsHTTPHandler struct {
 	signingSecret string
 	incoming      chan messenger.IncomingMessage
+
+	// Filtering fields — shared with the parent Messenger.
+	botUserID        string
+	respondTo        string
+	allowedUsers     []string
+	mentionedThreads *sync.Map
 }
 
 // urlVerificationBody is the JSON payload Slack sends for URL verification.
@@ -129,6 +136,55 @@ func (h *eventsHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// shouldProcess determines whether a message should be forwarded based on
+// mention-only mode and allowed-user filtering. Uses the same algorithm
+// as Messenger.shouldProcess.
+func (h *eventsHTTPHandler) shouldProcess(channelID, userID, text, threadTS string) bool {
+	// Allowed-user check (supports * suffix wildcards).
+	if len(h.allowedUsers) > 0 {
+		if !isUserAllowed(userID, h.allowedUsers) {
+			return false
+		}
+	}
+
+	if h.respondTo == respondToAll {
+		return true
+	}
+
+	// DMs always pass.
+	if strings.HasPrefix(channelID, "D") {
+		return true
+	}
+
+	// Explicit @mention.
+	if h.botUserID != "" && strings.Contains(text, "<@"+h.botUserID+">") {
+		if threadTS != "" && h.mentionedThreads != nil {
+			h.mentionedThreads.Store(channelID+":"+threadTS, true)
+		}
+		return true
+	}
+
+	// Thread where bot was previously mentioned.
+	if threadTS != "" && h.mentionedThreads != nil {
+		if _, ok := h.mentionedThreads.Load(channelID + ":" + threadTS); ok {
+			return true
+		}
+	}
+
+	return false
+}
+
+// stripBotMention removes the bot's <@BOT_USER_ID> mention from message text.
+func (h *eventsHTTPHandler) stripBotMention(text string) string {
+	if h.botUserID == "" {
+		return text
+	}
+	cleaned := strings.ReplaceAll(text, "<@"+h.botUserID+">", "")
+	cleaned = strings.TrimSpace(cleaned)
+	cleaned = strings.TrimLeft(cleaned, ":")
+	return strings.TrimSpace(cleaned)
+}
+
 // handleCallback processes a callback event from the Slack Events API.
 func (h *eventsHTTPHandler) handleCallback(ctx context.Context, event slackevents.EventsAPIEvent) {
 	log := logger.GetLogger(ctx).With("platform", "slack", "fn", "eventsHTTPHandler.handleCallback")
@@ -139,6 +195,27 @@ func (h *eventsHTTPHandler) handleCallback(ctx context.Context, event slackevent
 		// Skip bot messages to avoid echo loops.
 		if ev.BotID != "" {
 			return
+		}
+
+		// Apply mention-only and allowed-user filtering.
+		if !h.shouldProcess(ev.Channel, ev.User, ev.Text, ev.ThreadTimeStamp) {
+			return
+		}
+
+		// Strip the bot mention from text so the LLM gets clean input.
+		cleanText := h.stripBotMention(ev.Text)
+
+		// For top-level messages (no thread_ts), use the message's own
+		// timestamp as ThreadID so all replies thread under it.
+		threadID := ev.ThreadTimeStamp
+		if threadID == "" {
+			threadID = ev.TimeStamp
+		}
+
+		// Track the thread so subsequent replies are processed without
+		// requiring another @mention.
+		if h.mentionedThreads != nil {
+			h.mentionedThreads.Store(ev.Channel+":"+threadID, true)
 		}
 
 		msg := messenger.IncomingMessage{
@@ -153,9 +230,9 @@ func (h *eventsHTTPHandler) handleCallback(ctx context.Context, event slackevent
 				Username: ev.User,
 			},
 			Content: messenger.MessageContent{
-				Text: ev.Text,
+				Text: cleanText,
 			},
-			ThreadID:  ev.ThreadTimeStamp,
+			ThreadID:  threadID,
 			Timestamp: time.Now(),
 		}
 		// When the user replies in a thread, thread_ts is the parent message's ts.

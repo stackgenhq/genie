@@ -22,6 +22,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/expert/expertfakes"
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider/modelproviderfakes"
 	"github.com/stackgenhq/genie/pkg/hitl/hitlfakes"
+	"github.com/stackgenhq/genie/pkg/memory/graph/graphfakes"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/memory/vector/vectorfakes"
 	"github.com/stackgenhq/genie/pkg/messenger"
@@ -32,12 +33,15 @@ import (
 	"github.com/stackgenhq/genie/pkg/semanticrouter"
 	"github.com/stackgenhq/genie/pkg/semanticrouter/semanticrouterfakes"
 	"github.com/stackgenhq/genie/pkg/tools"
+	"github.com/stackgenhq/genie/pkg/tools/toolsfakes"
 	"github.com/stackgenhq/genie/pkg/ttlcache"
 	"go.opentelemetry.io/otel/baggage"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 	"trpc.group/trpc-go/trpc-agent-go/memory"
 	"trpc.group/trpc-go/trpc-agent-go/memory/inmemory"
+	"trpc.group/trpc-go/trpc-agent-go/tool"
+	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )
 
 var _ = Describe("CodeOwner", func() {
@@ -91,6 +95,7 @@ var _ = Describe("CodeOwner", func() {
 				fakeProvider,
 				fakeRegistry,
 				&vectorfakes.FakeIStore{},
+				nil, // graphStore
 				&auditfakes.FakeAuditor{},
 				&hitlfakes.FakeApprovalStore{},
 				nil,
@@ -395,6 +400,11 @@ var _ = Describe("CodeOwner", func() {
 		})
 
 		It("should generate a resume using the summarizer and accomplishments", func() {
+			// Provide a mock toolIndex since createResume now always calls it.
+			fakeToolIndex := &toolsfakes.FakeSmartToolProvider{}
+			fakeToolIndex.SearchToolsWithContextReturns(nil, nil)
+			co.toolIndex = fakeToolIndex
+
 			// Mock findings in vector store
 			fakeStore := &vectorfakes.FakeIStore{}
 			fakeStore.SearchReturns([]vector.SearchResult{
@@ -419,19 +429,21 @@ var _ = Describe("CodeOwner", func() {
 			Expect(req.Content).To(ContainSubstring("SysPrompt"))
 		})
 
-		It("should include tool capabilities from vector tool index in the summarizer prompt", func() {
-			co.vectorStore = nil
-			// Create a vector store and tool index with some test tools.
+		It("should include tool capabilities when toolIndex is available", func(ctx context.Context) {
 			cfg := vector.Config{
 				VectorStoreProvider: "inmemory",
 				EmbeddingProvider:   "dummy",
 			}
-			store, err := cfg.NewStore(ctx)
-			Expect(err).NotTo(HaveOccurred())
-			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg)
-			Expect(err).NotTo(HaveOccurred())
-			co.toolIndex = vtp
+			store, storeErr := cfg.NewStore(ctx)
+			Expect(storeErr).NotTo(HaveOccurred())
+
+			reg := tools.NewRegistry(ctx, tools.Tools{
+				newStubTool("email_read", "Read email messages"),
+				newStubTool("email_send", "Send email messages"),
+			})
+			toolIdx, idxErr := tools.NewVectorToolProvider(ctx, store, reg, &graphfakes.FakeIStore{})
+			Expect(idxErr).NotTo(HaveOccurred())
+			co.toolIndex = toolIdx
 
 			fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
 			fakeSummarizer.SummarizeReturns("Resume with tools", nil)
@@ -441,43 +453,16 @@ var _ = Describe("CodeOwner", func() {
 			Expect(resume).To(Equal("Resume with tools"))
 
 			Expect(fakeSummarizer.SummarizeCallCount()).To(Equal(1))
-		})
-
-		It("should include vector search results for tools when toolIndex is configured", func() {
-			co.vectorStore = nil
-			// Create a store, index a tool, verify it shows up in resume.
-			cfg := vector.Config{
-				VectorStoreProvider: "inmemory",
-				EmbeddingProvider:   "dummy",
-			}
-			store, err := cfg.NewStore(ctx)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Index a dummy tool via the store directly to simulate the index.
-			err = store.Add(ctx, vector.AddRequest{Items: []vector.BatchItem{{
-				ID: "tool:email_send", Text: "email_send: Send email messages",
-				Metadata: map[string]string{"type": "tool_index", "tool_name": "email_send"},
-			}}})
-			Expect(err).NotTo(HaveOccurred())
-
-			reg := tools.NewRegistry(ctx)
-			vtp, err := tools.NewVectorToolProvider(ctx, store, reg)
-			Expect(err).NotTo(HaveOccurred())
-			co.toolIndex = vtp
-
-			fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
-			fakeSummarizer.SummarizeReturns("sorted resume", nil)
-
-			_, err = co.createResume(ctx, fakeSummarizer, "TestPersona")
-			Expect(err).NotTo(HaveOccurred())
-
 			_, req := fakeSummarizer.SummarizeArgsForCall(0)
+			Expect(req.Content).To(ContainSubstring("Key Capabilities"))
+			Expect(req.Content).To(ContainSubstring("email_read"))
 			Expect(req.Content).To(ContainSubstring("email_send"))
 		})
 
-		It("should omit the tools section when no toolIndex is available", func() {
-			co.vectorStore = nil
-			co.toolIndex = nil
+		It("should omit the tools section when search returns empty", func(ctx context.Context) {
+			fakeToolIndex := &toolsfakes.FakeSmartToolProvider{}
+			fakeToolIndex.SearchToolsWithContextReturns(nil, nil)
+			co.toolIndex = fakeToolIndex
 
 			fakeSummarizer := &agentutilsfakes.FakeSummarizer{}
 			fakeSummarizer.SummarizeReturns("resume without tools", nil)
@@ -693,6 +678,93 @@ var _ = Describe("CodeOwner", func() {
 			Expect(fakeRouter.SetCacheCallCount()).To(Equal(1))
 		})
 	})
+
+	Describe("recallConversation", func() {
+		It("should return recent turns for short queries like '1'", func() {
+			// conversationKeyFromContext on a bare context yields "global",
+			// and memoryKeyForSender maps that to {AppName, UserID: "global"}.
+			key := co.memoryKeyForSender(co.conversationKeyFromContext(ctx))
+			_ = co.memorySvc.AddMemory(ctx, key, "Q: What MTTR docs exist?\nA: 1. Report A  2. Report B", []string{"conversation"})
+
+			// Recall with a short ambiguous query — must still include recent turns
+			result := co.recallConversation(ctx, "1")
+			Expect(result).To(ContainSubstring("MTTR"))
+		})
+
+		It("should return empty string when no memories exist", func() {
+			result := co.recallConversation(ctx, "1")
+			Expect(result).To(BeEmpty())
+		})
+
+		It("should return recent turns for very short queries like 'yes'", func() {
+			key := co.memoryKeyForSender(co.conversationKeyFromContext(ctx))
+			_ = co.memorySvc.AddMemory(ctx, key, "Q: Deploy to staging?\nA: Ready to deploy. Confirm?", []string{"conversation"})
+
+			result := co.recallConversation(ctx, "yes")
+			Expect(result).To(ContainSubstring("Deploy"))
+		})
+	})
+
+	Describe("mergeMemoryEntries", func() {
+		newEntry := func(id, content string) *memory.Entry {
+			return &memory.Entry{
+				ID:     id,
+				Memory: &memory.Memory{Memory: content},
+			}
+		}
+
+		It("should return empty slice when both inputs are empty", func() {
+			result := co.mergeMemoryEntries(nil, nil)
+			Expect(result).To(BeEmpty())
+		})
+
+		It("should return only recents when searched is empty", func() {
+			recents := []*memory.Entry{newEntry("1", "recent turn")}
+			result := co.mergeMemoryEntries(recents, nil)
+			Expect(result).To(HaveLen(1))
+			Expect(result[0].Memory.Memory).To(Equal("recent turn"))
+		})
+
+		It("should return only searched when recents is empty", func() {
+			searched := []*memory.Entry{newEntry("2", "searched turn")}
+			result := co.mergeMemoryEntries(nil, searched)
+			Expect(result).To(HaveLen(1))
+			Expect(result[0].Memory.Memory).To(Equal("searched turn"))
+		})
+
+		It("should deduplicate entries with the same ID", func() {
+			recents := []*memory.Entry{newEntry("dup", "recent version")}
+			searched := []*memory.Entry{newEntry("dup", "searched version")}
+
+			result := co.mergeMemoryEntries(recents, searched)
+			Expect(result).To(HaveLen(1))
+			Expect(result[0].Memory.Memory).To(Equal("recent version"))
+		})
+
+		It("should keep recents first, then unique searched entries", func() {
+			recents := []*memory.Entry{newEntry("r1", "recent-1")}
+			searched := []*memory.Entry{
+				newEntry("r1", "recent-1-dup"),
+				newEntry("s1", "searched-1"),
+			}
+
+			result := co.mergeMemoryEntries(recents, searched)
+			Expect(result).To(HaveLen(2))
+			Expect(result[0].ID).To(Equal("r1"))
+			Expect(result[1].ID).To(Equal("s1"))
+		})
+
+		It("should skip nil entries and entries with nil Memory", func() {
+			recents := []*memory.Entry{
+				nil,
+				newEntry("valid", "good one"),
+				{ID: "noMem", Memory: nil},
+			}
+			result := co.mergeMemoryEntries(recents, nil)
+			Expect(result).To(HaveLen(1))
+			Expect(result[0].ID).To(Equal("valid"))
+		})
+	})
 })
 
 var _ = Describe("bridgeBrowserTab", func() {
@@ -767,3 +839,15 @@ var _ = Describe("bridgeBrowserTab", func() {
 		Expect(bridgedDeadline).To(BeTemporally("~", deadline, time.Second))
 	})
 })
+
+// newStubTool creates a lightweight tool.Tool with a given name and description.
+// The tool has a no-op Call implementation; it's used only for testing tool
+// indexing and registry interactions.
+func newStubTool(name, description string) tool.Tool {
+	type noopReq struct{}
+	return function.NewFunctionTool(
+		func(_ context.Context, _ noopReq) (string, error) { return "", nil },
+		function.WithName(name),
+		function.WithDescription(description),
+	)
+}

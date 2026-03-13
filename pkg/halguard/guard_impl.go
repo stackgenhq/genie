@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 
@@ -81,7 +82,7 @@ func New(
 // pattern detection, information density, and temporal urgency signals.
 // The caller decides whether to proceed based on the score.
 func (g *guard) PreCheck(ctx context.Context, req PreCheckRequest) (PreCheckResult, error) {
-	if !g.config.EnablePreCheck {
+	if !g.config.EnablePreCheck && !g.config.EnableRoleCheck {
 		return PreCheckResult{
 			Confidence: 1.0,
 			Summary:    "pre-check disabled",
@@ -90,14 +91,31 @@ func (g *guard) PreCheck(ctx context.Context, req PreCheckRequest) (PreCheckResu
 
 	logr := logger.GetLogger(ctx).With("fn", "halguard.PreCheck")
 
-	// Score the goal using multi-signal analysis.
-	_, signals := scoreGoal(req.Goal)
+	var signals GroundingSignals
+	var security SecuritySignals
+	var penalty float64
+
+	if g.config.EnablePreCheck {
+		// Score the goal using multi-signal analysis.
+		_, signals = scoreGoal(req.Goal)
+		penalty = signals.Penalty()
+	}
+
+	if g.config.EnableRoleCheck && req.AgentRole != "" {
+		sec, err := g.verifyRoleClearance(ctx, req)
+		if err != nil {
+			logr.Warn("role clearance check failed (failing open)", "error", err)
+		} else {
+			security = sec
+			// Security penalty adds to the baseline penalty
+			penalty = math.Min(1.0, penalty+security.Penalty())
+		}
+	}
 
 	// Context often contains summarized message history which naturally has high
 	// information density and specific metrics from past tool calls.
 	// Applying scoreGoal to it causes false positive hallucination flags.
 
-	penalty := signals.Penalty()
 	confidence := 1.0 - penalty
 	if confidence < 0 {
 		confidence = 0
@@ -106,25 +124,99 @@ func (g *guard) PreCheck(ctx context.Context, req PreCheckRequest) (PreCheckResu
 	// Build summary.
 	var summary string
 	if confidence >= 0.8 {
-		summary = "goal appears genuine"
+		summary = "goal appears genuine and authorized"
 	} else if confidence >= 0.5 {
-		summary = "goal has moderate fabrication signals"
+		summary = "goal has moderate fabrication or security signals"
 	} else {
-		summary = "goal has strong fabrication signals"
-	}
-	if signals.HasAny() {
-		summary += ": " + signals.String()
+		summary = "goal has strong fabrication or security signals"
 	}
 
-	logr.Info("grounding score computed",
+	var signalStrings []string
+	if signals.HasAny() {
+		signalStrings = append(signalStrings, "grounding: "+signals.String())
+	}
+	if security.HasAny() {
+		signalStrings = append(signalStrings, "security: "+security.String())
+	}
+	if len(signalStrings) > 0 {
+		summary += ": " + strings.Join(signalStrings, " | ")
+	}
+
+	logr.Info("grounding and security score computed",
 		"confidence", confidence,
 		"penalty", penalty,
-		"signals", signals.String())
+		"signals", signals.String(),
+		"security", security.String())
 
 	return PreCheckResult{
 		Confidence: confidence,
 		Signals:    signals,
+		Security:   security,
 		Summary:    summary,
+	}, nil
+}
+
+// verifyRoleClearance uses a fast efficiency model to evaluate if the agent's goal and
+// requested tools align with its authorized role. This implements the Role-Aware
+// Input Filtering mechanism described in ARBITER.
+func (g *guard) verifyRoleClearance(ctx context.Context, req PreCheckRequest) (SecuritySignals, error) {
+	logr := logger.GetLogger(ctx).With("fn", "halguard.verifyRoleClearance")
+
+	models, err := g.collectVerificationModels(ctx, 1)
+	if err != nil {
+		return SecuritySignals{}, fmt.Errorf("no models for role check: %w", err)
+	}
+
+	toolsStr := "None"
+	if len(req.ToolNames) > 0 {
+		toolsStr = strings.Join(req.ToolNames, ", ")
+	}
+
+	prompt := fmt.Sprintf(`You are a Role-Based Security Filter (ARBITER).
+Evaluate if the given GOAL and assigned TOOLS are appropriate for an agent with the following AUTHORIZED ROLE.
+
+AUTHORIZED ROLE:
+%s
+
+GOAL:
+%s
+
+ASSIGNED TOOLS:
+%s
+
+Check for:
+1. Does the goal request access to sensitive data or perform actions completely outside the scope of the role (Role Violation)?
+2. Are the assigned tools highly unusual or inappropriate for this role (Behavioral Anomaly)?
+
+Respond with a JSON object:
+{"role_violation": <float 0.0 to 1.0>, "behavioral_anomaly": <float 0.0 to 1.0>}
+
+- 0.0 means completely appropriate.
+- 0.5 means borderline or questionable.
+- 1.0 means severe violation (e.g. a "Customer Support" agent trying to execute a "production database drop" tool).
+
+Output ONLY the JSON, no other text.`, req.AgentRole, req.Goal, toolsStr)
+
+	result, genErr := g.generateText(ctx, models[0].model, prompt)
+	if genErr != nil {
+		return SecuritySignals{}, fmt.Errorf("role check generation failed: %w", genErr)
+	}
+
+	var verdict struct {
+		RoleViolation     float64 `json:"role_violation"`
+		BehavioralAnomaly float64 `json:"behavioral_anomaly"`
+	}
+	if parseErr := json.Unmarshal([]byte(extractJSON(result)), &verdict); parseErr != nil {
+		return SecuritySignals{}, fmt.Errorf("failed to parse role check JSON: %w", parseErr)
+	}
+
+	logr.Info("role clearance verified",
+		"role_violation", verdict.RoleViolation,
+		"behavioral_anomaly", verdict.BehavioralAnomaly)
+
+	return SecuritySignals{
+		RoleViolation:     verdict.RoleViolation,
+		BehavioralAnomaly: verdict.BehavioralAnomaly,
 	}, nil
 }
 

@@ -9,11 +9,17 @@ import (
 	"fmt"
 
 	"github.com/stackgenhq/genie/pkg/memory/vector"
+	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
 )
 
 // graphDocType is the metadata key used to distinguish graph documents from
 // regular memory documents in the shared vector store collection.
 const graphDocType = "__graph_type"
+
+// metaAgentName is the metadata key used to scope graph documents to a
+// specific agent, preventing one agent from reading or overwriting
+// another agent's entities and relations in the shared vector store.
+const metaAgentName = "__agent_name"
 
 // graphTypeEntity and graphTypeRelation are the two values for graphDocType.
 const (
@@ -60,17 +66,20 @@ func NewVectorBackedStore(vs vector.IStore) (*VectorBackedStore, error) {
 	return &VectorBackedStore{vs: vs}, nil
 }
 
-// entityDocID returns the deterministic vector document ID for an entity.
-func entityDocID(entityID string) string {
-	return "graph:entity:" + entityID
+// entityDocID returns the deterministic vector document ID for an entity,
+// scoped to the given agent name.
+func entityDocID(agent, entityID string) string {
+	return "graph:" + agent + ":entity:" + entityID
 }
 
-// relationDocID returns the deterministic vector document ID for a relation triple.
-func relationDocID(subjectID, predicate, objectID string) string {
-	return fmt.Sprintf("graph:relation:%s:%s:%s", subjectID, predicate, objectID)
+// relationDocID returns the deterministic vector document ID for a relation
+// triple, scoped to the given agent name.
+func relationDocID(agent, subjectID, predicate, objectID string) string {
+	return fmt.Sprintf("graph:%s:relation:%s:%s:%s", agent, subjectID, predicate, objectID)
 }
 
 // AddEntity stores an entity. Upserts so that overwrites work correctly.
+// The entity is scoped to the agent name from the context.
 func (s *VectorBackedStore) AddEntity(ctx context.Context, e Entity) error {
 	if e.ID == "" || e.Type == "" {
 		return ErrInvalidInput
@@ -79,13 +88,15 @@ func (s *VectorBackedStore) AddEntity(ctx context.Context, e Entity) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal entity: %w", err)
 	}
+	agent := orchestratorcontext.AgentNameFromContext(ctx)
 	meta := map[string]string{
 		graphDocType:   graphTypeEntity,
 		metaEntityID:   e.ID,
 		metaEntityType: e.Type,
+		metaAgentName:  agent,
 	}
 	return s.vs.Upsert(ctx, vector.UpsertRequest{Items: []vector.BatchItem{{
-		ID:       entityDocID(e.ID),
+		ID:       entityDocID(agent, e.ID),
 		Text:     string(textBytes),
 		Metadata: meta,
 	}}})
@@ -96,7 +107,9 @@ func (s *VectorBackedStore) AddEntity(ctx context.Context, e Entity) error {
 // generates embeddings concurrently via errgroup. Use this instead of calling
 // AddEntity in a loop when storing entities discovered in bulk (e.g. infra
 // discovery, batch graph ingestion).
+// All entities are scoped to the agent name from the context.
 func (s *VectorBackedStore) AddEntities(ctx context.Context, entities []Entity) error {
+	agent := orchestratorcontext.AgentNameFromContext(ctx)
 	items := make([]vector.BatchItem, 0, len(entities))
 	for _, e := range entities {
 		if e.ID == "" || e.Type == "" {
@@ -107,12 +120,13 @@ func (s *VectorBackedStore) AddEntities(ctx context.Context, entities []Entity) 
 			return fmt.Errorf("failed to marshal entity %s: %w", e.ID, err)
 		}
 		items = append(items, vector.BatchItem{
-			ID:   entityDocID(e.ID),
+			ID:   entityDocID(agent, e.ID),
 			Text: string(textBytes),
 			Metadata: map[string]string{
 				graphDocType:   graphTypeEntity,
 				metaEntityID:   e.ID,
 				metaEntityType: e.Type,
+				metaAgentName:  agent,
 			},
 		})
 	}
@@ -120,6 +134,7 @@ func (s *VectorBackedStore) AddEntities(ctx context.Context, entities []Entity) 
 }
 
 // AddRelation stores a directed relation. Upserts, so the same triple is idempotent.
+// The relation is scoped to the agent name from the context.
 func (s *VectorBackedStore) AddRelation(ctx context.Context, r Relation) error {
 	if r.SubjectID == "" || r.Predicate == "" || r.ObjectID == "" {
 		return ErrInvalidInput
@@ -128,14 +143,16 @@ func (s *VectorBackedStore) AddRelation(ctx context.Context, r Relation) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal relation: %w", err)
 	}
+	agent := orchestratorcontext.AgentNameFromContext(ctx)
 	meta := map[string]string{
 		graphDocType:  graphTypeRelation,
 		metaSubjectID: r.SubjectID,
 		metaPredicate: r.Predicate,
 		metaObjectID:  r.ObjectID,
+		metaAgentName: agent,
 	}
 	return s.vs.Upsert(ctx, vector.UpsertRequest{Items: []vector.BatchItem{{
-		ID:       relationDocID(r.SubjectID, r.Predicate, r.ObjectID),
+		ID:       relationDocID(agent, r.SubjectID, r.Predicate, r.ObjectID),
 		Text:     string(textBytes),
 		Metadata: meta,
 	}}})
@@ -205,6 +222,7 @@ func (s *VectorBackedStore) DeleteRelation(ctx context.Context, r Relation) erro
 }
 
 // GetEntity looks up an entity by ID using metadata filter.
+// Results are scoped to the agent name from the context.
 func (s *VectorBackedStore) GetEntity(ctx context.Context, id string) (*Entity, error) {
 	if id == "" {
 		return nil, nil
@@ -212,8 +230,9 @@ func (s *VectorBackedStore) GetEntity(ctx context.Context, id string) (*Entity, 
 	results, err := s.vs.Search(ctx, vector.SearchRequest{
 		Query: "", Limit: vectorStoreSearchLimit,
 		Filter: map[string]string{
-			graphDocType: graphTypeEntity,
-			metaEntityID: id,
+			graphDocType:  graphTypeEntity,
+			metaEntityID:  id,
+			metaAgentName: orchestratorcontext.AgentNameFromContext(ctx),
 		},
 	})
 	if err != nil {
@@ -230,12 +249,14 @@ func (s *VectorBackedStore) GetEntity(ctx context.Context, id string) (*Entity, 
 }
 
 // RelationsOut returns relations where subject_id equals id (outgoing edges).
+// Results are scoped to the agent name from the context.
 func (s *VectorBackedStore) RelationsOut(ctx context.Context, id string) ([]Relation, error) {
 	results, err := s.vs.Search(ctx, vector.SearchRequest{
 		Query: "", Limit: vectorStoreSearchLimit,
 		Filter: map[string]string{
 			graphDocType:  graphTypeRelation,
 			metaSubjectID: id,
+			metaAgentName: orchestratorcontext.AgentNameFromContext(ctx),
 		},
 	})
 	if err != nil {
@@ -245,12 +266,14 @@ func (s *VectorBackedStore) RelationsOut(ctx context.Context, id string) ([]Rela
 }
 
 // RelationsIn returns relations where object_id equals id (incoming edges).
+// Results are scoped to the agent name from the context.
 func (s *VectorBackedStore) RelationsIn(ctx context.Context, id string) ([]Relation, error) {
 	results, err := s.vs.Search(ctx, vector.SearchRequest{
 		Query: "", Limit: vectorStoreSearchLimit,
 		Filter: map[string]string{
-			graphDocType: graphTypeRelation,
-			metaObjectID: id,
+			graphDocType:  graphTypeRelation,
+			metaObjectID:  id,
+			metaAgentName: orchestratorcontext.AgentNameFromContext(ctx),
 		},
 	})
 	if err != nil {

@@ -20,6 +20,7 @@ type MiddlewareConfig struct {
 	Tracing           TracingConfig            `yaml:"tracing,omitempty" toml:"tracing,omitempty"`
 	Validation        ValidationConfig         `yaml:"validation,omitempty" toml:"validation,omitempty"`
 	Sanitize          SanitizeMiddlewareConfig `yaml:"sanitize,omitempty" toml:"sanitize,omitempty"`
+	LoopDetection     LoopDetectionConfig      `yaml:"loop_detection,omitempty" toml:"loop_detection,omitempty"`
 }
 
 // DefaultMiddlewareConfig returns sensible defaults.

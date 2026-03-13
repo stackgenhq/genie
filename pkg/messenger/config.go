@@ -60,6 +60,10 @@ type SlackConfig struct {
 	AppToken string `yaml:"app_token,omitempty" toml:"app_token,omitempty"`
 	// BotToken is the Slack bot user OAuth token (xoxb-...).
 	BotToken string `yaml:"bot_token,omitempty" toml:"bot_token,omitempty"`
+	// RespondTo controls when the bot processes messages in channels:
+	//   - "mentions" or "" (default): only respond when @mentioned or in threads where previously mentioned
+	//   - "all": respond to every message
+	RespondTo string `yaml:"respond_to,omitempty" toml:"respond_to,omitempty"`
 }
 
 // DiscordConfig holds Discord adapter settings.

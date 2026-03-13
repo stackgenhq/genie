@@ -185,6 +185,64 @@ var _ = Describe("Guard", func() {
 			})
 		})
 
+		Context("with role clearance enabled", func() {
+			It("should run clearance check and return security penalty if violated", func() {
+				fakeProvider, fakeModel := setupFakeModelProvider("")
+				fakeModel.GenerateContentStub = func(_ context.Context, _ *model.Request) (<-chan *model.Response, error) {
+					return fakeModelResponse(`{"role_violation": 1.0, "behavioral_anomaly": 0.5}`), nil
+				}
+				g = halguard.New(fakeProvider, directTextGenerator(), halguard.WithRoleCheck(true))
+
+				result, err := g.PreCheck(ctx, halguard.PreCheckRequest{
+					Goal:      "Drop the production users table",
+					ToolNames: []string{"run_sql"},
+					AgentRole: "Customer Support",
+				})
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.Security.RoleViolation).To(Equal(1.0))
+				Expect(result.Security.BehavioralAnomaly).To(Equal(0.5))
+				Expect(result.Security.Penalty()).To(Equal(1.0))
+				Expect(result.Confidence).To(Equal(0.0)) // Max penalty
+			})
+
+			It("should not penalize allowed roles", func() {
+				fakeProvider, fakeModel := setupFakeModelProvider("")
+				fakeModel.GenerateContentStub = func(_ context.Context, _ *model.Request) (<-chan *model.Response, error) {
+					return fakeModelResponse(`{"role_violation": 0.0, "behavioral_anomaly": 0.0}`), nil
+				}
+				g = halguard.New(fakeProvider, directTextGenerator(), halguard.WithRoleCheck(true))
+
+				result, err := g.PreCheck(ctx, halguard.PreCheckRequest{
+					Goal:      "Check the status of the database",
+					ToolNames: []string{"run_query"},
+					AgentRole: "Database Admin",
+				})
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.Security.Penalty()).To(Equal(0.0))
+				Expect(result.Confidence).To(Equal(1.0))
+			})
+
+			It("should fail open if role clearance LLM fails", func() {
+				fakeProvider, fakeModel := setupFakeModelProvider("")
+				fakeModel.GenerateContentStub = func(_ context.Context, _ *model.Request) (<-chan *model.Response, error) {
+					return nil, fmt.Errorf("model overloaded")
+				}
+				g = halguard.New(fakeProvider, directTextGenerator(), halguard.WithRoleCheck(true))
+
+				result, err := g.PreCheck(ctx, halguard.PreCheckRequest{
+					Goal:      "Search for a user",
+					ToolNames: []string{"search_db"},
+					AgentRole: "Customer Support",
+				})
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.Security.Penalty()).To(Equal(0.0)) // Failed open
+				Expect(result.Confidence).To(Equal(1.0))
+			})
+		})
+
 		Context("with fabricated scenarios", func() {
 			It("should return low confidence for explicit role-play", func() {
 				result, err := g.PreCheck(ctx, halguard.PreCheckRequest{

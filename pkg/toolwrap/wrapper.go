@@ -201,7 +201,7 @@ func (deps MiddlewareDeps) DefaultMiddlewares(
 	// repeat threshold.
 	mws = append(mws,
 		SemanticCacheMiddleware(deps.SemanticKeyFields),
-		LoopDetectionMiddleware(),
+		LoopDetectionMiddleware(cfg.LoopDetection),
 		FailureLimitMiddleware(),
 	)
 

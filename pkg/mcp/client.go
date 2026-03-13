@@ -119,7 +119,18 @@ func (c *Client) initializeServer(ctx context.Context, config MCPServerConfig) (
 		env := c.buildStdioEnv(ctx, config)
 		trans = transport.NewStdio(config.Command, env, config.Args...)
 	case "streamable_http", "sse":
-		trans, err = transport.NewSSE(config.ServerURL, sseOpts...)
+		opts := []transport.ClientOption{}
+		if len(config.Headers) > 0 {
+			headers := make(map[string]string, len(config.Headers))
+			for k, v := range config.Headers {
+				if c.secretProvider != nil && strings.ContainsAny(v, "$") {
+					v = c.expandEnvValue(ctx, v)
+				}
+				headers[k] = v
+			}
+			opts = append(opts, transport.WithHeaders(headers))
+		}
+		trans, err = transport.NewSSE(config.ServerURL, opts...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create SSE transport: %w", err)
 		}

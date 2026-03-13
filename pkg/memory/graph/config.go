@@ -58,14 +58,22 @@ func DataDirForAgent(agentName string) string {
 	return filepath.Join(osutils.GenieDir(), safe)
 }
 
-// GraphLearnPendingFilename is the name of the file written by setup when the
-// user opts into "build knowledge graph from data"; when present, the app runs
-// one graph-learn pass after the first successful data sources sync.
+// GraphLearnPendingFilename is the name of the legacy pending file written by
+// the setup wizard. Kept for backwards compatibility; new code should use the
+// stop-file approach instead.
+//
+// Deprecated: use GraphLearnStopFilename.
 const GraphLearnPendingFilename = "graph_learn_pending"
 
-// PendingGraphLearnPath returns the path to the graph-learn pending flag file
-// for the given agent. Setup writes this file when the user opts in; the app
-// removes it after running the one-time graph-learn pass.
-func PendingGraphLearnPath(agentName string) string {
-	return filepath.Join(DataDirForAgent(agentName), GraphLearnPendingFilename)
+// GraphLearnStopFilename is the name of a sentinel file that, when present in
+// the agent's data directory, prevents the automatic graph-learn pass from
+// running after data source syncs. By default graph learn runs on every
+// app restart after the first successful sync; create this file to opt out.
+const GraphLearnStopFilename = "graph_learn_stop"
+
+// StopGraphLearnPath returns the path to the graph-learn stop file for the
+// given agent. When this file exists, the automatic graph-learn pass is
+// skipped. Remove the file to re-enable learning.
+func StopGraphLearnPath(agentName string) string {
+	return filepath.Join(DataDirForAgent(agentName), GraphLearnStopFilename)
 }

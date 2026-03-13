@@ -37,7 +37,7 @@ var _ = Describe("PanicRecoveryMiddleware", func() {
 })
 
 var _ = Describe("LoopDetectionMiddleware", func() {
-	It("should block after 3 identical consecutive calls", func() {
+	It("should block after 2 identical consecutive calls", func() {
 		mw := toolwrap.LoopDetectionMiddleware()
 		next, count := counting(passthrough("ok"))
 		handler := mw.Wrap(next)
@@ -46,19 +46,65 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 		_, err := handler(context.Background(), tc)
 		Expect(err).NotTo(HaveOccurred())
 		_, err = handler(context.Background(), tc)
-		Expect(err).NotTo(HaveOccurred())
-		_, err = handler(context.Background(), tc)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("loop detected"))
-		Expect(atomic.LoadInt32(count)).To(Equal(int32(2)))
+		Expect(atomic.LoadInt32(count)).To(Equal(int32(1)))
 	})
 
-	It("should allow different args without triggering loop", func() {
+	It("should allow different args for different tools without triggering loop", func() {
 		mw := toolwrap.LoopDetectionMiddleware()
 		handler := mw.Wrap(passthrough("ok"))
 
-		for i := 0; i < 5; i++ {
-			tc := &toolwrap.ToolCallContext{ToolName: "s", Args: []byte(`{"i":"` + string(rune('a'+i)) + `"}`)}
+		// Alternate between two different tools so same-tool detection doesn't fire.
+		for i := 0; i < 6; i++ {
+			name := "tool_a"
+			if i%2 == 1 {
+				name = "tool_b"
+			}
+			tc := &toolwrap.ToolCallContext{ToolName: name, Args: []byte(fmt.Sprintf(`{"i":%d}`, i))}
+			_, err := handler(context.Background(), tc)
+			Expect(err).NotTo(HaveOccurred())
+		}
+	})
+
+	It("should block after 4 consecutive calls to the same tool with different args", func() {
+		mw := toolwrap.LoopDetectionMiddleware()
+		next, count := counting(passthrough("ok"))
+		handler := mw.Wrap(next)
+
+		// First 3 calls succeed (different args, same tool).
+		for i := 0; i < 3; i++ {
+			tc := &toolwrap.ToolCallContext{ToolName: "scm_list_repos", Args: []byte(fmt.Sprintf(`{"page":%d}`, i+1))}
+			_, err := handler(context.Background(), tc)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		// 4th call triggers same-tool loop detection.
+		tc := &toolwrap.ToolCallContext{ToolName: "scm_list_repos", Args: []byte(`{"page":4}`)}
+		_, err := handler(context.Background(), tc)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("exploration loop detected"))
+		Expect(atomic.LoadInt32(count)).To(Equal(int32(3)))
+	})
+
+	It("should reset same-tool counter when different tool is called", func() {
+		mw := toolwrap.LoopDetectionMiddleware()
+		handler := mw.Wrap(passthrough("ok"))
+
+		// 3 calls to scm_list_repos, then a different tool, then 3 more.
+		for i := 0; i < 3; i++ {
+			tc := &toolwrap.ToolCallContext{ToolName: "scm_list_repos", Args: []byte(fmt.Sprintf(`{"page":%d}`, i+1))}
+			_, err := handler(context.Background(), tc)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		// Interject a different tool — resets the same-tool counter.
+		_, err := handler(context.Background(), &toolwrap.ToolCallContext{ToolName: "scm_create_pr", Args: []byte(`{"repo":"demo"}`)})
+		Expect(err).NotTo(HaveOccurred())
+
+		// 3 more calls to scm_list_repos — should succeed since counter was reset.
+		for i := 0; i < 3; i++ {
+			tc := &toolwrap.ToolCallContext{ToolName: "scm_list_repos", Args: []byte(fmt.Sprintf(`{"page":%d}`, i+10))}
 			_, err := handler(context.Background(), tc)
 			Expect(err).NotTo(HaveOccurred())
 		}
@@ -77,8 +123,6 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 		_, err := handler(ctx, tc)
 		Expect(err).NotTo(HaveOccurred())
 		_, err = handler(ctx, tc)
-		Expect(err).NotTo(HaveOccurred())
-		_, err = handler(ctx, tc)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("loop detected"))
 
@@ -95,8 +139,6 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 		tc := &toolwrap.ToolCallContext{ToolName: "run_shell", Args: []byte(`{"cmd":"ls"}`)}
 
 		_, err := handler(ctx, tc)
-		Expect(err).NotTo(HaveOccurred())
-		_, err = handler(ctx, tc)
 		Expect(err).NotTo(HaveOccurred())
 		_, err = handler(ctx, tc)
 		Expect(err).To(HaveOccurred())
@@ -145,7 +187,9 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 		defer cancel(nil)
 		ctx = toolwrap.WithCancelCause(ctx, cancel)
 
-		for i := 0; i < 4; i++ {
+		// 3 calls: empty → non-empty (resets streak) → empty.
+		// Only 1 consecutive empty at end, well under threshold of 3.
+		for i := 0; i < 3; i++ {
 			tc := &toolwrap.ToolCallContext{
 				ToolName: "memory_search",
 				Args:     []byte(fmt.Sprintf(`{"query":"q%d"}`, i)),
@@ -154,7 +198,7 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 			Expect(err).NotTo(HaveOccurred())
 		}
 
-		// Counter was reset at call 2 (non-empty), so only 2 consecutive empties at end.
+		// Counter was reset at call 2 (non-empty), so only 1 consecutive empty at end.
 		Expect(ctx.Err()).NotTo(HaveOccurred())
 	})
 
@@ -168,9 +212,14 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 		defer cancel(nil)
 		ctx = toolwrap.WithCancelCause(ctx, cancel)
 
+		// Alternate tool names to avoid same-tool detection (threshold 4).
 		for i := 0; i < 5; i++ {
+			name := "run_shell"
+			if i%2 == 1 {
+				name = "save_file"
+			}
 			tc := &toolwrap.ToolCallContext{
-				ToolName: "run_shell",
+				ToolName: name,
 				Args:     []byte(fmt.Sprintf(`{"cmd":"cmd_%d"}`, i)),
 			}
 			_, err := handler(ctx, tc)
@@ -182,12 +231,17 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 
 	It("should trim history after more than 10 distinct calls", func() {
 		// Arrange — push 12 distinct calls to trigger the maxHistory=10 trim.
+		// Alternate tool names so same-tool detection doesn't fire.
 		mw := toolwrap.LoopDetectionMiddleware()
 		handler := mw.Wrap(passthrough("ok"))
 
 		for i := 0; i < 12; i++ {
+			name := "tool_a"
+			if i%2 == 1 {
+				name = "tool_b"
+			}
 			tc := &toolwrap.ToolCallContext{
-				ToolName: "run_shell",
+				ToolName: name,
 				Args:     []byte(fmt.Sprintf(`{"i":%d}`, i)),
 			}
 			_, err := handler(context.Background(), tc)
@@ -196,7 +250,7 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 
 		// After 12 distinct calls, the middleware should still work correctly.
 		// Calling a new distinct tool should succeed.
-		tc := &toolwrap.ToolCallContext{ToolName: "run_shell", Args: []byte(`{"i":99}`)}
+		tc := &toolwrap.ToolCallContext{ToolName: "tool_c", Args: []byte(`{"i":99}`)}
 		_, err := handler(context.Background(), tc)
 		Expect(err).NotTo(HaveOccurred())
 	})
@@ -228,6 +282,29 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 		}
 		Expect(atomic.LoadInt32(count)).To(Equal(int32(5)))
 	})
+
+	DescribeTable("should exempt Google Drive tools from loop detection when configured",
+		func(toolName string) {
+			mw := toolwrap.LoopDetectionMiddleware(toolwrap.LoopDetectionConfig{
+				ExemptTools: []string{"google_drive_*"},
+			})
+			next, count := counting(passthrough("file content"))
+			handler := mw.Wrap(next)
+			tc := &toolwrap.ToolCallContext{ToolName: toolName, Args: []byte(`{"file_id":"abc123"}`)}
+
+			// Same tool + same args called 5 times — should NOT trigger loop
+			for i := 0; i < 5; i++ {
+				_, err := handler(context.Background(), tc)
+				Expect(err).NotTo(HaveOccurred())
+			}
+			Expect(atomic.LoadInt32(count)).To(Equal(int32(5)))
+		},
+		Entry("google_drive_read_file", "google_drive_read_file"),
+		Entry("google_drive_read_files", "google_drive_read_files"),
+		Entry("google_drive_search", "google_drive_search"),
+		Entry("google_drive_list_folder", "google_drive_list_folder"),
+		Entry("google_drive_get_file", "google_drive_get_file"),
+	)
 })
 
 var _ = Describe("FailureLimitMiddleware", func() {

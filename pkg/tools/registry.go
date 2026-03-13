@@ -235,3 +235,19 @@ func (r *Registry) Include(names ...string) *Registry {
 	}
 	return r2
 }
+
+// UnavailableNames returns the subset of the given names that are NOT
+// present in the registry — either because they are denied, excluded,
+// or simply unknown. Used by create_agent to detect when the LLM
+// requests tools that the config has blocked, so it can return an
+// error instead of creating a zero-tool sub-agent.
+func (r *Registry) UnavailableNames(names []string) []string {
+	available := r.getToolsMap()
+	var missing []string
+	for _, n := range names {
+		if _, ok := available[n]; !ok {
+			missing = append(missing, n)
+		}
+	}
+	return missing
+}

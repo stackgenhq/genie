@@ -121,7 +121,7 @@ var _ = Describe("VectorBackedStore", func() {
 
 			_, upsertReq := fakeStore.UpsertArgsForCall(0)
 			Expect(upsertReq.Items).To(HaveLen(1))
-			Expect(upsertReq.Items[0].ID).To(Equal("graph:entity:svc:api"))
+			Expect(upsertReq.Items[0].ID).To(Equal("graph:Genie:entity:svc:api"))
 			Expect(upsertReq.Items[0].Metadata["__graph_type"]).To(Equal("entity"))
 			Expect(upsertReq.Items[0].Metadata["graph_entity_id"]).To(Equal("svc:api"))
 			Expect(upsertReq.Items[0].Metadata["graph_entity_type"]).To(Equal("service"))
@@ -157,7 +157,7 @@ var _ = Describe("VectorBackedStore", func() {
 
 			_, upsertReq := fakeStore.UpsertArgsForCall(0)
 			Expect(upsertReq.Items).To(HaveLen(1))
-			Expect(upsertReq.Items[0].ID).To(Equal("graph:relation:alice:OWNS:repo-x"))
+			Expect(upsertReq.Items[0].ID).To(Equal("graph:Genie:relation:alice:OWNS:repo-x"))
 			Expect(upsertReq.Items[0].Metadata["__graph_type"]).To(Equal("relation"))
 			Expect(upsertReq.Items[0].Metadata["graph_subject_id"]).To(Equal("alice"))
 			Expect(upsertReq.Items[0].Metadata["graph_predicate"]).To(Equal("OWNS"))

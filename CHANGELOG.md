@@ -7,14 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`scm_commit_and_pr` tool** — uber tool that accepts multiple file changes, commits them to a branch, and optionally creates a Pull Request in a single LLM call. Resolves the repo's default branch dynamically via API, auto-creates the target branch if it doesn't exist, concurrently fetches existing file SHAs via `errgroup`, and sequentially commits each file.
+- `CreateOrUpdateFile`, `FindBranch`, `CreateBranch` methods added to SCM `Service` interface for file and branch management.
+
 ### Changed
+
+- **Loop detection tightened** — Loop detection middleware now blocks after 2 identical consecutive calls (reduced from 3) to minimize wasted retries. Added "exploration loop" detection that prevents a sub-agent from calling the exact same tool with different arguments more than 3 consecutive times (blocks on the 4th), resetting the counter when a different tool is used.
+
+- **SCM tool constructors simplified** — removed the `toolSet` intermediary struct; all tool constructors now directly reference methods on the `Service` interface, matching the `NewGetRepoContentTool` pattern.
 
 - **Unified identity model** — Removed the `authcontext` package and consolidated user identity into a single `identity.Sender` type in `pkg/identity`. This eliminates the dual-identity system where `authcontext.Principal` and `messenger.Sender` carried overlapping information through separate context paths. `messenger.Sender` is now a type alias for `identity.Sender`.
 - **BREAKING**: `Authenticator.Authenticate` returns `*identity.Sender` instead of `*authcontext.Principal`. The `Name` field is now `DisplayName`.
+- **Semantic tool discovery** — Orchestrator resume generation now uses `SearchToolsWithContext` (vector semantic search + co-occurrence re-ranking) instead of dumping all tool names into the prompt, reducing prompt bloat and hallucination.
+- **Dynamic tool descriptions** — `create_agent` description no longer embeds a static tool list; when a `VectorToolProvider` is available it instructs the LLM to specify tools by capability, with a fallback to listing tool names when no index exists.
+- **Categorized orchestrator direct tools** — Consolidated ad-hoc tool lifting into a single `orchestratorDirectTools` slice organized by category (clarification, scheduling, context management, communication, knowledge management).
 
 ### Added
 
-- **Unified identity package** (`pkg/identity`) — introduces a single `Sender` type carrying user ID, display name, role, and authentication method. Replaces the dual-identity system (`authcontext.Principal` + `messenger.Sender`) with one type shared by auth and messenger paths. `messenger.Sender` is now a type alias for `identity.Sender`.
+- **VectorToolProvider** — New `pkg/tools/VectorToolProvider` indexes tool declarations into a vector store and provides semantic search (`SearchTools`) for goal-based tool discovery, replacing hardcoded tool name lists.
+- **Co-occurrence graph** — `VectorToolProvider` maintains an in-memory pairwise co-occurrence graph (AutoTool-style) that learns which tools are commonly used together. `RecordToolUsage` records edges from each sub-agent run; `CooccurrenceScore` returns log-normalized [0,1] affinity.
+- **`SearchToolsWithContext`** — Blended 70% semantic + 30% co-occurrence scoring for context-aware tool recommendations. Cold-start safe: falls back to pure semantic ranking when the graph is empty.
+- **Tool co-occurrence tracking in sub-agents** — `create_agent` captures `usedToolNames` from streaming `ToolCalls` events and feeds them to `recordToolCooccurrence` post-execution, building the co-occurrence graph incrementally.
 
 - **Confidence-gated accomplishment storage** — `TreeResult` now carries a `Confidence` score (0.0–1.0) computed from execution signals (task completion, status, iteration efficiency, repetition, output presence). Only results above a configurable threshold (default 0.5) are stored, preventing failed/garbage outputs from polluting memory.
 - **`AccomplishmentConfidenceThreshold`** config field in `[persona]` — controls the minimum confidence required to store an accomplishment (default 0.5 / 50%). Exposed in Config Builder UI under the Persona section with TOML/YAML serialization.
@@ -68,7 +83,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `semanticrouter.Config` extended with `CacheTTL`, `L0Regex`, and `FollowUpBypass` middleware config structs, all exposed through the agent config chain (`config.go` → `semanticrouter.Config` → `mw.*Config`).
 - `ErrToolCallRejected` introduced so that intentional tool call rejections (e.g., from user rejections, HITL re-planning feedback, or validation/schema rechecks) do not trigger the circuit breaker and inappropriately penalize healthy tools.
 - HalGuard `verifyLight` prompt now includes tool call context (`ToolSummary` field on `PostCheckRequest`) — the verifier is told which tools the sub-agent called, preventing false-positive hallucination flags on tool-sourced data (e.g. AWS VPC IDs from `run_shell`).
-- Loop detection threshold (`maxConsecutiveRepeatCalls`) increased from 2 → 3 to tolerate one accidental retry (common with Gemini Flash) while still catching true infinite loops.
 - `SkillToolProvider` and `LoadSkillsFromConfig` now accept additional `skill.Repository` sources (e.g. MCP `PromptRepository`) via variadic `additionalRepos` parameters.
 - Orchestrator Phase 1 (ANALYZE) prompt updated to prefer `memory_search` (vector memory) over `read_notes` at session start.
 - Sub-agent audit metadata now stores the full goal string instead of truncating to 200 chars.
@@ -76,12 +90,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - HITL `CreatedBy` and `CanResolve` now source user identity from `identity.GetSender(ctx)` instead of `authcontext.GetPrincipal(ctx)`. Identical string values flow through; no behavioral change.
 - Langfuse tracing (`withPrincipalBaggage`) reads user identity from `identity.GetSender(ctx)` and maps `DisplayName` (was `Name`) to `langfuse.trace.metadata.user_name`.
 - **`IStore` interface refactored to 2-parameter pattern** — `Search` and `SearchWithFilter` unified into `Search(ctx, SearchRequest)` with optional `Filter`; `Add`, `Upsert`, `Delete` now accept `AddRequest`, `UpsertRequest`, `DeleteRequest` structs. All callers across `orchestrator`, `semanticrouter`, `graph`, `reactree`, `report`, and `app` packages updated.
-- **Semantic cache changed from direct answer to context hint** — cached responses are no longer returned verbatim as short-circuit answers. Instead, the cached response is injected as a `## Prior Cached Answer (Reference Only)` section in the agent prompt, so the agent always re-executes tools for fresh data while using the cached answer as a guideline. Prevents stale `kubectl` output and similar operational data from being served verbatim.
-- **Orchestrator tool management refactored** — replaced hardcoded `availableToolNames` field with `toolIndex *tools.VectorToolProvider`; introduced categorized `orchestratorDirectTools` constant; `createResume` now uses `SearchToolsWithContext` for context-aware tool capability listing in the agent resume.
-- **`create_agent` tool description updated** — static 30+ tool list removed from the `create_agent` description; when `toolIndex` is available, the LLM is instructed to specify tools by capability instead of by name.
+- **Slack Messenger**: Added wildcard `*` suffix support to `allowed_senders` for both HTTP Events API and Socket Mode.
+- **Slack Messenger**: Fall back to `respondTo=all` if `auth.test` fails to retrieve the bot user ID, keeping the bot reachable instead of silently dropping messages.
+- **MCP Client**: Secret placeholder expansion for HTTP headers now triggers on bare `$VAR` syntax in addition to `${VAR}`.
+- **Loop Detection**: Identical-args loop detection is now active for internal background tasks, preventing hidden infinite loops.
 
 ### Fixed
 
+- **App Startup**: Guarded data-sources background sync against `nil` vector store initialization to prevent startup panics.
+- **Marketing Expert Example**: Cleaned up PostgreSQL DSN templating logic, added an optional Kubernetes namespace resource, and fixed Google Drive secret variable injection to use explicit vars.
 - MCP tool adapter now strips `_justification` field from tool call arguments before forwarding to MCP servers — LLMs inject this field based on sub-agent instructions, but MCP servers reject it as an unknown field (`"error converting arguments: input is invalid"`).
 - **Graph docs filtered from `memory_search` and `memory_list`** — documents tagged with `__graph_type` metadata (graph entities and relations stored in the shared vector collection) are now excluded from user-facing memory tool results. This prevents the agent from discovering graph docs via `memory_search` and attempting to delete them via `memory_delete` (which would orphan graph state), directing graph operations to the dedicated `graph_store`/`graph_query` tools instead.
 

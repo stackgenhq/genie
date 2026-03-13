@@ -195,6 +195,14 @@ max_verification_runs = 3
 provider = "github"
 token = "${GITHUB_TOKEN}"
 
+
+[[executable_tools]]
+name = "github_cli"
+binary = "gh"
+description = "GitHub CLI"
+env = [{ key = "GITHUB_TOKEN", secret = "GITHUB_TOKEN" }]
+
+
 # ── Vector Memory ───────────────────────────────────────────────────
 [vector_memory]
 embedding_provider = "ollama"

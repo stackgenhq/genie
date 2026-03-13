@@ -36,6 +36,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/hitl"
 	"github.com/stackgenhq/genie/pkg/llmutil"
 	"github.com/stackgenhq/genie/pkg/logger"
+	memorygraph "github.com/stackgenhq/genie/pkg/memory/graph"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorcontext"
@@ -113,7 +114,7 @@ type orchestrator struct {
 	// toolIndex provides semantic search over all registered tool
 	// declarations. Used by createResume to find relevant capabilities
 	// instead of dumping every tool name into the prompt.
-	toolIndex *tools.VectorToolProvider
+	toolIndex tools.SmartToolProvider
 
 	// Per-sender memory isolation. These maps use sync.Map for concurrent
 	// access and lazily create instances on first access per sender.
@@ -234,6 +235,7 @@ func NewOrchestrator(
 	modelProvider modelprovider.ModelProvider,
 	availableTools *tools.Registry,
 	vectorStore vector.IStore,
+	graphStore memorygraph.IStore,
 	auditor audit.Auditor,
 	approvalStore hitl.ApprovalStore,
 	memorySvc memory.Service,
@@ -245,6 +247,12 @@ func NewOrchestrator(
 	for _, fn := range extraOpts {
 		fn(&oo)
 	}
+
+	// Create a parent span so every downstream vector-store, graph-store and
+	// memory operation during bootstrap is grouped into a single trace rather
+	// than appearing as orphaned root-level spans in Langfuse.
+	ctx, bootstrapSpan := trace.Tracer.Start(ctx, orchestratorcontext.AgentNameFromContext(ctx)+".bootstrap.init")
+	defer bootstrapSpan.End()
 	// Resolve agent name from context (set by app.Bootstrap via
 	// orchestratorcontext.WithAgent).
 	agentName := orchestratorcontext.AgentFromContext(ctx).Name
@@ -358,14 +366,18 @@ func NewOrchestrator(
 	// Build the vector tool index for semantic tool lookups.
 	// Used by resume generation and create_agent to find relevant tools by
 	// description instead of listing all tools in prompts.
-	toolIndex, err := tools.NewVectorToolProvider(ctx, vectorStore, availableTools)
+	toolIndex, err := tools.NewVectorToolProvider(ctx, vectorStore, availableTools, graphStore)
 	if err != nil {
 		logger.GetLogger(ctx).Warn("failed to create tool index, continuing without", "error", err)
 	}
 
 	createAgentTool := reactree.NewCreateAgentTool(
-		modelProvider, exp, summarizer, availableTools,
-		wm, episodicMem,
+		modelProvider,
+		exp,
+		summarizer,
+		availableTools.Exclude(reactree.CreateAgentToolName, messenger.ToolName),
+		wm,
+		episodicMem,
 		toolWrapSvc,
 		vectorStore,
 		halGuard,
@@ -398,13 +410,6 @@ func NewOrchestrator(
 			orchestratorToolSlice = append(orchestratorToolSlice, t)
 		} else {
 			logger.Debug("orchestrator direct tool not available", "tool_name", toolName, "error", err)
-		}
-	}
-	// Register semantic cache management tool so the orchestrator can
-	// search, delete, and clear cached Q&A entries when needed.
-	if oo.semanticRouter != nil {
-		if cacheTool := semanticrouter.NewCacheTool(oo.semanticRouter, oo.rbac); cacheTool != nil {
-			orchestratorToolSlice = append(orchestratorToolSlice, cacheTool)
 		}
 	}
 	orchestratorTools := tools.NewRegistry(ctx, orchestratorToolSlice)
@@ -504,21 +509,19 @@ Recent Accomplishments (things I have successfully done):
 
 	toolsSection := ""
 	toolsInstruction := ""
-	if c.toolIndex != nil {
-		// Use semantic search and co-occurrence to find the ~20 most
-		// representative tools. Context tools = orchestrator's own direct
-		// tools, so the co-occurrence graph boosts tools commonly used
-		// alongside them.
-		toolResults, searchErr := c.toolIndex.SearchToolsWithContext(ctx, "capabilities tools actions", orchestratorDirectTools, 20)
-		if searchErr != nil {
-			logger.Warn("tool index search failed for resume", "error", searchErr)
-		} else if len(toolResults) > 0 {
-			toolsSection = fmt.Sprintf(`
+	// Use semantic search and co-occurrence to find the ~20 most
+	// representative tools. Context tools = orchestrator's own direct
+	// tools, so the co-occurrence graph boosts tools commonly used
+	// alongside them.
+	toolResults, searchErr := c.toolIndex.SearchToolsWithContext(ctx, "capabilities tools actions", orchestratorDirectTools, 20)
+	if searchErr != nil {
+		logger.Warn("tool index search failed for resume", "error", searchErr)
+	} else if len(toolResults) > 0 {
+		toolsSection = fmt.Sprintf(`
 
 Key Capabilities (via sub-agents):
-%s`, c.toolIndex.FormatToolList(toolResults))
-			toolsInstruction = "\n- The Key Capabilities section highlights representative tools the agent can delegate to sub-agents. Mention the key capability areas they enable (e.g. email, source control, browsing, file management)."
-		}
+%s`, toolResults.String())
+		toolsInstruction = "\n- The Key Capabilities section highlights representative tools the agent can delegate to sub-agents. Mention the key capability areas they enable (e.g. email, source control, browsing, file management)."
 	}
 
 	result, err := summarizer.Summarize(ctx, agentutils.SummarizeRequest{
@@ -913,26 +916,40 @@ func (c *orchestrator) InjectFeedback(ctx context.Context, message string) error
 	return nil
 }
 
-// recallConversation searches memory.Service for past turns relevant
-// to the current question and formats them as context.
+// recallConversation retrieves past conversation turns as context for the
+// current question. It always fetches the most recent turns so that
+// short/ambiguous replies (e.g., "1", "yes") in threaded conversations
+// always carry the immediate prior context. For longer queries it also
+// runs a semantic search to surface relevant older turns.
 // Uses senderID-based key so each sender/thread has isolated history.
 func (c *orchestrator) recallConversation(ctx context.Context, question string) string {
+	logr := logger.GetLogger(ctx).With("fn", "recallConversation")
+
 	convKey := c.conversationKeyFromContext(ctx)
 	key := c.memoryKeyForSender(convKey)
-	// Try to search for relevant memories
-	entries, err := c.memorySvc.SearchMemories(ctx, key, question)
+
+	// Always fetch the most recent turns for guaranteed recency context.
+	// This ensures short/ambiguous thread replies ("1", "yes", "ok") always
+	// have the immediate prior conversation available to the LLM.
+	recents, err := c.memorySvc.ReadMemories(ctx, key, 3)
 	if err != nil {
-		logger.GetLogger(ctx).Warn("failed to search memories", "error", err)
+		logr.Warn("failed to read recent memories", "error", err)
 	}
 
-	// Fallback to recent history if search yields no results (common for "what did we just talk about?" queries)
-	// or if the search implementation is basic (like our SQLite LIKE search).
-	if len(entries) == 0 {
-		recents, err := c.memorySvc.ReadMemories(ctx, key, 5)
-		if err == nil {
-			entries = recents
+	// For queries with enough semantic content, also search for relevant
+	// older turns that may not be in the most-recent window.
+	const minSemanticQueryLen = 5
+	var searched []*memory.Entry
+	if len(question) > minSemanticQueryLen {
+		searched, err = c.memorySvc.SearchMemories(ctx, key, question)
+		if err != nil {
+			logr.Warn("failed to search memories", "error", err)
 		}
 	}
+
+	// Merge: recent turns first (guaranteed context), then relevant older turns.
+	// Deduplicate by memory ID to avoid repeating the same turn.
+	entries := c.mergeMemoryEntries(recents, searched)
 
 	if len(entries) == 0 {
 		return ""
@@ -972,6 +989,32 @@ func (c *orchestrator) recallConversation(ctx context.Context, question string) 
 	})
 
 	return sb.String()
+}
+
+// mergeMemoryEntries combines recent and searched memory entries,
+// deduplicating by entry ID. Recent entries appear first to ensure
+// immediate conversational context is always present.
+func (c *orchestrator) mergeMemoryEntries(recents, searched []*memory.Entry) []*memory.Entry {
+	seen := make(map[string]bool, len(recents)+len(searched))
+	merged := make([]*memory.Entry, 0, len(recents)+len(searched))
+
+	for _, e := range recents {
+		if e == nil || e.Memory == nil {
+			continue
+		}
+		seen[e.ID] = true
+		merged = append(merged, e)
+	}
+	for _, e := range searched {
+		if e == nil || e.Memory == nil {
+			continue
+		}
+		if seen[e.ID] {
+			continue
+		}
+		merged = append(merged, e)
+	}
+	return merged
 }
 
 // storeConversation persists a Q&A turn into memory.Service.

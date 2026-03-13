@@ -192,9 +192,11 @@ func (r MemorySearchResponse) MarshalJSON() ([]byte, error) {
 const memorySearchDescription = "Search the unified long-term memory index. " +
 	"When unified data sources are enabled, this index includes synced content from Gmail, Google Drive, Slack, Linear, GitHub, and Calendar. " +
 	"USE THIS FIRST when the user wants to find, search, or recall information that could be in email, documents, chat messages, or issues — one semantic search returns relevant results across all connected sources. " +
-	"Results include source metadata (e.g. source, source_ref_id) so you can open or fetch the original item with other tools if needed. " +
+	"Results include source metadata (e.g. source, source_ref_id, file_type, folder_path) so you can open or fetch the original item with other tools if needed. " +
 	"Use source-specific tools (e.g. gmail_list_messages, google_drive_read_file) only when you need the very latest content, to open a specific item by ID, or to perform an action (send, create, update). " +
-	"Optional filter restricts by metadata (e.g. product, category, source); keys must be in allowed_metadata_keys when configured."
+	"Optional filter restricts by metadata; keys must be in allowed_metadata_keys when configured. " +
+	"Common filters: {\"source\": \"gdrive\"} for Drive docs, {\"source\": \"gmail\"} for emails, {\"source\": \"slack\"} for messages, " +
+	"{\"file_type\": \"document\"} for Google Docs, {\"file_type\": \"spreadsheet\"} for Sheets, {\"file_type\": \"presentation\"} for Slides."
 
 // NewMemorySearchTool creates a tool that searches the vector memory.
 // When cfg.AllowedMetadataKeys is set, only those keys may be used in filter.

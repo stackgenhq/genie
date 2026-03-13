@@ -39,8 +39,7 @@ var _ = Describe("CreateAgentTool", func() {
 			)
 			Expect(cat).NotTo(BeNil())
 			Expect(cat.expert).To(Equal(fakeExpert))
-			// Without toolIndex, the fallback static tool list is used.
-			Expect(cat.description).To(ContainSubstring("run_shell"))
+			Expect(cat.description).To(ContainSubstring("Spawn a sub-agent"))
 		})
 
 		It("applies options", func() {
@@ -50,17 +49,6 @@ var _ = Describe("CreateAgentTool", func() {
 			Expect(cat.skipSummarize).To(BeTrue())
 		})
 
-		It("excludes orchestration-only tools from sub-agent registry", func() {
-			run := &toolsfakes.FakeCallableTool{}
-			run.DeclarationReturns(&tool.Declaration{Name: "run_shell"})
-			ca := &toolsfakes.FakeCallableTool{}
-			ca.DeclarationReturns(&tool.Declaration{Name: "create_agent"})
-			reg := tools.NewRegistry(context.Background(), &testToolProvider{t: []tool.Tool{run, ca}})
-
-			cat := NewCreateAgentTool(nil, nil, nil, reg, nil, nil, nil, nil, nil, nil)
-			Expect(cat.subAgentRegistry.ToolNames()).To(ContainElement("run_shell"))
-			Expect(cat.subAgentRegistry.ToolNames()).NotTo(ContainElement("create_agent"))
-		})
 	})
 
 	Describe("GetTool", func() {
@@ -162,18 +150,18 @@ var _ = Describe("CreateAgentRequest", func() {
 
 	Describe("resolveStatus", func() {
 		DescribeTable("resolves status correctly",
-			func(timedOut bool, errMsg, output, partial, expectedStatus string) {
+			func(timedOut bool, errMsg, output, partial string, expectedStatus AgentStatus) {
 				req := CreateAgentRequest{AgentName: "test"}
 				status, _ := req.resolveStatus(timedOut, errMsg, output, partial)
 				Expect(status).To(Equal(expectedStatus))
 			},
-			Entry("success with output", false, "", "result", "", "success"),
-			Entry("partial on timeout", true, "", "some", "", "partial"),
-			Entry("partial timeout no output", true, "", "", "partial", "partial"),
-			Entry("partial timeout nothing", true, "", "", "", "partial"),
-			Entry("error no output", false, "model failed", "", "", "error"),
-			Entry("partial error+partial", false, "budget", "", "found 3", "partial"),
-			Entry("success despite error", false, "err", "real output", "", "success"),
+			Entry("success with output", false, "", "result", "", AgentStatusSuccess),
+			Entry("partial on timeout", true, "", "some", "", AgentStatusPartial),
+			Entry("partial timeout no output", true, "", "", "partial", AgentStatusPartial),
+			Entry("partial timeout nothing", true, "", "", "", AgentStatusPartial),
+			Entry("error no output", false, "model failed", "", "", AgentStatusError),
+			Entry("partial error+partial", false, "budget", "", "found 3", AgentStatusPartial),
+			Entry("success despite error", false, "err", "real output", "", AgentStatusSuccess),
 		)
 	})
 

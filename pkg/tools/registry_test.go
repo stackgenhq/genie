@@ -133,6 +133,37 @@ var _ = Describe("Registry", func() {
 		})
 	})
 
+	Describe("UnavailableNames", func() {
+		It("returns names that do not exist in the registry", func() {
+			ctx := context.Background()
+			reg := tools.NewRegistry(ctx, math.NewToolProvider())
+
+			missing := reg.UnavailableNames([]string{"calculator", "run_shell", "nonexistent"})
+			Expect(missing).To(ConsistOf("run_shell", "nonexistent"))
+		})
+
+		It("returns denied tools as unavailable", func() {
+			ctx := context.Background()
+			reg := tools.NewRegistry(ctx, math.NewToolProvider(), datetime.NewToolProvider())
+
+			cfg := hitl.Config{
+				DeniedTools: []string{"calculator"},
+			}
+			filtered := reg.FilterDenied(ctx, cfg)
+
+			missing := filtered.UnavailableNames([]string{"calculator", "datetime"})
+			Expect(missing).To(ConsistOf("calculator"))
+		})
+
+		It("returns nil when all tools are available", func() {
+			ctx := context.Background()
+			reg := tools.NewRegistry(ctx, math.NewToolProvider())
+
+			missing := reg.UnavailableNames([]string{"calculator"})
+			Expect(missing).To(BeNil())
+		})
+	})
+
 	Describe("CloneWithEphemeralProviders", func() {
 		It("clones CloneableToolProvider correctly", func() {
 			ctx := context.Background()
