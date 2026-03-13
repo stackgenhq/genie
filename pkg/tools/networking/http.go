@@ -17,7 +17,6 @@ import (
 
 	"github.com/stackgenhq/genie/pkg/logger"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
@@ -89,7 +88,6 @@ func NewTool(cfg ...Config) tool.CallableTool {
 func (t *httpTool) Do(ctx context.Context, req HTTPRequest) (string, error) {
 	log := logger.GetLogger(ctx).With("fn", "networking.http_request")
 	span := trace.SpanFromContext(ctx)
-	start := time.Now()
 
 	// Defaults
 	method := strings.ToUpper(strings.TrimSpace(req.Method))
@@ -149,17 +147,11 @@ func (t *httpTool) Do(ctx context.Context, req HTTPRequest) (string, error) {
 		httpReq.Header.Set("User-Agent", defaultUserAgent)
 	}
 
-	span.SetAttributes(
-		attribute.String("http.method", method),
-		attribute.String("http.url", req.URL),
-	)
 
 	log.Info("executing HTTP request", "method", method, "url", req.URL)
 
 	resp, err := t.client.Do(httpReq)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
 		return "", fmt.Errorf("request failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -203,13 +195,10 @@ func (t *httpTool) Do(ctx context.Context, req HTTPRequest) (string, error) {
 			"method", method, "url", req.URL,
 			"status", resp.StatusCode, "full_body_bytes", len(body))
 		span.SetAttributes(
-			attribute.Int("http.status_code", resp.StatusCode),
 			attribute.Int("http.response_body_bytes", len(body)),
 			attribute.Bool("http.response_truncated", truncated),
-			attribute.Int64("http.duration_ms", time.Since(start).Milliseconds()),
 			attribute.Bool("http.error_response", true),
 		)
-		span.SetStatus(codes.Ok, "")
 		return sb.String(), nil
 	}
 
@@ -224,12 +213,8 @@ func (t *httpTool) Do(ctx context.Context, req HTTPRequest) (string, error) {
 		fmt.Fprintf(&sb, "[Cloudflare challenge page — this site requires browser JavaScript to access. "+
 			"Do NOT retry this URL. Try a different source or use a search engine to find cached/mirrored content.]")
 		span.SetAttributes(
-			attribute.Int("http.status_code", resp.StatusCode),
-			attribute.Int("http.response_body_bytes", len(body)),
-			attribute.Int64("http.duration_ms", time.Since(start).Milliseconds()),
 			attribute.Bool("http.cloudflare_challenge", true),
 		)
-		span.SetStatus(codes.Ok, "")
 		return sb.String(), nil
 	}
 
@@ -246,12 +231,9 @@ func (t *httpTool) Do(ctx context.Context, req HTTPRequest) (string, error) {
 		"status", resp.StatusCode, "body_bytes", len(body))
 
 	span.SetAttributes(
-		attribute.Int("http.status_code", resp.StatusCode),
 		attribute.Int("http.response_body_bytes", len(body)),
 		attribute.Bool("http.response_truncated", truncated),
-		attribute.Int64("http.duration_ms", time.Since(start).Milliseconds()),
 	)
-	span.SetStatus(codes.Ok, "")
 
 	return sb.String(), nil
 }
