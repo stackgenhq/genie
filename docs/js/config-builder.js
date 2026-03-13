@@ -59,7 +59,8 @@
             metrics: { enabled: false, prefix: 'tools' },
             tracing: { enabled: false },
             sanitize: { enabled: false, replacement: '[REDACTED]', per_tool: '' },
-            validation: { enabled: false }
+            validation: { enabled: false },
+            loop_detection: { exempt_tools: [] }
         },
         db_config: { db_file: '' },
 
@@ -881,6 +882,14 @@
                 tw.sanitize.enabled ? fieldText('Specific Hidden Words', tw.sanitize.per_tool, function (v) { tw.sanitize.per_tool = v; renderOutput(); }, 'read_file:API_KEY|password', 'Hide custom labels for specific tools (e.g., tell the file reader to hide "API_KEY").') : null
             ].filter(Boolean))
         ]));
+
+        // Loop Detection
+        c.appendChild(el('div', { className: 'space-y-3 mb-4' }, [
+            el('h4', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wider' }, 'Loop Detection'),
+            el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
+                fieldText('Exempt Tools (comma-separated)', (tw.loop_detection.exempt_tools || []).join(', '), function (v) { tw.loop_detection.exempt_tools = splitCSV(v); renderOutput(); }, 'google_drive_*, my_custom_tool', 'Tools exempt from loop detection. Supports exact names and prefix patterns with * (e.g. google_drive_* matches all Drive tools). Built-in exemptions: note, read_notes.')
+            ])
+        ]));
     }
 
     // ── Security ──
@@ -1640,6 +1649,11 @@
             }
             lines.push('');
         }
+        if (hasItems(tw.loop_detection.exempt_tools)) {
+            lines.push('[toolwrap.loop_detection]');
+            lines.push('exempt_tools = [' + tw.loop_detection.exempt_tools.map(q).join(', ') + ']');
+            lines.push('');
+        }
     }
 
     function dbConfigToToml(lines) {
@@ -2391,6 +2405,11 @@
         if (tw.validation.enabled) {
             lines.push('  validation:');
             lines.push('    enabled: true');
+        }
+        if (hasItems(tw.loop_detection.exempt_tools)) {
+            lines.push('  loop_detection:');
+            lines.push('    exempt_tools:');
+            tw.loop_detection.exempt_tools.forEach(function (t) { lines.push('      - ' + yq(t)); });
         }
         lines.push('');
     }

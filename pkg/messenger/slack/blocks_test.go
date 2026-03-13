@@ -94,7 +94,7 @@ var _ = Describe("FormatApproval", func() {
 	var m *Messenger
 
 	BeforeEach(func() {
-		m = New(Config{})
+		m = New(Config{}, "", nil)
 	})
 
 	It("populates blocks metadata with correct structure", func() {
@@ -179,7 +179,7 @@ var _ = Describe("FormatClarification", func() {
 	var m *Messenger
 
 	BeforeEach(func() {
-		m = New(Config{})
+		m = New(Config{}, "", nil)
 	})
 
 	It("formats a rich Block Kit clarification message", func() {

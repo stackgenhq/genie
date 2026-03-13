@@ -11,8 +11,10 @@ build
 examples/**/.genie/*
 *.out
 .genie
-examples/devops-in-k8s/.terraform
-examples/devops-in-k8s/*auto.tfvars
+.terraform
+*auto.tfvars
 installation/k8s/.terraform
 backend.tf
 examples/cloud-discovery/terraform.tfstate
+*.local.toml
+run-local.sh

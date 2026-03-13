@@ -45,10 +45,20 @@ import (
 
 func init() {
 	messenger.RegisterAdapter(messenger.PlatformSlack, func(params map[string]string, opts ...messenger.Option) (messenger.Messenger, error) {
+		// Extract allowed_sender_* entries from params.
+		var allowedUsers []string
+		for i := 0; ; i++ {
+			key := fmt.Sprintf("allowed_sender_%d", i)
+			val, ok := params[key]
+			if !ok {
+				break
+			}
+			allowedUsers = append(allowedUsers, val)
+		}
 		return New(Config{
 			AppToken: params["app_token"],
 			BotToken: params["bot_token"],
-		}, opts...), nil
+		}, params["respond_to"], allowedUsers, opts...), nil
 	})
 }
 
@@ -66,6 +76,10 @@ type Config struct {
 	// See: https://api.slack.com/authentication/verifying-requests-from-slack
 	SigningSecret string
 }
+
+// respondToAll is the value for respondTo that disables mention filtering.
+// When respondTo is empty or any other value, mention-only mode is active (the default).
+const respondToAll = "all"
 
 // Messenger implements the [messenger.Messenger] interface for Slack.
 // It supports two transport modes:
@@ -86,14 +100,34 @@ type Messenger struct {
 	connCtx       context.Context
 	wg            sync.WaitGroup
 	mu            sync.RWMutex
+
+	// respondTo controls message filtering: "all" processes everything,
+	// "" or "mentions" (default) only processes messages where the bot
+	// is @mentioned or messages in threads where the bot was previously mentioned.
+	respondTo string
+	// allowedUsers is an optional allowlist of Slack user IDs. When non-empty,
+	// only messages from these users are processed (even if mentioned).
+	allowedUsers []string
+	// botUserID is the Slack user ID of the bot, resolved via auth.test at
+	// connect time. Used to detect <@BOT_USER_ID> mentions in message text.
+	botUserID string
+	// mentionedThreads tracks threads where the bot was @mentioned.
+	// Key format: "channelID:threadTS". Subsequent messages in these threads
+	// are processed without requiring another @mention.
+	mentionedThreads sync.Map
+	// userInfoCache caches resolved Slack user info (email, display name)
+	// keyed by Slack user ID. Avoids repeated users.info API calls.
+	userInfoCache sync.Map
 }
 
 // New creates a new Slack Messenger with the given config and options.
-func New(cfg Config, opts ...messenger.Option) *Messenger {
+func New(cfg Config, respondTo string, allowedUsers []string, opts ...messenger.Option) *Messenger {
 	adapterCfg := messenger.ApplyOptions(opts...)
 	return &Messenger{
-		cfg:        cfg,
-		adapterCfg: adapterCfg,
+		cfg:          cfg,
+		adapterCfg:   adapterCfg,
+		respondTo:    respondTo,
+		allowedUsers: allowedUsers,
 	}
 }
 
@@ -126,6 +160,16 @@ func (m *Messenger) Connect(ctx context.Context) (http.Handler, error) {
 		slack.OptionAppLevelToken(m.cfg.AppToken),
 	)
 
+	// Resolve the bot's own Slack user ID so we can detect @mentions.
+	// auth.test returns the bot user associated with the token.
+	authResp, err := m.api.AuthTestContext(ctx)
+	if err != nil {
+		log.Warn("failed to resolve bot user ID via auth.test — mention filtering may not work", "error", err)
+	} else {
+		m.botUserID = authResp.UserID
+		log.Info("resolved bot user ID", "botUserID", m.botUserID)
+	}
+
 	m.incoming = make(chan messenger.IncomingMessage, m.adapterCfg.MessageBufferSize)
 
 	connCtx, cancel := context.WithCancel(ctx)
@@ -135,8 +179,12 @@ func (m *Messenger) Connect(ctx context.Context) (http.Handler, error) {
 	if m.useHTTPEventsAPI() {
 		// HTTP Events API mode: return handler for caller to mount.
 		m.eventsHandler = &eventsHTTPHandler{
-			signingSecret: m.cfg.SigningSecret,
-			incoming:      m.incoming,
+			signingSecret:    m.cfg.SigningSecret,
+			incoming:         m.incoming,
+			botUserID:        m.botUserID,
+			respondTo:        m.respondTo,
+			allowedUsers:     m.allowedUsers,
+			mentionedThreads: &m.mentionedThreads,
 		}
 		m.connected = true
 		log.Info("connected to Slack via HTTP Events API")
@@ -234,6 +282,16 @@ func (m *Messenger) Send(ctx context.Context, req messenger.SendRequest) (messen
 	if err != nil {
 		return messenger.SendResponse{}, fmt.Errorf("%w: %s", messenger.ErrSendFailed, err)
 	}
+
+	// Track the thread so subsequent user replies are processed without
+	// requiring another @mention. This covers threads the bot creates
+	// or participates in (e.g. responding to a top-level @mention).
+	threadTS := req.ThreadID
+	if threadTS == "" {
+		// Bot sent a top-level message — its own ts becomes the thread parent.
+		threadTS = ts
+	}
+	m.mentionedThreads.Store(channelID+":"+threadTS, true)
 
 	return messenger.SendResponse{
 		MessageID: channelID + ":" + ts,
@@ -407,6 +465,132 @@ func (m *Messenger) handleInteractive(ctx context.Context, evt socketmode.Event)
 	}
 }
 
+// shouldProcess determines whether an incoming message should be forwarded to
+// the app layer. It implements mention-only filtering and allowed-user checks.
+//
+// Rules:
+//   - respondTo == "" or "all": always process (backwards compatible)
+//   - respondTo == "mentions":
+//     1. DMs (channel type "D" prefix) are always processed
+//     2. Messages containing <@botUserID> are processed; the thread is tracked
+//     3. Messages in a previously-mentioned thread are processed
+//     4. All other messages are silently dropped
+//   - If allowedUsers is non-empty, sender must be in the list
+func (m *Messenger) shouldProcess(channelID, userID, text, threadTS string) bool {
+	// Allowed-user check (independent of mention mode).
+	if len(m.allowedUsers) > 0 {
+		allowed := false
+		for _, u := range m.allowedUsers {
+			if u == userID {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return false
+		}
+	}
+
+	// respondTo == "all" disables mention filtering.
+	if m.respondTo == respondToAll {
+		return true
+	}
+
+	// DMs always pass (channel IDs starting with "D" are direct messages).
+	if strings.HasPrefix(channelID, "D") {
+		return true
+	}
+
+	// Check for explicit @mention.
+	if m.containsBotMention(text) {
+		// Track this thread so subsequent messages are processed too.
+		if threadTS != "" {
+			m.mentionedThreads.Store(channelID+":"+threadTS, true)
+		}
+		return true
+	}
+
+	// Check if this message is in a thread where the bot was previously mentioned.
+	if threadTS != "" {
+		if _, ok := m.mentionedThreads.Load(channelID + ":" + threadTS); ok {
+			return true
+		}
+	}
+
+	return false
+}
+
+// containsBotMention returns true if the message text contains a Slack
+// user mention for this bot (e.g., <@U12345>).
+func (m *Messenger) containsBotMention(text string) bool {
+	if m.botUserID == "" {
+		return false
+	}
+	return strings.Contains(text, "<@"+m.botUserID+">")
+}
+
+// stripBotMention removes the bot's <@BOT_USER_ID> mention from message text
+// so the LLM receives clean input without raw Slack mention syntax.
+func (m *Messenger) stripBotMention(text string) string {
+	if m.botUserID == "" {
+		return text
+	}
+	cleaned := strings.ReplaceAll(text, "<@"+m.botUserID+">", "")
+	// Trim leading/trailing whitespace and any leftover colon+space.
+	cleaned = strings.TrimSpace(cleaned)
+	cleaned = strings.TrimLeft(cleaned, ":")
+	return strings.TrimSpace(cleaned)
+}
+
+// cachedUserInfo holds resolved Slack user metadata.
+type cachedUserInfo struct {
+	email       string
+	displayName string
+}
+
+// resolveUserInfo looks up a Slack user's email and display name via the
+// users.info API, caching the result so each user is only looked up once.
+// Returns (email, displayName) — email falls back to userID, displayName
+// falls back to userID.
+func (m *Messenger) resolveUserInfo(ctx context.Context, userID string) (string, string) {
+	// Check cache first.
+	if cached, ok := m.userInfoCache.Load(userID); ok {
+		info := cached.(cachedUserInfo)
+		return info.email, info.displayName
+	}
+
+	if m.api == nil {
+		return userID, userID
+	}
+
+	user, err := m.api.GetUserInfoContext(ctx, userID)
+	if err != nil {
+		logger.GetLogger(ctx).Debug("failed to resolve Slack user info", "userID", userID, "error", err)
+		return userID, userID
+	}
+
+	email := user.Profile.Email
+	if email == "" {
+		email = userID // fallback if email is not available
+	}
+
+	displayName := user.Profile.DisplayName
+	if displayName == "" {
+		displayName = user.RealName
+	}
+	if displayName == "" {
+		displayName = userID
+	}
+
+	// Cache the result.
+	m.userInfoCache.Store(userID, cachedUserInfo{email: email, displayName: displayName})
+
+	logger.GetLogger(ctx).Info("resolved Slack user info",
+		"slackUID", userID, "email", email, "displayName", displayName)
+
+	return email, displayName
+}
+
 func (m *Messenger) handleEventsAPI(ctx context.Context, event slackevents.EventsAPIEvent) {
 	switch event.Type {
 	case slackevents.CallbackEvent:
@@ -417,6 +601,29 @@ func (m *Messenger) handleEventsAPI(ctx context.Context, event slackevents.Event
 			if ev.BotID != "" {
 				return
 			}
+
+			// Apply mention-only and allowed-user filtering.
+			if !m.shouldProcess(ev.Channel, ev.User, ev.Text, ev.ThreadTimeStamp) {
+				return
+			}
+
+			// Strip the bot mention from text so the LLM gets clean input.
+			cleanText := m.stripBotMention(ev.Text)
+
+			// Resolve sender email and display name (cached per user).
+			email, displayName := m.resolveUserInfo(ctx, ev.User)
+
+			// For top-level messages (no thread_ts), use the message's own
+			// timestamp as ThreadID so all replies thread under it.
+			threadID := ev.ThreadTimeStamp
+			if threadID == "" {
+				threadID = ev.TimeStamp
+			}
+
+			// Track the thread so subsequent replies are processed without
+			// requiring another @mention.
+			m.mentionedThreads.Store(ev.Channel+":"+threadID, true)
+
 			msg := messenger.IncomingMessage{
 				ID:       ev.TimeStamp,
 				Platform: messenger.PlatformSlack,
@@ -425,13 +632,14 @@ func (m *Messenger) handleEventsAPI(ctx context.Context, event slackevents.Event
 					Type: messenger.ChannelTypeChannel,
 				},
 				Sender: messenger.Sender{
-					ID:       ev.User,
-					Username: ev.User,
+					ID:          email,
+					Username:    ev.User,
+					DisplayName: displayName,
 				},
 				Content: messenger.MessageContent{
-					Text: ev.Text,
+					Text: cleanText,
 				},
-				ThreadID:  ev.ThreadTimeStamp,
+				ThreadID:  threadID,
 				Timestamp: time.Now(),
 			}
 			// When the user replies in a thread, thread_ts is the parent message's ts.

@@ -19,7 +19,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/config"
 	"github.com/stackgenhq/genie/pkg/datasource"
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
-	"github.com/stackgenhq/genie/pkg/memory/graph"
+
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/messenger"
 	"github.com/stackgenhq/genie/pkg/pii"
@@ -381,18 +381,6 @@ func WriteConfigFile(path string, in WizardInputs, toolAnswers map[string]map[st
 	}
 	if err := os.WriteFile(path, buf.Bytes(), 0600); err != nil {
 		return err
-	}
-	// When user opted into Learn, write pending flag so the app runs one
-	// graph-learn pass after the first successful data sources sync.
-	if in.Learn && strings.TrimSpace(in.AgentName) != "" {
-		agentDir := graph.DataDirForAgent(in.AgentName)
-		if err := os.MkdirAll(agentDir, 0755); err != nil {
-			return fmt.Errorf("create agent dir for graph learn pending: %w", err)
-		}
-		pendingPath := graph.PendingGraphLearnPath(in.AgentName)
-		if err := os.WriteFile(pendingPath, []byte("1"), 0600); err != nil {
-			return fmt.Errorf("write graph learn pending flag: %w", err)
-		}
 	}
 	return nil
 }

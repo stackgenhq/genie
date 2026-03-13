@@ -664,6 +664,93 @@ var _ = Describe("CodeOwner", func() {
 			Expect(fakeRouter.SetCacheCallCount()).To(Equal(1))
 		})
 	})
+
+	Describe("recallConversation", func() {
+		It("should return recent turns for short queries like '1'", func() {
+			// conversationKeyFromContext on a bare context yields "global",
+			// and memoryKeyForSender maps that to {AppName, UserID: "global"}.
+			key := co.memoryKeyForSender(co.conversationKeyFromContext(ctx))
+			_ = co.memorySvc.AddMemory(ctx, key, "Q: What MTTR docs exist?\nA: 1. Report A  2. Report B", []string{"conversation"})
+
+			// Recall with a short ambiguous query — must still include recent turns
+			result := co.recallConversation(ctx, "1")
+			Expect(result).To(ContainSubstring("MTTR"))
+		})
+
+		It("should return empty string when no memories exist", func() {
+			result := co.recallConversation(ctx, "1")
+			Expect(result).To(BeEmpty())
+		})
+
+		It("should return recent turns for very short queries like 'yes'", func() {
+			key := co.memoryKeyForSender(co.conversationKeyFromContext(ctx))
+			_ = co.memorySvc.AddMemory(ctx, key, "Q: Deploy to staging?\nA: Ready to deploy. Confirm?", []string{"conversation"})
+
+			result := co.recallConversation(ctx, "yes")
+			Expect(result).To(ContainSubstring("Deploy"))
+		})
+	})
+
+	Describe("mergeMemoryEntries", func() {
+		newEntry := func(id, content string) *memory.Entry {
+			return &memory.Entry{
+				ID:     id,
+				Memory: &memory.Memory{Memory: content},
+			}
+		}
+
+		It("should return empty slice when both inputs are empty", func() {
+			result := co.mergeMemoryEntries(nil, nil)
+			Expect(result).To(BeEmpty())
+		})
+
+		It("should return only recents when searched is empty", func() {
+			recents := []*memory.Entry{newEntry("1", "recent turn")}
+			result := co.mergeMemoryEntries(recents, nil)
+			Expect(result).To(HaveLen(1))
+			Expect(result[0].Memory.Memory).To(Equal("recent turn"))
+		})
+
+		It("should return only searched when recents is empty", func() {
+			searched := []*memory.Entry{newEntry("2", "searched turn")}
+			result := co.mergeMemoryEntries(nil, searched)
+			Expect(result).To(HaveLen(1))
+			Expect(result[0].Memory.Memory).To(Equal("searched turn"))
+		})
+
+		It("should deduplicate entries with the same ID", func() {
+			recents := []*memory.Entry{newEntry("dup", "recent version")}
+			searched := []*memory.Entry{newEntry("dup", "searched version")}
+
+			result := co.mergeMemoryEntries(recents, searched)
+			Expect(result).To(HaveLen(1))
+			Expect(result[0].Memory.Memory).To(Equal("recent version"))
+		})
+
+		It("should keep recents first, then unique searched entries", func() {
+			recents := []*memory.Entry{newEntry("r1", "recent-1")}
+			searched := []*memory.Entry{
+				newEntry("r1", "recent-1-dup"),
+				newEntry("s1", "searched-1"),
+			}
+
+			result := co.mergeMemoryEntries(recents, searched)
+			Expect(result).To(HaveLen(2))
+			Expect(result[0].ID).To(Equal("r1"))
+			Expect(result[1].ID).To(Equal("s1"))
+		})
+
+		It("should skip nil entries and entries with nil Memory", func() {
+			recents := []*memory.Entry{
+				nil,
+				newEntry("valid", "good one"),
+				{ID: "noMem", Memory: nil},
+			}
+			result := co.mergeMemoryEntries(recents, nil)
+			Expect(result).To(HaveLen(1))
+			Expect(result[0].ID).To(Equal("valid"))
+		})
+	})
 })
 
 var _ = Describe("bridgeBrowserTab", func() {

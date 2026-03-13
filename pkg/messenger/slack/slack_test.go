@@ -16,7 +16,7 @@ import (
 var _ = Describe("Slack Messenger", func() {
 	Describe("New", func() {
 		It("should create a messenger with empty config (no validation on constructor)", func() {
-			m := slackmsg.New(slackmsg.Config{})
+			m := slackmsg.New(slackmsg.Config{}, "", nil)
 			Expect(m).NotTo(BeNil())
 		})
 
@@ -24,7 +24,7 @@ var _ = Describe("Slack Messenger", func() {
 			m := slackmsg.New(slackmsg.Config{
 				AppToken: "xapp-1-test-token",
 				BotToken: "xoxb-test-token",
-			})
+			}, "", nil)
 			Expect(m).NotTo(BeNil())
 		})
 
@@ -32,14 +32,14 @@ var _ = Describe("Slack Messenger", func() {
 			m := slackmsg.New(slackmsg.Config{
 				AppToken: "xapp-1-test-token",
 				BotToken: "xoxb-test-token",
-			}, messenger.WithMessageBuffer(500))
+			}, "", nil, messenger.WithMessageBuffer(500))
 			Expect(m).NotTo(BeNil())
 		})
 	})
 
 	Describe("Platform", func() {
 		It("should return PlatformSlack", func() {
-			m := slackmsg.New(slackmsg.Config{})
+			m := slackmsg.New(slackmsg.Config{}, "", nil)
 			Expect(m.Platform()).To(Equal(messenger.PlatformSlack))
 		})
 	})
@@ -51,7 +51,7 @@ var _ = Describe("Slack Messenger", func() {
 			m = slackmsg.New(slackmsg.Config{
 				AppToken: "xapp-1-test-token",
 				BotToken: "xoxb-test-token",
-			})
+			}, "", nil)
 		})
 
 		It("should return ErrNotConnected when Send is called before Connect", func() {
@@ -76,7 +76,7 @@ var _ = Describe("Slack Messenger", func() {
 
 	Describe("Interface compliance", func() {
 		It("should satisfy the messenger.Messenger interface", func() {
-			var _ messenger.Messenger = slackmsg.New(slackmsg.Config{})
+			var _ messenger.Messenger = slackmsg.New(slackmsg.Config{}, "", nil)
 		})
 	})
 })

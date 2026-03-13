@@ -282,6 +282,29 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 		}
 		Expect(atomic.LoadInt32(count)).To(Equal(int32(5)))
 	})
+
+	DescribeTable("should exempt Google Drive tools from loop detection when configured",
+		func(toolName string) {
+			mw := toolwrap.LoopDetectionMiddleware(toolwrap.LoopDetectionConfig{
+				ExemptTools: []string{"google_drive_*"},
+			})
+			next, count := counting(passthrough("file content"))
+			handler := mw.Wrap(next)
+			tc := &toolwrap.ToolCallContext{ToolName: toolName, Args: []byte(`{"file_id":"abc123"}`)}
+
+			// Same tool + same args called 5 times — should NOT trigger loop
+			for i := 0; i < 5; i++ {
+				_, err := handler(context.Background(), tc)
+				Expect(err).NotTo(HaveOccurred())
+			}
+			Expect(atomic.LoadInt32(count)).To(Equal(int32(5)))
+		},
+		Entry("google_drive_read_file", "google_drive_read_file"),
+		Entry("google_drive_read_files", "google_drive_read_files"),
+		Entry("google_drive_search", "google_drive_search"),
+		Entry("google_drive_list_folder", "google_drive_list_folder"),
+		Entry("google_drive_get_file", "google_drive_get_file"),
+	)
 })
 
 var _ = Describe("FailureLimitMiddleware", func() {
