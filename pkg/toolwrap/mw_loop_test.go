@@ -305,6 +305,22 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 		Entry("google_drive_list_folder", "google_drive_list_folder"),
 		Entry("google_drive_get_file", "google_drive_get_file"),
 	)
+
+	It("should exempt web_search from loop detection when configured", func() {
+		mw := toolwrap.LoopDetectionMiddleware(toolwrap.LoopDetectionConfig{
+			ExemptTools: []string{"web_search"},
+		})
+		next, count := counting(passthrough("search results"))
+		handler := mw.Wrap(next)
+
+		// 6 consecutive web_search calls with different args — should NOT trigger loop
+		for i := 0; i < 6; i++ {
+			tc := &toolwrap.ToolCallContext{ToolName: "web_search", Args: []byte(fmt.Sprintf(`{"query":"query_%d"}`, i))}
+			_, err := handler(context.Background(), tc)
+			Expect(err).NotTo(HaveOccurred())
+		}
+		Expect(atomic.LoadInt32(count)).To(Equal(int32(6)))
+	})
 })
 
 var _ = Describe("FailureLimitMiddleware", func() {

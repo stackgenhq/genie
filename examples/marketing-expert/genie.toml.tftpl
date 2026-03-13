@@ -220,8 +220,17 @@ Authorization = "Bearer $${LINEAR_API_KEY}"
 # ── Loop Detection ──────────────────────────────────────────────────
 # Google Drive tools are read-only and idempotent; exempt them from
 # loop detection to prevent false-positive agent kills during multi-file reads.
+# web_search is similarly read-only; research sub-agents legitimately make
+# many consecutive searches with different queries.
 [toolwrap.loop_detection]
-exempt_tools = ["google_drive_*"]
+exempt_tools = ["google_drive_*", "web_search"]
+
+# ── Skills (PVC-backed, writable) ───────────────────────────────────
+[skill_load]
+skills_roots = ["/app/skills"]
+max_loaded_skills = 5
+enable_create_skill = ${skills_enable_create}
+create_skill_dir = "/app/skills"
 
 [hitl]
 # Auto-approve graph, Google Drive, Sybill, search, and Google Workspace tools.

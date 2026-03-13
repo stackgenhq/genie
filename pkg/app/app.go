@@ -1419,10 +1419,11 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 		} else {
 			_ = a.shortMemory.Delete(ctx, clarifyMemoryType, senderCtx)
 			// React with 👍 instead of sending a confirmation message.
+			// ReplyToMessageID must use channelID:ts format for Slack reactions.
 			_, _ = a.msgr.Send(ctx, messenger.SendRequest{
 				Type:             messenger.SendTypeReaction,
 				Channel:          msg.Channel,
-				ReplyToMessageID: msg.ID,
+				ReplyToMessageID: msg.Channel.ID + ":" + msg.ID,
 				Emoji:            "👍",
 			})
 		}
