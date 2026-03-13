@@ -4,8 +4,18 @@
 package slack
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+
+	slack "github.com/slack-go/slack"
+	"github.com/slack-go/slack/slackevents"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	"github.com/stackgenhq/genie/pkg/messenger"
 )
 
 var _ = Describe("Slack Internal", func() {
@@ -165,6 +175,173 @@ var _ = Describe("Slack Internal", func() {
 		It("returns text unchanged when no mention present", func() {
 			m := &Messenger{botUserID: "U_BOT"}
 			Expect(m.stripBotMention("just a regular message")).To(Equal("just a regular message"))
+		})
+	})
+
+	Describe("resolveUserInfo", func() {
+		It("returns userID for both fields when api is nil", func() {
+			m := &Messenger{}
+			email, displayName := m.resolveUserInfo(context.Background(), "U_USER")
+			Expect(email).To(Equal("U_USER"))
+			Expect(displayName).To(Equal("U_USER"))
+		})
+
+		It("returns cached result on second call", func() {
+			m := &Messenger{}
+			m.userInfoCache.Store("U_CACHED", cachedUserInfo{
+				email:       "cached@example.com",
+				displayName: "Cached User",
+			})
+			email, displayName := m.resolveUserInfo(context.Background(), "U_CACHED")
+			Expect(email).To(Equal("cached@example.com"))
+			Expect(displayName).To(Equal("Cached User"))
+		})
+
+		It("resolves user info from API and caches the result", func() {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if strings.Contains(r.URL.Path, "users.info") {
+					w.Write([]byte(`{"ok":true,"user":{"id":"U_TEST","name":"testuser","real_name":"Test User","profile":{"email":"test@example.com","display_name":"TestDisplay"}}}`))
+					return
+				}
+				w.Write([]byte(`{"ok":true}`))
+			}))
+			defer srv.Close()
+
+			m := &Messenger{
+				api: slack.New("xoxb-test", slack.OptionAPIURL(srv.URL+"/")),
+			}
+			email, displayName := m.resolveUserInfo(context.Background(), "U_TEST")
+			Expect(email).To(Equal("test@example.com"))
+			Expect(displayName).To(Equal("TestDisplay"))
+
+			// Second call should use cache.
+			email2, displayName2 := m.resolveUserInfo(context.Background(), "U_TEST")
+			Expect(email2).To(Equal("test@example.com"))
+			Expect(displayName2).To(Equal("TestDisplay"))
+		})
+
+		It("falls back to real_name when display_name is empty", func() {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if strings.Contains(r.URL.Path, "users.info") {
+					w.Write([]byte(`{"ok":true,"user":{"id":"U_TEST","name":"testuser","real_name":"Real Name","profile":{"email":"test@example.com","display_name":""}}}`))
+					return
+				}
+				w.Write([]byte(`{"ok":true}`))
+			}))
+			defer srv.Close()
+
+			m := &Messenger{
+				api: slack.New("xoxb-test", slack.OptionAPIURL(srv.URL+"/")),
+			}
+			email, displayName := m.resolveUserInfo(context.Background(), "U_TEST")
+			Expect(email).To(Equal("test@example.com"))
+			Expect(displayName).To(Equal("Real Name"))
+		})
+
+		It("falls back to userID on API error", func() {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if strings.Contains(r.URL.Path, "users.info") {
+					w.Write([]byte(`{"ok":false,"error":"user_not_found"}`))
+					return
+				}
+				w.Write([]byte(`{"ok":true}`))
+			}))
+			defer srv.Close()
+
+			m := &Messenger{
+				api: slack.New("xoxb-test", slack.OptionAPIURL(srv.URL+"/")),
+			}
+			email, displayName := m.resolveUserInfo(context.Background(), "U_UNKNOWN")
+			Expect(email).To(Equal("U_UNKNOWN"))
+			Expect(displayName).To(Equal("U_UNKNOWN"))
+		})
+	})
+
+	Describe("handleEventsAPI", func() {
+		It("skips bot messages", func() {
+			incoming := make(chan messenger.IncomingMessage, 10)
+			m := &Messenger{
+				incoming:  incoming,
+				respondTo: respondToAll,
+			}
+
+			event := slackevents.EventsAPIEvent{
+				Type: slackevents.CallbackEvent,
+				InnerEvent: slackevents.EventsAPIInnerEvent{
+					Data: &slackevents.MessageEvent{
+						BotID:     "B_BOT",
+						Channel:   "C1",
+						User:      "U1",
+						Text:      "echo",
+						TimeStamp: "1.1",
+					},
+				},
+			}
+			m.handleEventsAPI(context.Background(), event)
+			Expect(incoming).To(BeEmpty())
+		})
+
+		It("enqueues valid user messages", func() {
+			incoming := make(chan messenger.IncomingMessage, 10)
+			m := &Messenger{
+				incoming:  incoming,
+				respondTo: respondToAll,
+			}
+
+			event := slackevents.EventsAPIEvent{
+				Type: slackevents.CallbackEvent,
+				InnerEvent: slackevents.EventsAPIInnerEvent{
+					Data: &slackevents.MessageEvent{
+						Channel:   "C1",
+						User:      "U1",
+						Text:      "hello",
+						TimeStamp: "2.2",
+					},
+				},
+			}
+			m.handleEventsAPI(context.Background(), event)
+			Expect(incoming).To(HaveLen(1))
+			msg := <-incoming
+			Expect(msg.Content.Text).To(Equal("hello"))
+			Expect(msg.Channel.ID).To(Equal("C1"))
+			Expect(msg.ThreadID).To(Equal("2.2"))
+		})
+
+		It("rejects unauthorized users", func() {
+			incoming := make(chan messenger.IncomingMessage, 10)
+			m := &Messenger{
+				incoming:     incoming,
+				respondTo:    respondToAll,
+				allowedUsers: []string{"U_ALLOWED"},
+			}
+
+			event := slackevents.EventsAPIEvent{
+				Type: slackevents.CallbackEvent,
+				InnerEvent: slackevents.EventsAPIInnerEvent{
+					Data: &slackevents.MessageEvent{
+						Channel:   "C1",
+						User:      "U_INTRUDER",
+						Text:      "sneaky",
+						TimeStamp: "3.3",
+					},
+				},
+			}
+			m.handleEventsAPI(context.Background(), event)
+			Expect(incoming).To(BeEmpty())
+		})
+
+		It("ignores non-callback event types", func() {
+			incoming := make(chan messenger.IncomingMessage, 10)
+			m := &Messenger{incoming: incoming}
+
+			event := slackevents.EventsAPIEvent{
+				Type: "url_verification",
+			}
+			m.handleEventsAPI(context.Background(), event)
+			Expect(incoming).To(BeEmpty())
 		})
 	})
 })
