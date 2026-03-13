@@ -112,4 +112,45 @@ var _ = Describe("CircuitBreakerMiddleware", func() {
 		})
 		Expect(mw.WithScope("")).To(BeIdenticalTo(mw))
 	})
+
+	It("should bypass circuit breaker when tool has exact match in ExemptTools", func() {
+		mw := toolwrap.CircuitBreakerMiddleware(toolwrap.CircuitBreakerConfig{
+			FailureThreshold: 1,
+			ExemptTools:      []string{"exempt_tool"},
+		})
+		handler := mw.Wrap(failing(errors.New("down")))
+
+		// Normally, the second call fails with "circuit" due to threshold = 1
+		_, err := handler(context.Background(), tc("exempt_tool"))
+		Expect(err.Error()).To(ContainSubstring("down"))
+
+		// Since it's exempt, we expect it to STILL hit the failing handler
+		// instead of being blocked by the circuit breaker.
+		_, err = handler(context.Background(), tc("exempt_tool"))
+		Expect(err.Error()).To(ContainSubstring("down"))
+	})
+
+	It("should bypass circuit breaker when tool matches prefix pattern in ExemptTools", func() {
+		mw := toolwrap.CircuitBreakerMiddleware(toolwrap.CircuitBreakerConfig{
+			FailureThreshold: 1,
+			ExemptTools:      []string{"google_*"},
+		})
+
+		handler := mw.Wrap(failing(errors.New("down")))
+
+		// "google_drive" matches "google_*"
+		_, err := handler(context.Background(), tc("google_drive"))
+		Expect(err.Error()).To(ContainSubstring("down"))
+
+		_, err = handler(context.Background(), tc("google_drive"))
+		Expect(err.Error()).To(ContainSubstring("down"))
+
+		// "other_tool" does NOT match
+		_, err = handler(context.Background(), tc("other_tool"))
+		Expect(err.Error()).To(ContainSubstring("down"))
+
+		// Second call for "other_tool" trips circuit breaker
+		_, err = handler(context.Background(), tc("other_tool"))
+		Expect(err.Error()).To(ContainSubstring("circuit"))
+	})
 })
