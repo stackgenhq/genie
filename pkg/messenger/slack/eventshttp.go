@@ -212,6 +212,19 @@ func (h *eventsHTTPHandler) handleCallback(ctx context.Context, event slackevent
 		// Strip the bot mention from text so the LLM gets clean input.
 		cleanText := h.stripBotMention(ev.Text)
 
+		// For top-level messages (no thread_ts), use the message's own
+		// timestamp as ThreadID so all replies thread under it.
+		threadID := ev.ThreadTimeStamp
+		if threadID == "" {
+			threadID = ev.TimeStamp
+		}
+
+		// Track the thread so subsequent replies are processed without
+		// requiring another @mention.
+		if h.mentionedThreads != nil {
+			h.mentionedThreads.Store(ev.Channel+":"+threadID, true)
+		}
+
 		msg := messenger.IncomingMessage{
 			ID:       ev.TimeStamp,
 			Platform: messenger.PlatformSlack,
@@ -226,7 +239,7 @@ func (h *eventsHTTPHandler) handleCallback(ctx context.Context, event slackevent
 			Content: messenger.MessageContent{
 				Text: cleanText,
 			},
-			ThreadID:  ev.ThreadTimeStamp,
+			ThreadID:  threadID,
 			Timestamp: time.Now(),
 		}
 		// When the user replies in a thread, thread_ts is the parent message's ts.

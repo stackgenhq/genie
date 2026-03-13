@@ -613,6 +613,17 @@ func (m *Messenger) handleEventsAPI(ctx context.Context, event slackevents.Event
 			// Resolve sender email and display name (cached per user).
 			email, displayName := m.resolveUserInfo(ctx, ev.User)
 
+			// For top-level messages (no thread_ts), use the message's own
+			// timestamp as ThreadID so all replies thread under it.
+			threadID := ev.ThreadTimeStamp
+			if threadID == "" {
+				threadID = ev.TimeStamp
+			}
+
+			// Track the thread so subsequent replies are processed without
+			// requiring another @mention.
+			m.mentionedThreads.Store(ev.Channel+":"+threadID, true)
+
 			msg := messenger.IncomingMessage{
 				ID:       ev.TimeStamp,
 				Platform: messenger.PlatformSlack,
@@ -628,7 +639,7 @@ func (m *Messenger) handleEventsAPI(ctx context.Context, event slackevents.Event
 				Content: messenger.MessageContent{
 					Text: cleanText,
 				},
-				ThreadID:  ev.ThreadTimeStamp,
+				ThreadID:  threadID,
 				Timestamp: time.Now(),
 			}
 			// When the user replies in a thread, thread_ts is the parent message's ts.

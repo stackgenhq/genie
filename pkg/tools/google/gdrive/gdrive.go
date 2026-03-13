@@ -105,7 +105,11 @@ func NewSearchTool(name string, s Service) tool.CallableTool {
 	return function.NewFunctionTool(
 		ts.search,
 		function.WithName(name+"_search"),
-		function.WithDescription("Search for files in Google Drive. Supports Google Drive query syntax."),
+		function.WithDescription(
+			"Search for files in Google Drive. Supports Google Drive query syntax. "+
+				"Results include file name, type, modified time, and link — present these directly to the user without calling get_file for each result. "+
+				"Use get_file only when the user specifically needs owner info or detailed metadata. "+
+				"Tip: prefer memory_search first if the Drive content has been synced; use this tool for live Drive queries or when memory_search doesn't return relevant results."),
 	)
 }
 
@@ -114,7 +118,10 @@ func NewListFolderTool(name string, s Service) tool.CallableTool {
 	return function.NewFunctionTool(
 		ts.listFolder,
 		function.WithName(name+"_list_folder"),
-		function.WithDescription("List files in a Google Drive folder. Use 'root' for the root folder."),
+		function.WithDescription(
+			"List files in a Google Drive folder. Use 'root' for the root folder. "+
+				"Results include file name, type, modified time, and link for each file. "+
+				"Use this to browse folder contents; present results directly to the user."),
 	)
 }
 
@@ -123,7 +130,9 @@ func NewGetFileTool(name string, s Service) tool.CallableTool {
 	return function.NewFunctionTool(
 		ts.getFile,
 		function.WithName(name+"_get_file"),
-		function.WithDescription("Get metadata about a Google Drive file including owners and links."),
+		function.WithDescription(
+			"Get detailed metadata about a specific Google Drive file including owners, created/modified dates, and links. "+
+				"Only use this when you need owner or creation date info that search/list_folder don't provide."),
 	)
 }
 
@@ -132,7 +141,10 @@ func NewReadFileTool(name string, s Service) tool.CallableTool {
 	return function.NewFunctionTool(
 		ts.readFile,
 		function.WithName(name+"_read_file"),
-		function.WithDescription("Read the text content of a Google Drive file. Google Docs/Sheets are exported as plain text."),
+		function.WithDescription(
+			"Read the full text content of a Google Drive file. Google Docs/Sheets are exported as plain text. "+
+				"Use this when the user wants to read, summarize, or analyze the content of a specific document. "+
+				"Tip: prefer memory_search first if the Drive content has been synced — it may already have the document content indexed."),
 	)
 }
 

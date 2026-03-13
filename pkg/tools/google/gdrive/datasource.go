@@ -115,20 +115,27 @@ func (c *GDriveConnector) listFolderItems(ctx context.Context, folderID string, 
 			}
 		}
 		updatedAt, _ := parseDriveTime(f.ModifiedTime)
-		content := f.Name
+		content := buildContentHeader(f)
 		// Attempt to read body for text-like types to improve search.
 		if isTextLike(f.MimeType) {
 			body, err := c.svc.ReadFile(ctx, f.ID)
 			if err == nil && body != "" {
-				content = f.Name + "\n\n" + body
+				content = content + "\n\n" + body
 			}
 		}
 		meta := map[string]string{"title": f.Name}
 		if f.MimeType != "" {
 			meta["mime_type"] = f.MimeType
+			meta["file_type"] = friendlyFileType(f.MimeType)
 		}
 		if f.WebViewLink != "" {
 			meta["url"] = f.WebViewLink
+		}
+		if f.ModifiedTime != "" {
+			meta["modified_date"] = f.ModifiedTime
+		}
+		if f.Size > 0 {
+			meta["size"] = fmt.Sprintf("%d", f.Size)
 		}
 		out = append(out, datasource.NormalizedItem{
 			ID:        "gdrive:" + f.ID,
@@ -152,6 +159,67 @@ func isTextLike(mime string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// buildContentHeader constructs a structured text header for a Drive file so
+// that chunked documents retain file context and the LLM can answer common
+// questions ("what are the latest files?") directly from memory_search results.
+func buildContentHeader(f FileInfo) string {
+	var b strings.Builder
+	b.WriteString("[Google Drive File]\n")
+	b.WriteString("Title: " + f.Name + "\n")
+	ft := friendlyFileType(f.MimeType)
+	if ft != "" {
+		b.WriteString("Type: " + ft + "\n")
+	}
+	if f.ModifiedTime != "" {
+		// Show date only (YYYY-MM-DD) for readability.
+		if t, err := parseDriveTime(f.ModifiedTime); err == nil && !t.IsZero() {
+			b.WriteString("Modified: " + t.Format("2006-01-02") + "\n")
+		}
+	}
+	if f.WebViewLink != "" {
+		b.WriteString("URL: " + f.WebViewLink + "\n")
+	}
+	return b.String()
+}
+
+// friendlyFileType maps a MIME type to a short human-readable label for
+// display in search results and metadata filtering.
+func friendlyFileType(mime string) string {
+	switch mime {
+	case "application/vnd.google-apps.document":
+		return "document"
+	case "application/vnd.google-apps.spreadsheet":
+		return "spreadsheet"
+	case "application/vnd.google-apps.presentation":
+		return "presentation"
+	case "application/vnd.google-apps.form":
+		return "form"
+	case "application/vnd.google-apps.drawing":
+		return "drawing"
+	case "application/pdf":
+		return "pdf"
+	case "application/json":
+		return "json"
+	case "application/x-yaml":
+		return "yaml"
+	default:
+		if strings.HasPrefix(mime, "text/") {
+			return "text"
+		}
+		if strings.HasPrefix(mime, "image/") {
+			return "image"
+		}
+		if strings.HasPrefix(mime, "video/") {
+			return "video"
+		}
+		if strings.HasPrefix(mime, "application/vnd.google-apps.") {
+			// Strip prefix for unknown Google Workspace types.
+			return strings.TrimPrefix(mime, "application/vnd.google-apps.")
+		}
+		return "file"
 	}
 }
 
