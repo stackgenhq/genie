@@ -11,11 +11,13 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -856,7 +858,6 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 		}
 	}
 
-	// --- Browser tools ---
 	browserOpts := []browser.Option{
 		browser.WithHeadless(true),
 		browser.WithBlockedDomains(a.cfg.Browser.BlockedDomains),
@@ -872,7 +873,11 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 
 	bw, err := browser.New(ctx, browserOpts...)
 	if err != nil {
-		log.Warn("failed to start browser, skipping browser tools", "error", err)
+		if errors.Is(err, exec.ErrNotFound) {
+			log.Info("Browser executable not found in $PATH, skipping browser tools")
+		} else {
+			log.Warn("failed to start browser, skipping browser tools", "error", err)
+		}
 	}
 	if bw != nil {
 		a.browser = bw

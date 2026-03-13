@@ -115,10 +115,6 @@ type Messenger struct {
 	// botUserID is the Slack user ID of the bot, resolved via auth.test at
 	// connect time. Used to detect <@BOT_USER_ID> mentions in message text.
 	botUserID string
-	// mentionedThreads tracks threads where the bot was @mentioned.
-	// Key format: "channelID:threadTS". Subsequent messages in these threads
-	// are processed without requiring another @mention.
-	mentionedThreads sync.Map
 	// userInfoCache caches resolved Slack user info (email, display name)
 	// keyed by Slack user ID. Avoids repeated users.info API calls.
 	userInfoCache sync.Map
@@ -197,12 +193,12 @@ func (m *Messenger) Connect(ctx context.Context) (http.Handler, error) {
 	if m.useHTTPEventsAPI() {
 		// HTTP Events API mode: return handler for caller to mount.
 		m.eventsHandler = &eventsHTTPHandler{
-			signingSecret:    m.cfg.SigningSecret,
-			incoming:         m.incoming,
-			botUserID:        m.botUserID,
-			respondTo:        m.respondTo,
-			allowedUsers:     m.allowedUsers,
-			mentionedThreads: &m.mentionedThreads,
+			api:           m.api,
+			signingSecret: m.cfg.SigningSecret,
+			incoming:      m.incoming,
+			botUserID:     m.botUserID,
+			respondTo:     m.respondTo,
+			allowedUsers:  m.allowedUsers,
 		}
 		m.connected = true
 		log.Info("connected to Slack via HTTP Events API")
@@ -300,16 +296,6 @@ func (m *Messenger) Send(ctx context.Context, req messenger.SendRequest) (messen
 	if err != nil {
 		return messenger.SendResponse{}, fmt.Errorf("%w: %s", messenger.ErrSendFailed, err)
 	}
-
-	// Track the thread so subsequent user replies are processed without
-	// requiring another @mention. This covers threads the bot creates
-	// or participates in (e.g. responding to a top-level @mention).
-	threadTS := req.ThreadID
-	if threadTS == "" {
-		// Bot sent a top-level message — its own ts becomes the thread parent.
-		threadTS = ts
-	}
-	m.mentionedThreads.Store(channelID+":"+threadTS, true)
 
 	return messenger.SendResponse{
 		MessageID: channelID + ":" + ts,
@@ -483,27 +469,17 @@ func (m *Messenger) handleInteractive(ctx context.Context, evt socketmode.Event)
 	}
 }
 
-// shouldProcess determines whether an incoming message should be forwarded to
-// the app layer. It implements mention-only filtering and allowed-user checks.
+// isDirectedAtBot determines whether an incoming message is directed at the bot.
+// It implements mention-only filtering and thread tracking.
 //
 // Rules:
-//   - respondTo == "all": always process (no filtering)
+//   - respondTo == "all": always returns true (no filtering)
 //   - respondTo == "" or "mentions" (default): mention-only mode
-//     1. DMs (channel type "D" prefix) are always processed
-//     2. Messages containing <@botUserID> are processed; the thread is tracked
-//     3. Messages in a previously-mentioned thread are processed
-//     4. All other messages are silently dropped
-//   - If allowedUsers is non-empty, sender must match (supports * suffix wildcards)
-func (m *Messenger) shouldProcess(channelID, userID, text, threadTS string) bool {
-	// Allowed-user check (independent of mention mode).
-	// Supports exact matches and * suffix wildcards (e.g. "U_ADMIN*")
-	// matching messenger.Config.IsSenderAllowed semantics.
-	if len(m.allowedUsers) > 0 {
-		if !isUserAllowed(userID, m.allowedUsers) {
-			return false
-		}
-	}
-
+//     1. DMs (channel type "D" prefix) are always directed at bot
+//     2. Messages containing <@botUserID> are directed at bot; the thread is tracked
+//     3. Messages in a previously-mentioned thread are directed at bot
+//     4. All other messages are not directed at bot
+func (m *Messenger) isDirectedAtBot(channelID, text, threadTS string) bool {
 	// respondTo == "all" disables mention filtering.
 	if m.respondTo == respondToAll {
 		return true
@@ -516,18 +492,7 @@ func (m *Messenger) shouldProcess(channelID, userID, text, threadTS string) bool
 
 	// Check for explicit @mention.
 	if m.containsBotMention(text) {
-		// Track this thread so subsequent messages are processed too.
-		if threadTS != "" {
-			m.mentionedThreads.Store(channelID+":"+threadTS, true)
-		}
 		return true
-	}
-
-	// Check if this message is in a thread where the bot was previously mentioned.
-	if threadTS != "" {
-		if _, ok := m.mentionedThreads.Load(channelID + ":" + threadTS); ok {
-			return true
-		}
 	}
 
 	return false
@@ -615,8 +580,17 @@ func (m *Messenger) handleEventsAPI(ctx context.Context, event slackevents.Event
 				return
 			}
 
-			// Apply mention-only and allowed-user filtering.
-			if !m.shouldProcess(ev.Channel, ev.User, ev.Text, ev.ThreadTimeStamp) {
+			// Check if message is directed at the bot.
+			if !m.isDirectedAtBot(ev.Channel, ev.Text, ev.ThreadTimeStamp) {
+				return
+			}
+
+			// Apply allowed-user filtering.
+			if len(m.allowedUsers) > 0 && !isUserAllowed(ev.User, m.allowedUsers) {
+				logger.GetLogger(ctx).With("platform", "slack").Warn("unauthorized user message rejected", "user", ev.User, "channel", ev.Channel)
+				if m.api != nil {
+					_ = m.api.AddReactionContext(ctx, "x", slack.NewRefToMessage(ev.Channel, ev.TimeStamp))
+				}
 				return
 			}
 
@@ -633,9 +607,10 @@ func (m *Messenger) handleEventsAPI(ctx context.Context, event slackevents.Event
 				threadID = ev.TimeStamp
 			}
 
-			// Track the thread so subsequent replies are processed without
-			// requiring another @mention.
-			m.mentionedThreads.Store(ev.Channel+":"+threadID, true)
+			// Acknowledge receipt with eyes reaction to let the user know we're working on it.
+			if m.api != nil {
+				_ = m.api.AddReactionContext(ctx, "eyes", slack.NewRefToMessage(ev.Channel, ev.TimeStamp))
+			}
 
 			msg := messenger.IncomingMessage{
 				ID:       ev.TimeStamp,

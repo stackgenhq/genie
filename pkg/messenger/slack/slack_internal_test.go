@@ -59,60 +59,33 @@ var _ = Describe("Slack Internal", func() {
 		})
 	})
 
-	Describe("shouldProcess", func() {
+	Describe("isDirectedAtBot", func() {
 		It("defaults to mention-only mode (drops non-mention messages)", func() {
 			m := &Messenger{botUserID: "U_BOT"}
-			Expect(m.shouldProcess("C123", "U1", "hello world", "")).To(BeFalse())
+			Expect(m.isDirectedAtBot("C123", "hello world", "")).To(BeFalse())
 		})
 
 		It("processes messages with bot @mention in default mode", func() {
 			m := &Messenger{botUserID: "U_BOT"}
-			Expect(m.shouldProcess("C123", "U1", "hey <@U_BOT> help me", "")).To(BeTrue())
+			Expect(m.isDirectedAtBot("C123", "hey <@U_BOT> help me", "")).To(BeTrue())
 		})
 
 		It("processes all messages when respondTo is 'all'", func() {
 			m := &Messenger{respondTo: "all", botUserID: "U_BOT"}
-			Expect(m.shouldProcess("C123", "U1", "generic message", "")).To(BeTrue())
+			Expect(m.isDirectedAtBot("C123", "generic message", "")).To(BeTrue())
 		})
 
 		It("always processes DMs regardless of mode", func() {
 			m := &Messenger{botUserID: "U_BOT"} // default = mentions
-			Expect(m.shouldProcess("D123ABC", "U1", "hello", "")).To(BeTrue())
+			Expect(m.isDirectedAtBot("D123ABC", "hello", "")).To(BeTrue())
 		})
 
-		It("processes thread messages where bot was previously mentioned", func() {
+		It("drops thread messages even if bot was previously mentioned (no thread tracking)", func() {
 			m := &Messenger{botUserID: "U_BOT"}
 			// First mention in thread
-			Expect(m.shouldProcess("C123", "U1", "<@U_BOT> help", "thread_ts_1")).To(BeTrue())
-			// Subsequent message in same thread (no mention)
-			Expect(m.shouldProcess("C123", "U1", "more context", "thread_ts_1")).To(BeTrue())
-		})
-
-		It("drops thread messages in untracked threads", func() {
-			m := &Messenger{botUserID: "U_BOT"}
-			Expect(m.shouldProcess("C123", "U1", "some reply", "thread_ts_2")).To(BeFalse())
-		})
-
-		It("drops messages from non-allowed senders", func() {
-			m := &Messenger{
-				botUserID:    "U_BOT",
-				respondTo:    "all",
-				allowedUsers: []string{"U_ADMIN"},
-			}
-			Expect(m.shouldProcess("C123", "U_OTHER", "<@U_BOT> do stuff", "")).To(BeFalse())
-		})
-
-		It("allows messages from allowed senders", func() {
-			m := &Messenger{
-				botUserID:    "U_BOT",
-				allowedUsers: []string{"U_ADMIN"},
-			}
-			Expect(m.shouldProcess("C123", "U_ADMIN", "<@U_BOT> deploy", "")).To(BeTrue())
-		})
-
-		It("allows all senders when allowedUsers is empty", func() {
-			m := &Messenger{botUserID: "U_BOT"}
-			Expect(m.shouldProcess("C123", "ANYONE", "<@U_BOT> hi", "")).To(BeTrue())
+			Expect(m.isDirectedAtBot("C123", "<@U_BOT> help", "thread_ts_1")).To(BeTrue())
+			// Subsequent message in same thread WITHOUT mention should be dropped
+			Expect(m.isDirectedAtBot("C123", "more context", "thread_ts_1")).To(BeFalse())
 		})
 	})
 

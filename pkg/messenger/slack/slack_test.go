@@ -86,7 +86,7 @@ var _ = Describe("Slack Messenger", func() {
 
 			// We cannot directly inspect `respondTo` since it's private and we don't have
 			// an exported getter, but we know it won't crash and we have hit the branch.
-			// The internal test suite directly checks the shouldProcess method behavior.
+			// The internal test suite directly checks the isDirectedAtBot method behavior.
 		})
 	})
 

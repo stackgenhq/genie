@@ -83,6 +83,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`IStore` interface refactored to 2-parameter pattern** — `Search` and `SearchWithFilter` unified into `Search(ctx, SearchRequest)` with optional `Filter`; `Add`, `Upsert`, `Delete` now accept `AddRequest`, `UpsertRequest`, `DeleteRequest` structs. All callers across `orchestrator`, `semanticrouter`, `graph`, `reactree`, `report`, and `app` packages updated.
 - **Slack Messenger**: Added wildcard `*` suffix support to `allowed_senders` for both HTTP Events API and Socket Mode.
 - **Slack Messenger**: Fall back to `respondTo=all` if `auth.test` fails to retrieve the bot user ID, keeping the bot reachable instead of silently dropping messages.
+- **Slack Messenger**: Unauthorized users now receive a ❌ (`x`) reaction on their message instead of silent drops, providing clear visual feedback that they are not permitted.
+- **Slack Messenger**: Accepted messages now receive a 👀 (`eyes`) reaction so the sender knows the bot is actively working on their request.
+- **Slack Messenger**: Thread tracking removed — the bot now requires an explicit `@mention` on every message, even within an existing thread, preventing it from eavesdropping on side-conversations.
+- **Browser initialization**: Replaced `IsInstalled()` pre-check with direct `browser.New()` call; gracefully skips browser tools when the executable is not found (`exec.ErrNotFound`) instead of checking a hardcoded path list.
 - **MCP Client**: Secret placeholder expansion for HTTP headers now triggers on bare `$VAR` syntax in addition to `${VAR}`.
 - **Loop Detection**: Identical-args loop detection is now active for internal background tasks, preventing hidden infinite loops.
 

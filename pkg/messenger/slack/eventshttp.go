@@ -25,9 +25,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 
 	"github.com/stackgenhq/genie/pkg/logger"
@@ -44,14 +44,14 @@ import (
 // mode (SigningSecret is set). The handler can be mounted on any
 // http.ServeMux or router.
 type eventsHTTPHandler struct {
+	api           *slack.Client
 	signingSecret string
 	incoming      chan messenger.IncomingMessage
 
 	// Filtering fields — shared with the parent Messenger.
-	botUserID        string
-	respondTo        string
-	allowedUsers     []string
-	mentionedThreads *sync.Map
+	botUserID    string
+	respondTo    string
+	allowedUsers []string
 }
 
 // urlVerificationBody is the JSON payload Slack sends for URL verification.
@@ -136,17 +136,9 @@ func (h *eventsHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// shouldProcess determines whether a message should be forwarded based on
-// mention-only mode and allowed-user filtering. Uses the same algorithm
-// as Messenger.shouldProcess.
-func (h *eventsHTTPHandler) shouldProcess(channelID, userID, text, threadTS string) bool {
-	// Allowed-user check (supports * suffix wildcards).
-	if len(h.allowedUsers) > 0 {
-		if !isUserAllowed(userID, h.allowedUsers) {
-			return false
-		}
-	}
-
+// isDirectedAtBot determines whether a message should be forwarded based on
+// mention-only mode.
+func (h *eventsHTTPHandler) isDirectedAtBot(channelID, text, threadTS string) bool {
 	if h.respondTo == respondToAll {
 		return true
 	}
@@ -158,17 +150,7 @@ func (h *eventsHTTPHandler) shouldProcess(channelID, userID, text, threadTS stri
 
 	// Explicit @mention.
 	if h.botUserID != "" && strings.Contains(text, "<@"+h.botUserID+">") {
-		if threadTS != "" && h.mentionedThreads != nil {
-			h.mentionedThreads.Store(channelID+":"+threadTS, true)
-		}
 		return true
-	}
-
-	// Thread where bot was previously mentioned.
-	if threadTS != "" && h.mentionedThreads != nil {
-		if _, ok := h.mentionedThreads.Load(channelID + ":" + threadTS); ok {
-			return true
-		}
 	}
 
 	return false
@@ -197,8 +179,17 @@ func (h *eventsHTTPHandler) handleCallback(ctx context.Context, event slackevent
 			return
 		}
 
-		// Apply mention-only and allowed-user filtering.
-		if !h.shouldProcess(ev.Channel, ev.User, ev.Text, ev.ThreadTimeStamp) {
+		// Check if message is directed at the bot.
+		if !h.isDirectedAtBot(ev.Channel, ev.Text, ev.ThreadTimeStamp) {
+			return
+		}
+
+		// Apply allowed-user filtering.
+		if len(h.allowedUsers) > 0 && !isUserAllowed(ev.User, h.allowedUsers) {
+			log.Warn("unauthorized user message rejected", "user", ev.User, "channel", ev.Channel)
+			if h.api != nil {
+				_ = h.api.AddReactionContext(ctx, "x", slack.NewRefToMessage(ev.Channel, ev.TimeStamp))
+			}
 			return
 		}
 
@@ -212,10 +203,9 @@ func (h *eventsHTTPHandler) handleCallback(ctx context.Context, event slackevent
 			threadID = ev.TimeStamp
 		}
 
-		// Track the thread so subsequent replies are processed without
-		// requiring another @mention.
-		if h.mentionedThreads != nil {
-			h.mentionedThreads.Store(ev.Channel+":"+threadID, true)
+		// Acknowledge receipt with eyes reaction to let the user know we're working on it.
+		if h.api != nil {
+			_ = h.api.AddReactionContext(ctx, "eyes", slack.NewRefToMessage(ev.Channel, ev.TimeStamp))
 		}
 
 		msg := messenger.IncomingMessage{
