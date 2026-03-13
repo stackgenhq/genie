@@ -31,6 +31,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
 	github.com/openai/openai-go v1.12.0
+	github.com/presmihaylov/md2slack v0.0.0-20260306085727-957ac69c487d
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/slack-go/slack v0.18.0
 	github.com/sony/gobreaker/v2 v2.4.0
@@ -191,7 +192,7 @@ require (
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
-	github.com/yuin/goldmark v1.4.13 // indirect
+	github.com/yuin/goldmark v1.7.16 // indirect
 	go.mau.fi/libsignal v0.2.1 // indirect
 	go.mau.fi/util v0.9.5 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect

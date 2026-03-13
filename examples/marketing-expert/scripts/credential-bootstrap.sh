@@ -18,9 +18,9 @@
 # ──────────────────────────────────────────────────────────────────────
 set -e
 
-# 0. Install envsubst (from gettext) — not bundled in amazon/aws-cli image
-echo "[credential-bootstrap] Installing envsubst..."
-yum install -y -q gettext >/dev/null 2>&1
+# 0. Install envsubst (from gettext) and jq — not bundled in amazon/aws-cli image
+echo "[credential-bootstrap] Installing envsubst and jq..."
+yum install -y -q gettext jq >/dev/null 2>&1
 
 # 1. Build the marketing-specific DSN from existing PostgreSQL credentials.
 #    The K8s Job (create-marketing-db) has already created the genie_marketing
@@ -33,22 +33,29 @@ export MARKETING_POSTGRES_DSN="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@
 #    the same Secrets Manager secret used for other credentials.
 if [ -n "${GDRIVE_SA_SECRET_PATH:-}" ]; then
   echo "[credential-bootstrap] Fetching Google Drive SA key from Secrets Manager..."
-  GDRIVE_SA_JSON=$(aws secretsmanager get-secret-value \
+
+  SECRET_RAW=$(aws secretsmanager get-secret-value \
     --region "${AWS_REGION}" \
     --secret-id "${GDRIVE_SA_SECRET_PATH}" \
     --query 'SecretString' \
-    --output text 2>/dev/null | python3 -c "
-import sys, json
-secret = json.loads(sys.stdin.read())
-print(secret.get('GDRIVE_SA_JSON', ''))
-" 2>/dev/null || true)
+    --output text 2>&1) || {
+    echo "[credential-bootstrap] ERROR: Failed to fetch secret '${GDRIVE_SA_SECRET_PATH}': ${SECRET_RAW}"
+    SECRET_RAW=""
+  }
 
-  if [ -n "${GDRIVE_SA_JSON}" ]; then
+  if [ -n "${SECRET_RAW}" ]; then
+    GDRIVE_SA_JSON=$(echo "${SECRET_RAW}" | jq -r '.GDRIVE_SA_JSON // empty' 2>&1) || {
+      echo "[credential-bootstrap] ERROR: Failed to parse GDRIVE_SA_JSON from secret: ${GDRIVE_SA_JSON}"
+      GDRIVE_SA_JSON=""
+    }
+  fi
+
+  if [ -n "${GDRIVE_SA_JSON:-}" ]; then
     echo "${GDRIVE_SA_JSON}" > /shared-credentials/gdrive-sa.json
     chmod 0640 /shared-credentials/gdrive-sa.json
     echo "[credential-bootstrap] Google Drive SA key written to /shared-credentials/gdrive-sa.json"
   else
-    echo "[credential-bootstrap] WARNING: GDRIVE_SA_JSON not found in Secrets Manager, skipping Google Drive SA setup"
+    echo "[credential-bootstrap] WARNING: GDRIVE_SA_JSON not found or empty in secret '${GDRIVE_SA_SECRET_PATH}', skipping Google Drive SA setup"
   fi
 fi
 

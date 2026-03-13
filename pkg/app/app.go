@@ -1519,6 +1519,16 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 		// Set baggage so the baggageBatchSpanProcessor propagates tags
 		// to all child spans (including trpc-agent-go internal spans).
 		messengerCtx = withLangfuseTraceBaggage(messengerCtx, a.displayName(), string(msg.Platform), "messenger")
+		// Inject the messenger sender as the authenticated principal so
+		// withPrincipalBaggage propagates actual user info (name, platform)
+		// to Langfuse traces instead of falling back to DemoSender.
+		messengerCtx = identity.WithSender(messengerCtx, identity.Sender{
+			ID:               msg.Sender.ID,
+			Username:         msg.Sender.Username,
+			DisplayName:      msg.Sender.DisplayName,
+			Role:             "user",
+			AuthenticatedVia: string(msg.Platform),
+		})
 		messengerCtx = withPrincipalBaggage(messengerCtx)
 
 		traceCtx, span := trace.Tracer.Start(messengerCtx, a.displayName(), oteltrace.WithAttributes(

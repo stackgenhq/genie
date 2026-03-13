@@ -199,6 +199,7 @@ func (m *Messenger) Connect(ctx context.Context) (http.Handler, error) {
 			botUserID:     m.botUserID,
 			respondTo:     m.respondTo,
 			allowedUsers:  m.allowedUsers,
+			resolveUser:   m.resolveUserInfo,
 		}
 		m.connected = true
 		log.Info("connected to Slack via HTTP Events API")
@@ -288,8 +289,12 @@ func (m *Messenger) Send(ctx context.Context, req messenger.SendRequest) (messen
 		opts = append(opts, slack.MsgOptionTS(req.ThreadID))
 	}
 
+	// Use pre-built blocks from metadata (e.g. approval/clarification formatting)
+	// if present; otherwise auto-convert the markdown text to Block Kit blocks.
 	if blocks := extractBlocks(req.Metadata); len(blocks) > 0 {
 		opts = append(opts, slack.MsgOptionBlocks(blocks...))
+	} else if mdBlocks := markdownToBlocks(ctx, req.Content.Text); len(mdBlocks) > 0 {
+		opts = append(opts, slack.MsgOptionBlocks(mdBlocks...))
 	}
 
 	channelID, ts, _, err := m.api.SendMessageContext(ctx, req.Channel.ID, opts...)
@@ -602,10 +607,7 @@ func (m *Messenger) handleEventsAPI(ctx context.Context, event slackevents.Event
 
 			// For top-level messages (no thread_ts), use the message's own
 			// timestamp as ThreadID so all replies thread under it.
-			threadID := ev.ThreadTimeStamp
-			if threadID == "" {
-				threadID = ev.TimeStamp
-			}
+			threadID := resolveThreadID(ev.ThreadTimeStamp, ev.TimeStamp)
 
 			// Acknowledge receipt with eyes reaction to let the user know we're working on it.
 			if m.api != nil {
@@ -843,8 +845,11 @@ func (m *Messenger) UpdateMessage(ctx context.Context, req messenger.UpdateReque
 		slack.MsgOptionText(req.Content.Text, false),
 	}
 
+	// Use pre-built blocks from metadata if present; otherwise auto-convert.
 	if blocks := extractBlocks(req.Metadata); len(blocks) > 0 {
 		opts = append(opts, slack.MsgOptionBlocks(blocks...))
+	} else if mdBlocks := markdownToBlocks(ctx, req.Content.Text); len(mdBlocks) > 0 {
+		opts = append(opts, slack.MsgOptionBlocks(mdBlocks...))
 	}
 
 	_, _, _, err := m.api.UpdateMessageContext(ctx, channelID, ts, opts...)
