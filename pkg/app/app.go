@@ -527,13 +527,15 @@ func (a *Application) Start(ctx context.Context) error {
 	}
 
 	// --- Data sources sync (learn from Gmail, Calendar, etc. when user opted in during setup) ---
-	if a.cfg.DataSources.Enabled {
+	if a.cfg.DataSources.Enabled && a.vectorStore != nil {
 		a.replayWG.Add(1)
 		go func() {
 			defer a.replayWG.Done()
 			a.runDataSourcesSync(ctx)
 		}()
 		log.Info("Data sources sync started; learning from your data in the background")
+	} else if a.cfg.DataSources.Enabled && a.vectorStore == nil {
+		log.Warn("Data sources sync skipped: vector store not initialized")
 	}
 
 	// --- Startup banner ---

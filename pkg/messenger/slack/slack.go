@@ -164,7 +164,14 @@ func (m *Messenger) Connect(ctx context.Context) (http.Handler, error) {
 	// auth.test returns the bot user associated with the token.
 	authResp, err := m.api.AuthTestContext(ctx)
 	if err != nil {
-		log.Warn("failed to resolve bot user ID via auth.test — mention filtering may not work", "error", err)
+		log.Warn("failed to resolve bot user ID via auth.test", "error", err)
+		// Without a bot user ID, mention filtering would silently drop ALL
+		// channel messages (containsBotMention always returns false). Fall
+		// back to respond-to-all so the bot remains reachable.
+		if m.respondTo != respondToAll {
+			log.Warn("falling back to respondTo=all because bot user ID could not be resolved")
+			m.respondTo = respondToAll
+		}
 	} else {
 		m.botUserID = authResp.UserID
 		log.Info("resolved bot user ID", "botUserID", m.botUserID)
@@ -469,24 +476,19 @@ func (m *Messenger) handleInteractive(ctx context.Context, evt socketmode.Event)
 // the app layer. It implements mention-only filtering and allowed-user checks.
 //
 // Rules:
-//   - respondTo == "" or "all": always process (backwards compatible)
-//   - respondTo == "mentions":
+//   - respondTo == "all": always process (no filtering)
+//   - respondTo == "" or "mentions" (default): mention-only mode
 //     1. DMs (channel type "D" prefix) are always processed
 //     2. Messages containing <@botUserID> are processed; the thread is tracked
 //     3. Messages in a previously-mentioned thread are processed
 //     4. All other messages are silently dropped
-//   - If allowedUsers is non-empty, sender must be in the list
+//   - If allowedUsers is non-empty, sender must match (supports * suffix wildcards)
 func (m *Messenger) shouldProcess(channelID, userID, text, threadTS string) bool {
 	// Allowed-user check (independent of mention mode).
+	// Supports exact matches and * suffix wildcards (e.g. "U_ADMIN*")
+	// matching messenger.Config.IsSenderAllowed semantics.
 	if len(m.allowedUsers) > 0 {
-		allowed := false
-		for _, u := range m.allowedUsers {
-			if u == userID {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
+		if !isUserAllowed(userID, m.allowedUsers) {
 			return false
 		}
 	}
@@ -585,7 +587,7 @@ func (m *Messenger) resolveUserInfo(ctx context.Context, userID string) (string,
 	// Cache the result.
 	m.userInfoCache.Store(userID, cachedUserInfo{email: email, displayName: displayName})
 
-	logger.GetLogger(ctx).Info("resolved Slack user info",
+	logger.GetLogger(ctx).Debug("resolved Slack user info",
 		"slackUID", userID, "email", email, "displayName", displayName)
 
 	return email, displayName
@@ -864,6 +866,24 @@ func (m *Messenger) UpdateMessage(ctx context.Context, req messenger.UpdateReque
 		return fmt.Errorf("slack update message: %w", err)
 	}
 	return nil
+}
+
+// isUserAllowed checks whether userID matches any entry in the allowed list.
+// Supports exact matches and * suffix wildcards (e.g. "U_ADMIN*" matches
+// "U_ADMIN_1"). This mirrors messenger.Config.IsSenderAllowed semantics.
+func isUserAllowed(userID string, allowedUsers []string) bool {
+	for _, u := range allowedUsers {
+		if strings.HasSuffix(u, "*") {
+			if strings.HasPrefix(userID, strings.TrimSuffix(u, "*")) {
+				return true
+			}
+			continue
+		}
+		if u == userID {
+			return true
+		}
+	}
+	return false
 }
 
 // splitMessageID splits a composite "channelID:timestamp" message ID.
