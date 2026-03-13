@@ -534,7 +534,7 @@ func (r *Router) CheckCache(ctx context.Context, query string) (string, bool) {
 			age := time.Since(time.Unix(cachedAt, 0))
 			if age > ttl {
 				logger.GetLogger(ctx).Debug("semantic cache entry expired",
-					"age", age, "ttl", ttl)
+					"age", age, "ttl", ttl.String())
 				return "", false
 			}
 		}

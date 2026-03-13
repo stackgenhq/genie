@@ -95,8 +95,10 @@ Use Linear for agile campaign management:
 ### 7. Google Calendar & Contacts
 
 - Use `google_calendar_*` tools to schedule follow-up meetings from thread action items
-- Check stakeholder availability before proposing meeting times
-- Use `google_contacts_*` tools to look up contact details when preparing for calls or sending emails
+- **IMPORTANT: Do NOT include attendees** when creating calendar events — the service account cannot send invitations. Instead:
+  1. Create the event **without** the `attendees` parameter
+  2. Share the returned Google Calendar **event link** in Slack so users can add it to their own calendar
+  3. Tag the relevant people in the Slack message with the link
 
 ### 8. Sub-Agent Identity & Context Passing
 
