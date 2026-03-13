@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Loop detection tightened** — Loop detection middleware now blocks after 2 identical consecutive calls (reduced from 3) to minimize wasted retries. Added "exploration loop" detection that prevents a sub-agent from calling the exact same tool with different arguments more than 3 consecutive times (blocks on the 4th), resetting the counter when a different tool is used.
 
+- **Circuit Breaker Exemptions** — Added `ExemptTools` to `CircuitBreakerConfig` allowing specific tools (with exact or wildcard `*` matching) to bypass circuit breaker monitoring. Updated marketing-expert configurations to exempt `google_*` tools.
+
 - **SCM tool constructors simplified** — removed the `toolSet` intermediary struct; all tool constructors now directly reference methods on the `Service` interface, matching the `NewGetRepoContentTool` pattern.
 
 - **Unified identity model** — Removed the `authcontext` package and consolidated user identity into a single `identity.Sender` type in `pkg/identity`. This eliminates the dual-identity system where `authcontext.Principal` and `messenger.Sender` carried overlapping information through separate context paths. `messenger.Sender` is now a type alias for `identity.Sender`.
