@@ -197,6 +197,12 @@ server_url = "https://mcp.sybill.ai/mcp"
 [mcp.servers.headers]
 Authorization = "Bearer $${SYBILL_API_KEY}"
 
+# ── Loop Detection ──────────────────────────────────────────────────
+# Google Drive tools are read-only and idempotent; exempt them from
+# loop detection to prevent false-positive agent kills during multi-file reads.
+[toolwrap.loop_detection]
+exempt_tools = ["google_drive_*"]
+
 [hitl]
 # Auto-approve graph, Google Drive, and Sybill tools for autonomous agents.
 always_allowed = ["graph_*", "google_drive_*", "http_request", "notify", "ask_sybill", "list_conversations", "get_conversation", "list_deals", "get_deal", "memory_*"]

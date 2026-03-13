@@ -283,9 +283,11 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 		Expect(atomic.LoadInt32(count)).To(Equal(int32(5)))
 	})
 
-	DescribeTable("should exempt Google Drive tools from loop detection",
+	DescribeTable("should exempt Google Drive tools from loop detection when configured",
 		func(toolName string) {
-			mw := toolwrap.LoopDetectionMiddleware()
+			mw := toolwrap.LoopDetectionMiddleware(toolwrap.LoopDetectionConfig{
+				ExemptTools: []string{"google_drive_*"},
+			})
 			next, count := counting(passthrough("file content"))
 			handler := mw.Wrap(next)
 			tc := &toolwrap.ToolCallContext{ToolName: toolName, Args: []byte(`{"file_id":"abc123"}`)}
