@@ -23,10 +23,11 @@ package auth
 //	client_secret = "..."
 //	allowed_domains = ["stackgen.com"]
 type Config struct {
-	Password PasswordConfig `yaml:"password,omitempty" toml:"password,omitempty"`
-	JWT      JWTConfig      `yaml:"jwt,omitempty" toml:"jwt,omitempty"`
-	APIKeys  APIKeyConfig   `yaml:"api_keys,omitempty" toml:"api_keys,omitempty"`
-	OIDC     OIDCConfig     `yaml:"oidc,omitempty" toml:"oidc,omitempty"`
+	Password         PasswordConfig `yaml:"password,omitempty" toml:"password,omitempty"`
+	JWT              JWTConfig      `yaml:"jwt,omitempty" toml:"jwt,omitempty"`
+	APIKeys          APIKeyConfig   `yaml:"api_keys,omitempty" toml:"api_keys,omitempty"`
+	OIDC             OIDCConfig     `yaml:"oidc,omitempty" toml:"oidc,omitempty"`
+	IdentityResolver ResolverConfig `yaml:"identity_resolver,omitempty" toml:"identity_resolver,omitempty"`
 }
 
 // PasswordConfig configures password-based authentication via the
@@ -103,4 +104,62 @@ type OIDCConfig struct {
 // Enabled returns true when the OIDC login flow is configured.
 func (o OIDCConfig) Enabled() bool {
 	return o.IssuerURL != "" && o.ClientID != "" && o.ClientSecret != ""
+}
+
+// ResolverConfig defines an ordered chain of identity resolver strategies.
+// The chain is tried in order; the first resolver to assign a non-empty Role wins.
+//
+// Example TOML:
+//
+//	[messenger.agui.auth.identity_resolver]
+//	  [[messenger.agui.auth.identity_resolver.resolvers]]
+//	    type = "jwt_claims"
+//	    [messenger.agui.auth.identity_resolver.resolvers.config]
+//	      role_claim   = "roles"
+//	      groups_claim = "groups"
+type ResolverConfig struct {
+	// Resolvers is an ordered list of resolver strategies.
+	// Valid types: "noop", "jwt_claims", "static"
+	Resolvers []ResolverEntry `yaml:"resolvers,omitempty" toml:"resolvers,omitempty"`
+}
+
+// ResolverEntry is a single resolver strategy in the chain.
+type ResolverEntry struct {
+	// Type identifies the resolver implementation.
+	// Supported: "noop", "jwt_claims", "static"
+	Type string `yaml:"type" toml:"type"`
+
+	// Config holds type-specific configuration as key-value pairs.
+	// For "jwt_claims":  role_claim, groups_claim, dept_claim
+	// For "noop":        unused
+	Config map[string]string `yaml:"config,omitempty" toml:"config,omitempty"`
+}
+
+// Build constructs an IdentityResolver from the configured resolver chain.
+// If no resolvers are configured, a NoopResolver is returned so the system
+// always has a usable identity resolver without explicit configuration.
+func (rc ResolverConfig) Build() IdentityResolver {
+	if len(rc.Resolvers) == 0 {
+		return NewNoopResolver()
+	}
+
+	var chain []IdentityResolver
+	for _, entry := range rc.Resolvers {
+		switch entry.Type {
+		case "jwt_claims":
+			chain = append(chain, newJWTClaimsResolver(entry.Config))
+		case "static":
+			chain = append(chain, newStaticResolver(entry.Config))
+		case "noop":
+			chain = append(chain, NewNoopResolver())
+		}
+	}
+
+	if len(chain) == 0 {
+		return NewNoopResolver()
+	}
+	if len(chain) == 1 {
+		return chain[0]
+	}
+	return newCompositeResolver(chain...)
 }

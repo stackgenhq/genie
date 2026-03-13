@@ -84,6 +84,13 @@ import (
 	"github.com/stackgenhq/genie/pkg/tools/youtubetranscript"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
 
+	// Register MCP scope filters for jira, confluence, servicenow via init().
+	_ "github.com/stackgenhq/genie/pkg/datasource/confluence"
+	_ "github.com/stackgenhq/genie/pkg/datasource/jira"
+	_ "github.com/stackgenhq/genie/pkg/datasource/servicenow"
+
+	"github.com/stackgenhq/genie/pkg/datasource/mcpresource"
+
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/baggage"
 	oteltrace "go.opentelemetry.io/otel/trace"
@@ -816,7 +823,6 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 		codeskim.NewToolProvider(),
 		ocrtool.NewToolProvider(),
 		tools.Tools(sqltool.NewToolProvider(sp).GetTools("sql")),
-		tools.Tools(calendar.NewToolProvider(sp).GetTools("google_calendar")),
 	}
 	// Add notification tool if configured
 	if !a.cfg.Notification.IsEmpty() {
@@ -829,6 +835,12 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 	if contactsSvc, err := contacts.NewFromSecretProvider(ctx, sp, "google_contacts"); err == nil {
 		providers = append(providers, tools.Tools(contacts.NewToolProvider(contactsSvc).GetTools("google_contacts")))
 		log.Info("Google Contacts tool provider added (OAuth)")
+	}
+
+	// --- Google Calendar (conditional — only when configured) ---
+	if calSvc, err := calendar.NewFromSecretProvider(ctx, sp); err == nil {
+		providers = append(providers, tools.Tools(calendar.NewToolProvider(calSvc).GetTools("google_calendar")))
+		log.Info("Google Calendar tool provider added")
 	}
 
 	// --- MCP tools ---
@@ -1165,10 +1177,9 @@ func (a *Application) runDataSourcesSync(ctx context.Context) {
 // supports ListItemsSince) and upsert into the vector store. Last sync time
 // per source is persisted so the next run only fetches and re-embeds new data.
 // Returns true if any source had list/upsert errors (caller may apply backoff).
-func (a *Application) runOneDataSourcesSync(ctx context.Context, cfg *datasource.Config, sp security.SecretProvider) (hadErrors bool) { //nolint:cyclop // per-source switch is clear
+func (a *Application) runOneDataSourcesSync(ctx context.Context, cfg *datasource.Config, sp security.SecretProvider) (hadErrors bool) {
 	log := logger.GetLogger(ctx).With("fn", "app.runOneDataSourcesSync")
-	names := cfg.EnabledSourceNames()
-	if len(names) == 0 {
+	if len(cfg.EnabledSourceNames()) == 0 {
 		return false
 	}
 	state, err := datasource.LoadSyncState(a.workingDir)
@@ -1179,52 +1190,39 @@ func (a *Application) runOneDataSourcesSync(ctx context.Context, cfg *datasource
 	if state == nil {
 		state = make(datasource.SyncState)
 	}
-	for _, name := range names {
-		scope := cfg.ScopeFromConfig(name)
-		var conn datasource.DataSource
-		switch name {
-		case "gmail":
-			gmailSvc, err := gmail.NewFromSecretProvider(ctx, sp)
-			if err != nil {
-				log.Warn("data sources: skip gmail, failed to create service", "error", err)
-				hadErrors = true
+
+	// Build options for registered factories (gmail, gdrive, scm, calendar, linear).
+	opts := datasource.ConnectorOptions{
+		SecretProvider: sp,
+		ExtraInt: map[string]int{
+			"max_depth": a.cfg.GDrive.MaxDepth,
+		},
+		ExtraString: map[string]string{
+			"credentials_file": a.cfg.GDrive.CredentialsFile,
+			"scm_provider":     a.cfg.SCM.Provider,
+			"scm_token":        a.cfg.SCM.Token,
+			"scm_base_url":     a.cfg.SCM.BaseURL,
+			"pm_api_token":     a.cfg.ProjectManagement.APIToken,
+			"pm_base_url":      a.cfg.ProjectManagement.BaseURL,
+		},
+	}
+
+	// Build MCP-backed connectors for servers with DisableDataSource == false.
+	var mcpConnectors []datasource.DataSource
+	if a.mcpClient != nil {
+		for _, serverName := range a.mcpClient.DataSourceServerNames() {
+			reader, ok := a.mcpClient.GetResourceReader(serverName)
+			if !ok || reader == nil {
 				continue
 			}
-			conn = gmail.NewGmailConnector(gmailSvc)
-		case "gdrive":
-			var gdSvc gdrive.Service
-			if a.cfg.GDrive.CredentialsFile != "" {
-				gdSvc, err = gdrive.New(ctx, a.cfg.GDrive)
-			} else {
-				gdSvc, err = gdrive.NewFromSecretProvider(ctx, sp)
-			}
-			if err != nil {
-				log.Warn("data sources: skip gdrive, failed to create service", "error", err)
-				hadErrors = true
-				continue
-			}
-			conn = gdrive.NewGDriveConnector(gdSvc, a.cfg.GDrive.MaxDepth)
-		case "github", "gitlab":
-			if a.cfg.SCM.Provider != name {
-				log.Debug("data sources: skip SCM source, provider mismatch", "source", name, "provider", a.cfg.SCM.Provider)
-				continue
-			}
-			scmSvc, err := scm.New(a.cfg.SCM)
-			if err != nil {
-				log.Warn("data sources: skip "+name+", failed to create SCM service", "error", err)
-				hadErrors = true
-				continue
-			}
-			conn = scm.NewSCMConnector(scmSvc, name)
-		case "calendar":
-			// Calendar connector requires *gcal.Service; calendar package does not expose
-			// a constructor that returns it from SecretProvider. Skip until we add one.
-			log.Debug("data sources: calendar sync not yet wired, skipping")
-			continue
-		default:
-			log.Debug("data sources: sync not implemented for source, skipping", "source", name)
-			continue
+			mcpConnectors = append(mcpConnectors, mcpresource.NewFromServerName(reader, serverName))
 		}
+	}
+
+	connectors := datasource.BuildConnectors(ctx, cfg, opts, mcpConnectors...)
+
+	for name, conn := range connectors {
+		scope := cfg.ScopeFromConfig(name)
 		lastSync := state.LastSync(name)
 		var items []datasource.NormalizedItem
 		if inc, ok := conn.(datasource.ListItemsSince); ok && !lastSync.IsZero() {

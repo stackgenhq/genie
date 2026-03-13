@@ -225,6 +225,9 @@ Authorization = "Bearer $${LINEAR_API_KEY}"
 [toolwrap.loop_detection]
 exempt_tools = ["google_drive_*", "web_search"]
 
+[toolwrap.circuit_breaker]
+exempt_tools = ["google_*"]
+
 # ── Skills (PVC-backed, writable) ───────────────────────────────────
 [skill_load]
 skills_roots = ["/app/skills"]

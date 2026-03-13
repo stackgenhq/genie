@@ -5,33 +5,20 @@ package calendar
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/stackgenhq/genie/pkg/security/securityfakes"
-)
-
-// errCalendarNotConfigured is the error returned by the fake credentials getter
-// so "requires credentials" tests pass without real oauth/keyring.
-var errCalendarNotConfigured = fmt.Errorf(
-	"google Calendar not configured: set CredentialsFile (path or JSON) in your integration, " +
-		"or build with -X to inject GoogleClientID and GoogleClientSecret",
 )
 
 var _ = Describe("Calendar Tools", func() {
 	var (
-		c                  *calendarTools
-		fakeSecretProvider *securityfakes.FakeSecretProvider
+		c *calendarTools
 	)
 
 	BeforeEach(func() {
-		fakeSecretProvider = &securityfakes.FakeSecretProvider{}
-		// Use a fake credentials getter so tests never hit real oauth/keyring.
-		c = newCalendarToolsWithCredsGetter("test_cal", fakeSecretProvider, func(string) ([]byte, error) {
-			return nil, errCalendarNotConfigured
-		})
+		// Use a nil service so tests hit requireService() instead of real oauth/keyring.
+		c = newCalendarTools("test_cal", nil)
 	})
 
 	Describe("calendar_list_events", func() {
@@ -308,7 +295,7 @@ var _ = Describe("Calendar Tools", func() {
 
 	Describe("provider", func() {
 		It("creates all tools via provider", func() {
-			p := NewToolProvider(fakeSecretProvider)
+			p := NewToolProvider(nil)
 			tools := p.GetTools("test_cal")
 			Expect(tools).To(HaveLen(8))
 		})

@@ -57,6 +57,9 @@ type MCPServerConfig struct {
 	// SessionReconnect enables automatic session reconnection with max retry attempts
 	// Set to 0 to disable session reconnection
 	SessionReconnect int `json:"session_reconnect,omitempty" yaml:"session_reconnect,omitempty" toml:"session_reconnect,omitempty,omitzero"`
+
+	// DisableDataSource disables the MCP server to be used as a data source
+	DisableDataSource bool `json:"disable_datasource,omitempty" yaml:"disable_datasource,omitempty" toml:"disable_datasource,omitempty"`
 }
 
 // Validate validates the MCP configuration and returns an error if invalid.

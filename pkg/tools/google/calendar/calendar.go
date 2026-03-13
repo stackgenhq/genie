@@ -292,30 +292,23 @@ type calendarResponse struct {
 
 // ────────────────────── Tool constructors ──────────────────────
 
-// credsGetterFunc is an optional override for credentials lookup (used in tests).
-// When non-nil, getCalendarService uses it instead of getCredentialsForCalendar.
-type credsGetterFunc func(credsEntry string) ([]byte, error)
-
 type calendarTools struct {
-	secretProvider security.SecretProvider
-	name           string
-	credsGetter    credsGetterFunc // optional; when set (e.g. in tests), used instead of getCredentialsForCalendar
+	svc  *gcal.Service
+	name string
 }
 
-func newCalendarTools(name string, secretProvider security.SecretProvider) *calendarTools {
+func newCalendarTools(name string, svc *gcal.Service) *calendarTools {
 	return &calendarTools{
-		secretProvider: secretProvider,
-		name:           name,
+		svc:  svc,
+		name: name,
 	}
 }
 
-// newCalendarToolsWithCredsGetter returns a calendarTools that uses the given
-// getter for credentials instead of the real oauth/keyring path. Used by tests
-// to force "not configured" without depending on environment.
-func newCalendarToolsWithCredsGetter(name string, secretProvider security.SecretProvider, getter credsGetterFunc) *calendarTools {
-	t := newCalendarTools(name, secretProvider)
-	t.credsGetter = getter
-	return t
+func (c *calendarTools) requireService() error {
+	if c.svc == nil {
+		return fmt.Errorf("google Calendar not configured: set CredentialsFile (path or JSON) in your integration, or build with -X to inject GoogleClientID and GoogleClientSecret")
+	}
+	return nil
 }
 
 // tools returns all individual calendar tools as separate callable tools.
@@ -403,7 +396,7 @@ func (c *calendarTools) tools() []tool.CallableTool {
 
 // ────────────────────── Google Calendar Client ──────────────────────
 
-// getCalendarService creates an authenticated Google Calendar API client.
+// NewFromSecretProvider creates an authenticated Google Calendar API client.
 //
 // Credentials are resolved from the calendar secret provider.
 // Expected secrets: "CredentialsFile" (required), "TokenFile" (optional for OAuth2).
@@ -419,18 +412,12 @@ func (c *calendarTools) tools() []tool.CallableTool {
 //
 // Returns a user-friendly error message when credentials are missing so the
 // agent can inform the user how to configure the integration.
-func (c *calendarTools) getCalendarService(ctx context.Context) (*gcal.Service, error) {
-	credsEntry, _ := c.secretProvider.GetSecret(ctx, security.GetSecretRequest{
+func NewFromSecretProvider(ctx context.Context, sp security.SecretProvider) (*gcal.Service, error) {
+	credsEntry, _ := sp.GetSecret(ctx, security.GetSecretRequest{
 		Name:   "CredentialsFile",
-		Reason: fmt.Sprintf("%s Google Calendar tool: %s", c.name, toolcontext.GetJustification(ctx)),
+		Reason: fmt.Sprintf("google_calendar Google Calendar tool: %s", toolcontext.GetJustification(ctx)),
 	})
-	var credsJSON []byte
-	var err error
-	if c.credsGetter != nil {
-		credsJSON, err = c.credsGetter(credsEntry)
-	} else {
-		credsJSON, err = getCredentialsForCalendar(credsEntry)
-	}
+	credsJSON, err := getCredentialsForCalendar(credsEntry)
 	if err != nil {
 		return nil, err
 	}
@@ -445,12 +432,12 @@ func (c *calendarTools) getCalendarService(ctx context.Context) (*gcal.Service, 
 	if typeField, ok := raw["type"]; ok {
 		var t string
 		if err := json.Unmarshal(typeField, &t); err == nil && t == "service_account" {
-			return c.serviceAccountClient(ctx, credsJSON)
+			return serviceAccountClient(ctx, credsJSON)
 		}
 	}
 
 	// OAuth2: token from TokenFile, Token/Password, or device keychain.
-	tokenJSON, save, err := oauth.GetToken(ctx, c.secretProvider)
+	tokenJSON, save, err := oauth.GetToken(ctx, sp)
 	if err != nil {
 		return nil, fmt.Errorf("OAuth2 token required: %w", err)
 	}
@@ -462,7 +449,7 @@ func (c *calendarTools) getCalendarService(ctx context.Context) (*gcal.Service, 
 }
 
 // serviceAccountClient creates a Calendar service using service account credentials.
-func (c *calendarTools) serviceAccountClient(ctx context.Context, credsJSON []byte) (*gcal.Service, error) {
+func serviceAccountClient(ctx context.Context, credsJSON []byte) (*gcal.Service, error) {
 	creds, err := google.CredentialsFromJSON(ctx, credsJSON, calendarScopes...) //nolint:staticcheck // no drop-in replacement; input is trusted config
 	if err != nil {
 		return nil, fmt.Errorf("invalid service account credentials: %w", err)
@@ -486,12 +473,11 @@ func (c *calendarTools) handleListEvents(ctx context.Context, req listEventsRequ
 		return resp, err
 	}
 
-	svc, err := c.getCalendarService(ctx)
-	if err != nil {
+	if err := c.requireService(); err != nil {
 		return resp, err
 	}
 
-	events, err := svc.Events.List(req.calendarID()).
+	events, err := c.svc.Events.List(req.calendarID()).
 		ShowDeleted(false).
 		SingleEvents(true).
 		TimeMin(timeMin.Format(time.RFC3339)).
@@ -537,12 +523,11 @@ func (c *calendarTools) handleNextEvents(ctx context.Context, req nextEventsRequ
 	}
 
 	now := time.Now()
-	svc, err := c.getCalendarService(ctx)
-	if err != nil {
+	if err := c.requireService(); err != nil {
 		return resp, err
 	}
 
-	events, err := svc.Events.List(req.calendarID()).
+	events, err := c.svc.Events.List(req.calendarID()).
 		ShowDeleted(false).
 		SingleEvents(true).
 		TimeMin(now.Format(time.RFC3339)).
@@ -595,8 +580,7 @@ func (c *calendarTools) handleCreateEvent(ctx context.Context, req createEventRe
 		endTime = t
 	}
 
-	svc, err := c.getCalendarService(ctx)
-	if err != nil {
+	if err := c.requireService(); err != nil {
 		return resp, err
 	}
 
@@ -605,7 +589,7 @@ func (c *calendarTools) handleCreateEvent(ctx context.Context, req createEventRe
 	// attendees whose calendars aren't visible), we still create the event
 	// and note the failure in the message.
 	if len(req.Attendees) > 0 {
-		conflicts, conflictErr := c.checkAttendeeConflicts(ctx, svc, req.Attendees, startTime, endTime)
+		conflicts, conflictErr := c.checkAttendeeConflicts(ctx, c.svc, req.Attendees, startTime, endTime)
 		if conflictErr != nil {
 			// Non-fatal: include the error context but proceed.
 			resp.Message = fmt.Sprintf("Note: could not check attendee availability: %v. ", conflictErr)
@@ -656,7 +640,7 @@ func (c *calendarTools) handleCreateEvent(ctx context.Context, req createEventRe
 		sendUpdates = "none"
 	}
 
-	created, err := svc.Events.Insert(req.calendarID(), gcalEvent).
+	created, err := c.svc.Events.Insert(req.calendarID(), gcalEvent).
 		SendUpdates(sendUpdates).
 		ConferenceDataVersion(conferenceVersion).
 		Context(ctx).
@@ -668,7 +652,7 @@ func (c *calendarTools) handleCreateEvent(ctx context.Context, req createEventRe
 	if err != nil && len(gcalEvent.Attendees) > 0 && isForbiddenForServiceAccounts(err) {
 		droppedAttendees := req.Attendees
 		gcalEvent.Attendees = nil
-		created, err = svc.Events.Insert(req.calendarID(), gcalEvent).
+		created, err = c.svc.Events.Insert(req.calendarID(), gcalEvent).
 			SendUpdates("none").
 			ConferenceDataVersion(conferenceVersion).
 			Context(ctx).
@@ -740,13 +724,12 @@ func (c *calendarTools) handleUpdateEvent(ctx context.Context, req updateEventRe
 		return resp, fmt.Errorf("event_id is required to update an event")
 	}
 
-	svc, err := c.getCalendarService(ctx)
-	if err != nil {
+	if err := c.requireService(); err != nil {
 		return resp, err
 	}
 
 	// Fetch the existing event so we can merge changes.
-	existing, err := svc.Events.Get(req.calendarID(), req.EventID).
+	existing, err := c.svc.Events.Get(req.calendarID(), req.EventID).
 		Context(ctx).
 		Do()
 	if err != nil {
@@ -784,7 +767,7 @@ func (c *calendarTools) handleUpdateEvent(ctx context.Context, req updateEventRe
 		}
 	}
 
-	updated, err := svc.Events.Update(req.calendarID(), req.EventID, existing).
+	updated, err := c.svc.Events.Update(req.calendarID(), req.EventID, existing).
 		SendUpdates("all").
 		Context(ctx).
 		Do()
@@ -810,12 +793,11 @@ func (c *calendarTools) handleDeleteEvent(ctx context.Context, req deleteEventRe
 		return resp, fmt.Errorf("event_id is required to delete an event")
 	}
 
-	svc, err := c.getCalendarService(ctx)
-	if err != nil {
+	if err := c.requireService(); err != nil {
 		return resp, err
 	}
 
-	err = svc.Events.Delete(req.calendarID(), req.EventID).
+	err := c.svc.Events.Delete(req.calendarID(), req.EventID).
 		SendUpdates("all").
 		Context(ctx).
 		Do()
@@ -841,12 +823,11 @@ func (c *calendarTools) handleFreeBusy(ctx context.Context, req freeBusyRequest)
 		return resp, err
 	}
 
-	svc, err := c.getCalendarService(ctx)
-	if err != nil {
+	if err := c.requireService(); err != nil {
 		return resp, err
 	}
 
-	fbReq := &gcal.FreeBusyRequest{
+	query := &gcal.FreeBusyRequest{
 		TimeMin: timeMin.Format(time.RFC3339),
 		TimeMax: timeMax.Format(time.RFC3339),
 		Items: []*gcal.FreeBusyRequestItem{
@@ -854,13 +835,13 @@ func (c *calendarTools) handleFreeBusy(ctx context.Context, req freeBusyRequest)
 		},
 	}
 
-	fbResp, err := svc.Freebusy.Query(fbReq).Context(ctx).Do()
+	result, err := c.svc.Freebusy.Query(query).Context(ctx).Do()
 	if err != nil {
 		return resp, fmt.Errorf("google calendar API error (free_busy): %w", err)
 	}
 
 	var parts []string
-	for calID, cal := range fbResp.Calendars {
+	for calID, cal := range result.Calendars {
 		var busyIntervals intervals
 		for _, busy := range cal.Busy {
 			s, err1 := time.Parse(time.RFC3339, busy.Start)
@@ -892,12 +873,11 @@ func (c *calendarTools) handleQuickAdd(ctx context.Context, req quickAddRequest)
 		return resp, fmt.Errorf("text is required for quick_add (e.g. \"Lunch tomorrow at noon\")")
 	}
 
-	svc, err := c.getCalendarService(ctx)
-	if err != nil {
+	if err := c.requireService(); err != nil {
 		return resp, err
 	}
 
-	created, err := svc.Events.QuickAdd(req.calendarID(), req.Text).
+	created, err := c.svc.Events.QuickAdd(req.calendarID(), req.Text).
 		SendUpdates("all").
 		Context(ctx).
 		Do()
@@ -948,8 +928,7 @@ func (c *calendarTools) handleFindTime(ctx context.Context, req findTimeRequest)
 		return resp, fmt.Errorf("invalid slot_duration %q: %w", slotStr, err)
 	}
 
-	svc, err := c.getCalendarService(ctx)
-	if err != nil {
+	if err := c.requireService(); err != nil {
 		return resp, err
 	}
 
@@ -962,7 +941,7 @@ func (c *calendarTools) handleFindTime(ctx context.Context, req findTimeRequest)
 		items = append(items, &gcal.FreeBusyRequestItem{Id: strings.TrimSpace(email)})
 	}
 
-	fbResp, err := svc.Freebusy.Query(&gcal.FreeBusyRequest{
+	fbResp, err := c.svc.Freebusy.Query(&gcal.FreeBusyRequest{
 		TimeMin: now.Format(time.RFC3339),
 		TimeMax: windowEnd.Format(time.RFC3339),
 		Items:   items,

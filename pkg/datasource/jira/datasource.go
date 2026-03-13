@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	genieMCP "github.com/stackgenhq/genie/pkg/mcp"
 
 	"github.com/stackgenhq/genie/pkg/datasource"
 	"github.com/stackgenhq/genie/pkg/datasource/mcpresource"
@@ -20,11 +19,15 @@ import (
 
 const sourceName = "jira"
 
+func init() {
+	mcpresource.RegisterScopeFilter(sourceName, jiraScopeFilter)
+}
+
 // NewJiraConnector returns a DataSource that reads Jira resources via MCP.
-// The reader should be obtained from mcp.Client.GetResourceReader() for the
-// Jira MCP server configured in [mcp]. When scope.JiraProjectKeys is set,
-// only resources whose URI contains one of the project keys are returned.
-func NewJiraConnector(reader genieMCP.MCPResourceReader) *mcpresource.MCPResourceConnector {
+// The reader must satisfy the mcpresource.Reader interface (e.g. an *mcp.Client
+// or a test fake). When scope has jira project keys set, only resources whose
+// URI or Name contains one of the project keys are returned.
+func NewJiraConnector(reader mcpresource.Reader) *mcpresource.MCPResourceConnector {
 	return mcpresource.NewMCPResourceConnector(reader, sourceName,
 		mcpresource.WithScopeFilter(jiraScopeFilter),
 	)

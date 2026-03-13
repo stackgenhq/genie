@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +28,9 @@ type CircuitBreakerConfig struct {
 	// HalfOpenMaxCalls is the number of test calls allowed in half-open
 	// state before deciding to close or re-open. Defaults to 1 if zero.
 	HalfOpenMaxCalls int `yaml:"half_open_max_calls,omitempty" toml:"half_open_max_calls,omitempty,omitzero"`
+	// ExemptTools lists tool names (or prefix patterns e.g. "google_*") to exempt
+	// from the circuit breaker completely.
+	ExemptTools []string `yaml:"exempt_tools,omitempty" toml:"exempt_tools,omitempty"`
 }
 
 // withDefaults fills zero-valued fields with sensible defaults.
@@ -153,8 +157,25 @@ func (m *CircuitBreakerMW) OpenTools() []string {
 	return open
 }
 
+func (m *CircuitBreakerMW) isExempt(toolName string) bool {
+	for _, pattern := range m.cfg.ExemptTools {
+		if strings.HasSuffix(pattern, "*") {
+			if strings.HasPrefix(toolName, strings.TrimSuffix(pattern, "*")) {
+				return true
+			}
+		} else if toolName == pattern {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *CircuitBreakerMW) Wrap(next Handler) Handler {
 	return func(ctx context.Context, tc *ToolCallContext) (any, error) {
+		if m.isExempt(tc.ToolName) {
+			return next(ctx, tc)
+		}
+
 		logr := logger.GetLogger(ctx).With("fn", "CircuitBreakerMiddleware", "tool", tc.ToolName)
 		cb := m.getBreaker(tc.ToolName)
 

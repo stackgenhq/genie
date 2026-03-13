@@ -30,3 +30,19 @@ func (c *Client) GetResourceReader(serverName string) (MCPResourceReader, bool) 
 	reader, ok := c.resourceReaders[serverName]
 	return reader, ok
 }
+
+// DataSourceServerNames returns the names of all MCP servers that have
+// DisableDataSource set to false (i.e. opted in as a data source).
+// The caller can use GetResourceReader to obtain a reader for each name.
+func (c *Client) DataSourceServerNames() []string {
+	if c == nil {
+		return nil
+	}
+	var names []string
+	for _, srv := range c.config.Servers {
+		if !srv.DisableDataSource {
+			names = append(names, srv.Name)
+		}
+	}
+	return names
+}

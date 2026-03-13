@@ -4,15 +4,14 @@
 // Package confluence provides a DataSource connector for Confluence (Atlassian)
 // that reads pages, blog posts, and comments via MCP resources. It delegates to
 // the generic mcpresource.MCPResourceConnector using the configured Confluence MCP server.
-// Resources are filtered client-side by space key when scope.ConfluenceSpaceKeys
-// is set.
+// Resources are filtered client-side by space key when scope has confluence space
+// keys set.
 package confluence
 
 import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	genieMCP "github.com/stackgenhq/genie/pkg/mcp"
 
 	"github.com/stackgenhq/genie/pkg/datasource"
 	"github.com/stackgenhq/genie/pkg/datasource/mcpresource"
@@ -20,11 +19,15 @@ import (
 
 const sourceName = "confluence"
 
+func init() {
+	mcpresource.RegisterScopeFilter(sourceName, confluenceScopeFilter)
+}
+
 // NewConfluenceConnector returns a DataSource that reads Confluence resources via MCP.
-// The reader should be obtained from mcp.Client.GetResourceReader() for the
-// Confluence MCP server configured in [mcp]. When scope.ConfluenceSpaceKeys is set,
-// only resources whose URI contains one of the space keys are returned.
-func NewConfluenceConnector(reader genieMCP.MCPResourceReader) *mcpresource.MCPResourceConnector {
+// The reader must satisfy the mcpresource.Reader interface (e.g. an *mcp.Client
+// or a test fake). When scope has confluence space keys set, only resources whose
+// URI or Name contains one of the space keys are returned.
+func NewConfluenceConnector(reader mcpresource.Reader) *mcpresource.MCPResourceConnector {
 	return mcpresource.NewMCPResourceConnector(reader, sourceName,
 		mcpresource.WithScopeFilter(confluenceScopeFilter),
 	)

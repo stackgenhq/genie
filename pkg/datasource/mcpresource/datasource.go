@@ -11,14 +11,24 @@ package mcpresource
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	genieLogger "github.com/stackgenhq/genie/pkg/logger"
-	genieMCP "github.com/stackgenhq/genie/pkg/mcp"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/stackgenhq/genie/pkg/datasource"
 )
+
+// Reader is the subset of the MCP client interface used for listing and
+// reading resources. Defined here to avoid a direct dependency on pkg/mcp,
+// which would create an import cycle with datasource sub-packages.
+// *mcp.Client from pkg/mcp satisfies this interface.
+type Reader interface {
+	ListResources(ctx context.Context, req mcp.ListResourcesRequest) (*mcp.ListResourcesResult, error)
+	ReadResource(ctx context.Context, req mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error)
+}
 
 // ScopeFilter is a function that decides whether a resource matches the
 // configured scope. Connectors inject their own filter based on scope fields
@@ -32,7 +42,7 @@ type ScopeFilter func(res mcp.Resource, scope datasource.Scope) bool
 // via ReadResource, converting TextResourceContents to NormalizedItems.
 // Binary resources (BlobResourceContents) are skipped.
 type MCPResourceConnector struct {
-	reader      genieMCP.MCPResourceReader
+	reader      Reader
 	sourceName  string
 	scopeFilter ScopeFilter
 }
@@ -52,8 +62,8 @@ func WithScopeFilter(fn ScopeFilter) Option {
 
 // NewMCPResourceConnector returns a DataSource that reads MCP resources.
 // sourceName is the datasource identifier (e.g. "jira", "confluence", "servicenow").
-// reader is the MCPResourceReader for the target MCP server.
-func NewMCPResourceConnector(reader genieMCP.MCPResourceReader, sourceName string, opts ...Option) *MCPResourceConnector {
+// reader is the Reader for the target MCP server.
+func NewMCPResourceConnector(reader Reader, sourceName string, opts ...Option) *MCPResourceConnector {
 	c := &MCPResourceConnector{
 		reader:     reader,
 		sourceName: sourceName,
@@ -103,7 +113,15 @@ func (c *MCPResourceConnector) listItemsWithSince(ctx context.Context, scope dat
 		return nil, nil
 	}
 
-	var out []datasource.NormalizedItem
+	var (
+		mu  sync.Mutex
+		out []datasource.NormalizedItem
+	)
+
+	g, gctx := errgroup.WithContext(ctx)
+	// Bound concurrency to avoid overwhelming the MCP server
+	g.SetLimit(10)
+
 	for _, res := range resources {
 		// Apply scope filter if configured
 		if c.scopeFilter != nil && !c.scopeFilter(res, scope) {
@@ -120,12 +138,24 @@ func (c *MCPResourceConnector) listItemsWithSince(ctx context.Context, scope dat
 			}
 		}
 
-		items, err := c.readResource(ctx, res)
-		if err != nil {
-			log.Warn("failed to read resource, skipping", "uri", res.URI, "error", err)
-			continue
-		}
-		out = append(out, items...)
+		res := res // capture loop variable
+		g.Go(func() error {
+			items, err := c.readResource(gctx, res)
+			if err != nil {
+				log.Warn("failed to read resource, skipping", "uri", res.URI, "error", err)
+				return nil // continue processing other resources
+			}
+			if len(items) > 0 {
+				mu.Lock()
+				out = append(out, items...)
+				mu.Unlock()
+			}
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return nil, fmt.Errorf("%s: read resources: %w", c.sourceName, err)
 	}
 
 	return out, nil
