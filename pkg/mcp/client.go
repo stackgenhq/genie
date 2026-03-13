@@ -108,7 +108,7 @@ func (c *Client) initializeServer(ctx context.Context, config MCPServerConfig) (
 		if len(config.Headers) > 0 {
 			headers := make(map[string]string, len(config.Headers))
 			for k, v := range config.Headers {
-				if c.secretProvider != nil && strings.Contains(v, "${") {
+				if c.secretProvider != nil && strings.ContainsAny(v, "$") {
 					v = c.expandEnvValue(ctx, v)
 				}
 				headers[k] = v

@@ -190,15 +190,21 @@ resource "kubernetes_job" "create_marketing_db" {
   }
 }
 
-# Build the DSN for the marketing-specific database, reusing the existing
-# PostgreSQL credentials. The password is injected at runtime via envsubst.
-locals {
-  postgres_dsn = "postgres://genie:$${POSTGRES_PASSWORD}@postgres.${var.kubernetes.namespace}.svc.cluster.local:5432/${var.postgres.db_name}?sslmode=disable"
-}
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 # PART 3 – Kubernetes Resources
 # ═════════════════════════════════════════════════════════════════════════════
+
+# ── Namespace (optional) ─────────────────────────────────────────────────────
+resource "kubernetes_namespace" "agent" {
+  count = var.kubernetes.create_namespace ? 1 : 0
+
+  metadata {
+    name = var.kubernetes.namespace
+  }
+}
+
 
 # ── ConfigMap: genie.toml (marketing-expert configuration) ──────────────────
 
@@ -324,7 +330,7 @@ resource "kubernetes_deployment" "marketing" {
         # ── Init Container: Credential Bootstrap ──────────────────────
         init_container {
           name              = "credential-bootstrap"
-          image             = "amazon/aws-cli:latest"
+          image             = "amazon/aws-cli:2.22.35"
           image_pull_policy = "IfNotPresent"
 
           command = ["/bin/sh", "/scripts/credential-bootstrap.sh"]
@@ -356,8 +362,13 @@ resource "kubernetes_deployment" "marketing" {
           }
 
           env {
+            name  = "DB_NAME"
+            value = var.postgres.db_name
+          }
+
+          env {
             name  = "GDRIVE_SA_SECRET_PATH"
-            value = var.aws.gdrive_credentials_secret_path != "" ? var.aws.secrets_manager_name : ""
+            value = var.aws.gdrive_credentials_secret_path
           }
 
           volume_mount {
@@ -406,6 +417,21 @@ resource "kubernetes_deployment" "marketing" {
             value = "/tmp"
           }
 
+          env {
+            name  = "AWS_REGION"
+            value = var.aws.region
+          }
+
+          env {
+            name  = "AWS_WEB_IDENTITY_TOKEN_FILE"
+            value = "/var/run/secrets/eks.amazonaws.com/serviceaccount/token"
+          }
+
+          env {
+            name  = "AWS_ROLE_ARN"
+            value = aws_iam_role.marketing_secrets.arn
+          }
+
           dynamic "env" {
             for_each = var.aws.gdrive_credentials_secret_path != "" ? [1] : []
             content {
@@ -429,6 +455,12 @@ resource "kubernetes_deployment" "marketing" {
           volume_mount {
             name       = "scripts-volume"
             mount_path = "/scripts"
+            read_only  = true
+          }
+
+          volume_mount {
+            name       = "aws-iam-token"
+            mount_path = "/var/run/secrets/eks.amazonaws.com/serviceaccount"
             read_only  = true
           }
         }

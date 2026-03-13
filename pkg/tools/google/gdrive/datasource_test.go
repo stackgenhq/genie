@@ -34,11 +34,11 @@ var _ = Describe("GDriveConnector", func() {
 			items, err := conn.ListItems(ctx, datasource.Scope{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(items).To(BeNil())
-			Expect(fake.ListFolderCallCount()).To(Equal(0))
+			Expect(fake.ListFolderModifiedSinceCallCount()).To(Equal(0))
 		})
 
 		It("returns normalized items with enriched metadata and structured content", func(ctx context.Context) {
-			fake.ListFolderReturns([]gdrive.FileInfo{
+			fake.ListFolderModifiedSinceReturns([]gdrive.FileInfo{
 				{
 					ID:           "f1",
 					Name:         "Q1 Marketing Brief",
@@ -80,7 +80,7 @@ var _ = Describe("GDriveConnector", func() {
 		})
 
 		It("handles files without optional fields gracefully", func(ctx context.Context) {
-			fake.ListFolderReturns([]gdrive.FileInfo{
+			fake.ListFolderModifiedSinceReturns([]gdrive.FileInfo{
 				{ID: "f2", Name: "binary.zip", MimeType: "application/zip", IsFolder: false},
 			}, nil)
 
@@ -102,7 +102,7 @@ var _ = Describe("GDriveConnector", func() {
 		})
 
 		It("maps Google Workspace MIME types to friendly file types", func(ctx context.Context) {
-			fake.ListFolderReturns([]gdrive.FileInfo{
+			fake.ListFolderModifiedSinceReturns([]gdrive.FileInfo{
 				{ID: "s1", Name: "Budget", MimeType: "application/vnd.google-apps.spreadsheet", IsFolder: false},
 				{ID: "p1", Name: "Deck", MimeType: "application/vnd.google-apps.presentation", IsFolder: false},
 				{ID: "pdf1", Name: "Report.pdf", MimeType: "application/pdf", IsFolder: false},
@@ -124,15 +124,15 @@ var _ = Describe("GDriveConnector", func() {
 	Describe("Folder path tracking", func() {
 		It("tracks folder path through recursive traversal", func(ctx context.Context) {
 			// Root folder has subfolder "Marketing"
-			fake.ListFolderReturnsOnCall(0, []gdrive.FileInfo{
+			fake.ListFolderModifiedSinceReturnsOnCall(0, []gdrive.FileInfo{
 				{ID: "d1", Name: "Marketing", IsFolder: true},
 			}, nil)
 			// "Marketing" has subfolder "Campaigns"
-			fake.ListFolderReturnsOnCall(1, []gdrive.FileInfo{
+			fake.ListFolderModifiedSinceReturnsOnCall(1, []gdrive.FileInfo{
 				{ID: "d2", Name: "Campaigns", IsFolder: true},
 			}, nil)
 			// "Campaigns" has a file
-			fake.ListFolderReturnsOnCall(2, []gdrive.FileInfo{
+			fake.ListFolderModifiedSinceReturnsOnCall(2, []gdrive.FileInfo{
 				{ID: "f1", Name: "Q1 Brief.txt", MimeType: "text/plain", IsFolder: false},
 			}, nil)
 			fake.ReadFileReturns("Campaign details", nil)
@@ -149,7 +149,7 @@ var _ = Describe("GDriveConnector", func() {
 		})
 
 		It("omits folder_path for files in root-level scope folders", func(ctx context.Context) {
-			fake.ListFolderReturns([]gdrive.FileInfo{
+			fake.ListFolderModifiedSinceReturns([]gdrive.FileInfo{
 				{ID: "f1", Name: "TopLevel.txt", MimeType: "text/plain", IsFolder: false},
 			}, nil)
 			fake.ReadFileReturns("content", nil)
@@ -164,10 +164,10 @@ var _ = Describe("GDriveConnector", func() {
 
 		It("respects maxDepth limit", func(ctx context.Context) {
 			// Create a chain: root → d1 → d2 (but maxDepth=2 should stop at d2)
-			fake.ListFolderReturnsOnCall(0, []gdrive.FileInfo{
+			fake.ListFolderModifiedSinceReturnsOnCall(0, []gdrive.FileInfo{
 				{ID: "d1", Name: "Level1", IsFolder: true},
 			}, nil)
-			fake.ListFolderReturnsOnCall(1, []gdrive.FileInfo{
+			fake.ListFolderModifiedSinceReturnsOnCall(1, []gdrive.FileInfo{
 				{ID: "d2", Name: "Level2", IsFolder: true},
 			}, nil)
 			// d2 would have files, but maxDepth=2 should prevent listing its contents.
@@ -177,16 +177,16 @@ var _ = Describe("GDriveConnector", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(items).To(BeEmpty())
 			// ListFolder called for root (depth=0) and d1 (depth=1), but NOT d2 (depth=2).
-			Expect(fake.ListFolderCallCount()).To(Equal(2))
+			Expect(fake.ListFolderModifiedSinceCallCount()).To(Equal(2))
 		})
 	})
 
 	Describe("Content header structure", func() {
 		It("includes all available metadata in the header", func(ctx context.Context) {
-			fake.ListFolderReturnsOnCall(0, []gdrive.FileInfo{
+			fake.ListFolderModifiedSinceReturnsOnCall(0, []gdrive.FileInfo{
 				{ID: "d1", Name: "Reports", IsFolder: true},
 			}, nil)
-			fake.ListFolderReturnsOnCall(1, []gdrive.FileInfo{
+			fake.ListFolderModifiedSinceReturnsOnCall(1, []gdrive.FileInfo{
 				{
 					ID:           "f1",
 					Name:         "Annual Review",

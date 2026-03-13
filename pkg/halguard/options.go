@@ -24,6 +24,10 @@ type Config struct {
 	// Default: true.
 	EnablePreCheck bool `yaml:"enable_pre_check,omitempty" toml:"enable_pre_check,omitempty"`
 
+	// EnableRoleCheck controls whether sub-agent intent is checked against its authorized role.
+	// Default: false.
+	EnableRoleCheck bool `yaml:"enable_role_check,omitempty" toml:"enable_role_check,omitempty"`
+
 	// EnablePostCheck controls whether post-execution verification runs.
 	// Default: true.
 	EnablePostCheck bool `yaml:"enable_post_check,omitempty" toml:"enable_post_check,omitempty"`
@@ -50,6 +54,7 @@ func DefaultConfig() Config {
 		LightThresholdChars: 200,
 		FullThresholdChars:  500,
 		EnablePreCheck:      true,
+		EnableRoleCheck:     false,
 		EnablePostCheck:     true,
 		CrossModelSamples:   3,
 		MaxBlocksToJudge:    20,
@@ -123,6 +128,7 @@ func WithConfig(cfg Config) Option {
 			cfg.PreCheckThreshold > 0
 		if hasExplicitNonBool {
 			c.EnablePreCheck = cfg.EnablePreCheck
+			c.EnableRoleCheck = cfg.EnableRoleCheck
 			c.EnablePostCheck = cfg.EnablePostCheck
 		}
 	}
@@ -153,6 +159,13 @@ func WithCrossModelSamples(n int) Option {
 func WithPreCheck(enable bool) Option {
 	return func(c *Config) {
 		c.EnablePreCheck = enable
+	}
+}
+
+// WithRoleCheck enables or disables the role-based security clearance check.
+func WithRoleCheck(enable bool) Option {
+	return func(c *Config) {
+		c.EnableRoleCheck = enable
 	}
 }
 

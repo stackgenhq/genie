@@ -7,7 +7,7 @@ variable "aws" {
     eks_cluster_name               = string
     secrets_manager_arn            = string
     secrets_manager_name           = string
-    gdrive_credentials_secret_path = optional(string, "") # Key path in Secrets Manager for GDrive SA JSON
+    gdrive_credentials_secret_path = optional(string, "") # Secrets Manager name containing GDRIVE_SA_JSON; empty = GDrive SA disabled
   })
 }
 

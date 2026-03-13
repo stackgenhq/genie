@@ -116,6 +116,36 @@ var _ = Describe("Slack Internal", func() {
 		})
 	})
 
+	Describe("isUserAllowed", func() {
+		It("returns false when allowlist is empty", func() {
+			Expect(isUserAllowed("U_ANYONE", nil)).To(BeFalse())
+			Expect(isUserAllowed("U_ANYONE", []string{})).To(BeFalse())
+		})
+
+		It("returns true for exact match", func() {
+			Expect(isUserAllowed("U_ADMIN", []string{"U_ADMIN"})).To(BeTrue())
+		})
+
+		It("returns false for non-matching user", func() {
+			Expect(isUserAllowed("U_USER", []string{"U_ADMIN"})).To(BeFalse())
+		})
+
+		It("returns true for wildcard match", func() {
+			Expect(isUserAllowed("U_ADMIN_123", []string{"U_ADMIN*"})).To(BeTrue())
+		})
+
+		It("returns false for non-matching wildcard", func() {
+			Expect(isUserAllowed("U_USER_123", []string{"U_ADMIN*"})).To(BeFalse())
+		})
+
+		It("supports multiple allowed users including wildcards", func() {
+			allowed := []string{"U_EXACT", "U_ADMIN*"}
+			Expect(isUserAllowed("U_EXACT", allowed)).To(BeTrue())
+			Expect(isUserAllowed("U_ADMIN_NEW", allowed)).To(BeTrue())
+			Expect(isUserAllowed("U_USER", allowed)).To(BeFalse())
+		})
+	})
+
 	Describe("containsBotMention", func() {
 		It("returns true when text contains bot mention", func() {
 			m := &Messenger{botUserID: "U12345"}

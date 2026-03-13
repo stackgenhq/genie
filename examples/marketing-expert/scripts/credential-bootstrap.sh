@@ -26,7 +26,7 @@ yum install -y -q gettext >/dev/null 2>&1
 #    The K8s Job (create-marketing-db) has already created the genie_marketing
 #    database. We reuse POSTGRES_USER and POSTGRES_PASSWORD from the existing
 #    postgres-credentials secret, but point to the marketing database.
-export MARKETING_POSTGRES_DSN="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres.${NAMESPACE:-genie}.svc.cluster.local:5432/genie_marketing?sslmode=disable"
+export MARKETING_POSTGRES_DSN="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres.${NAMESPACE:-genie}.svc.cluster.local:5432/${DB_NAME:-genie_marketing}?sslmode=disable"
 
 # 2. Pull Google Drive Service Account key from Secrets Manager (if configured).
 #    The SA JSON is stored as a string value under the GDRIVE_SA_JSON key inside
@@ -57,11 +57,8 @@ cp /app-config/genie.toml /tmp/genie.toml.tpl
 envsubst '$MARKETING_POSTGRES_DSN' < /tmp/genie.toml.tpl > /shared-credentials/genie.toml
 chmod 0640 /shared-credentials/genie.toml
 
-# 4. Copy AGENTS.md (not sensitive, but keeps mounts clean)
-cp /app-config/AGENTS.md /shared-credentials/AGENTS.md
-chmod 0644 /shared-credentials/AGENTS.md
 
-# 5. Ensure the genie user (65532) can read everything
+# 4. Ensure the genie user (65532) can read everything
 chown -R 65532:65532 /shared-credentials
 
 echo "[credential-bootstrap] Credentials bootstrapped successfully."

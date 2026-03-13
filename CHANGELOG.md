@@ -81,9 +81,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Orchestrator Phase 1 (ANALYZE) prompt updated to prefer `memory_search` (vector memory) over `read_notes` at session start.
 - Sub-agent audit metadata now stores the full goal string instead of truncating to 200 chars.
 - **`IStore` interface refactored to 2-parameter pattern** — `Search` and `SearchWithFilter` unified into `Search(ctx, SearchRequest)` with optional `Filter`; `Add`, `Upsert`, `Delete` now accept `AddRequest`, `UpsertRequest`, `DeleteRequest` structs. All callers across `orchestrator`, `semanticrouter`, `graph`, `reactree`, `report`, and `app` packages updated.
+- **Slack Messenger**: Added wildcard `*` suffix support to `allowed_senders` for both HTTP Events API and Socket Mode.
+- **Slack Messenger**: Fall back to `respondTo=all` if `auth.test` fails to retrieve the bot user ID, keeping the bot reachable instead of silently dropping messages.
+- **MCP Client**: Secret placeholder expansion for HTTP headers now triggers on bare `$VAR` syntax in addition to `${VAR}`.
+- **Loop Detection**: Identical-args loop detection is now active for internal background tasks, preventing hidden infinite loops.
 
 ### Fixed
 
+- **App Startup**: Guarded data-sources background sync against `nil` vector store initialization to prevent startup panics.
+- **Marketing Expert Example**: Cleaned up PostgreSQL DSN templating logic, added an optional Kubernetes namespace resource, and fixed Google Drive secret variable injection to use explicit vars.
 - MCP tool adapter now strips `_justification` field from tool call arguments before forwarding to MCP servers — LLMs inject this field based on sub-agent instructions, but MCP servers reject it as an unknown field (`"error converting arguments: input is invalid"`).
 
 ### Removed

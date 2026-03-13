@@ -140,16 +140,9 @@ func (h *eventsHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // mention-only mode and allowed-user filtering. Uses the same algorithm
 // as Messenger.shouldProcess.
 func (h *eventsHTTPHandler) shouldProcess(channelID, userID, text, threadTS string) bool {
-	// Allowed-user check.
+	// Allowed-user check (supports * suffix wildcards).
 	if len(h.allowedUsers) > 0 {
-		allowed := false
-		for _, u := range h.allowedUsers {
-			if u == userID {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
+		if !isUserAllowed(userID, h.allowedUsers) {
 			return false
 		}
 	}

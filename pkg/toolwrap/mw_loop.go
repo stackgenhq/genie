@@ -171,9 +171,6 @@ func (m *loopDetectionMiddleware) Wrap(next Handler) Handler {
 		// many times with different arguments. Skip same-tool loop detection
 		// but keep identical-args loop detection to guard against true loops.
 		isInternal := orchestratorcontext.IsInternalTask(ctx)
-		if isInternal {
-			return next(ctx, tc)
-		}
 
 		argsStr := string(tc.Args)
 		if cleaned, err := sjson.Delete(argsStr, "_justification"); err == nil {
