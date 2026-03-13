@@ -42,17 +42,20 @@ package calendar
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/tools/google/oauth"
 	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 	"golang.org/x/oauth2/google"
 	gcal "google.golang.org/api/calendar/v3"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
@@ -129,6 +132,8 @@ type createEventRequest struct {
 	Attendees   []string `json:"attendees,omitempty" jsonschema:"description=List of attendee email addresses to invite."`
 	CalendarID  string   `json:"calendar_id,omitempty" jsonschema:"description=Calendar ID. Defaults to primary."`
 	Timezone    string   `json:"timezone,omitempty" jsonschema:"description=IANA timezone (e.g. America/New_York). Defaults to UTC."`
+
+	AddGoogleMeet bool `json:"add_google_meet,omitempty" jsonschema:"description=When true a Google Meet video conference link is automatically created for the event."`
 }
 
 // calendarID returns the resolved calendar ID (defaults to "primary").
@@ -262,6 +267,7 @@ type calendarEvent struct {
 	Attendees   []string `json:"attendees,omitempty"`
 	Status      string   `json:"status,omitempty"`
 	Link        string   `json:"link,omitempty"`
+	MeetLink    string   `json:"meet_link,omitempty"`
 }
 
 // attendeeConflict describes a scheduling conflict for a single attendee.
@@ -623,6 +629,20 @@ func (c *calendarTools) handleCreateEvent(ctx context.Context, req createEventRe
 		},
 	}
 
+	// Request a Google Meet conference link when asked.
+	conferenceVersion := int64(0)
+	if req.AddGoogleMeet {
+		gcalEvent.ConferenceData = &gcal.ConferenceData{
+			CreateRequest: &gcal.CreateConferenceRequest{
+				RequestId: fmt.Sprintf("genie-%s", uuid.New().String()),
+				ConferenceSolutionKey: &gcal.ConferenceSolutionKey{
+					Type: "hangoutsMeet",
+				},
+			},
+		}
+		conferenceVersion = 1
+	}
+
 	// Add attendees.
 	for _, email := range req.Attendees {
 		gcalEvent.Attendees = append(gcalEvent.Attendees, &gcal.EventAttendee{
@@ -630,10 +650,37 @@ func (c *calendarTools) handleCreateEvent(ctx context.Context, req createEventRe
 		})
 	}
 
+	// Determine whether to send attendee notifications.
+	sendUpdates := "all"
+	if len(gcalEvent.Attendees) == 0 {
+		sendUpdates = "none"
+	}
+
 	created, err := svc.Events.Insert(req.calendarID(), gcalEvent).
-		SendUpdates("all"). // Notify attendees.
+		SendUpdates(sendUpdates).
+		ConferenceDataVersion(conferenceVersion).
 		Context(ctx).
 		Do()
+
+	// Service accounts cannot invite attendees without Domain-Wide Delegation.
+	// When this specific error occurs, retry without attendees and include the
+	// event link so the agent can share it for users to add manually.
+	if err != nil && len(gcalEvent.Attendees) > 0 && isForbiddenForServiceAccounts(err) {
+		droppedAttendees := req.Attendees
+		gcalEvent.Attendees = nil
+		created, err = svc.Events.Insert(req.calendarID(), gcalEvent).
+			SendUpdates("none").
+			ConferenceDataVersion(conferenceVersion).
+			Context(ctx).
+			Do()
+		if err != nil {
+			return resp, fmt.Errorf("google calendar API error (create_event): %w", err)
+		}
+		resp.Message += fmt.Sprintf(
+			"⚠ Could not send calendar invitations (service account limitation). "+
+				"Event created without attendees. Please share this link with %s so they can add it to their calendar: %s ",
+			strings.Join(droppedAttendees, ", "), created.HtmlLink)
+	}
 	if err != nil {
 		return resp, fmt.Errorf("google calendar API error (create_event): %w", err)
 	}
@@ -643,6 +690,12 @@ func (c *calendarTools) handleCreateEvent(ctx context.Context, req createEventRe
 
 	// Build the final message, including conflict warnings.
 	msg := fmt.Sprintf("Event %q created successfully (ID: %s).", req.Title, created.Id)
+	if created.HtmlLink != "" {
+		msg += fmt.Sprintf(" Link: %s", created.HtmlLink)
+	}
+	if created.HangoutLink != "" {
+		msg += fmt.Sprintf(" Google Meet: %s", created.HangoutLink)
+	}
 	if len(resp.Conflicts) > 0 {
 		var conflictNames []string
 		for _, c := range resp.Conflicts {
@@ -653,6 +706,24 @@ func (c *calendarTools) handleCreateEvent(ctx context.Context, req createEventRe
 	}
 	resp.Message = resp.Message + msg
 	return resp, nil
+}
+
+// isForbiddenForServiceAccounts checks whether the error is the Google Calendar
+// "forbiddenForServiceAccounts" error that occurs when a service account tries
+// to invite attendees without Domain-Wide Delegation. It uses a typed
+// *googleapi.Error assertion first (checking Errors[].Reason), falling back to
+// string matching for SDK changes that might wrap the error differently.
+func isForbiddenForServiceAccounts(err error) bool {
+	var apiErr *googleapi.Error
+	if errors.As(err, &apiErr) {
+		for _, e := range apiErr.Errors {
+			if e.Reason == "forbiddenForServiceAccounts" {
+				return true
+			}
+		}
+	}
+	// Fallback: string match for wrapped or non-typed errors.
+	return strings.Contains(err.Error(), "forbiddenForServiceAccounts")
 }
 
 // handleUpdateEvent modifies an existing calendar event by ID. It fetches
@@ -1203,6 +1274,7 @@ func gcalEventToCalendarEvent(item *gcal.Event) calendarEvent {
 		Location:    item.Location,
 		Status:      item.Status,
 		Link:        item.HtmlLink,
+		MeetLink:    item.HangoutLink,
 	}
 
 	// The API returns DateTime for timed events and Date for all-day events.

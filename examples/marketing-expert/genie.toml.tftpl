@@ -37,8 +37,15 @@ disable_resume = true
 "LANGFUSE_PUBLIC_KEY" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=LANGFUSE_PUBLIC_KEY"
 "LANGFUSE_SECRET_KEY" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=LANGFUSE_SECRET_KEY"
 "LANGFUSE_HOST" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=LANGFUSE_HOST"
+"LINEAR_API_KEY" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=LINEAR_API_KEY"
+"SERPAPI_API_KEY" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=SERPAPI_API_KEY"
 %{ if qdrant_api_key != "" ~}
 "QDRANT_API_KEY" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=QDRANT_API_KEY"
+%{ endif ~}
+%{ if gdrive_credentials_secret_path != "" ~}
+# Calendar, Contacts, and Tasks resolve CredentialsFile as raw JSON content
+# (not a file path), so we point directly at the SA JSON in Secrets Manager.
+"CredentialsFile" = "awssecretsmanager://${secrets_manager_name}?region=${aws_region}&decoder=string&path=GDRIVE_SA_JSON"
 %{ endif ~}
 
 [db_config]
@@ -153,6 +160,11 @@ folder_ids = [${join(", ", [for id in gdrive_folder_ids : "\"${id}\""])}]
 enabled = ${length(slack_channel_ids) > 0 ? "true" : "false"}
 channel_ids = [${join(", ", [for id in slack_channel_ids : "\"${id}\""])}]
 
+# ── Web Search (competitive intel, SEO research) ───────────────────
+[web_search]
+provider = "serpapi"
+api_key = "$${SERPAPI_API_KEY}"
+
 # ── Application Settings ────────────────────────────────────────────
 [ops]
 max_pages = 5
@@ -197,13 +209,30 @@ server_url = "https://mcp.sybill.ai/mcp"
 [mcp.servers.headers]
 Authorization = "Bearer $${SYBILL_API_KEY}"
 
+[[mcp.servers]]
+name = "linear"
+transport = "sse"
+server_url = "https://mcp.linear.app/mcp"
+
+[mcp.servers.headers]
+Authorization = "Bearer $${LINEAR_API_KEY}"
+
 # ── Loop Detection ──────────────────────────────────────────────────
 # Google Drive tools are read-only and idempotent; exempt them from
 # loop detection to prevent false-positive agent kills during multi-file reads.
+# web_search is similarly read-only; research sub-agents legitimately make
+# many consecutive searches with different queries.
 [toolwrap.loop_detection]
-exempt_tools = ["google_drive_*"]
+exempt_tools = ["google_drive_*", "web_search"]
+
+# ── Skills (PVC-backed, writable) ───────────────────────────────────
+[skill_load]
+skills_roots = ["/app/skills"]
+max_loaded_skills = 5
+enable_create_skill = ${skills_enable_create}
+create_skill_dir = "/app/skills"
 
 [hitl]
-# Auto-approve graph, Google Drive, and Sybill tools for autonomous agents.
-always_allowed = ["graph_*", "google_drive_*", "http_request", "notify", "ask_sybill", "list_conversations", "get_conversation", "list_deals", "get_deal", "memory_*"]
+# Auto-approve all the tools
+always_allowed = ["*"]
 background_behavior = "approve"

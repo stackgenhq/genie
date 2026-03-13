@@ -27,6 +27,9 @@ graph TB
         Slack["Slack<br/>(Socket Mode)"]
         GDrive["Google Drive<br/>(Service Account)"]
         Sybill["Sybill.ai<br/>(Call Summaries)"]
+        Gmail["Gmail<br/>(SMTP/IMAP)"]
+        Linear["Linear<br/>(Project Management)"]
+        GCal["Google Calendar<br/>(OAuth)"]
     end
 
     %% Connections
@@ -34,6 +37,9 @@ graph TB
     Main <-->|WebSocket| Slack
     Main -->|REST API| GDrive
     Main -->|REST API| Sybill
+    Main -->|SMTP/IMAP| Gmail
+    Main -->|GraphQL| Linear
+    Main -->|OAuth REST| GCal
     Main --> PG
     Main --> QD
 ```
@@ -105,6 +111,9 @@ This deployment expects all API keys and credentials to be stored in a single AW
 | `LANGFUSE_SECRET_KEY` | Langfuse secret key |
 | `LANGFUSE_HOST` | Langfuse host URL |
 | `GDRIVE_SA_JSON` | The raw JSON content of the GCP Service Account file |
+| `GMAIL_ADDRESS` | Gmail address for sending campaign reports |
+| `GMAIL_APP_PASSWORD` | Gmail App Password ([create one here](https://myaccount.google.com/apppasswords)) |
+| `LINEAR_API_KEY` | Linear API key for project management ([create one here](https://linear.app/settings/api)) |
 
 ## Deployment via Terraform
 

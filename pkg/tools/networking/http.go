@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/stackgenhq/genie/pkg/logger"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )
@@ -85,6 +87,7 @@ func NewTool(cfg ...Config) tool.CallableTool {
 // Do executes the HTTP request and returns the response as a formatted string.
 func (t *httpTool) Do(ctx context.Context, req HTTPRequest) (string, error) {
 	log := logger.GetLogger(ctx).With("fn", "networking.http_request")
+	span := trace.SpanFromContext(ctx)
 
 	// Defaults
 	method := strings.ToUpper(strings.TrimSpace(req.Method))
@@ -190,6 +193,11 @@ func (t *httpTool) Do(ctx context.Context, req HTTPRequest) (string, error) {
 		log.Info("HTTP error response, returning short summary",
 			"method", method, "url", req.URL,
 			"status", resp.StatusCode, "full_body_bytes", len(body))
+		span.SetAttributes(
+			attribute.Int("http.response_body_bytes", len(body)),
+			attribute.Bool("http.response_truncated", truncated),
+			attribute.Bool("http.error_response", true),
+		)
 		return sb.String(), nil
 	}
 
@@ -203,6 +211,9 @@ func (t *httpTool) Do(ctx context.Context, req HTTPRequest) (string, error) {
 			"method", method, "url", req.URL)
 		fmt.Fprintf(&sb, "[Cloudflare challenge page — this site requires browser JavaScript to access. "+
 			"Do NOT retry this URL. Try a different source or use a search engine to find cached/mirrored content.]")
+		span.SetAttributes(
+			attribute.Bool("http.cloudflare_challenge", true),
+		)
 		return sb.String(), nil
 	}
 
@@ -217,6 +228,11 @@ func (t *httpTool) Do(ctx context.Context, req HTTPRequest) (string, error) {
 
 	log.Info("HTTP request completed", "method", method, "url", req.URL,
 		"status", resp.StatusCode, "body_bytes", len(body))
+
+	span.SetAttributes(
+		attribute.Int("http.response_body_bytes", len(body)),
+		attribute.Bool("http.response_truncated", truncated),
+	)
 
 	return sb.String(), nil
 }

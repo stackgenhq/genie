@@ -7,8 +7,14 @@ import (
 	"crypto/tls"
 	"net"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var (
@@ -75,5 +81,44 @@ func (r *RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	for i := range r.requestEnhancer {
 		r.requestEnhancer[i](req)
 	}
-	return r.rt.RoundTrip(req)
+
+	ctx := req.Context()
+	tracer := otel.Tracer("httputil")
+	ctx, span := tracer.Start(ctx, "http.request",
+		trace.WithSpanKind(trace.SpanKindClient),
+	)
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("http.method", req.Method),
+		attribute.String("http.url", sanitizeURL(req.URL)),
+	)
+
+	start := time.Now()
+	resp, err := r.rt.RoundTrip(req.WithContext(ctx))
+	durationMs := time.Since(start).Milliseconds()
+
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		span.SetAttributes(attribute.Int64("http.duration_ms", durationMs))
+		return nil, err
+	}
+
+	span.SetAttributes(
+		attribute.Int("http.status_code", resp.StatusCode),
+		attribute.Int64("http.duration_ms", durationMs),
+	)
+	span.SetStatus(codes.Ok, "")
+
+	return resp, nil
+}
+
+// sanitizeURL returns scheme://host/path, stripping query parameters, userinfo,
+// and fragments to prevent leaking API keys or signed URL tokens into telemetry.
+func sanitizeURL(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host + u.Path
 }

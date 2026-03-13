@@ -25,9 +25,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 
 	"github.com/stackgenhq/genie/pkg/logger"
@@ -44,14 +44,19 @@ import (
 // mode (SigningSecret is set). The handler can be mounted on any
 // http.ServeMux or router.
 type eventsHTTPHandler struct {
+	api           *slack.Client
 	signingSecret string
 	incoming      chan messenger.IncomingMessage
 
 	// Filtering fields — shared with the parent Messenger.
-	botUserID        string
-	respondTo        string
-	allowedUsers     []string
-	mentionedThreads *sync.Map
+	botUserID    string
+	respondTo    string
+	allowedUsers []string
+
+	// resolveUser resolves a Slack user ID to email and display name.
+	// Wired from the parent Messenger's resolveUserInfo method so the
+	// HTTP Events path resolves user info the same way as Socket Mode.
+	resolveUser func(ctx context.Context, userID string) (email, displayName string)
 }
 
 // urlVerificationBody is the JSON payload Slack sends for URL verification.
@@ -136,17 +141,9 @@ func (h *eventsHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// shouldProcess determines whether a message should be forwarded based on
-// mention-only mode and allowed-user filtering. Uses the same algorithm
-// as Messenger.shouldProcess.
-func (h *eventsHTTPHandler) shouldProcess(channelID, userID, text, threadTS string) bool {
-	// Allowed-user check (supports * suffix wildcards).
-	if len(h.allowedUsers) > 0 {
-		if !isUserAllowed(userID, h.allowedUsers) {
-			return false
-		}
-	}
-
+// isDirectedAtBot determines whether a message should be forwarded based on
+// mention-only mode.
+func (h *eventsHTTPHandler) isDirectedAtBot(channelID, text, threadTS string) bool {
 	if h.respondTo == respondToAll {
 		return true
 	}
@@ -158,17 +155,7 @@ func (h *eventsHTTPHandler) shouldProcess(channelID, userID, text, threadTS stri
 
 	// Explicit @mention.
 	if h.botUserID != "" && strings.Contains(text, "<@"+h.botUserID+">") {
-		if threadTS != "" && h.mentionedThreads != nil {
-			h.mentionedThreads.Store(channelID+":"+threadTS, true)
-		}
 		return true
-	}
-
-	// Thread where bot was previously mentioned.
-	if threadTS != "" && h.mentionedThreads != nil {
-		if _, ok := h.mentionedThreads.Load(channelID + ":" + threadTS); ok {
-			return true
-		}
 	}
 
 	return false
@@ -197,49 +184,32 @@ func (h *eventsHTTPHandler) handleCallback(ctx context.Context, event slackevent
 			return
 		}
 
-		// Apply mention-only and allowed-user filtering.
-		if !h.shouldProcess(ev.Channel, ev.User, ev.Text, ev.ThreadTimeStamp) {
+		// Check if message is directed at the bot.
+		if !h.isDirectedAtBot(ev.Channel, ev.Text, ev.ThreadTimeStamp) {
+			return
+		}
+
+		// Apply allowed-user filtering.
+		if len(h.allowedUsers) > 0 && !isUserAllowed(ev.User, h.allowedUsers) {
+			log.Warn("unauthorized user message rejected", "user", ev.User, "channel", ev.Channel)
+			if h.api != nil {
+				_ = h.api.AddReactionContext(ctx, "x", slack.NewRefToMessage(ev.Channel, ev.TimeStamp))
+			}
 			return
 		}
 
 		// Strip the bot mention from text so the LLM gets clean input.
 		cleanText := h.stripBotMention(ev.Text)
 
-		// For top-level messages (no thread_ts), use the message's own
-		// timestamp as ThreadID so all replies thread under it.
-		threadID := ev.ThreadTimeStamp
-		if threadID == "" {
-			threadID = ev.TimeStamp
-		}
+		threadID := resolveThreadID(ev.ThreadTimeStamp, ev.TimeStamp)
 
-		// Track the thread so subsequent replies are processed without
-		// requiring another @mention.
-		if h.mentionedThreads != nil {
-			h.mentionedThreads.Store(ev.Channel+":"+threadID, true)
-		}
-
-		msg := messenger.IncomingMessage{
-			ID:       ev.TimeStamp,
-			Platform: messenger.PlatformSlack,
-			Channel: messenger.Channel{
-				ID:   ev.Channel,
-				Type: messenger.ChannelTypeChannel,
-			},
-			Sender: messenger.Sender{
-				ID:       ev.User,
-				Username: ev.User,
-			},
-			Content: messenger.MessageContent{
-				Text: cleanText,
-			},
-			ThreadID:  threadID,
-			Timestamp: time.Now(),
-		}
-		// When the user replies in a thread, thread_ts is the parent message's ts.
-		// Set quoted_message_id so HITL can resolve the specific approval they replied to.
-		if ev.ThreadTimeStamp != "" {
-			msg.Metadata = map[string]any{messenger.QuotedMessageID: ev.Channel + ":" + ev.ThreadTimeStamp}
-		}
+		msg := h.buildIncomingMessage(ctx, messageParams{
+			event:       ev,
+			cleanText:   cleanText,
+			threadID:    threadID,
+			senderID:    ev.User,
+			displayName: ev.User,
+		})
 
 		// Extract file attachments from the Slack message.
 		if ev.Message != nil {
@@ -259,11 +229,84 @@ func (h *eventsHTTPHandler) handleCallback(ctx context.Context, event slackevent
 
 		select {
 		case h.incoming <- msg:
+			// Acknowledge receipt with eyes reaction only after successful enqueue
+			// so the user doesn't see a "working" reaction if the buffer is full.
+			if h.api != nil {
+				_ = h.api.AddReactionContext(ctx, "eyes", slack.NewRefToMessage(ev.Channel, ev.TimeStamp))
+			}
 		default:
 			log.Warn("incoming message buffer full, dropping message",
 				"channel", ev.Channel, "user", ev.User)
 		}
 	}
+}
+
+// messageParams holds parameters for building an IncomingMessage.
+type messageParams struct {
+	event       *slackevents.MessageEvent
+	cleanText   string
+	threadID    string
+	senderID    string
+	displayName string
+}
+
+// buildIncomingMessage constructs a messenger.IncomingMessage from Slack event data.
+func (h *eventsHTTPHandler) buildIncomingMessage(ctx context.Context, params messageParams) messenger.IncomingMessage {
+	// Resolve sender email and display name (same as Socket Mode path).
+	email, displayName := params.senderID, params.displayName
+	if h.resolveUser != nil {
+		email, displayName = h.resolveUser(ctx, params.senderID)
+	}
+
+	msg := messenger.IncomingMessage{
+		ID:       params.event.TimeStamp,
+		Platform: messenger.PlatformSlack,
+		Channel: messenger.Channel{
+			ID:   params.event.Channel,
+			Type: resolveChannelType(params.event.Channel),
+		},
+		Sender: messenger.Sender{
+			ID:          email,
+			Username:    params.event.User,
+			DisplayName: displayName,
+		},
+		Content: messenger.MessageContent{
+			Text: params.cleanText,
+		},
+		ThreadID:  params.threadID,
+		Timestamp: time.Now(),
+	}
+	// When the user replies in a thread, thread_ts is the parent message's ts.
+	// Set quoted_message_id so HITL can resolve the specific approval they replied to.
+	if params.event.ThreadTimeStamp != "" {
+		msg.Metadata = map[string]any{messenger.QuotedMessageID: params.event.Channel + ":" + params.event.ThreadTimeStamp}
+	}
+	return msg
+}
+
+// resolveThreadID determines the thread ID for a Slack message.
+// For top-level messages (no thread_ts), use the message's own
+// timestamp as ThreadID so all replies thread under it.
+func resolveThreadID(threadTS, messageTS string) string {
+	if threadTS == "" {
+		return messageTS
+	}
+	return threadTS
+}
+
+// resolveChannelType maps Slack channel ID prefixes to messenger.ChannelType.
+// Slack channel IDs start with:
+//   - "D" → direct messages
+//   - "G" → group DMs (multi-party DM) or private channels
+//   - "C" → public/private channels (default)
+func resolveChannelType(channelID string) messenger.ChannelType {
+	if strings.HasPrefix(channelID, "D") {
+		return messenger.ChannelTypeDM
+	}
+	if strings.HasPrefix(channelID, "G") {
+		return messenger.ChannelTypeGroup
+	}
+	return messenger.ChannelTypeChannel
 }
 
 // handleInteractiveHTTP processes an interactive payload delivered via HTTP
