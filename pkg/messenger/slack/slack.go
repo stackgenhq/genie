@@ -475,15 +475,14 @@ func (m *Messenger) handleInteractive(ctx context.Context, evt socketmode.Event)
 }
 
 // isDirectedAtBot determines whether an incoming message is directed at the bot.
-// It implements mention-only filtering and thread tracking.
+// It implements mention-only filtering based on explicit @mentions.
 //
 // Rules:
 //   - respondTo == "all": always returns true (no filtering)
 //   - respondTo == "" or "mentions" (default): mention-only mode
 //     1. DMs (channel type "D" prefix) are always directed at bot
-//     2. Messages containing <@botUserID> are directed at bot; the thread is tracked
-//     3. Messages in a previously-mentioned thread are directed at bot
-//     4. All other messages are not directed at bot
+//     2. Messages containing <@botUserID> are directed at bot
+//     3. All other messages are not directed at bot
 func (m *Messenger) isDirectedAtBot(channelID, text, threadTS string) bool {
 	// respondTo == "all" disables mention filtering.
 	if m.respondTo == respondToAll {
@@ -609,17 +608,12 @@ func (m *Messenger) handleEventsAPI(ctx context.Context, event slackevents.Event
 			// timestamp as ThreadID so all replies thread under it.
 			threadID := resolveThreadID(ev.ThreadTimeStamp, ev.TimeStamp)
 
-			// Acknowledge receipt with eyes reaction to let the user know we're working on it.
-			if m.api != nil {
-				_ = m.api.AddReactionContext(ctx, "eyes", slack.NewRefToMessage(ev.Channel, ev.TimeStamp))
-			}
-
 			msg := messenger.IncomingMessage{
 				ID:       ev.TimeStamp,
 				Platform: messenger.PlatformSlack,
 				Channel: messenger.Channel{
 					ID:   ev.Channel,
-					Type: messenger.ChannelTypeChannel,
+					Type: resolveChannelType(ev.Channel),
 				},
 				Sender: messenger.Sender{
 					ID:          email,
@@ -656,6 +650,11 @@ func (m *Messenger) handleEventsAPI(ctx context.Context, event slackevents.Event
 
 			select {
 			case m.incoming <- msg:
+				// Acknowledge receipt with eyes reaction only after successful enqueue
+				// so the user doesn't see a "working" reaction if the buffer is full.
+				if m.api != nil {
+					_ = m.api.AddReactionContext(ctx, "eyes", slack.NewRefToMessage(ev.Channel, ev.TimeStamp))
+				}
 			default:
 				logger.GetLogger(ctx).With("platform", "slack").Warn("incoming message buffer full, dropping message",
 					"channel", ev.Channel, "user", ev.User)

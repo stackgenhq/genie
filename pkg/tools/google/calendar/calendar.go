@@ -42,17 +42,20 @@ package calendar
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/tools/google/oauth"
 	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 	"golang.org/x/oauth2/google"
 	gcal "google.golang.org/api/calendar/v3"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
@@ -631,7 +634,7 @@ func (c *calendarTools) handleCreateEvent(ctx context.Context, req createEventRe
 	if req.AddGoogleMeet {
 		gcalEvent.ConferenceData = &gcal.ConferenceData{
 			CreateRequest: &gcal.CreateConferenceRequest{
-				RequestId: fmt.Sprintf("genie-%d", startTime.UnixNano()),
+				RequestId: fmt.Sprintf("genie-%s", uuid.New().String()),
 				ConferenceSolutionKey: &gcal.ConferenceSolutionKey{
 					Type: "hangoutsMeet",
 				},
@@ -662,7 +665,7 @@ func (c *calendarTools) handleCreateEvent(ctx context.Context, req createEventRe
 	// Service accounts cannot invite attendees without Domain-Wide Delegation.
 	// When this specific error occurs, retry without attendees and include the
 	// event link so the agent can share it for users to add manually.
-	if err != nil && len(gcalEvent.Attendees) > 0 && strings.Contains(err.Error(), "forbiddenForServiceAccounts") {
+	if err != nil && len(gcalEvent.Attendees) > 0 && isForbiddenForServiceAccounts(err) {
 		droppedAttendees := req.Attendees
 		gcalEvent.Attendees = nil
 		created, err = svc.Events.Insert(req.calendarID(), gcalEvent).
@@ -703,6 +706,24 @@ func (c *calendarTools) handleCreateEvent(ctx context.Context, req createEventRe
 	}
 	resp.Message = resp.Message + msg
 	return resp, nil
+}
+
+// isForbiddenForServiceAccounts checks whether the error is the Google Calendar
+// "forbiddenForServiceAccounts" error that occurs when a service account tries
+// to invite attendees without Domain-Wide Delegation. It uses a typed
+// *googleapi.Error assertion first (checking Errors[].Reason), falling back to
+// string matching for SDK changes that might wrap the error differently.
+func isForbiddenForServiceAccounts(err error) bool {
+	var apiErr *googleapi.Error
+	if errors.As(err, &apiErr) {
+		for _, e := range apiErr.Errors {
+			if e.Reason == "forbiddenForServiceAccounts" {
+				return true
+			}
+		}
+	}
+	// Fallback: string match for wrapped or non-typed errors.
+	return strings.Contains(err.Error(), "forbiddenForServiceAccounts")
 }
 
 // handleUpdateEvent modifies an existing calendar event by ID. It fetches

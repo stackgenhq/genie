@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"net"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -90,7 +91,7 @@ func (r *RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	span.SetAttributes(
 		attribute.String("http.method", req.Method),
-		attribute.String("http.url", req.URL.String()),
+		attribute.String("http.url", sanitizeURL(req.URL)),
 	)
 
 	start := time.Now()
@@ -111,4 +112,13 @@ func (r *RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	span.SetStatus(codes.Ok, "")
 
 	return resp, nil
+}
+
+// sanitizeURL returns scheme://host/path, stripping query parameters, userinfo,
+// and fragments to prevent leaking API keys or signed URL tokens into telemetry.
+func sanitizeURL(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host + u.Path
 }

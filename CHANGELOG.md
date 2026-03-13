@@ -88,8 +88,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Slack Messenger**: Accepted messages now receive a 👀 (`eyes`) reaction so the sender knows the bot is actively working on their request.
 - **Slack Messenger**: Thread tracking removed — the bot now requires an explicit `@mention` on every message, even within an existing thread, preventing it from eavesdropping on side-conversations.
 - **Browser initialization**: Replaced `IsInstalled()` pre-check with direct `browser.New()` call; gracefully skips browser tools when the executable is not found (`exec.ErrNotFound`) instead of checking a hardcoded path list.
+- **Google Calendar**: Optional Google Meet link creation on `create_event` via `add_google_meet` parameter; event and meet links included in responses. Service-account attendee-invite retry: when the Calendar API returns `forbiddenForServiceAccounts`, the event is re-created without attendees and the link is returned for manual sharing.
+- **Google Calendar**: Conference `RequestId` now uses UUID instead of `startTime.UnixNano` to avoid collisions when creating multiple events with the same start time.
+- **Google Calendar**: Service-account error detection uses structured `googleapi.Error` type assertion (with string fallback) instead of brittle `strings.Contains`.
+- **HTTP client**: OTel client spans added to outbound HTTP requests with sanitized URL (scheme/host/path only — query params and userinfo stripped), method, status code, and duration attributes.
+- **Slack Messenger**: Outgoing messages auto-converted from LLM markdown to Slack Block Kit blocks via `md2slack` for rich formatting (headers, dividers, code blocks).
+- **Slack Messenger**: `Channel.Type` now derived from Slack channel ID prefix (`D` → DM, `G` → group, `C` → channel) instead of hardcoded `channel`.
+- **Slack Messenger**: 👀 reaction moved after successful message enqueue — prevents showing a "working" reaction when the incoming buffer is full and the message is dropped.
 - **MCP Client**: Secret placeholder expansion for HTTP headers now triggers on bare `$VAR` syntax in addition to `${VAR}`.
 - **Loop Detection**: Identical-args loop detection is now active for internal background tasks, preventing hidden infinite loops.
+- **Semantic Router**: Fixed TTL structured log consistency — `ttl` logged as `time.Duration` instead of string, matching `age` field format.
 
 ### Fixed
 

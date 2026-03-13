@@ -203,11 +203,6 @@ func (h *eventsHTTPHandler) handleCallback(ctx context.Context, event slackevent
 
 		threadID := resolveThreadID(ev.ThreadTimeStamp, ev.TimeStamp)
 
-		// Acknowledge receipt with eyes reaction to let the user know we're working on it.
-		if h.api != nil {
-			_ = h.api.AddReactionContext(ctx, "eyes", slack.NewRefToMessage(ev.Channel, ev.TimeStamp))
-		}
-
 		msg := h.buildIncomingMessage(ctx, messageParams{
 			event:       ev,
 			cleanText:   cleanText,
@@ -234,6 +229,11 @@ func (h *eventsHTTPHandler) handleCallback(ctx context.Context, event slackevent
 
 		select {
 		case h.incoming <- msg:
+			// Acknowledge receipt with eyes reaction only after successful enqueue
+			// so the user doesn't see a "working" reaction if the buffer is full.
+			if h.api != nil {
+				_ = h.api.AddReactionContext(ctx, "eyes", slack.NewRefToMessage(ev.Channel, ev.TimeStamp))
+			}
 		default:
 			log.Warn("incoming message buffer full, dropping message",
 				"channel", ev.Channel, "user", ev.User)
@@ -263,7 +263,7 @@ func (h *eventsHTTPHandler) buildIncomingMessage(ctx context.Context, params mes
 		Platform: messenger.PlatformSlack,
 		Channel: messenger.Channel{
 			ID:   params.event.Channel,
-			Type: messenger.ChannelTypeChannel,
+			Type: resolveChannelType(params.event.Channel),
 		},
 		Sender: messenger.Sender{
 			ID:          email,
@@ -292,6 +292,21 @@ func resolveThreadID(threadTS, messageTS string) string {
 		return messageTS
 	}
 	return threadTS
+}
+
+// resolveChannelType maps Slack channel ID prefixes to messenger.ChannelType.
+// Slack channel IDs start with:
+//   - "D" → direct messages
+//   - "G" → group DMs (multi-party DM) or private channels
+//   - "C" → public/private channels (default)
+func resolveChannelType(channelID string) messenger.ChannelType {
+	if strings.HasPrefix(channelID, "D") {
+		return messenger.ChannelTypeDM
+	}
+	if strings.HasPrefix(channelID, "G") {
+		return messenger.ChannelTypeGroup
+	}
+	return messenger.ChannelTypeChannel
 }
 
 // handleInteractiveHTTP processes an interactive payload delivered via HTTP

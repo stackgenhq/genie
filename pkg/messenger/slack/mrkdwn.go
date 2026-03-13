@@ -5,6 +5,7 @@ package slack
 
 import (
 	"context"
+	"strings"
 
 	"github.com/presmihaylov/md2slack"
 	slackapi "github.com/slack-go/slack"
@@ -20,13 +21,18 @@ import (
 //
 // See: https://github.com/presmihaylov/md2slack
 func markdownToBlocks(ctx context.Context, text string) []slackapi.Block {
+	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil
 	}
 
 	blocks, err := md2slack.Convert(text)
 	if err != nil {
-		logger.GetLogger(ctx).Warn("failed to convert markdown to blocks", "text", text, "error", err)
+		preview := text
+		if len(preview) > 200 {
+			preview = preview[:200] + "..."
+		}
+		logger.GetLogger(ctx).Warn("failed to convert markdown to blocks", "text_preview", preview, "text_len", len(text), "error", err)
 		// Fallback: wrap the original text in a simple section block.
 		return []slackapi.Block{
 			slackapi.NewSectionBlock(
