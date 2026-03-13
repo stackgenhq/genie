@@ -83,7 +83,7 @@ type FileDetail struct {
 // ── Request Types ───────────────────────────────────────────────────────
 
 type searchRequest struct {
-	Query      string `json:"query" jsonschema:"description=Google Drive search query (supports operators like name contains 'report' and mimeType='application/pdf'),required"`
+	Query      string `json:"query" jsonschema:"description=Google Drive search query. MUST use Drive API v3 syntax. NEVER use bare keywords. Examples: \\\"fullText contains 'StackGen'\\\", \\\"name contains 'report'\\\", \\\"mimeType='application/vnd.google-apps.document'\\\", \\\"'root' in parents\\\", \\\"modifiedTime > '2012-06-04T12:00:00'\\\". DO NOT use standard search terms like 'StackGen OR stackgen' or 'type:document'.,required"`
 	MaxResults int    `json:"max_results" jsonschema:"description=Maximum number of results (default 20)"`
 }
 

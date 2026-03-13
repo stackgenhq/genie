@@ -25,8 +25,8 @@ func init() {
 
 // NewConfluenceConnector returns a DataSource that reads Confluence resources via MCP.
 // The reader must satisfy the mcpresource.Reader interface (e.g. an *mcp.Client
-// or a test fake). When scope has confluence space keys set, only resources whose
-// URI or Name contains one of the space keys are returned.
+// or a test fake). When scope.Get("confluence") returns space keys, only resources
+// whose URI or Name contains one of the space keys are returned.
 func NewConfluenceConnector(reader mcpresource.Reader) *mcpresource.MCPResourceConnector {
 	return mcpresource.NewMCPResourceConnector(reader, sourceName,
 		mcpresource.WithScopeFilter(confluenceScopeFilter),

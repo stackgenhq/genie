@@ -113,7 +113,7 @@ var _ = Describe("CircuitBreakerMiddleware", func() {
 		Expect(mw.WithScope("")).To(BeIdenticalTo(mw))
 	})
 
-	It("should bypass circuit breaker when tool has exact match in ExemptTools", func() {
+	It("should bypass circuit breaker when tool has exact match in ExemptTools", func(ctx context.Context) {
 		mw := toolwrap.CircuitBreakerMiddleware(toolwrap.CircuitBreakerConfig{
 			FailureThreshold: 1,
 			ExemptTools:      []string{"exempt_tool"},
@@ -121,12 +121,12 @@ var _ = Describe("CircuitBreakerMiddleware", func() {
 		handler := mw.Wrap(failing(errors.New("down")))
 
 		// Normally, the second call fails with "circuit" due to threshold = 1
-		_, err := handler(context.Background(), tc("exempt_tool"))
+		_, err := handler(ctx, tc("exempt_tool"))
 		Expect(err.Error()).To(ContainSubstring("down"))
 
 		// Since it's exempt, we expect it to STILL hit the failing handler
 		// instead of being blocked by the circuit breaker.
-		_, err = handler(context.Background(), tc("exempt_tool"))
+		_, err = handler(ctx, tc("exempt_tool"))
 		Expect(err.Error()).To(ContainSubstring("down"))
 	})
 

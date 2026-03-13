@@ -25,7 +25,7 @@ const defaultRecentCommitCount = 50
 
 // SCMConnector implements datasource.DataSource for any go-scm provider (GitHub,
 // GitLab, Bitbucket). It is parameterized by sourceName so one implementation
-// serves all; scope.ReposForSCM(sourceName) supplies the repo list per provider.
+// serves all; scope.Get(sourceName) supplies the repo list per provider.
 type SCMConnector struct {
 	svc               Service
 	sourceName        string
@@ -33,11 +33,15 @@ type SCMConnector struct {
 }
 
 // NewSCMConnector returns a DataSource that uses the go-scm Service to list
-// repo metadata, pull requests, issues and recent authors. sourceName is the
-// datasource identifier (e.g. "github", "gitlab");
-// scope.ReposForSCM(sourceName) defines which repos to include.
+// repo metadata, pull requests, issues and recent authors. The datasource
+// identifier (e.g. "github", "gitlab") is derived from svc.Provider(), and
+// scope.Get(sourceName) defines which repos to include.
 func NewSCMConnector(svc Service) *SCMConnector {
-	return &SCMConnector{svc: svc, recentCommitCount: defaultRecentCommitCount}
+	return &SCMConnector{
+		svc:               svc,
+		sourceName:        svc.Provider(),
+		recentCommitCount: defaultRecentCommitCount,
+	}
 }
 
 // NewSCMConnectorWithOptions returns an SCMConnector where callers can override
@@ -46,7 +50,11 @@ func NewSCMConnectorWithOptions(svc Service, recentCommitCount int) *SCMConnecto
 	if recentCommitCount <= 0 {
 		recentCommitCount = defaultRecentCommitCount
 	}
-	return &SCMConnector{svc: svc, recentCommitCount: recentCommitCount}
+	return &SCMConnector{
+		svc:               svc,
+		sourceName:        svc.Provider(),
+		recentCommitCount: recentCommitCount,
+	}
 }
 
 // Name returns the source identifier (e.g. "github", "gitlab").
