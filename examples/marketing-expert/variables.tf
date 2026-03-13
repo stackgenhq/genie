@@ -26,7 +26,6 @@ variable "kubernetes" {
   type = object({
     namespace        = optional(string, "marketing")
     create_namespace = optional(bool, false)
-    ingress_host     = optional(string, "marketing.dev.stackgen.com")
   })
   default = {}
 }

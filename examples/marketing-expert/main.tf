@@ -520,40 +520,6 @@ resource "kubernetes_service" "marketing" {
   }
 }
 
-# ── Ingress ─────────────────────────────────────────────────────────────────
-
-resource "kubernetes_ingress_v1" "marketing" {
-  metadata {
-    name      = "marketing-expert-ingress"
-    namespace = var.kubernetes.namespace
-  }
-
-  spec {
-    ingress_class_name = "nginx"
-
-    rule {
-      host = var.kubernetes.ingress_host
-
-      http {
-        path {
-          path      = "/"
-          path_type = "Prefix"
-
-          backend {
-            service {
-              name = kubernetes_service.marketing.metadata[0].name
-
-              port {
-                number = 80
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
 # ── Outputs ─────────────────────────────────────────────────────────────────
 
 output "iam_role_arn" {
