@@ -368,7 +368,7 @@ resource "kubernetes_deployment" "marketing" {
 
           env {
             name  = "GDRIVE_SA_SECRET_PATH"
-            value = var.aws.gdrive_credentials_secret_path != "" ? var.aws.secrets_manager_name : ""
+            value = var.aws.gdrive_credentials_secret_path
           }
 
           volume_mount {

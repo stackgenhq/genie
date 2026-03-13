@@ -25,6 +25,12 @@ type PreCheckRequest struct {
 
 	// ToolNames lists the tools assigned to the sub-agent.
 	ToolNames []string
+
+	// AgentRole is the authoritative role of the sub-agent (e.g. "Customer Support").
+	AgentRole string
+
+	// AgentID is the unique identifier for the sub-agent.
+	AgentID string
 }
 
 // PreCheckResult carries the grounding assessment for a sub-agent goal.
@@ -39,6 +45,10 @@ type PreCheckResult struct {
 	// the confidence score. Each field represents a distinct fabrication
 	// signal with its weighted penalty.
 	Signals GroundingSignals
+
+	// Security contains the security signals related to Role-Based Attribute
+	// Disclosure and Know Your Agent (KYA) metrics.
+	Security SecuritySignals
 
 	// Summary is a human-readable explanation of the assessment.
 	Summary string
@@ -122,6 +132,39 @@ func (s GroundingSignals) String() string {
 	return strings.Join(parts, ", ")
 }
 
+// SecuritySignals holds penalties for Role-Based Attribute Disclosure and
+// behavioral coherence anomalies. Values are in the range [0, 1.0].
+type SecuritySignals struct {
+	// RoleViolation measures how much the goal/intent contradicts the AgentRole.
+	RoleViolation float64
+
+	// BehavioralAnomaly measures unexpected behavior (e.g. odd tool combination).
+	BehavioralAnomaly float64
+}
+
+// Penalty returns the total security penalty as the max of all signal
+// contributions, capped at 1.0.
+func (s SecuritySignals) Penalty() float64 {
+	return math.Max(s.RoleViolation, s.BehavioralAnomaly)
+}
+
+// HasAny reports whether any security signal fired.
+func (s SecuritySignals) HasAny() bool {
+	return s.Penalty() > 0
+}
+
+// String returns a human-readable summary of non-zero security signals.
+func (s SecuritySignals) String() string {
+	var parts []string
+	if s.RoleViolation > 0 {
+		parts = append(parts, fmt.Sprintf("role_violation=%.2f", s.RoleViolation))
+	}
+	if s.BehavioralAnomaly > 0 {
+		parts = append(parts, fmt.Sprintf("behavioral_anomaly=%.2f", s.BehavioralAnomaly))
+	}
+	return strings.Join(parts, ", ")
+}
+
 // PostCheckRequest is the input for Guard.PostCheck.
 type PostCheckRequest struct {
 	// Goal is the original goal given to the sub-agent.
@@ -146,6 +189,12 @@ type PostCheckRequest struct {
 	// (e.g. "claude-sonnet-4-6"). Used to select a different model family
 	// for cross-model verification per Finch-Zk §2.5.
 	GenerationModel modelprovider.ModelMap
+
+	// AgentRole is the authoritative role of the sub-agent (e.g. "Customer Support").
+	AgentRole string
+
+	// AgentID is the unique identifier for the sub-agent.
+	AgentID string
 }
 
 // VerificationResult carries the outcome of a PostCheck verification.

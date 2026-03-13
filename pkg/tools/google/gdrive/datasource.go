@@ -84,7 +84,7 @@ func (c *GDriveConnector) listFolderItems(ctx context.Context, folderID string, 
 	if depth >= c.maxDepth {
 		return nil, nil
 	}
-	files, err := c.svc.ListFolder(ctx, folderID, listPageSize)
+	files, err := c.svc.ListFolderModifiedSince(ctx, folderID, since, listPageSize)
 	if err != nil {
 		return nil, err
 	}

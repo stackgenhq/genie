@@ -4,10 +4,12 @@ A Slack-native marketing intelligence agent powered by Genie. It reads Google Dr
 
 ## Architecture
 
+This agent is designed to run in an existing EKS cluster alongside a PostgreSQL instance (for session storage) and Qdrant (for vector search).
+
 ```mermaid
 graph TB
     subgraph AWS [AWS Cloud]
-        SM["Secrets Manager<br/>(genie-marketing)"]
+        SM["Secrets Manager<br/>(dev/genie/marketing)"]
 
         subgraph EKS [EKS Cluster]
             subgraph Deploy [Deployment: marketing-expert]
@@ -16,7 +18,7 @@ graph TB
                 Init --> Main
             end
             
-            PG[("PostgreSQL<br/>(Sessions)")]
+            PG[("PostgreSQL<br/>(genie_marketing db)")]
             QD[("Qdrant<br/>(genie_marketing_documents)")]
         end
     end
@@ -38,76 +40,58 @@ graph TB
 
 ## Prerequisites
 
-- An existing EKS cluster with an OIDC provider
-- Qdrant vector store deployed (shared with devops-copilot)
+- An existing EKS cluster with an OIDC provider (for IAM Roles for Service Accounts)
+- Prometheus metrics scraping configured in the cluster (optional but recommended)
+- A shared PostgreSQL instance (e.g., deployed via the `devops-copilot` example)
+- A shared Qdrant vector store (e.g., deployed via the `devops-copilot` example)
 - `kubectl` access configured
 - Terraform ≥ 1.5
 
-## Google Drive Setup (Service Account)
+## External Connections Setup
 
-The agent uses a **GCP Service Account** to access Google Drive — no interactive OAuth flow required.
+### 1. Slack App Setup
 
-### 1. Create the Service Account
+Create a Slack App with Socket Mode enabled and the following Scopes:
+
+**Bot Token Scopes:**
+- `app_mentions:read`
+- `channels:history`
+- `channels:read`
+- `chat:write`
+- `groups:history`
+- `groups:read`
+- `im:history`
+- `im:read`
+- `mpim:history`
+- `mpim:read`
+- `users:read`
+
+**Event Subscriptions (Socket Mode):**
+- `app_mention`
+- `message.channels`
+- `message.groups`
+- `message.im`
+- `message.mpim`
+
+Collect the **Bot User OAuth Token** (`xoxb-...`) and **App-Level Token** (`xapp-...`).
+
+### 2. Google Drive Setup (Service Account)
+
+The agent uses a **GCP Service Account** to access Google Drive without interactive OAuth.
 
 1. Go to [Google Cloud Console → IAM & Admin → Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts)
-2. Click **Create Service Account**
-   - Name: `genie-marketing-reader` (or similar)
-   - Click **Create and Continue**, then **Done**
+2. Click **Create Service Account** (e.g., `genie-marketing-reader`)
 3. Click on the service account → **Keys** tab → **Add Key → Create new key → JSON**
-4. Save the downloaded JSON file
+4. Save the downloaded JSON file.
+5. In [APIs & Services](https://console.cloud.google.com/apis/library), enable the **Google Drive API**.
+6. In Google Drive, share the target folders with the service account email (Viewer role).
 
-### 2. Enable the Drive API
+## Secrets Management
 
-Go to [APIs & Services → Enable APIs](https://console.cloud.google.com/apis/library) → search **Google Drive API** → **Enable**
+This deployment expects all API keys and credentials to be stored in a single AWS Secrets Manager secret.
 
-### 3. Share Folders with the Service Account
-
-1. Copy the service account email (e.g. `genie-marketing-reader@your-project.iam.gserviceaccount.com`)
-2. In Google Drive, right-click the folder(s) you want the agent to read → **Share** → paste the SA email → **Viewer** role
-3. Copy the folder IDs from the URL (the long string after `/folders/`)
-
-### 4. Store the SA Key in Secrets Manager
-
-Add the Service Account JSON as a string value in your AWS Secrets Manager secret under the key `GDRIVE_SA_JSON`:
-
-```bash
-# Read your existing secret, add GDRIVE_SA_JSON, and update
-aws secretsmanager get-secret-value \
-  --secret-id dev/genie/marketing \
-  --query SecretString --output text | \
-  jq --arg sa "$(cat path/to/your-sa-key.json)" '. + {GDRIVE_SA_JSON: $sa}' | \
-  aws secretsmanager put-secret-value \
-    --secret-id dev/genie/marketing \
-    --secret-string file:///dev/stdin
-```
-
-### 5. Configure Terraform
-
-In `dev.auto.tfvars`, set the `gdrive_credentials_secret_path` field:
-
-```hcl
-aws = {
-  region                         = "us-west-2"
-  eks_cluster_name               = "developer-eks"
-  secrets_manager_arn            = "arn:aws:secretsmanager:us-west-2:123456789:secret:dev/genie/marketing"
-  secrets_manager_name           = "dev/genie/marketing"
-  gdrive_credentials_secret_path = "GDRIVE_SA_JSON"  # ← enables GDrive SA
-}
-```
-
-### 6. Add Folder IDs
-
-In `genie.toml.tftpl` (or `genie.local.toml` for local dev), add your Google Drive folder IDs:
-
-```toml
-[data_sources.gdrive]
-enabled = true
-folder_ids = ["1ABC...", "1DEF..."]  # Your shared folder IDs
-```
-
-## Other Secrets Required
-
-Store these in the same Secrets Manager secret (`dev/genie/marketing`):
+1. Create a secret in AWS Secrets Manager (e.g., `dev/genie/marketing`).
+2. Add the following keys as a JSON object:
 
 | Key | Description |
 |-----|-------------|
@@ -120,26 +104,79 @@ Store these in the same Secrets Manager secret (`dev/genie/marketing`):
 | `LANGFUSE_PUBLIC_KEY` | Langfuse public key (observability) |
 | `LANGFUSE_SECRET_KEY` | Langfuse secret key |
 | `LANGFUSE_HOST` | Langfuse host URL |
-| `GDRIVE_SA_JSON` | GCP Service Account JSON (optional) |
+| `GDRIVE_SA_JSON` | The raw JSON content of the GCP Service Account file |
 
-## Deploy
+## Deployment via Terraform
 
-```bash
-terraform init
-terraform plan
-terraform apply
+1. Navigate to the `examples/marketing-expert` directory if you aren't already there.
+2. Initialize Terraform:
+   ```bash
+   terraform init
+   ```
+3. Create a `dev.auto.tfvars` file and configure your environment:
+   ```hcl
+   aws = {
+     region                         = "us-west-2"
+     eks_cluster_name               = "my-cluster-name"
+     secrets_manager_arn            = "arn:aws:secretsmanager:us-west-2:123456789012:secret:dev/genie/marketing-xxxxxx"
+     secrets_manager_name           = "dev/genie/marketing"
+     gdrive_credentials_secret_path = "GDRIVE_SA_JSON"  # Enable GDrive via the Secret key
+   }
+
+   # Postgres must point to your shared instance
+   postgres = {
+     host     = "postgres.shared-services.svc.cluster.local"
+     port     = 5432
+     user     = "postgres"
+     password = "your-db-password"
+     db_name  = "genie_marketing" # The deployment will auto-create this DB
+   }
+
+   # Qdrant must point to your shared instance
+   qdrant = {
+     host = "qdrant.shared-services.svc.cluster.local"
+     port = 6334
+   }
+
+   # Only create the namespace if it doesn't already exist
+   kubernetes = {
+     create_namespace = false
+     namespace        = "genie"
+   }
+   ```
+4. Review the plan and apply:
+   ```bash
+   terraform plan
+   terraform apply
+   ```
+
+## Configuration (genie.toml)
+
+The `genie.toml.tftpl` file is rendered by Terraform and injected into the container at boot. To add Google Drive folders or modify agent behavior, edit this template.
+
+### Adding Google Drive Folders
+
+Update the `folder_ids` list in `genie.toml.tftpl`:
+
+```toml
+[data_sources.gdrive]
+enabled = true
+folder_ids = ["1ABCXYZ...", "1DEFUVW..."]  # Replace with actual folder IDs
 ```
 
 ## Local Development
 
-```bash
-# Set required env vars (see genie.local.toml for the full list)
-export SLACK_APP_TOKEN=xapp-...
-export SLACK_BOT_TOKEN=xoxb-...
-export GOOGLE_APPLICATION_CREDENTIALS=path/to/sa-key.json  # GDrive SA
-# ... other keys
+You can run the agent locally without Kubernetes using Docker Compose for dependencies.
 
-./run-local.sh
-```
-
-For local dev, `GOOGLE_APPLICATION_CREDENTIALS` env var is the simplest way to authenticate — Genie's Drive wrapper auto-detects Service Account JSON.
+1. Copy `.env.example` to `.env` and fill in your keys.
+2. Extract the Service Account JSON to a local file (e.g., `sa-key.json`).
+3. Set your environment variables:
+   ```bash
+   export SLACK_APP_TOKEN=xapp-...
+   export SLACK_BOT_TOKEN=xoxb-...
+   export GOOGLE_APPLICATION_CREDENTIALS=path/to/sa-key.json
+   ```
+4. Run the local script:
+   ```bash
+   ./run-local.sh
+   ```

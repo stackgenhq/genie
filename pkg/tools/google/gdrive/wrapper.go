@@ -147,8 +147,8 @@ func (w *driveWrapper) ListFolderModifiedSince(ctx context.Context, folderID str
 	if since.IsZero() {
 		return w.ListFolder(ctx, folderID, maxResults)
 	}
-	// Drive search: modifiedTime > '2020-03-04T12:00:00' (RFC3339)
-	query := fmt.Sprintf("'%s' in parents and trashed = false and modifiedTime > '%s'",
+	// Drive search: (modifiedTime > '2020-03-04T12:00:00' or mimeType = 'application/vnd.google-apps.folder')
+	query := fmt.Sprintf("'%s' in parents and trashed = false and (modifiedTime > '%s' or mimeType = 'application/vnd.google-apps.folder')",
 		folderID, since.UTC().Format(time.RFC3339))
 	return w.listFolderWithQuery(ctx, query, maxResults)
 }

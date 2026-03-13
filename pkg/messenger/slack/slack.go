@@ -58,6 +58,7 @@ func init() {
 		return New(Config{
 			AppToken: params["app_token"],
 			BotToken: params["bot_token"],
+			APIURL:   params["api_url"],
 		}, params["respond_to"], allowedUsers, opts...), nil
 	})
 }
@@ -75,6 +76,9 @@ type Config struct {
 	// HTTP POST requests rather than over a WebSocket connection.
 	// See: https://api.slack.com/authentication/verifying-requests-from-slack
 	SigningSecret string
+	// APIURL allows overriding the base URL for Slack API requests.
+	// Used primarily to mock the Slack API during testing.
+	APIURL string
 }
 
 // respondToAll is the value for respondTo that disables mention filtering.
@@ -155,9 +159,16 @@ func (m *Messenger) Connect(ctx context.Context) (http.Handler, error) {
 		return nil, messenger.ErrAlreadyConnected
 	}
 
+	var clientOptions []slack.Option
+	clientOptions = append(clientOptions, slack.OptionAppLevelToken(m.cfg.AppToken))
+
+	if m.cfg.APIURL != "" {
+		clientOptions = append(clientOptions, slack.OptionAPIURL(m.cfg.APIURL))
+	}
+
 	m.api = slack.New(
 		m.cfg.BotToken,
-		slack.OptionAppLevelToken(m.cfg.AppToken),
+		clientOptions...,
 	)
 
 	// Resolve the bot's own Slack user ID so we can detect @mentions.
