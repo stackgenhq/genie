@@ -77,10 +77,6 @@ var _ = Describe("GDriveConnector", func() {
 			Expect(item.Metadata["url"]).To(Equal("https://docs.google.com/document/d/f1/edit"))
 			Expect(item.Metadata["modified_date"]).To(Equal("2026-03-11T15:33:01Z"))
 			Expect(item.Metadata["size"]).To(Equal("4096"))
-
-			Expect(fake.ListFolderCallCount()).To(Equal(1))
-			_, folderID, _ := fake.ListFolderArgsForCall(0)
-			Expect(folderID).To(Equal("folder1"))
 		})
 
 		It("handles files without optional fields gracefully", func(ctx context.Context) {
@@ -94,18 +90,14 @@ var _ = Describe("GDriveConnector", func() {
 			Expect(items).To(HaveLen(1))
 
 			item := items[0]
-			// Content header should still be present even for non-text files.
 			Expect(item.Content).To(ContainSubstring("[Google Drive File]"))
 			Expect(item.Content).To(ContainSubstring("Title: binary.zip"))
 			Expect(item.Content).To(ContainSubstring("Type: file"))
-
-			// Optional fields should be absent from metadata.
 			Expect(item.Metadata).NotTo(HaveKey("modified_date"))
 			Expect(item.Metadata).NotTo(HaveKey("size"))
 			Expect(item.Metadata).NotTo(HaveKey("url"))
+			Expect(item.Metadata).NotTo(HaveKey("folder_path"))
 			Expect(item.Metadata["file_type"]).To(Equal("file"))
-
-			// ReadFile should not be called for non-text MIME types.
 			Expect(fake.ReadFileCallCount()).To(Equal(0))
 		})
 
@@ -122,37 +114,105 @@ var _ = Describe("GDriveConnector", func() {
 			items, err := conn.ListItems(ctx, datasource.Scope{GDriveFolderIDs: []string{"root"}})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(items).To(HaveLen(4))
-
 			Expect(items[0].Metadata["file_type"]).To(Equal("spreadsheet"))
 			Expect(items[1].Metadata["file_type"]).To(Equal("presentation"))
 			Expect(items[2].Metadata["file_type"]).To(Equal("pdf"))
 			Expect(items[3].Metadata["file_type"]).To(Equal("text"))
 		})
+	})
 
-		It("recursively lists items in subfolders", func(ctx context.Context) {
-			// First call returns a subfolder, second call returns a file inside it.
+	Describe("Folder path tracking", func() {
+		It("tracks folder path through recursive traversal", func(ctx context.Context) {
+			// Root folder has subfolder "Marketing"
 			fake.ListFolderReturnsOnCall(0, []gdrive.FileInfo{
-				{ID: "d1", Name: "Subfolder", IsFolder: true},
+				{ID: "d1", Name: "Marketing", IsFolder: true},
 			}, nil)
+			// "Marketing" has subfolder "Campaigns"
 			fake.ListFolderReturnsOnCall(1, []gdrive.FileInfo{
-				{ID: "f2", Name: "Nested.txt", MimeType: "text/plain", ModifiedTime: "2025-01-20T08:00:00Z", IsFolder: false},
+				{ID: "d2", Name: "Campaigns", IsFolder: true},
 			}, nil)
-			fake.ReadFileReturns("Hello from subfolder", nil)
+			// "Campaigns" has a file
+			fake.ListFolderReturnsOnCall(2, []gdrive.FileInfo{
+				{ID: "f1", Name: "Q1 Brief.txt", MimeType: "text/plain", IsFolder: false},
+			}, nil)
+			fake.ReadFileReturns("Campaign details", nil)
 
 			conn := gdrive.NewGDriveConnector(fake, 0)
-			scope := datasource.Scope{GDriveFolderIDs: []string{"root"}}
-
-			items, err := conn.ListItems(ctx, scope)
+			items, err := conn.ListItems(ctx, datasource.Scope{GDriveFolderIDs: []string{"root"}})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(items).To(HaveLen(1))
-			Expect(items[0].ID).To(Equal("gdrive:f2"))
-			Expect(items[0].Content).To(ContainSubstring("Hello from subfolder"))
-			Expect(items[0].Content).To(ContainSubstring("[Google Drive File]"))
 
-			// ListFolder called twice: once for root, once for subfolder d1.
+			item := items[0]
+			// Folder path should be "Marketing/Campaigns" (root is excluded).
+			Expect(item.Metadata["folder_path"]).To(Equal("Marketing/Campaigns"))
+			Expect(item.Content).To(ContainSubstring("Folder: Marketing/Campaigns"))
+		})
+
+		It("omits folder_path for files in root-level scope folders", func(ctx context.Context) {
+			fake.ListFolderReturns([]gdrive.FileInfo{
+				{ID: "f1", Name: "TopLevel.txt", MimeType: "text/plain", IsFolder: false},
+			}, nil)
+			fake.ReadFileReturns("content", nil)
+
+			conn := gdrive.NewGDriveConnector(fake, 0)
+			items, err := conn.ListItems(ctx, datasource.Scope{GDriveFolderIDs: []string{"root"}})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(items).To(HaveLen(1))
+			Expect(items[0].Metadata).NotTo(HaveKey("folder_path"))
+			Expect(items[0].Content).NotTo(ContainSubstring("Folder:"))
+		})
+
+		It("respects maxDepth limit", func(ctx context.Context) {
+			// Create a chain: root → d1 → d2 (but maxDepth=2 should stop at d2)
+			fake.ListFolderReturnsOnCall(0, []gdrive.FileInfo{
+				{ID: "d1", Name: "Level1", IsFolder: true},
+			}, nil)
+			fake.ListFolderReturnsOnCall(1, []gdrive.FileInfo{
+				{ID: "d2", Name: "Level2", IsFolder: true},
+			}, nil)
+			// d2 would have files, but maxDepth=2 should prevent listing its contents.
+
+			conn := gdrive.NewGDriveConnector(fake, 2)
+			items, err := conn.ListItems(ctx, datasource.Scope{GDriveFolderIDs: []string{"root"}})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(items).To(BeEmpty())
+			// ListFolder called for root (depth=0) and d1 (depth=1), but NOT d2 (depth=2).
 			Expect(fake.ListFolderCallCount()).To(Equal(2))
-			_, subFolderID, _ := fake.ListFolderArgsForCall(1)
-			Expect(subFolderID).To(Equal("d1"))
+		})
+	})
+
+	Describe("Content header structure", func() {
+		It("includes all available metadata in the header", func(ctx context.Context) {
+			fake.ListFolderReturnsOnCall(0, []gdrive.FileInfo{
+				{ID: "d1", Name: "Reports", IsFolder: true},
+			}, nil)
+			fake.ListFolderReturnsOnCall(1, []gdrive.FileInfo{
+				{
+					ID:           "f1",
+					Name:         "Annual Review",
+					MimeType:     "application/vnd.google-apps.document",
+					ModifiedTime: "2026-01-15T10:00:00Z",
+					WebViewLink:  "https://docs.google.com/document/d/f1",
+					IsFolder:     false,
+				},
+			}, nil)
+			fake.ReadFileReturns("The annual review covers...", nil)
+
+			conn := gdrive.NewGDriveConnector(fake, 0)
+			items, err := conn.ListItems(ctx, datasource.Scope{GDriveFolderIDs: []string{"root"}})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(items).To(HaveLen(1))
+
+			content := items[0].Content
+			// Header fields in expected order.
+			Expect(content).To(HavePrefix("[Google Drive File]\n"))
+			Expect(content).To(ContainSubstring("Title: Annual Review\n"))
+			Expect(content).To(ContainSubstring("Type: document\n"))
+			Expect(content).To(ContainSubstring("Folder: Reports\n"))
+			Expect(content).To(ContainSubstring("Modified: 2026-01-15\n"))
+			Expect(content).To(ContainSubstring("URL: https://docs.google.com/document/d/f1\n"))
+			// Body follows after double newline.
+			Expect(content).To(ContainSubstring("\n\nThe annual review covers..."))
 		})
 	})
 })

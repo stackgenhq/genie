@@ -129,10 +129,10 @@ var _ = Describe("Google Drive Tools", func() {
 })
 
 var _ = Describe("AllTools", func() {
-	It("should return 4 tools", func() {
+	It("should return 5 tools", func() {
 		fake := new(gdrivefakes.FakeService)
 		tools := gdrive.AllTools("gdrive", fake)
-		Expect(tools).To(HaveLen(4))
+		Expect(tools).To(HaveLen(5))
 	})
 })
 
@@ -162,5 +162,63 @@ var _ = Describe("Google Drive Error Paths", func() {
 		tool := gdrive.NewListFolderTool("gdrive", fake)
 		_, err := tool.Call(ctx, []byte(`{"folder_id":"BAD"}`))
 		Expect(err).To(HaveOccurred())
+	})
+})
+
+var _ = Describe("Google Drive Batch Read", func() {
+	var fake *gdrivefakes.FakeService
+
+	BeforeEach(func() {
+		fake = new(gdrivefakes.FakeService)
+	})
+
+	It("should read multiple files successfully", func(ctx context.Context) {
+		fake.ReadFileReturnsOnCall(0, "Content of file 1", nil)
+		fake.ReadFileReturnsOnCall(1, "Content of file 2", nil)
+		fake.ReadFileReturnsOnCall(2, "Content of file 3", nil)
+
+		tool := gdrive.NewReadFilesTool("gdrive", fake)
+		resp, err := tool.Call(ctx, []byte(`{"file_ids":["f1","f2","f3"]}`))
+		Expect(err).NotTo(HaveOccurred())
+
+		respBytes, _ := json.Marshal(resp)
+		Expect(string(respBytes)).To(ContainSubstring("\"successful\":3"))
+		Expect(string(respBytes)).To(ContainSubstring("\"failed\":0"))
+	})
+
+	It("should return partial results when some files fail", func(ctx context.Context) {
+		fake.ReadFileReturnsOnCall(0, "Content OK", nil)
+		fake.ReadFileReturnsOnCall(1, "", fmt.Errorf("binary file"))
+
+		tool := gdrive.NewReadFilesTool("gdrive", fake)
+		resp, err := tool.Call(ctx, []byte(`{"file_ids":["good","bad"]}`))
+		Expect(err).NotTo(HaveOccurred())
+
+		respBytes, _ := json.Marshal(resp)
+		Expect(string(respBytes)).To(ContainSubstring("\"successful\":1"))
+		Expect(string(respBytes)).To(ContainSubstring("\"failed\":1"))
+		Expect(string(respBytes)).To(ContainSubstring("binary file"))
+	})
+
+	It("should reject empty file_ids", func(ctx context.Context) {
+		tool := gdrive.NewReadFilesTool("gdrive", fake)
+		_, err := tool.Call(ctx, []byte(`{"file_ids":[]}`))
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("at least one"))
+	})
+
+	It("should reject more than 10 files", func(ctx context.Context) {
+		ids := make([]string, 11)
+		for i := range ids {
+			ids[i] = fmt.Sprintf("f%d", i)
+		}
+		reqJSON, _ := json.Marshal(struct {
+			FileIDs []string `json:"file_ids"`
+		}{FileIDs: ids})
+
+		tool := gdrive.NewReadFilesTool("gdrive", fake)
+		_, err := tool.Call(ctx, reqJSON)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("too many files"))
 	})
 })

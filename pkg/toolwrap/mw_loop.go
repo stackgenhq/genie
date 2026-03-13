@@ -59,10 +59,20 @@ func IsRetrievalTool(name string) bool {
 }
 
 // loopExemptTools lists tool names that are exempt from loop detection.
-// For example, read_notes and note which the agent may need to call multiple times to read or write parts of the notes.
+// Exempt categories:
+//   - note/read_notes: agent may call repeatedly to read/write parts of notes
+//   - google_drive_*: read-only, idempotent tools. Sub-agents reading multiple
+//     files sequentially trigger false-positive identical-args detection when
+//     a model re-emits the same file_id after receiving the first result (common
+//     with gemini-2.0-flash). The aggressive threshold=2 kills agents mid-task.
 var loopExemptTools = map[string]bool{
-	"read_notes": true,
-	"note":       true,
+	"read_notes":               true,
+	"note":                     true,
+	"google_drive_read_file":   true,
+	"google_drive_read_files":  true,
+	"google_drive_search":      true,
+	"google_drive_list_folder": true,
+	"google_drive_get_file":    true,
 }
 
 // --- Loop Detection ---

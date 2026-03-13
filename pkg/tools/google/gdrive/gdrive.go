@@ -6,8 +6,10 @@ package gdrive
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
+	"golang.org/x/sync/errgroup"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )
@@ -106,10 +108,11 @@ func NewSearchTool(name string, s Service) tool.CallableTool {
 		ts.search,
 		function.WithName(name+"_search"),
 		function.WithDescription(
-			"Search for files in Google Drive. Supports Google Drive query syntax. "+
-				"Results include file name, type, modified time, and link — present these directly to the user without calling get_file for each result. "+
-				"Use get_file only when the user specifically needs owner info or detailed metadata. "+
-				"Tip: prefer memory_search first if the Drive content has been synced; use this tool for live Drive queries or when memory_search doesn't return relevant results."),
+			"Search for files in Google Drive using the live Drive API. "+
+				"IMPORTANT: If Google Drive data sources are synced, use memory_search with filter {\"source\": \"gdrive\"} FIRST — "+
+				"it searches pre-indexed content and is faster. Only use this tool when memory_search returns no results, "+
+				"you need real-time file listings, or you need to query by Drive-specific operators. "+
+				"Results include file name, type, modified time, and link — present these directly without calling get_file for each result."),
 	)
 }
 
@@ -142,9 +145,27 @@ func NewReadFileTool(name string, s Service) tool.CallableTool {
 		ts.readFile,
 		function.WithName(name+"_read_file"),
 		function.WithDescription(
-			"Read the full text content of a Google Drive file. Google Docs/Sheets are exported as plain text. "+
-				"Use this when the user wants to read, summarize, or analyze the content of a specific document. "+
-				"Tip: prefer memory_search first if the Drive content has been synced — it may already have the document content indexed."),
+			"Read the full text content of a single Google Drive file. Google Docs/Sheets are exported as plain text. "+
+				"IMPORTANT: If Google Drive data sources are synced, document content is ALREADY indexed in memory_search. "+
+				"Use memory_search with filter {\"source\": \"gdrive\"} FIRST. Only use this tool when: "+
+				"(1) memory_search returns no results for the document, "+
+				"(2) you need the very latest content that may not be synced yet, or "+
+				"(3) you need to read a specific file by ID not in the sync scope. "+
+				"To read MULTIPLE files, use "+name+"_read_files instead of spawning sub-agents."),
+	)
+}
+
+// NewReadFilesTool creates a tool that reads multiple files in a single call.
+// This eliminates the need to spawn sub-agents for parallel document reads.
+func NewReadFilesTool(name string, s Service) tool.CallableTool {
+	ts := &toolSet{s: s}
+	return function.NewFunctionTool(
+		ts.readFiles,
+		function.WithName(name+"_read_files"),
+		function.WithDescription(
+			"Read the text content of MULTIPLE Google Drive files in one call. Returns content for each file with partial results on failures. "+
+				"Use this instead of spawning sub-agents or calling read_file multiple times when you need to read several documents. "+
+				"IMPORTANT: If Google Drive data sources are synced, document content is ALREADY indexed in memory_search — use that first."),
 	)
 }
 
@@ -155,6 +176,7 @@ func AllTools(name string, s Service) []tool.Tool {
 		NewListFolderTool(name, s),
 		NewGetFileTool(name, s),
 		NewReadFileTool(name, s),
+		NewReadFilesTool(name, s),
 	}
 }
 
@@ -189,10 +211,85 @@ func (ts *toolSet) readFile(ctx context.Context, req fileIDRequest) (*readFileRe
 	if err != nil {
 		return nil, err
 	}
-	// Truncate very large files to avoid context overflow.
+	content = truncateContent(content)
+	return &readFileResponse{Content: content}, nil
+}
+
+// ── Batch Read ──────────────────────────────────────────────────────────
+
+type readFilesRequest struct {
+	FileIDs []string `json:"file_ids" jsonschema:"description=List of Google Drive file IDs to read (max 10),required"`
+}
+
+type readFileResult struct {
+	FileID  string `json:"file_id"`
+	Content string `json:"content,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+type readFilesResponse struct {
+	Files      []readFileResult `json:"files"`
+	Successful int              `json:"successful"`
+	Failed     int              `json:"failed"`
+}
+
+// maxBatchFiles is the maximum number of files allowed in a single batch read.
+const maxBatchFiles = 10
+
+// maxBatchConcurrency limits concurrent GDrive API calls to avoid rate limiting.
+const maxBatchConcurrency = 5
+
+func (ts *toolSet) readFiles(ctx context.Context, req readFilesRequest) (*readFilesResponse, error) {
+	if len(req.FileIDs) == 0 {
+		return nil, fmt.Errorf("file_ids must contain at least one file ID")
+	}
+	if len(req.FileIDs) > maxBatchFiles {
+		return nil, fmt.Errorf("too many files: max %d, got %d", maxBatchFiles, len(req.FileIDs))
+	}
+
+	results := make([]readFileResult, len(req.FileIDs))
+	var mu sync.Mutex
+	var succeeded, failed int
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(maxBatchConcurrency)
+
+	for i, fileID := range req.FileIDs {
+		i := i
+		fileID := fileID
+		g.Go(func() error {
+			content, err := ts.s.ReadFile(gctx, fileID)
+			result := readFileResult{FileID: fileID}
+			if err != nil {
+				result.Error = err.Error()
+				mu.Lock()
+				failed++
+				mu.Unlock()
+			} else {
+				result.Content = truncateContent(content)
+				mu.Lock()
+				succeeded++
+				mu.Unlock()
+			}
+			results[i] = result
+			return nil // always continue, partial results are fine
+		})
+	}
+
+	_ = g.Wait() // errors are captured per-file, not propagated
+
+	return &readFilesResponse{
+		Files:      results,
+		Successful: succeeded,
+		Failed:     failed,
+	}, nil
+}
+
+// truncateContent trims very large file content to avoid context overflow.
+func truncateContent(content string) string {
 	const maxLen = 100000
 	if len(content) > maxLen {
-		content = content[:maxLen] + fmt.Sprintf("\n\n... [truncated, total %d chars]", len(content))
+		return content[:maxLen] + fmt.Sprintf("\n\n... [truncated, total %d chars]", len(content))
 	}
-	return &readFileResponse{Content: content}, nil
+	return content
 }
