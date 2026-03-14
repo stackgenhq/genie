@@ -2,7 +2,7 @@
 **File**: `20260314_learning_loop.md`
 
 ## 🎯 Purpose
-To verify that Genie automatically distills completed tasks into reusable skills and that the orchestrator discovers learned skills via `memory_search` before solving new problems.
+To verify that Genie automatically distills completed tasks into reusable skills — capturing not just what worked, but also **what didn't work** (dead ends, access constraints, environmental boundaries). The orchestrator should discover and inject learned skills into context before solving new problems, preventing the agent from repeating past mistakes.
 
 ## 🛠 Setup
 
@@ -46,6 +46,9 @@ grep "learning.Learn" /tmp/devops-copilot.log
 
 # Check skills initialization
 grep -i "skill\|mutable" /tmp/devops-copilot.log
+
+# Check programmatic skill recall by orchestrator
+grep "recallLearnedSkills" /tmp/devops-copilot.log
 ```
 
 ### Useful grep patterns for audit log (`~/.genie/*.ndjson`):
@@ -59,8 +62,8 @@ grep 'learning_skipped' ~/.genie/devops_copilot.*.ndjson
 grep 'learning_failed' ~/.genie/devops_copilot.*.ndjson
 grep 'skill_created' ~/.genie/devops_copilot.*.ndjson
 
-# Check memory_search for learned skills
-grep 'learned_skill' ~/.genie/devops_copilot.*.ndjson
+# Check orchestrator skill recall
+grep 'skills_recalled' ~/.genie/devops_copilot.*.ndjson
 ```
 
 ### Useful SQLite queries for `.genie.db`:
@@ -76,61 +79,89 @@ sqlite3 .genie.db "SELECT count(*) FROM session_events;"
 
 ## 🧪 Scenarios
 
-### Scenario 1: Skill Distillation (Background Learning)
+### Scenario 1: Multi-Cluster EKS Discovery (Primary Example)
 
-**Goal**: Verify that complex tasks trigger background skill creation.
+**Goal**: Verify that the agent learns environmental constraints — specifically, which clusters it has access to — so it doesn't waste time retrying inaccessible clusters.
 
-1. **Send a complex multi-step prompt** (example FinOps question):
+> **Context**: The AWS account `339712749745_AdministratorAccess` has **3 EKS clusters** 
+> but the agent only has kubeconfig/IAM access to **one**. On the first run, the agent
+> will discover this the hard way (trying all 3, failing on 2). The learning loop should
+> capture this environmental knowledge so future queries skip the inaccessible clusters.
+
+1. **Send the following prompt** (first run — no prior skills):
    ```
-   What are the top cost drivers in our AWS account 339712749745_AdministratorAccess?
-   Show me a FinOps breakdown.
+   List all EKS clusters in AWS account 339712749745_AdministratorAccess
+   and check the health of each one. Report pod counts, node status,
+   and any failing deployments.
    ```
-2. **Wait for the task to complete** and verify the response is returned promptly.
-3. **Check the audit log** for learning activity:
+2. **Wait for the agent to complete.** Expected behaviour on the **first run**:
+   - Agent calls `aws eks list-clusters` → discovers 3 clusters
+   - Tries `aws eks update-kubeconfig` on each cluster
+   - **Fails** on 2 clusters (AccessDenied / Unauthorized)
+   - **Succeeds** on 1 cluster → runs `kubectl get nodes`, `kubectl get pods --all-namespaces`, checks failing deployments
+   - Reports results for the accessible cluster and notes the other 2 are inaccessible
+3. **Verify a skill was created**:
    ```bash
-   grep '"learner"' ~/.genie/devops_copilot.*.ndjson | tail -5
+   grep 'skill_created' ~/.genie/devops_copilot.*.ndjson
+   ls ~/.genie/devops_copilot/dynamic_skills/
    ```
-4. **Expect** (one of):
-   - `learning_started` → `skill_created`: Skill file appears in `~/.genie/<agent>/dynamic_skills/`
-   - `learning_started` → `learning_skipped` with `reason: below_novelty_threshold`: Correct for routine tasks
-   - `learning_skipped` with `reason: skill_repo_nil`: MutableRepository not initialized (bug)
-   - `learning_failed` with `reason: llm_call_error`: LLM issue
+4. **Expected skill content** (e.g., `eks-multi-cluster-health-check`):
+   - **What it can do**: Check EKS cluster health across an AWS account  
+   - **How it did it**: `list-clusters` → `update-kubeconfig` → `kubectl get nodes/pods` → deployment status
+   - **What worked**: Successfully accessed cluster `<name>` using the default kubeconfig
+   - **What did not work**: 2 of 3 clusters returned AccessDenied — only `<accessible-cluster>` is reachable with current IAM permissions. Skip the others to avoid wasted API calls.
 
-### Scenario 2: Skill Indexed in Vector Store
+### Scenario 2: Learned Skill Prevents Repeated Mistakes
 
-**Goal**: Verify the learned skill is discoverable via `memory_search`.
-
-1. **After Scenario 1 creates a skill**, send a new prompt:
-   ```
-   Search my memory for any available skills.
-   ```
-2. **Expect**: The orchestrator uses `memory_search` and returns results containing `type: learned_skill` with the skill name and description.
-3. **Verify** the vector entry is lightweight (name + description + `load_skill()` hint), NOT the full instructions.
-
-### Scenario 3: Skill Discovery Before Task Execution
-
-**Goal**: Verify the orchestrator surfaces learned skills to the user.
+**Goal**: Verify that the **second run** skips inaccessible clusters because the learned skill captured the constraint.
 
 1. **Start a new session** (fresh conversation thread).
-2. **Send a prompt similar to the task that created the skill** in Scenario 1.
-3. **Expect**: The orchestrator:
-   - Runs `memory_search` during Phase 1 (ANALYZE).
-   - Finds the learned skill match.
-   - **Mentions it to the user** and asks if they'd like to use it.
-   - Does NOT silently load the skill without user awareness.
+2. **Send a similar prompt**:
+   ```
+   Check the health of our EKS clusters in account 339712749745_AdministratorAccess.
+   Are there any pods in CrashLoopBackOff?
+   ```
+3. **Expected behaviour with recalled skill**:
+   - `recallLearnedSkills()` fires → finds `eks-multi-cluster-health-check` skill (similarity > 0.5)
+   - Skill instructions injected into orchestrator prompt as `## Relevant Learned Skills`
+   - Orchestrator **mentions the skill to the user** and notes it knows only one cluster is accessible
+   - Sub-agent skips the 2 inaccessible clusters entirely → goes straight to the accessible one
+   - Faster execution, no wasted AccessDenied errors
+4. **Verify in logs**:
+   ```bash
+   grep "recallLearnedSkills" /tmp/devops-copilot.log
+   grep "skills_recalled" ~/.genie/devops_copilot.*.ndjson
+   ```
 
-### Scenario 4: User Confirms Skill Usage
+### Scenario 3: Skill Indexed in Vector Store
 
-1. **From Scenario 3**, reply: "Yes, use that skill."
-2. **Expect**: The orchestrator loads the skill via `load_skill` and follows its instructions to solve the problem.
+**Goal**: Verify the learned skill is discoverable via vector search.
 
-### Scenario 5: Routine Tasks Are NOT Distilled
+1. **After Scenario 1 creates a skill**, check the audit log:
+   ```bash
+   grep 'learned_skill' ~/.genie/devops_copilot.*.ndjson
+   ```
+2. **Expect**: A `vectorstore.upsert` entry with `type: learned_skill`, the skill name, and a one-line description.
+3. **Verify** the vector entry is lightweight (name + description), NOT the full instructions.
+
+### Scenario 4: Routine Tasks Are NOT Distilled
 
 **Goal**: Verify that simple tasks don't create skills.
 
 1. **Send a simple prompt**: "What time is it?" or "Hello!"
 2. **Expect**: No skill is created. Audit log shows:
    - `learning_skipped` with `reason: empty_input` or `reason: below_novelty_threshold`
+
+### Scenario 5: Duplicate Skill Deduplication
+
+**Goal**: Verify that repeating a similar complex task doesn't create a duplicate skill.
+
+1. **After Scenario 1**, send a third EKS-related prompt:
+   ```
+   Show me resource utilization across our EKS clusters in 339712749745.
+   ```
+2. **Expect**: The learner evaluates novelty and scores it below threshold:
+   - `learning_started` → novelty ≤ 6 → `learning_skipped` with `reason: below_novelty_threshold`
 
 ### Scenario 6: Sub-Agent Sessions Persisted
 
@@ -140,7 +171,7 @@ sqlite3 .genie.db "SELECT count(*) FROM session_events;"
    ```bash
    sqlite3 .genie.db "SELECT app_name, session_id, created_at FROM sessions ORDER BY updated_at DESC LIMIT 10;"
    ```
-2. **Expect**: Sub-agent names (e.g., `aws-finops-analyzer`) appear as `app_name` entries with their own `session_id`.
+2. **Expect**: Sub-agent names (e.g., `eks-health-checker`) appear as `app_name` entries with their own `session_id`.
 
 ---
 
@@ -148,11 +179,14 @@ sqlite3 .genie.db "SELECT count(*) FROM session_events;"
 
 - [ ] Complex multi-step tasks trigger background skill distillation.
 - [ ] User-facing response is NOT delayed by the learning process.
+- [ ] Skills capture **what didn't work** (access constraints, dead ends) not just what worked.
 - [ ] Skills are created in `agentskills.io` format (What it can do / How / What worked / What didn't).
-- [ ] Learned skills appear in `memory_search` results with `type: learned_skill`.
+- [ ] Learned skills appear in vector store with `type: learned_skill`.
 - [ ] Vector entries are lightweight (name + description), not full instructions.
-- [ ] Orchestrator surfaces relevant skills to user and asks before loading.
+- [ ] Orchestrator programmatically injects relevant skills into context via `recallLearnedSkills()`.
+- [ ] Orchestrator mentions recalled skills to user before acting on them.
+- [ ] Second execution avoids repeating the same mistakes (e.g., skips inaccessible clusters).
 - [ ] Routine/trivial tasks do NOT create skills.
-- [ ] Duplicate skill creation is handled gracefully.
+- [ ] Duplicate skill creation is handled gracefully (deduplication via novelty scoring).
 - [ ] Sub-agent sessions are persisted to the database.
 - [ ] All learner decisions are visible in the audit log (`~/.genie/*.ndjson`).
