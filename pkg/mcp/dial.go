@@ -54,7 +54,7 @@ func dialMCP(ctx context.Context, cfg MCPServerConfig, sp security.SecretProvide
 	}
 
 	if _, err = mcpClient.Initialize(ctx, mcp.InitializeRequest{}); err != nil {
-		mcpClient.Close()
+		_ = mcpClient.Close()
 		return nil, fmt.Errorf("failed to initialize MCP client: %w", err)
 	}
 

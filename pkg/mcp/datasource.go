@@ -96,7 +96,7 @@ func (m *mcpDatasource) listItemsWithSince(ctx context.Context, scope datasource
 	if err != nil {
 		return nil, fmt.Errorf("%s: dial MCP: %w", m.cfg.Name, err)
 	}
-	defer mcpClient.Close()
+	defer func() { _ = mcpClient.Close() }()
 
 	// List all resources (paginated)
 	resources, err := m.listAllResources(ctx, mcpClient)

@@ -76,7 +76,7 @@ func (r *PromptRepository) Summaries() []skill.Summary {
 			Warn("failed to connect to MCP server", "server", r.cfg.Name, "error", err)
 		return summaries
 	}
-	defer caller.Close()
+	defer func() { _ = caller.Close() }()
 
 	resp, err := caller.ListPrompts(ctx, mcp.ListPromptsRequest{})
 	if err != nil {
@@ -110,7 +110,7 @@ func (r *PromptRepository) Get(name string) (*skill.Skill, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to MCP server %s: %w", r.cfg.Name, err)
 	}
-	defer caller.Close()
+	defer func() { _ = caller.Close() }()
 
 	req := mcp.GetPromptRequest{
 		Params: mcp.GetPromptParams{
