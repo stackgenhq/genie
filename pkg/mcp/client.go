@@ -47,11 +47,12 @@ type Client struct {
 	config         MCPConfig
 	secretProvider security.SecretProvider
 
-	mu          sync.Mutex
-	cachedTools []tool.Tool
-	cachedAt    time.Time
-	cacheTTL    time.Duration
-	liveClients []*client.Client // connections backing current cachedTools
+	mu            sync.Mutex
+	cachedTools   []tool.Tool
+	cachedAt      time.Time
+	cacheTTL      time.Duration
+	liveClients   []*client.Client     // connections backing current cachedTools
+	failedServers map[string]time.Time // serverName → last failure time; skip retries within cacheTTL
 }
 
 // NewClient creates a new MCP client from the provided configuration.
@@ -71,8 +72,9 @@ func NewClient(ctx context.Context, config MCPConfig, opts ...ClientOption) (*Cl
 	}
 
 	mcpClient := &Client{
-		config:   config,
-		cacheTTL: defaultCacheTTL,
+		config:        config,
+		cacheTTL:      defaultCacheTTL,
+		failedServers: make(map[string]time.Time),
 	}
 	for _, opt := range opts {
 		opt(mcpClient)
@@ -223,12 +225,28 @@ func (c *Client) GetTools(ctx context.Context) []tool.Tool {
 	for i := range c.config.Servers {
 		serverConfig := c.config.Servers[i]
 
+		// Skip servers that failed recently to avoid blocking startup
+		// with repeated 30s timeouts on unreachable servers.
+		if failedAt, ok := c.failedServers[serverConfig.Name]; ok {
+			if time.Since(failedAt) < c.cacheTTL {
+				log.Debug("skipping recently-failed MCP server",
+					"server", serverConfig.Name,
+					"failed_ago", time.Since(failedAt).String())
+				continue
+			}
+			// TTL expired — allow a retry.
+			delete(c.failedServers, serverConfig.Name)
+		}
+
 		tools, mcpClient, err := c.initializeServer(ctx, serverConfig)
 		if err != nil {
 			log.Warn("failed to fetch tools from MCP server, skipping", "server", serverConfig.Name, "error", err)
+			c.failedServers[serverConfig.Name] = time.Now()
 			continue
 		}
 
+		// Server recovered — clear any previous failure record.
+		delete(c.failedServers, serverConfig.Name)
 		allTools = append(allTools, tools...)
 		newClients = append(newClients, mcpClient)
 	}

@@ -5,6 +5,7 @@ package expert
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -13,9 +14,8 @@ import (
 )
 
 // HandleExpertError inspects errors returned from the expert runner.
-// If the error is due to hitting the max tool iteration limit, it synthesizes
-// a partial success response with an explanatory message.
-// Otherwise, it returns the original error.
+// It converts internal errors (context cancellation, LLM limits) into
+// user-friendly messages instead of leaking raw Go error strings.
 func HandleExpertError(ctx context.Context, err error) (Response, error) {
 	if err == nil {
 		return Response{}, nil
@@ -24,13 +24,40 @@ func HandleExpertError(ctx context.Context, err error) (Response, error) {
 	// Log the actual error for debugging
 	logger.GetLogger(ctx).Error("Expert error occurred", "error", err.Error(), "error_type", fmt.Sprintf("%T", err))
 
+	errMsg := err.Error()
+
 	// The runner returns a formatted error string when max tool iterations are exceeded.
 	// See trpc-agent-go/internal/flow/processor/functioncall.go
-	if strings.Contains(err.Error(), "max tool iterations") {
+	if strings.Contains(errMsg, "max tool iterations") {
 		return Response{
 			Choices: []model.Choice{
 				{
 					Message: model.NewAssistantMessage("I have run into my limits (max tool iterations). Do you want me to keep trying? (Reply 'yes' to continue)"),
+				},
+			},
+		}, nil
+	}
+
+	// Max LLM calls exceeded — return a friendly message instead of the raw error.
+	if strings.Contains(errMsg, "max LLM calls") {
+		return Response{
+			Choices: []model.Choice{
+				{
+					Message: model.NewAssistantMessage("I reached my processing limit for this request. Please try breaking it into smaller steps or be more specific about what you need."),
+				},
+			},
+		}, nil
+	}
+
+	// Context cancellation / deadline — the request was interrupted or timed out.
+	// Return a friendly message instead of leaking "context canceled" or
+	// "persist event: context canceled" to the user.
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+		strings.Contains(errMsg, "context canceled") || strings.Contains(errMsg, "context deadline exceeded") {
+		return Response{
+			Choices: []model.Choice{
+				{
+					Message: model.NewAssistantMessage("I was unable to complete this task — the request was interrupted or timed out. Please try again, or break the request into smaller steps."),
 				},
 			},
 		}, nil

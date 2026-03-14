@@ -14,6 +14,8 @@ Previously, Genie’s long-term memory was limited to what was explicitly stored
 - **Incremental sync**: Last sync time is persisted so only new or updated items are fetched on subsequent runs.
 - **Scoped and filtered**: Config controls which sources, folders, labels, and keywords are indexed (e.g. only items matching search_keywords).
 
+> **See also**: [20260313_mcp_datasources_and_scope_refactor.md](20260313_mcp_datasources_and_scope_refactor.md) for tests covering MCP-backed datasources (Jira, Confluence, ServiceNow), `datasource_keyword_regex` filtering, Linear issue comments, and the generic Scope refactor.
+
 ## Test 1: Data sources enabled and sync runs (Gmail, Drive, or GitHub/GitLab)
 
 ### Arrange
