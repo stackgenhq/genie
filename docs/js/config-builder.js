@@ -39,7 +39,7 @@
             teams: { app_id: 'TEAMS_APP_ID', app_password: 'TEAMS_APP_PASSWORD', listen_addr: ':3978' },
             googlechat: {},
             whatsapp: {},
-            agui: { port: 8080, cors_origins: [], auth: { password: { enabled: false, value: '' }, jwt: { trusted_issuers: [], allowed_audiences: [] }, oidc: { issuer_url: '', client_id: '', client_secret: '', allowed_domains: [], redirect_url: '' }, api_keys: { keys: [] } }, rate_limit: 10, rate_burst: 20, max_concurrent: 100, max_body_bytes: 5242880 }
+            agui: { port: 8080, cors_origins: [], auth: { password: { enabled: false, value: '' }, jwt: { trusted_issuers: [], allowed_audiences: [] }, oidc: { issuer_url: '', client_id: '', client_secret: '', allowed_domains: [], redirect_url: '' }, api_keys: { keys: [] }, identity_resolver: { resolvers: [] } }, rate_limit: 10, rate_burst: 20, max_concurrent: 100, max_body_bytes: 5242880 }
         },
         notification: { slack: [], webhooks: [], discord: [], twilio: [] },
         scm: { provider: '', token: 'SCM_TOKEN', base_url: '' },
@@ -1105,6 +1105,44 @@
             el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
                 fieldText('API Keys (comma-separated)', (au.api_keys.keys || []).join(', '), function (v) { au.api_keys.keys = splitCSV(v); renderOutput(); },
                     'secret-key-1, secret-key-2', 'Accepted via Authorization: Bearer <key> or X-API-Key: <key>.')
+            ]),
+            // ── Auth: Identity Resolvers ──
+            el('p', { className: 'text-xs text-gray-400 mb-3 mt-4' }, 'Identity Resolvers (JWT Claims, Static, No-op)'),
+            el('div', { className: 'space-y-4' }, [
+                (function() {
+                    var rContainer = el('div', {});
+                    au.identity_resolver.resolvers.forEach(function (r, i) {
+                        r.config = r.config || {};
+                        var fields = [
+                            fieldSelect('Type', r.type, ['jwt_claims', 'static', 'noop'], function (v) { r.type = v; renderAll(); }, 'Resolver strategy type')
+                        ];
+                        if (r.type === 'jwt_claims') {
+                            fields.push(fieldText('Role Claim', r.config.role_claim, function (v) { r.config.role_claim = v; renderOutput(); }, 'roles', 'JWT claim containing user role'));
+                            fields.push(fieldText('Groups Claim', r.config.groups_claim, function (v) { r.config.groups_claim = v; renderOutput(); }, 'groups', 'JWT claim containing user groups'));
+                            fields.push(fieldText('Department Claim', r.config.dept_claim, function (v) { r.config.dept_claim = v; renderOutput(); }, 'department', 'JWT claim containing department'));
+                        } else if (r.type === 'static') {
+                            var staticWrapper = el('div', { className: 'col-span-1 sm:col-span-2' });
+                            var staticTooltip = 'Map user IDs (emails) to their roles/groups. One per line: user@acme.com=role:admin,groups:infra|dev';
+                            staticWrapper.appendChild(el('label', { className: 'form-label' }, 'Static Users Mapping<span class="form-tooltip">' + staticTooltip + '</span>'));
+                            var staticTa = el('textarea', { className: 'form-input font-mono text-sm', rows: 3, placeholder: 'john@acme.com=role:admin,groups:infra|dev' });
+                            staticTa.value = envMapToLines(r.config);
+                            staticTa.addEventListener('input', function () { r.config = parseEnvLines(this.value); renderOutput(); });
+                            staticWrapper.appendChild(staticTa);
+                            fields.push(staticWrapper);
+                        }
+                        
+                        rContainer.appendChild(el('div', { className: 'repeatable-item' }, [
+                            el('div', { className: 'flex items-center justify-between mb-3' }, [
+                                el('span', { className: 'text-sm font-semibold text-gray-600' }, 'Resolver #' + (i + 1)),
+                                el('button', { className: 'btn-remove', onClick: function () { au.identity_resolver.resolvers.splice(i, 1); renderAll(); } }, '✕')
+                            ]),
+                            el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields)
+                        ]));
+                    });
+                    
+                    rContainer.appendChild(el('button', { className: 'btn-add mt-2', onClick: function () { au.identity_resolver.resolvers.push({ type: 'jwt_claims', config: {} }); renderAll(); } }, '+ Add Identity Resolver'));
+                    return rContainer;
+                })()
             ])
         ]));
     }
@@ -1743,6 +1781,23 @@
         if (hasItems(au.api_keys.keys)) {
             lines.push('[messenger.agui.auth.api_keys]');
             lines.push('keys = [' + au.api_keys.keys.filter(Boolean).map(q).join(', ') + ']');
+            lines.push('');
+        }
+        if (au.identity_resolver.resolvers && au.identity_resolver.resolvers.length > 0) {
+            lines.push('[messenger.agui.auth.identity_resolver]');
+            au.identity_resolver.resolvers.forEach(function (r, i) {
+                lines.push('  [[messenger.agui.auth.identity_resolver.resolvers]]');
+                lines.push('  type = ' + q(r.type));
+                if (r.config && Object.keys(r.config).length > 0) {
+                    var configKeys = Object.keys(r.config).filter(function(k) { return r.config[k] !== ''; });
+                    if (configKeys.length > 0) {
+                        lines.push('  [messenger.agui.auth.identity_resolver.resolvers.config]');
+                        configKeys.forEach(function(k) {
+                            lines.push('  ' + k + ' = ' + q(r.config[k]));
+                        });
+                    }
+                }
+            });
             lines.push('');
         }
     }
@@ -2522,6 +2577,22 @@
                     au.oidc.allowed_domains.filter(Boolean).forEach(function (d) { lines.push(ai2 + '  - ' + yq(d)); });
                 }
                 if (au.oidc.redirect_url) lines.push(ai2 + 'redirect_url: ' + yq(au.oidc.redirect_url));
+            }
+            if (au.identity_resolver.resolvers && au.identity_resolver.resolvers.length > 0) {
+                lines.push(ai + 'identity_resolver:');
+                lines.push(ai2 + 'resolvers:');
+                au.identity_resolver.resolvers.forEach(function (r) {
+                    lines.push(ai2 + '  - type: ' + yq(r.type));
+                    if (r.config && Object.keys(r.config).length > 0) {
+                        var configKeys = Object.keys(r.config).filter(function(k) { return r.config[k] !== ''; });
+                        if (configKeys.length > 0) {
+                            lines.push(ai2 + '    config:');
+                            configKeys.forEach(function(k) {
+                                lines.push(ai2 + '      ' + k + ': ' + yq(r.config[k]));
+                            });
+                        }
+                    }
+                });
             }
         }
     }
