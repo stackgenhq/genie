@@ -26,6 +26,9 @@ import (
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/skills"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"trpc.group/trpc-go/trpc-agent-go/telemetry/trace"
 )
 
 // minimumNoveltyScore is the threshold (1-10) above which a task is
@@ -87,6 +90,13 @@ type skillProposal struct {
 // It is designed to be called asynchronously (fire-and-forget) so it
 // never blocks the user-facing response.
 func (l *Learner) Learn(ctx context.Context, req LearnRequest) error {
+	ctx, span := trace.Tracer.Start(ctx, "learning.learn")
+	span.SetAttributes(
+		attribute.Int("learning.tools_used", len(req.ToolsUsed)),
+		attribute.String("learning.goal_preview", toolwrap.TruncateForAudit(req.Goal, 80)),
+	)
+	defer span.End()
+
 	logr := logger.GetLogger(ctx).With("fn", "learning.Learn")
 
 	if l.skillRepo == nil {
@@ -139,6 +149,8 @@ func (l *Learner) Learn(ctx context.Context, req LearnRequest) error {
 		},
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "llm_call_failed")
 		logr.Warn("skill distillation LLM call failed", "error", err)
 		l.auditor.Log(ctx, audit.LogRequest{
 			EventType: audit.EventCommand,
@@ -186,7 +198,15 @@ func (l *Learner) Learn(ctx context.Context, req LearnRequest) error {
 		return nil // non-fatal; best-effort
 	}
 
+	span.SetAttributes(
+		attribute.Int("learning.novelty_score", proposal.NoveltyScore),
+		attribute.Bool("learning.should_create", proposal.ShouldCreate),
+		attribute.String("learning.proposed_name", proposal.Name),
+	)
+
 	if !proposal.ShouldCreate || proposal.NoveltyScore < minimumNoveltyScore {
+		span.SetAttributes(attribute.String("learning.outcome", "below_novelty_threshold"))
+		span.SetStatus(codes.Ok, "")
 		logr.Info("task not novel enough for skill creation",
 			"novelty_score", proposal.NoveltyScore,
 			"should_create", proposal.ShouldCreate,
@@ -234,6 +254,9 @@ func (l *Learner) Learn(ctx context.Context, req LearnRequest) error {
 	//    it via memory_search when solving similar future tasks.
 	l.indexSkillInVectorStore(ctx, proposal)
 
+	span.SetAttributes(attribute.String("learning.outcome", "skill_created"))
+	span.SetStatus(codes.Ok, "")
+
 	logr.Info("skill distilled and saved",
 		"name", proposal.Name,
 		"novelty_score", proposal.NoveltyScore,
@@ -262,6 +285,13 @@ func (l *Learner) indexSkillInVectorStore(ctx context.Context, proposal skillPro
 		return
 	}
 
+	ctx, span := trace.Tracer.Start(ctx, "learning.index_skill")
+	span.SetAttributes(
+		attribute.String("learning.skill_name", proposal.Name),
+		attribute.String("learning.skill_description", proposal.Description),
+	)
+	defer span.End()
+
 	logr := logger.GetLogger(ctx).With("fn", "learning.indexSkillInVectorStore")
 
 	// Store a lightweight pointer — just enough for semantic search to
@@ -286,8 +316,12 @@ func (l *Learner) indexSkillInVectorStore(ctx context.Context, proposal skillPro
 		},
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "vector_index_failed")
 		logr.Warn("failed to index skill in vector store", "name", proposal.Name, "error", err)
+		return
 	}
+	span.SetStatus(codes.Ok, "")
 }
 
 // parseProposal extracts the JSON skill proposal from the LLM response.
