@@ -510,7 +510,7 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	// burning LLM budget searching a store that has no documents.
 	// Graph-only agents are NOT guarded because we can't probe graph
 	// emptiness from the vector store.
-	if t.isRetrievalOnly(scopedRegistry) && t.hasVectorBackedTools(scopedRegistry) && t.isMemoryEmpty(ctx) {
+	if t.isRetrievalOnly(ctx, scopedRegistry) && t.hasVectorBackedTools(ctx, scopedRegistry) && t.isMemoryEmpty(ctx) {
 		logr.Info("skipping retrieval-only sub-agent: memory store is empty",
 			"agent_name", req.AgentName,
 			"tools", scopedRegistry.ToolNames(ctx))
@@ -1194,8 +1194,8 @@ var vectorBackedTools = map[string]bool{
 // isRetrievalOnly returns true when every tool in the registry is a
 // retrieval-only tool (per toolwrap.IsRetrievalTool). Sub-agents with only
 // these tools are candidates for the empty-memory guard.
-func (t *createAgentTool) isRetrievalOnly(registry *tools.Registry) bool {
-	names := registry.ToolNames(context.Background())
+func (t *createAgentTool) isRetrievalOnly(ctx context.Context, registry *tools.Registry) bool {
+	names := registry.ToolNames(ctx)
 	if len(names) == 0 {
 		return false
 	}
@@ -1210,8 +1210,8 @@ func (t *createAgentTool) isRetrievalOnly(registry *tools.Registry) bool {
 // hasVectorBackedTools returns true if any tool in the registry is backed
 // by the vector store. Only these tools can be short-circuited by the
 // isMemoryEmpty probe.
-func (t *createAgentTool) hasVectorBackedTools(registry *tools.Registry) bool {
-	for _, name := range registry.ToolNames(context.Background()) {
+func (t *createAgentTool) hasVectorBackedTools(ctx context.Context, registry *tools.Registry) bool {
+	for _, name := range registry.ToolNames(ctx) {
 		if vectorBackedTools[name] {
 			return true
 		}

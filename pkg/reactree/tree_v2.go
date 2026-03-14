@@ -264,7 +264,7 @@ func (t *tree) executeIteration(ctx context.Context, req TreeRequest, ls *loopSt
 	ls.lastOriginalSize = 0
 	ls.lastCompressedSize = 0
 
-	compiled, err := t.prepareGraph(req, ls)
+	compiled, err := t.prepareGraph(ctx, req, ls)
 	if err != nil {
 		return fmt.Errorf("failed to compile graph at iteration %d: %w", ls.iteration, err)
 	}
@@ -295,13 +295,13 @@ func (t *tree) executeIteration(ctx context.Context, req TreeRequest, ls *loopSt
 }
 
 // prepareGraph isolates the node creation and state extraction logic.
-func (t *tree) prepareGraph(req TreeRequest, ls *loopState) (*graph.Graph, error) {
+func (t *tree) prepareGraph(ctx context.Context, req TreeRequest, ls *loopState) (*graph.Graph, error) {
 	schema := NewReAcTreeSchema()
 	sg := graph.NewStateGraph(schema)
 
 	baseTools := req.Tools
 	if req.ToolGetter != nil {
-		baseTools = req.ToolGetter(context.TODO())
+		baseTools = req.ToolGetter(ctx)
 	}
 	toolsToUse := ls.toolsForIteration(baseTools)
 

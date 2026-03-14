@@ -38,13 +38,14 @@
 //	}
 //
 //	// Initialize client
-//	client, err := mcp.NewClient(context.Background(), config)
+//	ctx := context.Background()
+//	client, err := mcp.NewClient(ctx, config)
 //	if err != nil {
 //	    // handle error
 //	}
-//	defer client.Close()
+//	defer client.Close(ctx)
 //
-//	// Get available tools
+//	// Get available tools (cached for 30s, fresh connections on cache miss)
 //	tools := client.GetTools(ctx)
 //
 // # Configuration Examples

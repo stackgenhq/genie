@@ -817,7 +817,6 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	// Execute using ReAcTree for structured reasoning and task decomposition
 	res, err := c.treeExecutor.Run(runCtx, reactree.TreeRequest{
 		Goal:           message,
-		Tools:          c.toolRegistry.GetTools(ctx),
 		ToolGetter:     c.toolRegistry.GetTools,
 		TaskType:       taskType,
 		Attachments:    req.Attachments,

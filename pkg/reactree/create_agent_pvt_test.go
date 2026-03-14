@@ -187,27 +187,27 @@ var _ = Describe("createAgentTool guard helpers", func() {
 
 		It("returns true when all tools are retrieval-only", func() {
 			reg := makeRegistry("memory_search", "graph_query")
-			Expect(cat.isRetrievalOnly(reg)).To(BeTrue())
+			Expect(cat.isRetrievalOnly(context.Background(), reg)).To(BeTrue())
 		})
 
 		It("returns true for a single retrieval tool", func() {
 			reg := makeRegistry("memory_search")
-			Expect(cat.isRetrievalOnly(reg)).To(BeTrue())
+			Expect(cat.isRetrievalOnly(context.Background(), reg)).To(BeTrue())
 		})
 
 		It("returns false when any non-retrieval tool is present", func() {
 			reg := makeRegistry("memory_search", "run_shell")
-			Expect(cat.isRetrievalOnly(reg)).To(BeFalse())
+			Expect(cat.isRetrievalOnly(context.Background(), reg)).To(BeFalse())
 		})
 
 		It("returns false for an empty registry", func() {
 			reg := makeRegistry()
-			Expect(cat.isRetrievalOnly(reg)).To(BeFalse())
+			Expect(cat.isRetrievalOnly(context.Background(), reg)).To(BeFalse())
 		})
 
 		It("returns true for both retrieval tools", func() {
 			reg := makeRegistry("memory_search", "graph_query")
-			Expect(cat.isRetrievalOnly(reg)).To(BeTrue())
+			Expect(cat.isRetrievalOnly(context.Background(), reg)).To(BeTrue())
 		})
 	})
 
@@ -216,17 +216,17 @@ var _ = Describe("createAgentTool guard helpers", func() {
 
 		It("returns true when memory_search is present", func() {
 			reg := makeRegistry("memory_search", "graph_query")
-			Expect(cat.hasVectorBackedTools(reg)).To(BeTrue())
+			Expect(cat.hasVectorBackedTools(context.Background(), reg)).To(BeTrue())
 		})
 
 		It("returns false for graph-only tools", func() {
 			reg := makeRegistry("graph_query", "graph_store")
-			Expect(cat.hasVectorBackedTools(reg)).To(BeFalse())
+			Expect(cat.hasVectorBackedTools(context.Background(), reg)).To(BeFalse())
 		})
 
 		It("returns false for empty registry", func() {
 			reg := makeRegistry()
-			Expect(cat.hasVectorBackedTools(reg)).To(BeFalse())
+			Expect(cat.hasVectorBackedTools(context.Background(), reg)).To(BeFalse())
 		})
 	})
 

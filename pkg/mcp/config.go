@@ -88,8 +88,11 @@ func (c *MCPConfig) Validate() error {
 // It checks that required fields are present based on transport type and
 // that values are within acceptable ranges.
 func (s *MCPServerConfig) Validate() error {
-	if s.Name == "" || s.Transport == "" {
-		return fmt.Errorf("server name and transport are required")
+	if s.Name == "" {
+		return fmt.Errorf("server name is required")
+	}
+	if s.Transport == "" {
+		return fmt.Errorf("transport is required")
 	}
 
 	switch s.Transport {

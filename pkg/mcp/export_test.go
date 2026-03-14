@@ -25,7 +25,9 @@ func (c *Client) ExpandEnvValueForTest(ctx context.Context, value string) string
 // NewClientForTest creates a Client with the given options for testing.
 // It skips config validation and server initialization.
 func NewClientForTest(opts ...ClientOption) *Client {
-	c := &Client{}
+	c := &Client{
+		cacheTTL: defaultCacheTTL,
+	}
 	for _, opt := range opts {
 		opt(c)
 	}
