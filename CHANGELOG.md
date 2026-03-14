@@ -9,13 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Config-driven Identity Resolution** — New `IdentityResolver` interface in `pkg/security/auth` allowing dynamic role and group mapping via YAML/TOML. Includes `jwt_claims` resolver (extracts roles, groups, and departments from verified JWT tokens with configurable claim keys) and `static` resolver (hardcoded user-to-role mappings). Resolvers can be chained via `ResolverConfig`, executing in order.
+- **Enhanced SCM DataSource** — SCM vectorization connector (GitHub/GitLab/Bitbucket) expanded to fetch open issues (excluding PRs) and extract recent commit authors, providing deeper repository context. Output includes generic `SourceRef` integration for UI source tracing.
+- **Datasource Connector Factory** — Unified datasource registration and initialization across all providers (Google Calendar, GDrive, SCM, Jira, Confluence, ServiceNow, Productboard) via centralized `pkg/datasource/builder.go`. Automatically wires datasources to the active sync loop based on tool/MCP configuration.
 - **`scm_commit_and_pr` tool** — uber tool that accepts multiple file changes, commits them to a branch, and optionally creates a Pull Request in a single LLM call. Resolves the repo's default branch dynamically via API, auto-creates the target branch if it doesn't exist, concurrently fetches existing file SHAs via `errgroup`, and sequentially commits each file.
 - `CreateOrUpdateFile`, `FindBranch`, `CreateBranch` methods added to SCM `Service` interface for file and branch management.
 - **Multi-backend document parser** (`pkg/datasource/docparser`) — interface-based `Provider` abstraction that converts files (PDF, DOCX, images, etc.) into `[]datasource.NormalizedItem` for vectorization. Shipped backends: **Docling Serve** (REST sidecar) and **Gemini** (file-upload + structured extraction). Factory selects backend via `Config.Provider`; secrets resolved through `security.SecretProvider`. Integrated into `GenieConfig.DocParser` and Config Builder UI with TOML/YAML serialization.
 
 ### Changed
 
+- **Concurrent Data Source Fetching** — SCM and MCP datasources now fetch items concurrently using `errgroup.Group`, significantly drastically reducing initial connection sync times.
+  - SCM datasource (`pkg/tools/scm`) fetches repo metadata, pull requests, issues, and recent commit authors in parallel for each repo.
+  - MCP datasource (`pkg/datasource/mcpresource`) fetches resources in parallel with a bounded concurrency limit.
+  - SCM and MCP normalized items now include external URLs securely mapped onto `SourceRef` to enable direct linking back to actual Github/Gitlab PRs, Issues, Repos, and Jira/Confluence/ServiceNow records respectively within the UI.
+
 - **Loop detection tightened** — Loop detection middleware now blocks after 2 identical consecutive calls (reduced from 3) to minimize wasted retries. Added "exploration loop" detection that prevents a sub-agent from calling the exact same tool with different arguments more than 3 consecutive times (blocks on the 4th), resetting the counter when a different tool is used.
+
+- **Circuit Breaker Exemptions** — Added `ExemptTools` to `CircuitBreakerConfig` allowing specific tools (with exact or wildcard `*` matching) to bypass circuit breaker monitoring. Updated marketing-expert configurations to exempt `google_*` tools.
 
 - **SCM tool constructors simplified** — removed the `toolSet` intermediary struct; all tool constructors now directly reference methods on the `Service` interface, matching the `NewGetRepoContentTool` pattern.
 

@@ -3,7 +3,11 @@
 
 package cron
 
-import "trpc.group/trpc-go/trpc-agent-go/tool"
+import (
+	"context"
+
+	"trpc.group/trpc-go/trpc-agent-go/tool"
+)
 
 // ToolProvider wraps an ICronStore and satisfies the tools.ToolProviders
 // interface so the cron tools can be passed directly to tools.NewRegistry.
@@ -26,7 +30,7 @@ func (p *ToolProvider) SetDispatcher(dispatcher EventDispatcher) {
 
 // GetTools returns the cron management tool suite: create, list, delete,
 // history, toggle (pause/resume), and trigger (run-now).
-func (p *ToolProvider) GetTools() []tool.Tool {
+func (p *ToolProvider) GetTools(_ context.Context) []tool.Tool {
 	tools := []tool.Tool{
 		NewCreateRecurringTaskTool(p.store),
 		NewListRecurringTasksTool(p.store),

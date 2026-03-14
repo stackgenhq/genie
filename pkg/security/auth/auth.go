@@ -20,10 +20,10 @@ import (
 // An authenticator is responsible for verifying the request and issuing HTTP
 // error responses if the request is unauthorized.
 type Authenticator interface {
-	// Authenticate inspects the request. Returns a non-nil Sender on success.
+	// Authenticate inspects the request. Returns a (possibly updated) request and a non-nil Sender on success.
 	// On failure it must write the appropriate HTTP error to the ResponseWriter
-	// and return nil.
-	Authenticate(w http.ResponseWriter, r *http.Request) *identity.Sender
+	// and return (r, nil).
+	Authenticate(w http.ResponseWriter, r *http.Request) (*http.Request, *identity.Sender)
 }
 
 // Middleware returns an http.Handler middleware that enforces authentication
@@ -61,7 +61,7 @@ func Middleware(cfg Config, oidcHandler ...*OIDCHandler) func(http.Handler) http
 				return
 			}
 
-			if p := auth.Authenticate(w, r); p != nil {
+			if r, p := auth.Authenticate(w, r); p != nil {
 				ctx := identity.WithSender(r.Context(), *p)
 				ctx = logger.WithArgs(ctx, "sender", p, "request_id", uuid.NewString())
 				logger.GetLogger(ctx).Info("user authenticated", "user", p, "ip", getIPAddress(r))

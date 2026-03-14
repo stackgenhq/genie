@@ -174,7 +174,7 @@ var _ = Describe("TreeExecutor", func() {
 
 			result, err := run(config, reactree.TreeRequest{
 				Goal:       "getter task",
-				ToolGetter: func() []tool.Tool { return nil },
+				ToolGetter: func(_ context.Context) []tool.Tool { return nil },
 			})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.Status).To(Equal(reactree.Success))

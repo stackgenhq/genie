@@ -28,7 +28,7 @@ var _ = Describe("Registry", func() {
 		It("returns empty slice when registry has no tools", func() {
 			ctx := context.Background()
 			reg := tools.NewRegistry(ctx)
-			descs := reg.GetToolDescriptions()
+			descs := reg.GetToolDescriptions(ctx)
 			Expect(descs).NotTo(BeNil())
 			Expect(descs).To(BeEmpty())
 		})
@@ -36,7 +36,7 @@ var _ = Describe("Registry", func() {
 		It("returns name and description for each tool in name: description format", func() {
 			ctx := context.Background()
 			reg := tools.NewRegistry(ctx, datetime.NewToolProvider())
-			descs := reg.GetToolDescriptions()
+			descs := reg.GetToolDescriptions(ctx)
 			Expect(descs).To(HaveLen(1))
 			Expect(descs[0]).To(HavePrefix("datetime:"))
 			Expect(descs[0]).To(ContainSubstring("date"))
@@ -45,7 +45,7 @@ var _ = Describe("Registry", func() {
 		It("returns sorted by name: description string", func() {
 			ctx := context.Background()
 			reg := tools.NewRegistry(ctx, datetime.NewToolProvider(), math.NewToolProvider())
-			descs := reg.GetToolDescriptions()
+			descs := reg.GetToolDescriptions(ctx)
 			Expect(descs).To(HaveLen(3)) // datetime, math, calculator
 			for i := 1; i < len(descs); i++ {
 				Expect(descs[i] >= descs[i-1]).To(BeTrue(),
@@ -56,8 +56,8 @@ var _ = Describe("Registry", func() {
 		It("includes every tool from the registry", func() {
 			ctx := context.Background()
 			reg := tools.NewRegistry(ctx, math.NewToolProvider())
-			names := reg.ToolNames()
-			descs := reg.GetToolDescriptions()
+			names := reg.ToolNames(ctx)
+			descs := reg.GetToolDescriptions(ctx)
 			Expect(descs).To(HaveLen(len(names)))
 			for _, name := range names {
 				prefix := name + ": "
@@ -71,12 +71,12 @@ var _ = Describe("Registry", func() {
 		It("GetTool returns the specific tool", func() {
 			ctx := context.Background()
 			reg := tools.NewRegistry(ctx, math.NewToolProvider())
-			t, err := reg.GetTool("calculator")
+			t, err := reg.GetTool(ctx, "calculator")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(t).NotTo(BeNil())
 			Expect(t.Declaration().Name).To(Equal("calculator"))
 
-			_, err = reg.GetTool("nonexistent")
+			_, err = reg.GetTool(ctx, "nonexistent")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(Equal("tool not found"))
 		})
@@ -85,10 +85,10 @@ var _ = Describe("Registry", func() {
 			ctx := context.Background()
 			reg := tools.NewRegistry(ctx, math.NewToolProvider())
 
-			toolsList := reg.GetTools()
+			toolsList := reg.GetTools(context.Background())
 			Expect(toolsList).NotTo(BeEmpty())
 
-			all := reg.AllTools()
+			all := reg.AllTools(ctx)
 			Expect(all).To(HaveLen(len(toolsList)))
 		})
 	})
@@ -105,9 +105,9 @@ var _ = Describe("Registry", func() {
 			filtered := reg.FilterDenied(ctx, cfg)
 
 			// Verify filtered registry lacks calculator
-			Expect(filtered.ToolNames()).NotTo(ContainElement("calculator"))
+			Expect(filtered.ToolNames(ctx)).NotTo(ContainElement("calculator"))
 			// Verify original registry still has it
-			Expect(reg.ToolNames()).To(ContainElement("calculator"))
+			Expect(reg.ToolNames(ctx)).To(ContainElement("calculator"))
 		})
 	})
 
@@ -116,11 +116,11 @@ var _ = Describe("Registry", func() {
 			ctx := context.Background()
 			reg := tools.NewRegistry(ctx, math.NewToolProvider(), datetime.NewToolProvider())
 
-			Expect(reg.ToolNames()).To(ContainElements("calculator", "datetime"))
+			Expect(reg.ToolNames(ctx)).To(ContainElements("calculator", "datetime"))
 
 			filtered := reg.Exclude("calculator")
-			Expect(filtered.ToolNames()).NotTo(ContainElement("calculator"))
-			Expect(filtered.ToolNames()).To(ContainElement("datetime"))
+			Expect(filtered.ToolNames(ctx)).NotTo(ContainElement("calculator"))
+			Expect(filtered.ToolNames(ctx)).To(ContainElement("datetime"))
 		})
 
 		It("Include limits to specified tools", func() {
@@ -128,8 +128,8 @@ var _ = Describe("Registry", func() {
 			reg := tools.NewRegistry(ctx, math.NewToolProvider(), datetime.NewToolProvider())
 
 			filtered := reg.Include("calculator")
-			Expect(filtered.ToolNames()).To(ContainElement("calculator"))
-			Expect(filtered.ToolNames()).NotTo(ContainElement("datetime"))
+			Expect(filtered.ToolNames(ctx)).To(ContainElement("calculator"))
+			Expect(filtered.ToolNames(ctx)).NotTo(ContainElement("datetime"))
 		})
 	})
 
@@ -138,7 +138,7 @@ var _ = Describe("Registry", func() {
 			ctx := context.Background()
 			reg := tools.NewRegistry(ctx, math.NewToolProvider())
 
-			missing := reg.UnavailableNames([]string{"calculator", "run_shell", "nonexistent"})
+			missing := reg.UnavailableNames(ctx, []string{"calculator", "run_shell", "nonexistent"})
 			Expect(missing).To(ConsistOf("run_shell", "nonexistent"))
 		})
 
@@ -151,7 +151,7 @@ var _ = Describe("Registry", func() {
 			}
 			filtered := reg.FilterDenied(ctx, cfg)
 
-			missing := filtered.UnavailableNames([]string{"calculator", "datetime"})
+			missing := filtered.UnavailableNames(ctx, []string{"calculator", "datetime"})
 			Expect(missing).To(ConsistOf("calculator"))
 		})
 
@@ -159,7 +159,7 @@ var _ = Describe("Registry", func() {
 			ctx := context.Background()
 			reg := tools.NewRegistry(ctx, math.NewToolProvider())
 
-			missing := reg.UnavailableNames([]string{"calculator"})
+			missing := reg.UnavailableNames(ctx, []string{"calculator"})
 			Expect(missing).To(BeNil())
 		})
 	})
@@ -178,5 +178,5 @@ var _ = Describe("Registry", func() {
 
 type mockCloneableProvider struct{}
 
-func (m *mockCloneableProvider) GetTools() []tool.Tool      { return nil }
-func (m *mockCloneableProvider) Clone() tools.ToolProviders { return &mockCloneableProvider{} }
+func (m *mockCloneableProvider) GetTools(_ context.Context) []tool.Tool { return nil }
+func (m *mockCloneableProvider) Clone() tools.ToolProviders             { return &mockCloneableProvider{} }

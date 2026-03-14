@@ -182,6 +182,36 @@ type FakeService struct {
 		result1 *scma.Content
 		result2 error
 	}
+	ListCommitsStub        func(context.Context, string, scma.CommitListOptions) ([]*scma.Commit, error)
+	listCommitsMutex       sync.RWMutex
+	listCommitsArgsForCall []struct {
+		arg1 context.Context
+		arg2 string
+		arg3 scma.CommitListOptions
+	}
+	listCommitsReturns struct {
+		result1 []*scma.Commit
+		result2 error
+	}
+	listCommitsReturnsOnCall map[int]struct {
+		result1 []*scma.Commit
+		result2 error
+	}
+	ListIssuesStub        func(context.Context, string, scma.IssueListOptions) ([]*scma.Issue, error)
+	listIssuesMutex       sync.RWMutex
+	listIssuesArgsForCall []struct {
+		arg1 context.Context
+		arg2 string
+		arg3 scma.IssueListOptions
+	}
+	listIssuesReturns struct {
+		result1 []*scma.Issue
+		result2 error
+	}
+	listIssuesReturnsOnCall map[int]struct {
+		result1 []*scma.Issue
+		result2 error
+	}
 	ListPRChangesToolStub        func(context.Context, scm.PRNumberRequest) ([]scm.ChangeSummary, error)
 	listPRChangesToolMutex       sync.RWMutex
 	listPRChangesToolArgsForCall []struct {
@@ -355,6 +385,16 @@ type FakeService struct {
 	}
 	mergePullRequestReturnsOnCall map[int]struct {
 		result1 error
+	}
+	ProviderStub        func() string
+	providerMutex       sync.RWMutex
+	providerArgsForCall []struct {
+	}
+	providerReturns struct {
+		result1 string
+	}
+	providerReturnsOnCall map[int]struct {
+		result1 string
 	}
 	ValidateStub        func(context.Context) error
 	validateMutex       sync.RWMutex
@@ -1153,6 +1193,138 @@ func (fake *FakeService) GetRepoContentReturnsOnCall(i int, result1 *scma.Conten
 	}{result1, result2}
 }
 
+func (fake *FakeService) ListCommits(arg1 context.Context, arg2 string, arg3 scma.CommitListOptions) ([]*scma.Commit, error) {
+	fake.listCommitsMutex.Lock()
+	ret, specificReturn := fake.listCommitsReturnsOnCall[len(fake.listCommitsArgsForCall)]
+	fake.listCommitsArgsForCall = append(fake.listCommitsArgsForCall, struct {
+		arg1 context.Context
+		arg2 string
+		arg3 scma.CommitListOptions
+	}{arg1, arg2, arg3})
+	stub := fake.ListCommitsStub
+	fakeReturns := fake.listCommitsReturns
+	fake.recordInvocation("ListCommits", []interface{}{arg1, arg2, arg3})
+	fake.listCommitsMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeService) ListCommitsCallCount() int {
+	fake.listCommitsMutex.RLock()
+	defer fake.listCommitsMutex.RUnlock()
+	return len(fake.listCommitsArgsForCall)
+}
+
+func (fake *FakeService) ListCommitsCalls(stub func(context.Context, string, scma.CommitListOptions) ([]*scma.Commit, error)) {
+	fake.listCommitsMutex.Lock()
+	defer fake.listCommitsMutex.Unlock()
+	fake.ListCommitsStub = stub
+}
+
+func (fake *FakeService) ListCommitsArgsForCall(i int) (context.Context, string, scma.CommitListOptions) {
+	fake.listCommitsMutex.RLock()
+	defer fake.listCommitsMutex.RUnlock()
+	argsForCall := fake.listCommitsArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeService) ListCommitsReturns(result1 []*scma.Commit, result2 error) {
+	fake.listCommitsMutex.Lock()
+	defer fake.listCommitsMutex.Unlock()
+	fake.ListCommitsStub = nil
+	fake.listCommitsReturns = struct {
+		result1 []*scma.Commit
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeService) ListCommitsReturnsOnCall(i int, result1 []*scma.Commit, result2 error) {
+	fake.listCommitsMutex.Lock()
+	defer fake.listCommitsMutex.Unlock()
+	fake.ListCommitsStub = nil
+	if fake.listCommitsReturnsOnCall == nil {
+		fake.listCommitsReturnsOnCall = make(map[int]struct {
+			result1 []*scma.Commit
+			result2 error
+		})
+	}
+	fake.listCommitsReturnsOnCall[i] = struct {
+		result1 []*scma.Commit
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeService) ListIssues(arg1 context.Context, arg2 string, arg3 scma.IssueListOptions) ([]*scma.Issue, error) {
+	fake.listIssuesMutex.Lock()
+	ret, specificReturn := fake.listIssuesReturnsOnCall[len(fake.listIssuesArgsForCall)]
+	fake.listIssuesArgsForCall = append(fake.listIssuesArgsForCall, struct {
+		arg1 context.Context
+		arg2 string
+		arg3 scma.IssueListOptions
+	}{arg1, arg2, arg3})
+	stub := fake.ListIssuesStub
+	fakeReturns := fake.listIssuesReturns
+	fake.recordInvocation("ListIssues", []interface{}{arg1, arg2, arg3})
+	fake.listIssuesMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeService) ListIssuesCallCount() int {
+	fake.listIssuesMutex.RLock()
+	defer fake.listIssuesMutex.RUnlock()
+	return len(fake.listIssuesArgsForCall)
+}
+
+func (fake *FakeService) ListIssuesCalls(stub func(context.Context, string, scma.IssueListOptions) ([]*scma.Issue, error)) {
+	fake.listIssuesMutex.Lock()
+	defer fake.listIssuesMutex.Unlock()
+	fake.ListIssuesStub = stub
+}
+
+func (fake *FakeService) ListIssuesArgsForCall(i int) (context.Context, string, scma.IssueListOptions) {
+	fake.listIssuesMutex.RLock()
+	defer fake.listIssuesMutex.RUnlock()
+	argsForCall := fake.listIssuesArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeService) ListIssuesReturns(result1 []*scma.Issue, result2 error) {
+	fake.listIssuesMutex.Lock()
+	defer fake.listIssuesMutex.Unlock()
+	fake.ListIssuesStub = nil
+	fake.listIssuesReturns = struct {
+		result1 []*scma.Issue
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeService) ListIssuesReturnsOnCall(i int, result1 []*scma.Issue, result2 error) {
+	fake.listIssuesMutex.Lock()
+	defer fake.listIssuesMutex.Unlock()
+	fake.ListIssuesStub = nil
+	if fake.listIssuesReturnsOnCall == nil {
+		fake.listIssuesReturnsOnCall = make(map[int]struct {
+			result1 []*scma.Issue
+			result2 error
+		})
+	}
+	fake.listIssuesReturnsOnCall[i] = struct {
+		result1 []*scma.Issue
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *FakeService) ListPRChangesTool(arg1 context.Context, arg2 scm.PRNumberRequest) ([]scm.ChangeSummary, error) {
 	fake.listPRChangesToolMutex.Lock()
 	ret, specificReturn := fake.listPRChangesToolReturnsOnCall[len(fake.listPRChangesToolArgsForCall)]
@@ -1935,6 +2107,59 @@ func (fake *FakeService) MergePullRequestReturnsOnCall(i int, result1 error) {
 	}
 	fake.mergePullRequestReturnsOnCall[i] = struct {
 		result1 error
+	}{result1}
+}
+
+func (fake *FakeService) Provider() string {
+	fake.providerMutex.Lock()
+	ret, specificReturn := fake.providerReturnsOnCall[len(fake.providerArgsForCall)]
+	fake.providerArgsForCall = append(fake.providerArgsForCall, struct {
+	}{})
+	stub := fake.ProviderStub
+	fakeReturns := fake.providerReturns
+	fake.recordInvocation("Provider", []interface{}{})
+	fake.providerMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeService) ProviderCallCount() int {
+	fake.providerMutex.RLock()
+	defer fake.providerMutex.RUnlock()
+	return len(fake.providerArgsForCall)
+}
+
+func (fake *FakeService) ProviderCalls(stub func() string) {
+	fake.providerMutex.Lock()
+	defer fake.providerMutex.Unlock()
+	fake.ProviderStub = stub
+}
+
+func (fake *FakeService) ProviderReturns(result1 string) {
+	fake.providerMutex.Lock()
+	defer fake.providerMutex.Unlock()
+	fake.ProviderStub = nil
+	fake.providerReturns = struct {
+		result1 string
+	}{result1}
+}
+
+func (fake *FakeService) ProviderReturnsOnCall(i int, result1 string) {
+	fake.providerMutex.Lock()
+	defer fake.providerMutex.Unlock()
+	fake.ProviderStub = nil
+	if fake.providerReturnsOnCall == nil {
+		fake.providerReturnsOnCall = make(map[int]struct {
+			result1 string
+		})
+	}
+	fake.providerReturnsOnCall[i] = struct {
+		result1 string
 	}{result1}
 }
 

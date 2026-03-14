@@ -18,3 +18,4 @@ backend.tf
 examples/cloud-discovery/terraform.tfstate
 *.local.toml
 run-local.sh
+qa/bugs

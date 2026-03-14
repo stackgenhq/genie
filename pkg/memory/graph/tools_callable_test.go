@@ -32,7 +32,7 @@ var _ = Describe("graph tools via CallableTool", func() {
 		store = newSeededStore(ctx)
 		provider = graph.NewToolProvider(store)
 
-		tools := provider.GetTools()
+		tools := provider.GetTools(context.Background())
 		Expect(tools).To(HaveLen(2))
 
 		for _, t := range tools {

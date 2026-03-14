@@ -45,11 +45,12 @@ func (c *SlackConnector) Name() string {
 // returns them as NormalizedItems. Each message becomes one item with ID
 // "slack:channelID:timestamp" and content equal to the message text.
 func (c *SlackConnector) ListItems(ctx context.Context, scope datasource.Scope) ([]datasource.NormalizedItem, error) {
-	if len(scope.SlackChannelIDs) == 0 {
+	channelIDs := scope.Get("slack")
+	if len(channelIDs) == 0 {
 		return nil, nil
 	}
 	var out []datasource.NormalizedItem
-	for _, chID := range scope.SlackChannelIDs {
+	for _, chID := range channelIDs {
 		items, err := c.listChannelMessages(ctx, chID)
 		if err != nil {
 			return nil, fmt.Errorf("slack channel %s: %w", chID, err)

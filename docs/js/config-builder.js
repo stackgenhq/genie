@@ -29,7 +29,7 @@
         web_search: { provider: 'duckduckgo', google_api_key: 'GOOGLE_API_KEY', google_cx: 'GOOGLE_CSE_ID', bing_api_key: 'BING_API_KEY', serpapi: { api_key: 'SERPAPI_API_KEY', location: '', gl: '', hl: '' } },
         vector_memory: { persistence_dir: '', embedding_provider: 'dummy', api_key: 'OPENAI_API_KEY', ollama_url: '', ollama_model: '', huggingface_url: '', gemini_api_key: 'GOOGLE_API_KEY', gemini_model: '', vector_store_provider: 'inmemory', allowed_metadata_keys: [], qdrant: { host: '', port: 6334, api_key: 'QDRANT_API_KEY', use_tls: false, collection_name: '', dimension: 0 } },
         graph: { disabled: false, backend: 'inmemory', data_dir: '' },
-        data_sources: { enabled: false, sync_interval: '15m', search_keywords: [], gmail: { enabled: false, label_ids: [] }, gdrive: { enabled: false, folder_ids: [] }, github: { enabled: false, repos: [] }, gitlab: { enabled: false, repos: [] } },
+        data_sources: { enabled: false, sync_interval: '15m', search_keywords: [], gmail: { enabled: false, label_ids: [] }, gdrive: { enabled: false, folder_ids: [] }, github: { enabled: false, repos: [] }, gitlab: { enabled: false, repos: [] }, calendar: { enabled: false, calendar_ids: [] }, jira: { enabled: false, project_keys: [], mcp_server: '' }, confluence: { enabled: false, space_keys: [], mcp_server: '' }, servicenow: { enabled: false, table_names: [], mcp_server: '' } },
         doc_parser: { provider: '', docling: { base_url: '' }, gemini: { model: '' } },
         messenger: {
             platform: '', buffer_size: 100, allowed_senders: [],
@@ -39,7 +39,7 @@
             teams: { app_id: 'TEAMS_APP_ID', app_password: 'TEAMS_APP_PASSWORD', listen_addr: ':3978' },
             googlechat: {},
             whatsapp: {},
-            agui: { port: 8080, cors_origins: [], auth: { password: { enabled: false, value: '' }, jwt: { trusted_issuers: [], allowed_audiences: [] }, oidc: { issuer_url: '', client_id: '', client_secret: '', allowed_domains: [], redirect_url: '' }, api_keys: { keys: [] } }, rate_limit: 10, rate_burst: 20, max_concurrent: 100, max_body_bytes: 5242880 }
+            agui: { port: 8080, cors_origins: [], auth: { password: { enabled: false, value: '' }, jwt: { trusted_issuers: [], allowed_audiences: [] }, oidc: { issuer_url: '', client_id: '', client_secret: '', allowed_domains: [], redirect_url: '' }, api_keys: { keys: [] }, identity_resolver: { resolvers: [] } }, rate_limit: 10, rate_burst: 20, max_concurrent: 100, max_body_bytes: 5242880 }
         },
         notification: { slack: [], webhooks: [], discord: [], twilio: [] },
         scm: { provider: '', token: 'SCM_TOKEN', base_url: '' },
@@ -379,7 +379,8 @@
             connectionField,
             fieldText('Args (comma-separated)', (srv.args || []).join(', '), function (v) { srv.args = splitCSV(v); renderOutput(); }, '--port 9876', 'Extra arguments passed to the command (stdio only)'),
             fieldText('Include Tools (comma-sep)', (srv.include_tools || []).join(', '), function (v) { srv.include_tools = splitCSV(v); renderOutput(); }, null, 'Only use these specific tools from the server (leave empty for all)'),
-            fieldText('Exclude Tools (comma-sep)', (srv.exclude_tools || []).join(', '), function (v) { srv.exclude_tools = splitCSV(v); renderOutput(); }, null, 'Block these tools from being used — useful for restricting dangerous operations')
+            fieldText('Exclude Tools (comma-sep)', (srv.exclude_tools || []).join(', '), function (v) { srv.exclude_tools = splitCSV(v); renderOutput(); }, null, 'Block these tools from being used — useful for restricting dangerous operations'),
+            fieldText('Datasource Keyword Regex (comma-sep)', (srv.datasource_keyword_regex || []).join(', '), function (v) { srv.datasource_keyword_regex = splitCSV(v); renderOutput(); }, 'INCIDENT-.*, sprint-board', 'Only index MCP resources whose URI or name matches at least one regex pattern. Leave empty to index all resources.')
         ];
 
         if (srv.transport === 'stdio') {
@@ -412,7 +413,7 @@
     }
 
     function addMCPServer() {
-        state.mcp_servers.push({ name: '', transport: 'stdio', command: '', server_url: '', args: [], include_tools: [], exclude_tools: [], env: {}, headers: {} });
+        state.mcp_servers.push({ name: '', transport: 'stdio', command: '', server_url: '', args: [], include_tools: [], exclude_tools: [], datasource_keyword_regex: [], env: {}, headers: {} });
         renderAll();
     }
 
@@ -538,6 +539,34 @@
         fields.push(el('div', { className: 'col-span-2 text-sm font-medium text-gray-600 mt-2' }, 'Google Drive'));
         fields.push(fieldToggle('Drive enabled', ds.gdrive.enabled, function (v) { ds.gdrive.enabled = v; renderAll(); }, 'Sync Drive files from the given folders'));
         fields.push(fieldText('Drive Folder IDs (comma-separated)', (ds.gdrive.folder_ids || []).join(', '), function (v) { ds.gdrive.folder_ids = splitCSV(v); renderOutput(); }, 'root', 'Drive folder IDs to sync (e.g. root)'));
+
+        fields.push(el('div', { className: 'col-span-2 text-sm font-medium text-gray-600 mt-2' }, 'GitHub'));
+        fields.push(fieldToggle('GitHub enabled', ds.github.enabled, function (v) { ds.github.enabled = v; renderAll(); }, 'Sync GitHub repositories'));
+        fields.push(fieldText('GitHub Repos (comma-separated)', (ds.github.repos || []).join(', '), function (v) { ds.github.repos = splitCSV(v); renderOutput(); }, 'stackgenhq/genie', 'GitHub repos to sync (e.g. org/repo)'));
+
+        fields.push(el('div', { className: 'col-span-2 text-sm font-medium text-gray-600 mt-2' }, 'GitLab'));
+        fields.push(fieldToggle('GitLab enabled', ds.gitlab.enabled, function (v) { ds.gitlab.enabled = v; renderAll(); }, 'Sync GitLab repositories'));
+        fields.push(fieldText('GitLab Repos (comma-separated)', (ds.gitlab.repos || []).join(', '), function (v) { ds.gitlab.repos = splitCSV(v); renderOutput(); }, 'stackgenhq/genie', 'GitLab repos to sync (e.g. org/repo)'));
+
+        fields.push(el('div', { className: 'col-span-2 text-sm font-medium text-gray-600 mt-2' }, 'Google Calendar'));
+        fields.push(fieldToggle('Calendar enabled', ds.calendar.enabled, function (v) { ds.calendar.enabled = v; renderAll(); }, 'Sync Google Calendar events'));
+        fields.push(fieldText('Calendar IDs (comma-separated)', (ds.calendar.calendar_ids || []).join(', '), function (v) { ds.calendar.calendar_ids = splitCSV(v); renderOutput(); }, 'primary', 'Calendar IDs to sync (e.g. primary)'));
+
+        fields.push(el('div', { className: 'col-span-2 text-sm font-medium text-gray-600 mt-2' }, 'Jira'));
+        fields.push(fieldToggle('Jira enabled', ds.jira.enabled, function (v) { ds.jira.enabled = v; renderAll(); }, 'Sync Jira issues'));
+        fields.push(fieldText('Jira Project Keys (comma-separated)', (ds.jira.project_keys || []).join(', '), function (v) { ds.jira.project_keys = splitCSV(v); renderOutput(); }, 'ENG, OPS', 'Jira project keys to sync (e.g. ENG)'));
+        fields.push(fieldText('Jira MCP Server Name', ds.jira.mcp_server, function (v) { ds.jira.mcp_server = v; renderOutput(); }, 'jira', 'Name of the MCP server that provides Jira access'));
+
+        fields.push(el('div', { className: 'col-span-2 text-sm font-medium text-gray-600 mt-2' }, 'Confluence'));
+        fields.push(fieldToggle('Confluence enabled', ds.confluence.enabled, function (v) { ds.confluence.enabled = v; renderAll(); }, 'Sync Confluence pages'));
+        fields.push(fieldText('Confluence Space Keys (comma-separated)', (ds.confluence.space_keys || []).join(', '), function (v) { ds.confluence.space_keys = splitCSV(v); renderOutput(); }, 'ENG, KB', 'Confluence space keys to sync (e.g. ENG)'));
+        fields.push(fieldText('Confluence MCP Server Name', ds.confluence.mcp_server, function (v) { ds.confluence.mcp_server = v; renderOutput(); }, 'confluence', 'Name of the MCP server that provides Confluence access'));
+
+        fields.push(el('div', { className: 'col-span-2 text-sm font-medium text-gray-600 mt-2' }, 'ServiceNow'));
+        fields.push(fieldToggle('ServiceNow enabled', ds.servicenow.enabled, function (v) { ds.servicenow.enabled = v; renderAll(); }, 'Sync ServiceNow records'));
+        fields.push(fieldText('ServiceNow Table Names (comma-separated)', (ds.servicenow.table_names || []).join(', '), function (v) { ds.servicenow.table_names = splitCSV(v); renderOutput(); }, 'incident, problem', 'ServiceNow tables to sync (e.g. incident)'));
+        fields.push(fieldText('ServiceNow MCP Server Name', ds.servicenow.mcp_server, function (v) { ds.servicenow.mcp_server = v; renderOutput(); }, 'servicenow', 'Name of the MCP server that provides ServiceNow access'));
+
         c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
     }
 
@@ -1104,6 +1133,44 @@
             el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, [
                 fieldText('API Keys (comma-separated)', (au.api_keys.keys || []).join(', '), function (v) { au.api_keys.keys = splitCSV(v); renderOutput(); },
                     'secret-key-1, secret-key-2', 'Accepted via Authorization: Bearer <key> or X-API-Key: <key>.')
+            ]),
+            // ── Auth: Identity Resolvers ──
+            el('p', { className: 'text-xs text-gray-400 mb-3 mt-4' }, 'Identity Resolvers (JWT Claims, Static, No-op)'),
+            el('div', { className: 'space-y-4' }, [
+                (function() {
+                    var rContainer = el('div', {});
+                    au.identity_resolver.resolvers.forEach(function (r, i) {
+                        r.config = r.config || {};
+                        var fields = [
+                            fieldSelect('Type', r.type, ['jwt_claims', 'static', 'noop'], function (v) { r.type = v; renderAll(); }, 'Resolver strategy type')
+                        ];
+                        if (r.type === 'jwt_claims') {
+                            fields.push(fieldText('Role Claim', r.config.role_claim, function (v) { r.config.role_claim = v; renderOutput(); }, 'roles', 'JWT claim containing user role'));
+                            fields.push(fieldText('Groups Claim', r.config.groups_claim, function (v) { r.config.groups_claim = v; renderOutput(); }, 'groups', 'JWT claim containing user groups'));
+                            fields.push(fieldText('Department Claim', r.config.dept_claim, function (v) { r.config.dept_claim = v; renderOutput(); }, 'department', 'JWT claim containing department'));
+                        } else if (r.type === 'static') {
+                            var staticWrapper = el('div', { className: 'col-span-1 sm:col-span-2' });
+                            var staticTooltip = 'Map user IDs (emails) to their roles/groups. One per line: user@acme.com=role:admin,groups:infra|dev';
+                            staticWrapper.appendChild(el('label', { className: 'form-label' }, 'Static Users Mapping<span class="form-tooltip">' + staticTooltip + '</span>'));
+                            var staticTa = el('textarea', { className: 'form-input font-mono text-sm', rows: 3, placeholder: 'john@acme.com=role:admin,groups:infra|dev' });
+                            staticTa.value = envMapToLines(r.config);
+                            staticTa.addEventListener('input', function () { r.config = parseEnvLines(this.value); renderOutput(); });
+                            staticWrapper.appendChild(staticTa);
+                            fields.push(staticWrapper);
+                        }
+                        
+                        rContainer.appendChild(el('div', { className: 'repeatable-item' }, [
+                            el('div', { className: 'flex items-center justify-between mb-3' }, [
+                                el('span', { className: 'text-sm font-semibold text-gray-600' }, 'Resolver #' + (i + 1)),
+                                el('button', { className: 'btn-remove', onClick: function () { au.identity_resolver.resolvers.splice(i, 1); renderAll(); } }, '✕')
+                            ]),
+                            el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields)
+                        ]));
+                    });
+                    
+                    rContainer.appendChild(el('button', { className: 'btn-add mt-2', onClick: function () { au.identity_resolver.resolvers.push({ type: 'jwt_claims', config: {} }); renderAll(); } }, '+ Add Identity Resolver'));
+                    return rContainer;
+                })()
             ])
         ]));
     }
@@ -1203,6 +1270,7 @@
             }
             if (hasItems(srv.include_tools)) lines.push('include_tools = [' + srv.include_tools.filter(Boolean).map(q).join(', ') + ']');
             if (hasItems(srv.exclude_tools)) lines.push('exclude_tools = [' + srv.exclude_tools.filter(Boolean).map(q).join(', ') + ']');
+            if (hasItems(srv.datasource_keyword_regex)) lines.push('datasource_keyword_regex = [' + srv.datasource_keyword_regex.filter(Boolean).map(q).join(', ') + ']');
             lines.push('');
         });
     }
@@ -1271,7 +1339,7 @@
 
     function dataSourcesToToml(lines) {
         var ds = state.data_sources;
-        if (!ds.enabled && !ds.gmail.enabled && !ds.gdrive.enabled && !ds.github.enabled && !ds.gitlab.enabled) return;
+        if (!ds.enabled && !ds.gmail.enabled && !ds.gdrive.enabled && !ds.github.enabled && !ds.gitlab.enabled && !ds.calendar.enabled && !ds.jira.enabled && !ds.confluence.enabled && !ds.servicenow.enabled) return;
         lines.push('[data_sources]');
         lines.push('enabled = ' + (ds.enabled ? 'true' : 'false'));
         if (ds.sync_interval) lines.push('sync_interval = ' + q(ds.sync_interval));
@@ -1301,6 +1369,33 @@
             lines.push('[data_sources.gitlab]');
             lines.push('enabled = true');
             lines.push('repos = [' + ds.gitlab.repos.filter(Boolean).map(q).join(', ') + ']');
+        }
+        if (ds.calendar.enabled && hasItems(ds.calendar.calendar_ids)) {
+            lines.push('');
+            lines.push('[data_sources.calendar]');
+            lines.push('enabled = true');
+            lines.push('calendar_ids = [' + ds.calendar.calendar_ids.filter(Boolean).map(q).join(', ') + ']');
+        }
+        if (ds.jira.enabled && hasItems(ds.jira.project_keys)) {
+            lines.push('');
+            lines.push('[data_sources.jira]');
+            lines.push('enabled = true');
+            lines.push('project_keys = [' + ds.jira.project_keys.filter(Boolean).map(q).join(', ') + ']');
+            if (ds.jira.mcp_server) lines.push('mcp_server = ' + q(ds.jira.mcp_server));
+        }
+        if (ds.confluence.enabled && hasItems(ds.confluence.space_keys)) {
+            lines.push('');
+            lines.push('[data_sources.confluence]');
+            lines.push('enabled = true');
+            lines.push('space_keys = [' + ds.confluence.space_keys.filter(Boolean).map(q).join(', ') + ']');
+            if (ds.confluence.mcp_server) lines.push('mcp_server = ' + q(ds.confluence.mcp_server));
+        }
+        if (ds.servicenow.enabled && hasItems(ds.servicenow.table_names)) {
+            lines.push('');
+            lines.push('[data_sources.servicenow]');
+            lines.push('enabled = true');
+            lines.push('table_names = [' + ds.servicenow.table_names.filter(Boolean).map(q).join(', ') + ']');
+            if (ds.servicenow.mcp_server) lines.push('mcp_server = ' + q(ds.servicenow.mcp_server));
         }
         lines.push('');
     }
@@ -1743,6 +1838,23 @@
             lines.push('keys = [' + au.api_keys.keys.filter(Boolean).map(q).join(', ') + ']');
             lines.push('');
         }
+        if (au.identity_resolver.resolvers && au.identity_resolver.resolvers.length > 0) {
+            lines.push('[messenger.agui.auth.identity_resolver]');
+            au.identity_resolver.resolvers.forEach(function (r, i) {
+                lines.push('  [[messenger.agui.auth.identity_resolver.resolvers]]');
+                lines.push('  type = ' + q(r.type));
+                if (r.config && Object.keys(r.config).length > 0) {
+                    var configKeys = Object.keys(r.config).filter(function(k) { return r.config[k] !== ''; });
+                    if (configKeys.length > 0) {
+                        lines.push('  [messenger.agui.auth.identity_resolver.resolvers.config]');
+                        configKeys.forEach(function(k) {
+                            lines.push('  ' + k + ' = ' + q(r.config[k]));
+                        });
+                    }
+                }
+            });
+            lines.push('');
+        }
     }
 
     function personaToToml(lines) {
@@ -1927,6 +2039,10 @@
                 lines.push('      exclude_tools:');
                 srv.exclude_tools.filter(Boolean).forEach(function (t) { lines.push('        - ' + t); });
             }
+            if (hasItems(srv.datasource_keyword_regex)) {
+                lines.push('      datasource_keyword_regex:');
+                srv.datasource_keyword_regex.filter(Boolean).forEach(function (r) { lines.push('        - ' + yq(r)); });
+            }
         });
         lines.push('');
     }
@@ -1994,7 +2110,7 @@
 
     function dataSourcesToYaml(lines) {
         var ds = state.data_sources;
-        if (!ds.enabled && !ds.gmail.enabled && !ds.gdrive.enabled && !ds.github.enabled && !ds.gitlab.enabled) return;
+        if (!ds.enabled && !ds.gmail.enabled && !ds.gdrive.enabled && !ds.github.enabled && !ds.gitlab.enabled && !ds.calendar.enabled && !ds.jira.enabled && !ds.confluence.enabled && !ds.servicenow.enabled) return;
         lines.push('data_sources:');
         lines.push('  enabled: ' + (ds.enabled ? 'true' : 'false'));
         if (ds.sync_interval) lines.push('  sync_interval: ' + yq(ds.sync_interval));
@@ -2025,6 +2141,33 @@
             lines.push('    enabled: true');
             lines.push('    repos:');
             ds.gitlab.repos.filter(Boolean).forEach(function (r) { lines.push('      - ' + yq(r)); });
+        }
+        if (ds.calendar.enabled && hasItems(ds.calendar.calendar_ids)) {
+            lines.push('  calendar:');
+            lines.push('    enabled: true');
+            lines.push('    calendar_ids:');
+            ds.calendar.calendar_ids.filter(Boolean).forEach(function (id) { lines.push('      - ' + yq(id)); });
+        }
+        if (ds.jira.enabled && hasItems(ds.jira.project_keys)) {
+            lines.push('  jira:');
+            lines.push('    enabled: true');
+            lines.push('    project_keys:');
+            ds.jira.project_keys.filter(Boolean).forEach(function (k) { lines.push('      - ' + yq(k)); });
+            if (ds.jira.mcp_server) lines.push('    mcp_server: ' + yq(ds.jira.mcp_server));
+        }
+        if (ds.confluence.enabled && hasItems(ds.confluence.space_keys)) {
+            lines.push('  confluence:');
+            lines.push('    enabled: true');
+            lines.push('    space_keys:');
+            ds.confluence.space_keys.filter(Boolean).forEach(function (k) { lines.push('      - ' + yq(k)); });
+            if (ds.confluence.mcp_server) lines.push('    mcp_server: ' + yq(ds.confluence.mcp_server));
+        }
+        if (ds.servicenow.enabled && hasItems(ds.servicenow.table_names)) {
+            lines.push('  servicenow:');
+            lines.push('    enabled: true');
+            lines.push('    table_names:');
+            ds.servicenow.table_names.filter(Boolean).forEach(function (n) { lines.push('      - ' + yq(n)); });
+            if (ds.servicenow.mcp_server) lines.push('    mcp_server: ' + yq(ds.servicenow.mcp_server));
         }
         lines.push('');
     }
@@ -2516,6 +2659,22 @@
                     au.oidc.allowed_domains.filter(Boolean).forEach(function (d) { lines.push(ai2 + '  - ' + yq(d)); });
                 }
                 if (au.oidc.redirect_url) lines.push(ai2 + 'redirect_url: ' + yq(au.oidc.redirect_url));
+            }
+            if (au.identity_resolver.resolvers && au.identity_resolver.resolvers.length > 0) {
+                lines.push(ai + 'identity_resolver:');
+                lines.push(ai2 + 'resolvers:');
+                au.identity_resolver.resolvers.forEach(function (r) {
+                    lines.push(ai2 + '  - type: ' + yq(r.type));
+                    if (r.config && Object.keys(r.config).length > 0) {
+                        var configKeys = Object.keys(r.config).filter(function(k) { return r.config[k] !== ''; });
+                        if (configKeys.length > 0) {
+                            lines.push(ai2 + '    config:');
+                            configKeys.forEach(function(k) {
+                                lines.push(ai2 + '      ' + k + ': ' + yq(r.config[k]));
+                            });
+                        }
+                    }
+                });
             }
         }
     }

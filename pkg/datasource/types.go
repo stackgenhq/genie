@@ -93,36 +93,37 @@ func (item *NormalizedItem) SourceRefID() string {
 	return item.ID
 }
 
-// Scope is the source-specific scope passed to ListItems. Each connector
-// defines what scope it expects (e.g. folder IDs for Drive, channel IDs for
-// Slack). Config is decoded into these shapes; the sync job passes the
-// appropriate scope when calling ListItems.
-type Scope struct {
-	// GDriveFolderIDs limits Drive sync to these folder IDs (empty = no Drive scope).
-	GDriveFolderIDs []string
-	// GmailLabelIDs limits Gmail sync to these label IDs (empty = no Gmail scope).
-	GmailLabelIDs []string
-	// SlackChannelIDs limits Slack sync to these channel IDs (empty = no Slack scope).
-	SlackChannelIDs []string
-	// LinearTeamIDs limits Linear sync to these team IDs (empty = no Linear scope).
-	LinearTeamIDs []string
-	// GitHubRepos limits GitHub sync to these "owner/repo" strings (empty = no GitHub scope).
-	GitHubRepos []string
-	// GitLabRepos limits GitLab sync to these "owner/repo" or project path strings (empty = no GitLab scope).
-	GitLabRepos []string
-	// CalendarIDs limits Calendar sync to these calendar IDs (empty = no Calendar scope).
-	CalendarIDs []string
+// SourceConfig is the interface that all data source configuration types must
+// implement. It enables generic scope building and source enumeration without
+// per-source switch statements. Adding a new data source only requires a new
+// config type that implements this interface.
+type SourceConfig interface {
+	// IsEnabled returns true when this source is turned on and has meaningful scope.
+	IsEnabled() bool
+	// ScopeValues returns the scope items for this source (e.g. folder IDs,
+	// channel IDs, project keys). An empty slice means no scope is configured.
+	ScopeValues() []string
 }
 
-// ReposForSCM returns the repo list for the given SCM source name (e.g. "github", "gitlab").
-// Used by the single go-scm-backed SCM connector so one implementation serves all SCM providers.
-func (s Scope) ReposForSCM(sourceName string) []string {
-	switch sourceName {
-	case "github":
-		return s.GitHubRepos
-	case "gitlab":
-		return s.GitLabRepos
-	default:
+// Scope is the source-specific scope passed to ListItems. It uses a generic
+// map keyed by source name so adding new sources requires no struct changes.
+// Use NewScope to create and Get to read.
+type Scope struct {
+	// Items maps source name → scope values (e.g. "gdrive" → folder IDs,
+	// "slack" → channel IDs, "jira" → project keys).
+	Items map[string][]string
+}
+
+// NewScope creates a Scope for a single source.
+func NewScope(source string, values []string) Scope {
+	return Scope{Items: map[string][]string{source: values}}
+}
+
+// Get returns the scope values for the given source name. Returns nil when the
+// source has no scope configured.
+func (s Scope) Get(source string) []string {
+	if s.Items == nil {
 		return nil
 	}
+	return s.Items[source]
 }

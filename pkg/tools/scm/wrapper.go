@@ -17,7 +17,8 @@ import (
 // It provides a uniform interface for repository and pull-request operations
 // across all supported SCM providers (GitHub, GitLab, Bitbucket).
 type scmWrapper struct {
-	client *go_scm.Client
+	client   *go_scm.Client
+	provider string
 }
 
 // ── Core Methods ────────────────────────────────────────────────────────
@@ -84,6 +85,24 @@ func (s *scmWrapper) ListPullRequestComments(ctx context.Context, repo string, n
 		return nil, fmt.Errorf("scm: failed to list PR comments for #%d in %s: %w", number, repo, err)
 	}
 	return comments, nil
+}
+
+// ListIssues returns issues for the given repository.
+func (s *scmWrapper) ListIssues(ctx context.Context, repo string, opts go_scm.IssueListOptions) ([]*go_scm.Issue, error) {
+	issues, _, err := s.client.Issues.List(ctx, repo, opts)
+	if err != nil {
+		return nil, fmt.Errorf("scm: failed to list issues in %s: %w", repo, err)
+	}
+	return issues, nil
+}
+
+// ListCommits returns recent commits for the given repository.
+func (s *scmWrapper) ListCommits(ctx context.Context, repo string, opts go_scm.CommitListOptions) ([]*go_scm.Commit, error) {
+	commits, _, err := s.client.Git.ListCommits(ctx, repo, opts)
+	if err != nil {
+		return nil, fmt.Errorf("scm: failed to list commits in %s: %w", repo, err)
+	}
+	return commits, nil
 }
 
 // CreatePullRequestComment adds a comment to a pull request.

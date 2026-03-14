@@ -358,7 +358,7 @@ var _ = Describe("InMemoryStore", func() {
 var _ = Describe("ToolProvider", func() {
 	It("returns no tools when store is nil", func() {
 		provider := graph.NewToolProvider(nil)
-		tools := provider.GetTools()
+		tools := provider.GetTools(context.Background())
 		Expect(tools).To(BeNil())
 	})
 
@@ -367,7 +367,7 @@ var _ = Describe("ToolProvider", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer func() { _ = store.Close(context.Background()) }()
 		provider := graph.NewToolProvider(store)
-		tools := provider.GetTools()
+		tools := provider.GetTools(context.Background())
 		Expect(tools).To(HaveLen(2))
 		names := make([]string, len(tools))
 		for i, t := range tools {

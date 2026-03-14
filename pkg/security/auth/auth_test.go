@@ -4,9 +4,13 @@
 package auth_test
 
 import (
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,7 +22,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/security/auth"
 )
 
-// buildJWT creates a minimal unsigned JWT with the given claims for testing.
+// buildJWT creates a minimal unsigned JWT with the given claims for testing (invalid signature).
 func buildJWT(header map[string]string, claims map[string]interface{}) string {
 	headerJSON, _ := json.Marshal(header)
 	claimsJSON, _ := json.Marshal(claims)
@@ -26,6 +30,38 @@ func buildJWT(header map[string]string, claims map[string]interface{}) string {
 	c := base64.RawURLEncoding.EncodeToString(claimsJSON)
 	sig := base64.RawURLEncoding.EncodeToString([]byte("fake-signature"))
 	return fmt.Sprintf("%s.%s.%s", h, c, sig)
+}
+
+// generateTestJWK creates an RSA key and returns its JWK representation and the private key.
+func generateTestJWK() (*rsa.PrivateKey, map[string]interface{}) {
+	priv, _ := rsa.GenerateKey(rand.Reader, 2048)
+
+	return priv, map[string]interface{}{
+		"kid": "key-1",
+		"kty": "RSA",
+		"alg": "RS256",
+		"n":   base64.RawURLEncoding.EncodeToString(priv.N.Bytes()),
+		"e":   base64.RawURLEncoding.EncodeToString(big.NewInt(int64(priv.E)).Bytes()),
+	}
+}
+
+// signJWT signs the claims using the provided RSA private key.
+func signJWT(priv *rsa.PrivateKey, claims map[string]interface{}) string {
+	header := map[string]interface{}{
+		"alg": "RS256",
+		"kid": "key-1",
+		"typ": "JWT",
+	}
+	hJSON, _ := json.Marshal(header)
+	cJSON, _ := json.Marshal(claims)
+
+	msg := base64.RawURLEncoding.EncodeToString(hJSON) + "." + base64.RawURLEncoding.EncodeToString(cJSON)
+
+	hashed := crypto.SHA256.New()
+	hashed.Write([]byte(msg))
+	sig, _ := rsa.SignPKCS1v15(rand.Reader, priv, crypto.SHA256, hashed.Sum(nil))
+
+	return msg + "." + base64.RawURLEncoding.EncodeToString(sig)
 }
 
 var _ = Describe("Auth Middleware", func() {
@@ -129,14 +165,15 @@ var _ = Describe("Auth Middleware", func() {
 	Describe("JWT/OIDC authentication", func() {
 		var jwksServer *httptest.Server
 		var oidcServer *httptest.Server
+		var privateKey *rsa.PrivateKey
+		var jwk map[string]interface{}
 
 		BeforeEach(func() {
+			privateKey, jwk = generateTestJWK()
 			jwksServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(map[string]interface{}{
-					"keys": []map[string]string{
-						{"kid": "key-1", "kty": "RSA", "alg": "RS256", "n": "test-n", "e": "test-e"},
-					},
+					"keys": []map[string]interface{}{jwk},
 				})
 			}))
 			oidcServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -210,6 +247,42 @@ var _ = Describe("Auth Middleware", func() {
 			Expect(doRequest(mw, req).Code).To(Equal(http.StatusUnauthorized))
 		})
 
+		It("accepts valid JWTs and injects claims into context", func() {
+			token := signJWT(privateKey, map[string]interface{}{
+				"iss":        oidcServer.URL,
+				"exp":        time.Now().Add(time.Hour).Unix(),
+				"iat":        time.Now().Unix(),
+				"aud":        "test-client",
+				"sub":        "user123",
+				"email":      "test@example.com",
+				"name":       "Test User",
+				"roles":      "admin",
+				"department": "engineering",
+			})
+			mw := auth.Middleware(auth.Config{
+				JWT: auth.JWTConfig{TrustedIssuers: []string{oidcServer.URL}},
+			})
+
+			var capturedClaims map[string]any
+
+			// We need a custom handler to capture the context
+			testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				capturedClaims = auth.GetClaims(r.Context())
+				w.WriteHeader(http.StatusOK)
+			})
+
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+
+			rec := httptest.NewRecorder()
+			mw(testHandler).ServeHTTP(rec, req)
+
+			Expect(rec.Code).To(Equal(http.StatusOK))
+			Expect(capturedClaims).NotTo(BeNil())
+			Expect(capturedClaims["roles"]).To(Equal("admin"))
+			Expect(capturedClaims["email"]).To(Equal("test@example.com"))
+			Expect(capturedClaims["department"]).To(Equal("engineering"))
+		})
 	})
 
 	Describe("Middleware with OIDC", func() {

@@ -18,7 +18,7 @@ import (
 // in order to be passed to NewRegistry. Each provider is responsible for
 // constructing its own tools from whatever dependencies it holds.
 type ToolProviders interface {
-	GetTools() []tool.Tool
+	GetTools(ctx context.Context) []tool.Tool
 }
 
 // CloneableToolProvider represents a provider with epigenetic context that
@@ -50,22 +50,18 @@ func NewRegistry(ctx context.Context, providers ...ToolProviders) *Registry {
 		providers: providers,
 	}
 
-	log.Info("Tool registry initialized", "total", len(r.getToolsMap()))
+	log.Info("Tool registry initialized", "total", len(r.getToolsMap(ctx)))
 
 	return r
 }
 
 // getToolsMap rebuilds the aggregated tool map by calling each provider's
 // GetTools() on every access. This is intentionally uncached so that dynamic
-// providers (e.g. SkillToolProvider) can reflect newly loaded skills instantly.
-//
-// IMPORTANT: This is a hot path — it is called on every GetTools/GetTool/
-// ToolNames/etc. invocation. Provider.GetTools() implementations MUST be cheap
-// and side-effect free (no allocations of new tool instances, no I/O).
-func (r *Registry) getToolsMap() map[string]tool.Tool {
+// providers (e.g. SkillToolProvider, MCP) can reflect changes instantly.
+func (r *Registry) getToolsMap(ctx context.Context) map[string]tool.Tool {
 	raw := make(map[string]tool.Tool)
 	for _, p := range r.providers {
-		for _, t := range p.GetTools() {
+		for _, t := range p.GetTools(ctx) {
 			raw[t.Declaration().Name] = t
 		}
 	}
@@ -90,8 +86,8 @@ func (r *Registry) getToolsMap() map[string]tool.Tool {
 	return filtered
 }
 
-func (r *Registry) GetTool(name string) (tool.Tool, error) {
-	tools := r.getToolsMap()
+func (r *Registry) GetTool(ctx context.Context, name string) (tool.Tool, error) {
+	tools := r.getToolsMap(ctx)
 	if t, ok := tools[name]; ok {
 		return t, nil
 	}
@@ -109,8 +105,8 @@ func (r *Registry) FilterDenied(ctx context.Context, cfg hitl.Config) *Registry 
 	r2.hasCfg = true
 
 	// Log metrics
-	before := len(r.getToolsMap())
-	after := len(r2.getToolsMap())
+	before := len(r.getToolsMap(ctx))
+	after := len(r2.getToolsMap(ctx))
 	log.Info("Tool registry filtered",
 		"before", before,
 		"after", after,
@@ -122,8 +118,8 @@ func (r *Registry) FilterDenied(ctx context.Context, cfg hitl.Config) *Registry 
 // GetTools returns the full set of available (non-denied) tools.
 // Satisfies the ToolProviders interface so a Registry can be passed
 // as a provider to another Registry (e.g. codeOwner tools).
-func (r *Registry) GetTools() []tool.Tool {
-	m := r.getToolsMap()
+func (r *Registry) GetTools(ctx context.Context) []tool.Tool {
+	m := r.getToolsMap(ctx)
 	tools := make([]tool.Tool, 0, len(m))
 	for _, t := range m {
 		tools = append(tools, t)
@@ -134,13 +130,13 @@ func (r *Registry) GetTools() []tool.Tool {
 // AllTools is a convenience alias for GetTools. Prefer AllTools when
 // calling from application code for readability; GetTools exists to
 // satisfy the ToolProviders interface.
-func (r *Registry) AllTools() Tools {
-	return r.GetTools()
+func (r *Registry) AllTools(ctx context.Context) Tools {
+	return r.GetTools(ctx)
 }
 
 // ToolNames returns the names of all available tools (for logging).
-func (r *Registry) ToolNames() []string {
-	m := r.getToolsMap()
+func (r *Registry) ToolNames(ctx context.Context) []string {
+	m := r.getToolsMap(ctx)
 	names := make([]string, 0, len(m))
 	for name := range m {
 		names = append(names, name)
@@ -148,8 +144,8 @@ func (r *Registry) ToolNames() []string {
 	return names
 }
 
-func (r *Registry) GetToolDescriptions() []string {
-	m := r.getToolsMap()
+func (r *Registry) GetToolDescriptions(ctx context.Context) []string {
+	m := r.getToolsMap(ctx)
 	descriptions := make([]string, 0, len(m))
 	for _, t := range m {
 		descriptions = append(descriptions, fmt.Sprintf("%s: %s", t.Declaration().Name, t.Declaration().Description))
@@ -241,8 +237,8 @@ func (r *Registry) Include(names ...string) *Registry {
 // or simply unknown. Used by create_agent to detect when the LLM
 // requests tools that the config has blocked, so it can return an
 // error instead of creating a zero-tool sub-agent.
-func (r *Registry) UnavailableNames(names []string) []string {
-	available := r.getToolsMap()
+func (r *Registry) UnavailableNames(ctx context.Context, names []string) []string {
+	available := r.getToolsMap(ctx)
 	var missing []string
 	for _, n := range names {
 		if _, ok := available[n]; !ok {

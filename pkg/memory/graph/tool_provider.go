@@ -3,7 +3,11 @@
 
 package graph
 
-import "trpc.group/trpc-go/trpc-agent-go/tool"
+import (
+	"context"
+
+	"trpc.group/trpc-go/trpc-agent-go/tool"
+)
 
 // ToolProvider wraps an IStore and satisfies the tools.ToolProviders
 // interface so graph tools can be passed to tools.NewRegistry. Pass a non-nil
@@ -21,7 +25,7 @@ func NewToolProvider(store IStore) *ToolProvider {
 
 // GetTools returns graph_store and graph_query when store is non-nil. Returns nil
 // when store is nil so that disabled graph does not add tools.
-func (p *ToolProvider) GetTools() []tool.Tool {
+func (p *ToolProvider) GetTools(_ context.Context) []tool.Tool {
 	if p.store == nil {
 		return nil
 	}

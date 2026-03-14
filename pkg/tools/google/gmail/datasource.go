@@ -59,12 +59,13 @@ func (c *GmailConnector) ListItemsSince(ctx context.Context, scope datasource.Sc
 }
 
 func (c *GmailConnector) listItemsWithQuery(ctx context.Context, scope datasource.Scope, querySuffix string) ([]datasource.NormalizedItem, error) {
-	if len(scope.GmailLabelIDs) == 0 {
+	labelIDs := scope.Get("gmail")
+	if len(labelIDs) == 0 {
 		return nil, nil
 	}
 	seen := make(map[string]struct{})
 	var out []datasource.NormalizedItem
-	for _, labelID := range scope.GmailLabelIDs {
+	for _, labelID := range labelIDs {
 		query := "label:" + labelID + querySuffix
 		msgs, err := c.svc.ListMessages(ctx, query, gmailListLimit)
 		if err != nil {

@@ -37,7 +37,7 @@ import (
 type Tools []tool.Tool
 
 // GetTools returns the wrapped slice of tools.
-func (s Tools) GetTools() []tool.Tool { return s }
+func (s Tools) GetTools(_ context.Context) []tool.Tool { return s }
 
 // FileToolProvider wraps a trpc-agent-go file.ToolSet and satisfies the
 // ToolProviders interface. The tools are pre-computed at construction time
@@ -57,7 +57,7 @@ func NewFileToolProvider(ctx context.Context, workingDir string) *FileToolProvid
 }
 
 // GetTools returns the pre-computed file tools.
-func (p *FileToolProvider) GetTools() []tool.Tool {
+func (p *FileToolProvider) GetTools(_ context.Context) []tool.Tool {
 	return p.tools
 }
 
@@ -81,7 +81,7 @@ func NewShellToolProvider(workingDir string, secrets security.SecretProvider, co
 }
 
 // GetTools returns the shell tool backed by a local code executor.
-func (p *ShellToolProvider) GetTools() []tool.Tool {
+func (p *ShellToolProvider) GetTools(_ context.Context) []tool.Tool {
 	timeout := p.config.Timeout
 	if timeout <= 0 {
 		timeout = 10 * time.Minute
@@ -105,7 +105,7 @@ func NewPensieveToolProvider() *PensieveToolProvider {
 }
 
 // GetTools returns the context management tools.
-func (p *PensieveToolProvider) GetTools() []tool.Tool {
+func (p *PensieveToolProvider) GetTools(_ context.Context) []tool.Tool {
 	return ctxtools.Tools()
 }
 
@@ -186,7 +186,7 @@ func (p *SkillToolProvider) Clone() ToolProviders {
 }
 
 // GetTools returns the tools needed for agents to dynamically discover and load skills.
-func (p *SkillToolProvider) GetTools() []tool.Tool {
+func (p *SkillToolProvider) GetTools(_ context.Context) []tool.Tool {
 	tools := []tool.Tool{
 		dynamicskills.DiscoverSkillsTool(p.loader.Registry()),
 		dynamicskills.LoadSkillTool(p.loader),

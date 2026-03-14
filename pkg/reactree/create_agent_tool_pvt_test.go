@@ -168,7 +168,7 @@ var _ = Describe("CreateAgentRequest", func() {
 	Describe("guards", func() {
 		It("isRetrievalOnly returns false for empty registry", func() {
 			cat := &createAgentTool{}
-			Expect(cat.isRetrievalOnly(tools.NewRegistry(context.Background()))).To(BeFalse())
+			Expect(cat.isRetrievalOnly(context.Background(), tools.NewRegistry(context.Background()))).To(BeFalse())
 		})
 
 		It("hasVectorBackedTools returns true for memory_search", func() {
@@ -176,7 +176,7 @@ var _ = Describe("CreateAgentRequest", func() {
 			ft := &toolsfakes.FakeCallableTool{}
 			ft.DeclarationReturns(&tool.Declaration{Name: "memory_search"})
 			reg := tools.NewRegistry(context.Background(), &testToolProvider{t: []tool.Tool{ft}})
-			Expect(cat.hasVectorBackedTools(reg)).To(BeTrue())
+			Expect(cat.hasVectorBackedTools(context.Background(), reg)).To(BeTrue())
 		})
 
 		It("isMemoryEmpty returns true when vectorStore is nil", func() {

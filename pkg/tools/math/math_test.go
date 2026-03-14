@@ -133,7 +133,7 @@ var _ = Describe("Calculator Tool (expression evaluator)", func() {
 var _ = Describe("ToolProvider", func() {
 	It("returns the expected set of tools", func() {
 		p := NewToolProvider()
-		tools := p.GetTools()
+		tools := p.GetTools(context.Background())
 
 		Expect(tools).To(HaveLen(2))
 

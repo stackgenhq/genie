@@ -185,7 +185,7 @@ func ExecutePlan(ctx context.Context, plan Plan, cfg OrchestratorConfig) (Orches
 		// Scope tools to only what this step needs.
 		// If the step specifies tools, use Include to filter.
 		// Otherwise, all tools are available.
-		tools := cfg.ToolRegistry.Include(stepCopy.Tools...).AllTools()
+		tools := cfg.ToolRegistry.Include(stepCopy.Tools...).AllTools(ctx)
 
 		// Wrap tools with HITL approval, audit logging, and caching.
 		// This ensures plan step agents go through the same approval gate
@@ -366,7 +366,7 @@ func executeSingleStep(ctx context.Context, step PlanStep, cfg OrchestratorConfi
 	var capturedOutput string
 	var capturedStatus NodeStatus
 
-	toolsToUse := cfg.ToolRegistry.AllTools()
+	toolsToUse := cfg.ToolRegistry.AllTools(ctx)
 
 	// Working memory is injected into the prompt automatically
 	// (read) and stored back after agent completion (write).

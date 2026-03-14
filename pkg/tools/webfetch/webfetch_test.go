@@ -186,7 +186,7 @@ var _ = Describe("HTML helpers", func() {
 var _ = Describe("Web Fetch ToolProvider", func() {
 	It("returns the expected tool", func() {
 		p := NewToolProvider()
-		tools := p.GetTools()
+		tools := p.GetTools(context.Background())
 		Expect(tools).To(HaveLen(1))
 		Expect(tools[0].Declaration().Name).To(Equal("web_fetch"))
 	})

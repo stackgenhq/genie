@@ -24,7 +24,7 @@ var _ = Describe("Providers", func() {
 			inner := tools.Tools(nil)
 
 			// Act
-			got := inner.GetTools()
+			got := inner.GetTools(context.Background())
 
 			// Assert
 			Expect(got).To(BeNil())
@@ -45,7 +45,7 @@ var _ = Describe("Providers", func() {
 
 				// Assert
 				Expect(provider).NotTo(BeNil())
-				got := provider.GetTools()
+				got := provider.GetTools(context.Background())
 				Expect(got).NotTo(BeEmpty(), "file tools should be populated for a valid directory")
 			})
 		})
@@ -60,8 +60,8 @@ var _ = Describe("Providers", func() {
 				Expect(provider).NotTo(BeNil())
 
 				// Act
-				first := provider.GetTools()
-				second := provider.GetTools()
+				first := provider.GetTools(context.Background())
+				second := provider.GetTools(context.Background())
 
 				// Assert
 				Expect(first).To(HaveLen(len(second)))
@@ -76,7 +76,7 @@ var _ = Describe("Providers", func() {
 			provider := tools.NewShellToolProvider("/tmp", &securityfakes.FakeSecretProvider{}, unix.ShellToolConfig{})
 
 			// Act
-			got := provider.GetTools()
+			got := provider.GetTools(context.Background())
 
 			// Assert
 			Expect(got).To(HaveLen(1))
@@ -87,7 +87,7 @@ var _ = Describe("Providers", func() {
 			provider := tools.NewShellToolProvider("/tmp", &securityfakes.FakeSecretProvider{}, unix.ShellToolConfig{})
 
 			// Act
-			got := provider.GetTools()
+			got := provider.GetTools(context.Background())
 
 			// Assert
 			Expect(got[0].Declaration().Name).To(Equal("run_shell"))
@@ -101,7 +101,7 @@ var _ = Describe("Providers", func() {
 			provider := tools.NewPensieveToolProvider()
 
 			// Act
-			got := provider.GetTools()
+			got := provider.GetTools(context.Background())
 
 			// Assert
 			Expect(got).NotTo(BeEmpty())
@@ -112,7 +112,7 @@ var _ = Describe("Providers", func() {
 			provider := tools.NewPensieveToolProvider()
 
 			// Act
-			got := provider.GetTools()
+			got := provider.GetTools(context.Background())
 
 			// Assert — check_budget is one of the Pensieve tools
 			names := make([]string, 0, len(got))
@@ -141,7 +141,7 @@ var _ = Describe("Providers", func() {
 				// but skill_list_docs will yield an empty list at runtime.
 				Expect(err).NotTo(HaveOccurred())
 				Expect(provider).NotTo(BeNil())
-				Expect(provider.GetTools()).NotTo(BeEmpty())
+				Expect(provider.GetTools(context.Background())).NotTo(BeEmpty())
 			})
 		})
 
@@ -192,7 +192,7 @@ var _ = Describe("Providers", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				// Act
-				got := provider.GetTools()
+				got := provider.GetTools(context.Background())
 
 				// Assert — discover_skills, load_skill, unload_skill
 				Expect(got).To(HaveLen(3))
@@ -207,7 +207,7 @@ var _ = Describe("Providers", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				// Act
-				got := provider.GetTools()
+				got := provider.GetTools(context.Background())
 
 				// Assert
 				names := make([]string, 0, len(got))
@@ -294,7 +294,7 @@ var _ = Describe("Providers", func() {
 				Expect(cloned).NotTo(BeIdenticalTo(provider))
 
 				// Cloned provider should return the same base tools (discover_skills, load_skill, unload_skill)
-				clonedTools := cloned.GetTools()
+				clonedTools := cloned.GetTools(context.Background())
 				Expect(clonedTools).To(HaveLen(3))
 			})
 		})

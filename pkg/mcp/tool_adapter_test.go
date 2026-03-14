@@ -562,7 +562,7 @@ var _ = Describe("Client", func() {
 			client := mcp.NewClientForTest()
 
 			// Act
-			tools := client.GetTools()
+			tools := client.GetTools(context.Background())
 
 			// Assert
 			Expect(tools).To(BeEmpty())
@@ -617,8 +617,7 @@ var _ = Describe("Client", func() {
 				// Assert
 				Expect(err).NotTo(HaveOccurred())
 				Expect(client).NotTo(BeNil())
-				Expect(client.GetTools()).To(BeEmpty())
-				client.Close(ctx)
+				Expect(client.GetTools(context.Background())).To(BeEmpty())
 			})
 		})
 	})

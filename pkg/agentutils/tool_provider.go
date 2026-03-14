@@ -3,7 +3,11 @@
 
 package agentutils
 
-import "trpc.group/trpc-go/trpc-agent-go/tool"
+import (
+	"context"
+
+	"trpc.group/trpc-go/trpc-agent-go/tool"
+)
 
 // SummarizerToolProvider wraps a Summarizer and satisfies the
 // tools.ToolProviders interface so the summarize_content tool can be
@@ -18,6 +22,6 @@ func NewSummarizerToolProvider(s Summarizer) *SummarizerToolProvider {
 }
 
 // GetTools returns the summarizer tool.
-func (p *SummarizerToolProvider) GetTools() []tool.Tool {
+func (p *SummarizerToolProvider) GetTools(_ context.Context) []tool.Tool {
 	return []tool.Tool{NewSummarizerTool(p.summarizer)}
 }

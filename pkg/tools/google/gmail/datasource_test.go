@@ -64,7 +64,7 @@ var _ = Describe("GmailConnector", func() {
 				},
 			}
 			conn := gmail.NewGmailConnector(mock)
-			scope := datasource.Scope{GmailLabelIDs: []string{"INBOX"}}
+			scope := datasource.NewScope("gmail", []string{"INBOX"})
 
 			items, err := conn.ListItems(ctx, scope)
 			Expect(err).NotTo(HaveOccurred())

@@ -164,12 +164,20 @@ func LoopDetectionMiddleware(cfg ...LoopDetectionConfig) Middleware {
 func (m *loopDetectionMiddleware) Wrap(next Handler) Handler {
 	return func(ctx context.Context, tc *ToolCallContext) (any, error) {
 		if m.exemptTools.isExempt(tc.ToolName) {
-			return next(ctx, tc)
+			result, err := next(ctx, tc)
+			if err == nil && retrievalTools[tc.ToolName] {
+				m.trackEmptyResult(ctx, tc.ToolName, result)
+			}
+			return result, err
 		}
 
 		// Internal tasks (e.g. graph learn) legitimately call the same tool
 		// many times with different arguments. Skip same-tool loop detection
 		// but keep identical-args loop detection to guard against true loops.
+		// Retrieval tools (memory_search, graph_query) also skip same-tool
+		// loop detection because they legitimately query with different terms
+		// during exploration. Their dedicated empty-result tracking
+		// (maxConsecutiveEmptyResults) provides the correct safety mechanism.
 		isInternal := orchestratorcontext.IsInternalTask(ctx)
 
 		argsStr := string(tc.Args)
@@ -180,7 +188,7 @@ func (m *loopDetectionMiddleware) Wrap(next Handler) Handler {
 
 		m.mu.Lock()
 		identicalLoop := m.isLooping(fingerprint)
-		sameToolLoop := !isInternal && m.isSameToolLooping(tc.ToolName)
+		sameToolLoop := !isInternal && !retrievalTools[tc.ToolName] && m.isSameToolLooping(tc.ToolName)
 		if !identicalLoop && !sameToolLoop {
 			m.recordCall(fingerprint)
 			m.recordSameToolCall(tc.ToolName)

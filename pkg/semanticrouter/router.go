@@ -650,6 +650,11 @@ func builtinRoutes() []Route {
 				"Thanks for the help!",
 				"Thank you, appreciate it.",
 				"Goodbye, see you later.",
+				"Hello! What can you do?",
+				"What can you do?",
+				"Hi! Help me.",
+				"What are your capabilities?",
+				"Hey, what can you help me with?",
 			},
 		},
 		{

@@ -362,7 +362,7 @@ var _ = Describe("SerpAPI Tool", func() {
 				SerpAPI:  websearch.SerpAPIConfig{APIKey: "fake-key"},
 			}
 			provider := websearch.NewToolProvider(cfg)
-			tools := provider.GetTools()
+			tools := provider.GetTools(context.Background())
 
 			names := make([]string, 0, len(tools))
 			for _, t := range tools {
@@ -380,7 +380,7 @@ var _ = Describe("SerpAPI Tool", func() {
 				Provider: "duckduckgo",
 			}
 			provider := websearch.NewToolProvider(cfg)
-			tools := provider.GetTools()
+			tools := provider.GetTools(context.Background())
 
 			names := make([]string, 0, len(tools))
 			for _, t := range tools {

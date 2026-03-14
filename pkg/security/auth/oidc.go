@@ -85,9 +85,9 @@ func NewOIDCHandler(cfg Config) *OIDCHandler {
 }
 
 // Authenticate implements the Authenticator interface.
-func (h *OIDCHandler) Authenticate(w http.ResponseWriter, r *http.Request) *identity.Sender {
+func (h *OIDCHandler) Authenticate(w http.ResponseWriter, r *http.Request) (*http.Request, *identity.Sender) {
 	if session := h.ValidateSession(r); session != nil {
-		return &identity.Sender{
+		return r, &identity.Sender{
 			ID:               session.Email,
 			DisplayName:      session.Email,
 			Role:             "user",
@@ -104,7 +104,7 @@ func (h *OIDCHandler) Authenticate(w http.ResponseWriter, r *http.Request) *iden
 		"login_url":     "/auth/login",
 		"auth_method":   "oidc",
 	})
-	return nil
+	return r, nil
 }
 
 // resolveCookieSecret resolves the cookie signing key from config, env, or auto-generates one.

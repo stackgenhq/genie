@@ -40,7 +40,7 @@ var _ = Describe("Client Internal Tests", func() {
 			}
 			config := MCPServerConfig{Name: "fs"}
 
-			tools, err := c.convertAndFilterTools(context.Background(), nil, mcpTools, config)
+			tools, err := c.convertAndFilterTools(context.Background(), mcpTools, config)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tools).To(HaveLen(2))
 			Expect(tools[0].Declaration().Name).To(Equal("fs_list_files"))
@@ -59,7 +59,7 @@ var _ = Describe("Client Internal Tests", func() {
 				IncludeTools: []string{"tool_a", "tool_c"},
 			}
 
-			tools, err := c.convertAndFilterTools(context.Background(), nil, mcpTools, config)
+			tools, err := c.convertAndFilterTools(context.Background(), mcpTools, config)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tools).To(HaveLen(2))
 			Expect(tools[0].Declaration().Name).To(Equal("srv_tool_a"))
@@ -78,7 +78,7 @@ var _ = Describe("Client Internal Tests", func() {
 				ExcludeTools: []string{"tool_b"},
 			}
 
-			tools, err := c.convertAndFilterTools(context.Background(), nil, mcpTools, config)
+			tools, err := c.convertAndFilterTools(context.Background(), mcpTools, config)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tools).To(HaveLen(2))
 			Expect(tools[0].Declaration().Name).To(Equal("srv_tool_a"))
@@ -95,7 +95,7 @@ var _ = Describe("Client Internal Tests", func() {
 				ExcludeTools: []string{"tool_a"},
 			}
 
-			tools, err := c.convertAndFilterTools(context.Background(), nil, mcpTools, config)
+			tools, err := c.convertAndFilterTools(context.Background(), mcpTools, config)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tools).To(BeEmpty())
 		})
@@ -103,7 +103,7 @@ var _ = Describe("Client Internal Tests", func() {
 		It("should handle empty tool list", func() {
 			c := &Client{}
 			config := MCPServerConfig{Name: "srv"}
-			tools, err := c.convertAndFilterTools(context.Background(), nil, []mcplib.Tool{}, config)
+			tools, err := c.convertAndFilterTools(context.Background(), []mcplib.Tool{}, config)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tools).To(BeEmpty())
 		})

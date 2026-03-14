@@ -52,7 +52,7 @@ var _ = Describe("GDriveConnector", func() {
 			fake.ReadFileReturns("Campaign objectives and target audience analysis.", nil)
 
 			conn := gdrive.NewGDriveConnector(fake, 0)
-			scope := datasource.Scope{GDriveFolderIDs: []string{"folder1"}}
+			scope := datasource.NewScope("gdrive", []string{"folder1"})
 
 			items, err := conn.ListItems(ctx, scope)
 			Expect(err).NotTo(HaveOccurred())
@@ -85,7 +85,7 @@ var _ = Describe("GDriveConnector", func() {
 			}, nil)
 
 			conn := gdrive.NewGDriveConnector(fake, 0)
-			items, err := conn.ListItems(ctx, datasource.Scope{GDriveFolderIDs: []string{"root"}})
+			items, err := conn.ListItems(ctx, datasource.NewScope("gdrive", []string{"root"}))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(items).To(HaveLen(1))
 
@@ -111,7 +111,7 @@ var _ = Describe("GDriveConnector", func() {
 			fake.ReadFileReturns("content", nil)
 
 			conn := gdrive.NewGDriveConnector(fake, 0)
-			items, err := conn.ListItems(ctx, datasource.Scope{GDriveFolderIDs: []string{"root"}})
+			items, err := conn.ListItems(ctx, datasource.NewScope("gdrive", []string{"root"}))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(items).To(HaveLen(4))
 			Expect(items[0].Metadata["file_type"]).To(Equal("spreadsheet"))
@@ -138,7 +138,7 @@ var _ = Describe("GDriveConnector", func() {
 			fake.ReadFileReturns("Campaign details", nil)
 
 			conn := gdrive.NewGDriveConnector(fake, 0)
-			items, err := conn.ListItems(ctx, datasource.Scope{GDriveFolderIDs: []string{"root"}})
+			items, err := conn.ListItems(ctx, datasource.NewScope("gdrive", []string{"root"}))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(items).To(HaveLen(1))
 
@@ -155,7 +155,7 @@ var _ = Describe("GDriveConnector", func() {
 			fake.ReadFileReturns("content", nil)
 
 			conn := gdrive.NewGDriveConnector(fake, 0)
-			items, err := conn.ListItems(ctx, datasource.Scope{GDriveFolderIDs: []string{"root"}})
+			items, err := conn.ListItems(ctx, datasource.NewScope("gdrive", []string{"root"}))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(items).To(HaveLen(1))
 			Expect(items[0].Metadata).NotTo(HaveKey("folder_path"))
@@ -173,7 +173,7 @@ var _ = Describe("GDriveConnector", func() {
 			// d2 would have files, but maxDepth=2 should prevent listing its contents.
 
 			conn := gdrive.NewGDriveConnector(fake, 2)
-			items, err := conn.ListItems(ctx, datasource.Scope{GDriveFolderIDs: []string{"root"}})
+			items, err := conn.ListItems(ctx, datasource.NewScope("gdrive", []string{"root"}))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(items).To(BeEmpty())
 			// ListFolder called for root (depth=0) and d1 (depth=1), but NOT d2 (depth=2).
@@ -199,7 +199,7 @@ var _ = Describe("GDriveConnector", func() {
 			fake.ReadFileReturns("The annual review covers...", nil)
 
 			conn := gdrive.NewGDriveConnector(fake, 0)
-			items, err := conn.ListItems(ctx, datasource.Scope{GDriveFolderIDs: []string{"root"}})
+			items, err := conn.ListItems(ctx, datasource.NewScope("gdrive", []string{"root"}))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(items).To(HaveLen(1))
 

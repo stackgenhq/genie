@@ -57,6 +57,9 @@ type MCPServerConfig struct {
 	// SessionReconnect enables automatic session reconnection with max retry attempts
 	// Set to 0 to disable session reconnection
 	SessionReconnect int `json:"session_reconnect,omitempty" yaml:"session_reconnect,omitempty" toml:"session_reconnect,omitempty,omitzero"`
+
+	//Datasource Keyword Regex
+	DatasourceKeywordRegex []string `json:"datasource_keyword_regex,omitempty" yaml:"datasource_keyword_regex,omitempty" toml:"datasource_keyword_regex,omitempty"`
 }
 
 // Validate validates the MCP configuration and returns an error if invalid.
@@ -88,7 +91,6 @@ func (s *MCPServerConfig) Validate() error {
 	if s.Name == "" {
 		return fmt.Errorf("server name is required")
 	}
-
 	if s.Transport == "" {
 		return fmt.Errorf("transport is required")
 	}

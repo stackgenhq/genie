@@ -119,7 +119,7 @@ cat audit.log | grep '"event_type":"conversation"'
 ### Assert
 - At least one event with `"action":"chat_turn_completed"`
 - Each event has:
-  - `"actor"` = `"code-owner"`
+  - `"actor"` = `"orchestrator"`
   - `"metadata.question"` (the user's input)
   - `"metadata.answer"` (the assistant's full response, may be truncated)
   - `"metadata.sender_context"` = `"agui:http"`

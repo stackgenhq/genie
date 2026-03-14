@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	go_scm "github.com/drone/go-scm/scm"
+	"github.com/stackgenhq/genie/pkg/datasource"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
@@ -19,10 +20,16 @@ import (
 //
 //counterfeiter:generate . Service
 type Service interface {
+	Provider() string
+
 	ListRepos(ctx context.Context, opts go_scm.ListOptions) ([]*go_scm.Repository, error)
 	// FindRepo returns a single repository by name (e.g. owner/repo). Used for data ingestion to get description, link, language.
 	FindRepo(ctx context.Context, repo string) (*go_scm.Repository, error)
 	ListPullRequests(ctx context.Context, repo string, opts go_scm.PullRequestListOptions) ([]*go_scm.PullRequest, error)
+	// ListIssues returns open (or closed) issues for the given repo. Used by the datasource to surface issue context.
+	ListIssues(ctx context.Context, repo string, opts go_scm.IssueListOptions) ([]*go_scm.Issue, error)
+	// ListCommits returns the most-recent commits for the given repo. Used by the datasource to extract recent authors.
+	ListCommits(ctx context.Context, repo string, opts go_scm.CommitListOptions) ([]*go_scm.Commit, error)
 	GetPullRequest(ctx context.Context, repo string, id int) (*go_scm.PullRequest, error)
 	CreatePullRequest(ctx context.Context, repo string, input *go_scm.PullRequestInput) (*go_scm.PullRequest, error)
 	ListPullRequestChanges(ctx context.Context, repo string, number int, opts go_scm.ListOptions) ([]*go_scm.Change, error)
@@ -59,6 +66,8 @@ type Config struct {
 	Provider string `json:"provider" yaml:"Provider,omitempty" toml:"Provider,omitempty"` // github, gitlab, etc.
 	Token    string `json:"token" yaml:"Token,omitempty" toml:"Token,omitempty"`
 	BaseURL  string `json:"base_url" yaml:"BaseURL,omitempty" toml:"BaseURL,omitempty"` // for enterprise instances
+
+	DoNotLearn bool `json:"do_not_learn" yaml:"DoNotLearn,omitempty" toml:"DoNotLearn,omitempty"`
 }
 
 // New creates a new SCM Service based on the configuration.
@@ -71,9 +80,21 @@ func New(cfg Config) (Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &scmWrapper{
-		client: client,
-	}, nil
+	wrapper := &scmWrapper{
+		client:   client,
+		provider: cfg.Provider,
+	}
+	if !cfg.DoNotLearn {
+		datasource.RegisterConnectorFactory(cfg.Provider, func(ctx context.Context, opts datasource.ConnectorOptions) datasource.DataSource {
+			return NewSCMConnector(wrapper)
+		})
+	}
+
+	return wrapper, nil
+}
+
+func (s *scmWrapper) Provider() string {
+	return s.provider
 }
 
 func (cfg Config) getClient() (*go_scm.Client, error) {
