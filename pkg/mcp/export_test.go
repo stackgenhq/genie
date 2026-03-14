@@ -5,8 +5,6 @@ package mcp
 
 import (
 	"context"
-
-	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
 // ShouldIncludeToolForTest exports shouldIncludeTool for tests only. Not part of the public API.
@@ -14,31 +12,22 @@ func (c *Client) ShouldIncludeToolForTest(toolName string, config MCPServerConfi
 	return c.shouldIncludeTool(toolName, config)
 }
 
-// BuildStdioEnvForTest exports buildStdioEnv for tests only. Not part of the public API.
+// BuildStdioEnvForTest exports buildStdioEnvFromConfig for tests only. Not part of the public API.
 func (c *Client) BuildStdioEnvForTest(ctx context.Context, config MCPServerConfig) []string {
-	return c.buildStdioEnv(ctx, config)
+	return buildStdioEnvFromConfig(ctx, config, c.secretProvider)
 }
 
-// ExpandEnvValueForTest exports expandEnvValue for tests only. Not part of the public API.
+// ExpandEnvValueForTest exports expandEnvWithProvider for tests only. Not part of the public API.
 func (c *Client) ExpandEnvValueForTest(ctx context.Context, value string) string {
-	return c.expandEnvValue(ctx, value)
+	return expandEnvWithProvider(ctx, value, c.secretProvider)
 }
 
 // NewClientForTest creates a Client with the given options for testing.
 // It skips config validation and server initialization.
 func NewClientForTest(opts ...ClientOption) *Client {
-	c := &Client{
-		tools:           make([]tool.Tool, 0),
-		resourceReaders: make(map[string]MCPResourceReader),
-	}
+	c := &Client{}
 	for _, opt := range opts {
 		opt(c)
 	}
 	return c
-}
-
-// SetResourceReaderForTest injects a resource reader for the given server name.
-// Not part of the public API.
-func (c *Client) SetResourceReaderForTest(serverName string, reader MCPResourceReader) {
-	c.resourceReaders[serverName] = reader
 }

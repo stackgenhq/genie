@@ -132,8 +132,8 @@ func Run(ctx context.Context, cfg config.GenieConfig, cfgPath string, sp securit
 				})
 				continue
 			}
-			tools := client.GetTools()
-			client.Close(ctx)
+			tools := client.GetTools(ctx)
+			_ = client.Close(ctx)
 			logr.Debug("MCP server OK", "server", srv.Name, "tools", len(tools))
 		}
 	}

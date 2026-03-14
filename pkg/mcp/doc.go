@@ -45,7 +45,7 @@
 //	defer client.Close()
 //
 //	// Get available tools
-//	tools := client.GetTools()
+//	tools := client.GetTools(ctx)
 //
 // # Configuration Examples
 //

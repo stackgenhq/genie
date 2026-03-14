@@ -51,7 +51,7 @@ var _ = Describe("Provider Test", func() {
 
 	Describe("GetTools", func() {
 		It("returns the correct number of tools", func() {
-			tools := p.GetTools()
+			tools := p.GetTools(context.Background())
 			Expect(tools).To(HaveLen(2))
 		})
 	})

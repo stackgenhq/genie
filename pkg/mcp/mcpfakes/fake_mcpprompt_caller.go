@@ -10,6 +10,16 @@ import (
 )
 
 type FakeMCPPromptCaller struct {
+	CloseStub        func() error
+	closeMutex       sync.RWMutex
+	closeArgsForCall []struct {
+	}
+	closeReturns struct {
+		result1 error
+	}
+	closeReturnsOnCall map[int]struct {
+		result1 error
+	}
 	GetPromptStub        func(context.Context, mcpa.GetPromptRequest) (*mcpa.GetPromptResult, error)
 	getPromptMutex       sync.RWMutex
 	getPromptArgsForCall []struct {
@@ -24,8 +34,75 @@ type FakeMCPPromptCaller struct {
 		result1 *mcpa.GetPromptResult
 		result2 error
 	}
+	ListPromptsStub        func(context.Context, mcpa.ListPromptsRequest) (*mcpa.ListPromptsResult, error)
+	listPromptsMutex       sync.RWMutex
+	listPromptsArgsForCall []struct {
+		arg1 context.Context
+		arg2 mcpa.ListPromptsRequest
+	}
+	listPromptsReturns struct {
+		result1 *mcpa.ListPromptsResult
+		result2 error
+	}
+	listPromptsReturnsOnCall map[int]struct {
+		result1 *mcpa.ListPromptsResult
+		result2 error
+	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
+}
+
+func (fake *FakeMCPPromptCaller) Close() error {
+	fake.closeMutex.Lock()
+	ret, specificReturn := fake.closeReturnsOnCall[len(fake.closeArgsForCall)]
+	fake.closeArgsForCall = append(fake.closeArgsForCall, struct {
+	}{})
+	stub := fake.CloseStub
+	fakeReturns := fake.closeReturns
+	fake.recordInvocation("Close", []interface{}{})
+	fake.closeMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeMCPPromptCaller) CloseCallCount() int {
+	fake.closeMutex.RLock()
+	defer fake.closeMutex.RUnlock()
+	return len(fake.closeArgsForCall)
+}
+
+func (fake *FakeMCPPromptCaller) CloseCalls(stub func() error) {
+	fake.closeMutex.Lock()
+	defer fake.closeMutex.Unlock()
+	fake.CloseStub = stub
+}
+
+func (fake *FakeMCPPromptCaller) CloseReturns(result1 error) {
+	fake.closeMutex.Lock()
+	defer fake.closeMutex.Unlock()
+	fake.CloseStub = nil
+	fake.closeReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeMCPPromptCaller) CloseReturnsOnCall(i int, result1 error) {
+	fake.closeMutex.Lock()
+	defer fake.closeMutex.Unlock()
+	fake.CloseStub = nil
+	if fake.closeReturnsOnCall == nil {
+		fake.closeReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.closeReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
 }
 
 func (fake *FakeMCPPromptCaller) GetPrompt(arg1 context.Context, arg2 mcpa.GetPromptRequest) (*mcpa.GetPromptResult, error) {
@@ -89,6 +166,71 @@ func (fake *FakeMCPPromptCaller) GetPromptReturnsOnCall(i int, result1 *mcpa.Get
 	}
 	fake.getPromptReturnsOnCall[i] = struct {
 		result1 *mcpa.GetPromptResult
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeMCPPromptCaller) ListPrompts(arg1 context.Context, arg2 mcpa.ListPromptsRequest) (*mcpa.ListPromptsResult, error) {
+	fake.listPromptsMutex.Lock()
+	ret, specificReturn := fake.listPromptsReturnsOnCall[len(fake.listPromptsArgsForCall)]
+	fake.listPromptsArgsForCall = append(fake.listPromptsArgsForCall, struct {
+		arg1 context.Context
+		arg2 mcpa.ListPromptsRequest
+	}{arg1, arg2})
+	stub := fake.ListPromptsStub
+	fakeReturns := fake.listPromptsReturns
+	fake.recordInvocation("ListPrompts", []interface{}{arg1, arg2})
+	fake.listPromptsMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeMCPPromptCaller) ListPromptsCallCount() int {
+	fake.listPromptsMutex.RLock()
+	defer fake.listPromptsMutex.RUnlock()
+	return len(fake.listPromptsArgsForCall)
+}
+
+func (fake *FakeMCPPromptCaller) ListPromptsCalls(stub func(context.Context, mcpa.ListPromptsRequest) (*mcpa.ListPromptsResult, error)) {
+	fake.listPromptsMutex.Lock()
+	defer fake.listPromptsMutex.Unlock()
+	fake.ListPromptsStub = stub
+}
+
+func (fake *FakeMCPPromptCaller) ListPromptsArgsForCall(i int) (context.Context, mcpa.ListPromptsRequest) {
+	fake.listPromptsMutex.RLock()
+	defer fake.listPromptsMutex.RUnlock()
+	argsForCall := fake.listPromptsArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeMCPPromptCaller) ListPromptsReturns(result1 *mcpa.ListPromptsResult, result2 error) {
+	fake.listPromptsMutex.Lock()
+	defer fake.listPromptsMutex.Unlock()
+	fake.ListPromptsStub = nil
+	fake.listPromptsReturns = struct {
+		result1 *mcpa.ListPromptsResult
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeMCPPromptCaller) ListPromptsReturnsOnCall(i int, result1 *mcpa.ListPromptsResult, result2 error) {
+	fake.listPromptsMutex.Lock()
+	defer fake.listPromptsMutex.Unlock()
+	fake.ListPromptsStub = nil
+	if fake.listPromptsReturnsOnCall == nil {
+		fake.listPromptsReturnsOnCall = make(map[int]struct {
+			result1 *mcpa.ListPromptsResult
+			result2 error
+		})
+	}
+	fake.listPromptsReturnsOnCall[i] = struct {
+		result1 *mcpa.ListPromptsResult
 		result2 error
 	}{result1, result2}
 }

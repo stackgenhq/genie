@@ -103,7 +103,7 @@ var _ = Describe("Encode Tool encode_string", func() {
 var _ = Describe("Encode ToolProvider", func() {
 	It("returns the expected tool", func() {
 		p := NewToolProvider(security.CryptoConfig{})
-		tools := p.GetTools()
+		tools := p.GetTools(context.Background())
 		Expect(tools).To(HaveLen(1))
 		Expect(tools[0].Declaration().Name).To(Equal("encode_string"))
 	})

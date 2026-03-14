@@ -277,7 +277,7 @@ var _ = Describe("JSON Tool (util_json) — gjson/sjson backed", func() {
 var _ = Describe("JSON ToolProvider", func() {
 	It("returns the expected tool", func() {
 		p := NewToolProvider()
-		tools := p.GetTools()
+		tools := p.GetTools(context.Background())
 		Expect(tools).To(HaveLen(1))
 		Expect(tools[0].Declaration().Name).To(Equal("util_json"))
 	})

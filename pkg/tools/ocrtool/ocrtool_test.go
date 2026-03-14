@@ -254,7 +254,7 @@ var _ = Describe("OCR Tool", func() {
 	Describe("provider", func() {
 		It("creates tool via provider", func() {
 			p := NewToolProvider()
-			tools := p.GetTools()
+			tools := p.GetTools(context.Background())
 			Expect(tools).To(HaveLen(1))
 		})
 	})

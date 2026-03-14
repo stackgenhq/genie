@@ -379,7 +379,7 @@ func NewOrchestrator(
 	)
 	createAgentTool.SetHalGuardThreshold(oo.halGuardConfig.PreCheckThreshold)
 	// Log tool counts so operators can verify email, gmail, etc. are wired for sub-agents.
-	n := len(availableTools.ToolNames())
+	n := len(availableTools.ToolNames(ctx))
 	logger := logger.GetLogger(ctx).With("fn", "createOrchestrator")
 
 	logger.Info("create_agent sub-agent tools wired",
@@ -396,14 +396,14 @@ func NewOrchestrator(
 	// Lift orchestrator-direct tools from the full registry so the main
 	// agent (planner) can use them without delegating to a sub-agent.
 	for _, toolName := range orchestratorDirectTools {
-		if t, err := availableTools.GetTool(toolName); err == nil {
+		if t, err := availableTools.GetTool(ctx, toolName); err == nil {
 			orchestratorToolSlice = append(orchestratorToolSlice, t)
 		} else {
 			logger.Debug("orchestrator direct tool not available", "tool_name", toolName, "error", err)
 		}
 	}
 	orchestratorTools := tools.NewRegistry(ctx, orchestratorToolSlice)
-	logger.Info("Orchestrator tool registry initialized", "count", len(orchestratorTools.ToolNames()))
+	logger.Info("Orchestrator tool registry initialized", "count", len(orchestratorTools.ToolNames(ctx)))
 
 	orchestrator := &orchestrator{
 		expert:                            exp,
@@ -817,7 +817,7 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	// Execute using ReAcTree for structured reasoning and task decomposition
 	res, err := c.treeExecutor.Run(runCtx, reactree.TreeRequest{
 		Goal:           message,
-		Tools:          c.toolRegistry.GetTools(),
+		Tools:          c.toolRegistry.GetTools(ctx),
 		ToolGetter:     c.toolRegistry.GetTools,
 		TaskType:       taskType,
 		Attachments:    req.Attachments,

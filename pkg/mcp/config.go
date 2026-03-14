@@ -58,8 +58,8 @@ type MCPServerConfig struct {
 	// Set to 0 to disable session reconnection
 	SessionReconnect int `json:"session_reconnect,omitempty" yaml:"session_reconnect,omitempty" toml:"session_reconnect,omitempty,omitzero"`
 
-	// DisableDataSource disables the MCP server to be used as a data source
-	DisableDataSource bool `json:"disable_datasource,omitempty" yaml:"disable_datasource,omitempty" toml:"disable_datasource,omitempty"`
+	//Datasource Keyword Regex
+	DatasourceKeywordRegex []string `json:"datasource_keyword_regex,omitempty" yaml:"datasource_keyword_regex,omitempty" toml:"datasource_keyword_regex,omitempty"`
 }
 
 // Validate validates the MCP configuration and returns an error if invalid.
@@ -88,12 +88,8 @@ func (c *MCPConfig) Validate() error {
 // It checks that required fields are present based on transport type and
 // that values are within acceptable ranges.
 func (s *MCPServerConfig) Validate() error {
-	if s.Name == "" {
-		return fmt.Errorf("server name is required")
-	}
-
-	if s.Transport == "" {
-		return fmt.Errorf("transport is required")
+	if s.Name == "" || s.Transport == "" {
+		return fmt.Errorf("server name and transport are required")
 	}
 
 	switch s.Transport {

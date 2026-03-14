@@ -158,7 +158,7 @@ type TreeExecutor interface {
 type TreeRequest struct {
 	Goal       string
 	Tools      []tool.Tool
-	ToolGetter func() []tool.Tool
+	ToolGetter func(context.Context) []tool.Tool
 	TaskType   modelprovider.TaskType
 	// Attachments are file/media attachments from the incoming message.
 	// Image attachments are passed as multimodal content to the LLM.
@@ -421,7 +421,7 @@ func (t *tree) runMultiStage(ctx context.Context, req TreeRequest) (TreeResult, 
 
 		toolsToUse := req.Tools
 		if req.ToolGetter != nil {
-			toolsToUse = req.ToolGetter()
+			toolsToUse = req.ToolGetter(ctx)
 		}
 
 		// Enterprise: wrap tools for dry run simulation if enabled.

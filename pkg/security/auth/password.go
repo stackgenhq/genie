@@ -31,10 +31,10 @@ type passwordAuth struct {
 	password []byte
 }
 
-func (p *passwordAuth) Authenticate(w http.ResponseWriter, r *http.Request) *identity.Sender {
+func (p *passwordAuth) Authenticate(w http.ResponseWriter, r *http.Request) (*http.Request, *identity.Sender) {
 	provided := r.Header.Get("X-AGUI-Password")
 	if provided != "" && subtle.ConstantTimeCompare(p.password, []byte(provided)) == 1 {
-		return &identity.Sender{
+		return r, &identity.Sender{
 			ID:               "password-user",
 			DisplayName:      "Password User",
 			Role:             "user",
@@ -42,7 +42,7 @@ func (p *passwordAuth) Authenticate(w http.ResponseWriter, r *http.Request) *ide
 		}
 	}
 	writeJSONWithIP(w, r, http.StatusUnauthorized, "invalid_password", "Password required to connect", "password")
-	return nil
+	return r, nil
 }
 
 // resolvePassword determines the AG-UI password from the first available source:

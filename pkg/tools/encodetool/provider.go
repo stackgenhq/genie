@@ -4,6 +4,8 @@
 package encodetool
 
 import (
+	"context"
+
 	"github.com/stackgenhq/genie/pkg/security"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
@@ -20,7 +22,7 @@ func NewToolProvider(crypto security.CryptoConfig) *ToolProvider {
 }
 
 // GetTools returns the encode tool.
-func (p *ToolProvider) GetTools() []tool.Tool {
+func (p *ToolProvider) GetTools(_ context.Context) []tool.Tool {
 	e := newEncodeTools()
 	return []tool.Tool{e.encodeTool()}
 }

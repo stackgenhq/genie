@@ -4,6 +4,8 @@
 package skills
 
 import (
+	"context"
+
 	"trpc.group/trpc-go/trpc-agent-go/skill"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
@@ -25,6 +27,6 @@ func NewToolProvider(repo skill.Repository, executor Executor) *ToolProvider {
 
 // GetTools returns all skill tools (load, run, list) wired to the
 // underlying repository and executor.
-func (p *ToolProvider) GetTools() []tool.Tool {
+func (p *ToolProvider) GetTools(_ context.Context) []tool.Tool {
 	return CreateAllSkillTools(p.repo, p.executor)
 }

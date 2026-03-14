@@ -6,7 +6,6 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -14,7 +13,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/security"
-	"github.com/stackgenhq/genie/pkg/toolwrap/toolcontext"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
@@ -34,30 +32,20 @@ func WithSecretProvider(sp security.SecretProvider) ClientOption {
 // It uses mark3labs/mcp-go for MCP protocol communication and wraps tools
 // to be compatible with trpc-agent-go.
 //
-// Note: This is a simplified implementation that provides configuration management.
-// Full MCP integration will be available when trpc-agent-go releases its MCP package.
+// Tools are fetched just-in-time on each GetTools() call rather than cached
+// at startup. This ensures the freshest tool list is always returned (e.g.
+// after user login grants new OAuth scopes, MCP servers expose new tools).
 type Client struct {
-	config          MCPConfig
-	clients         []*client.Client
-	tools           []tool.Tool
-	prompts         []namespacedPrompt
-	secretProvider  security.SecretProvider
-	resourceReaders map[string]MCPResourceReader
-}
-
-// namespacedPrompt holds a prompt associated with the server that provided it.
-type namespacedPrompt struct {
-	serverName string
-	prompt     mcp.Prompt
-	caller     MCPPromptCaller
+	config         MCPConfig
+	secretProvider security.SecretProvider
 }
 
 // NewClient creates a new MCP client from the provided configuration.
-// It initializes connections to all configured MCP servers and returns a client
-// that provides access to all available tools. Options (e.g. WithSecretProvider)
-// can be used to enable secret lookup for MCP server env values containing "${VAR}".
+// It validates the configuration but does NOT connect to MCP servers at
+// startup. Tools are fetched just-in-time via GetTools(ctx).
 //
-// The client must be closed when no longer needed to release resources.
+// Options (e.g. WithSecretProvider) can be used to enable secret lookup
+// for MCP server env values containing "${VAR}".
 func NewClient(ctx context.Context, config MCPConfig, opts ...ClientOption) (*Client, error) {
 	// Apply defaults before validation so that empty sub-configs
 	// (e.g. {"retry": {}}) receive sensible values.
@@ -69,41 +57,25 @@ func NewClient(ctx context.Context, config MCPConfig, opts ...ClientOption) (*Cl
 	}
 
 	mcpClient := &Client{
-		config:          config,
-		clients:         make([]*client.Client, 0),
-		tools:           make([]tool.Tool, 0),
-		prompts:         make([]namespacedPrompt, 0),
-		resourceReaders: make(map[string]MCPResourceReader),
+		config: config,
 	}
 	for _, opt := range opts {
 		opt(mcpClient)
 	}
 
-	for i := range config.Servers {
-		serverConfig := config.Servers[i]
-
-		tools, err := mcpClient.initializeServer(ctx, serverConfig)
-		if err != nil {
-			// Cleanup already initialized clients
-			mcpClient.Close(ctx)
-			return nil, fmt.Errorf("failed to initialize server %s: %w", serverConfig.Name, err)
-		}
-
-		mcpClient.tools = append(mcpClient.tools, tools...)
-	}
-
 	return mcpClient, nil
 }
 
-// initializeServer initializes a single MCP server connection and returns its tools.
-// It handles different transport types and applies tool filtering as configured.
+// initializeServer connects to a single MCP server, lists available tools,
+// and returns ClientTool adapters with a live connection for Call().
+// The caller is responsible for the lifecycle of the returned tools.
 func (c *Client) initializeServer(ctx context.Context, config MCPServerConfig) ([]tool.Tool, error) {
 	var trans transport.Interface
 	var err error
 
 	switch config.Transport {
 	case "stdio":
-		env := c.buildStdioEnv(ctx, config)
+		env := buildStdioEnvFromConfig(ctx, config, c.secretProvider)
 		trans = transport.NewStdio(config.Command, env, config.Args...)
 	case "streamable_http", "sse":
 		opts := []transport.ClientOption{}
@@ -111,7 +83,7 @@ func (c *Client) initializeServer(ctx context.Context, config MCPServerConfig) (
 			headers := make(map[string]string, len(config.Headers))
 			for k, v := range config.Headers {
 				if c.secretProvider != nil && strings.ContainsAny(v, "$") {
-					v = c.expandEnvValue(ctx, v)
+					v = expandEnvWithProvider(ctx, v, c.secretProvider)
 				}
 				headers[k] = v
 			}
@@ -141,80 +113,18 @@ func (c *Client) initializeServer(ctx context.Context, config MCPServerConfig) (
 	}
 
 	// List available tools
-	toolsResponse, err := mcpClient.ListTools(ctx, mcp.ListToolsRequest{})
+	availableTools, err := mcpClient.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
+		_ = mcpClient.Close()
 		return nil, fmt.Errorf("failed to list tools: %w", err)
 	}
 
-	// Store client for cleanup and resource reading
-	c.clients = append(c.clients, mcpClient)
-	c.resourceReaders[config.Name] = mcpClient
-
-	// Fetch Prompts
-	promptsResponse, err := mcpClient.ListPrompts(ctx, mcp.ListPromptsRequest{})
-	if err == nil {
-		for _, p := range promptsResponse.Prompts {
-			c.prompts = append(c.prompts, namespacedPrompt{
-				serverName: config.Name,
-				prompt:     p,
-				caller:     mcpClient,
-			})
-		}
-	} else {
-		logger.GetLogger(ctx).With("fn", "mcp.initializeServer").Warn("failed to list prompts, prompts will be unavailable", "server", config.Name, "err", err)
-	}
-
-	// Convert and filter tools
-	return c.convertAndFilterTools(ctx, mcpClient, toolsResponse.Tools, config)
-}
-
-// buildStdioEnv returns the environment for the stdio subprocess: parent env
-// plus config.Env overrides. When c.secretProvider is set, any value that
-// starts with "${" is resolved via the provider (e.g. ${GH_TOKEN} -> GetSecret(ctx, "GH_TOKEN")).
-func (c *Client) buildStdioEnv(ctx context.Context, config MCPServerConfig) []string {
-	base := os.Environ()
-	if len(config.Env) == 0 {
-		return base
-	}
-	overlay := make(map[string]string)
-	for _, s := range base {
-		if i := strings.IndexByte(s, '='); i > 0 {
-			overlay[s[:i]] = s[i+1:]
-		}
-	}
-	for k, v := range config.Env {
-		if c.secretProvider != nil && strings.Contains(v, "${") {
-			v = c.expandEnvValue(ctx, v)
-		}
-		overlay[k] = v
-	}
-	out := make([]string, 0, len(overlay))
-	for k, v := range overlay {
-		out = append(out, k+"="+v)
-	}
-	return out
-}
-
-// expandEnvValue expands ${NAME} and $NAME in value using the client's SecretProvider.
-func (c *Client) expandEnvValue(ctx context.Context, value string) string {
-	return os.Expand(value, func(name string) string {
-		val, err := c.secretProvider.GetSecret(ctx, security.GetSecretRequest{
-			Name:   name,
-			Reason: toolcontext.GetJustification(ctx),
-		})
-		if err != nil {
-			logger.GetLogger(ctx).With("fn", "mcp.expandEnvValue").Debug("secret lookup failed", "name", name, "error", err)
-			return ""
-		}
-		return val
-	})
+	// Convert and filter tools — the mcpClient stays open so Call() works
+	return c.convertAndFilterTools(ctx, mcpClient, availableTools.Tools, config)
 }
 
 // convertAndFilterTools converts MCP tools to trpc-agent-go tools and applies filtering.
-// It wraps each MCP tool using MCPTool and filters based on include/exclude lists.
-//
-// Note: This is a simplified implementation. Full MCP tool integration will be available
-// when trpc-agent-go releases its MCP package or when we fully integrate with mark3labs/mcp-go.
+// It wraps each MCP tool using ClientTool and filters based on include/exclude lists.
 func (c *Client) convertAndFilterTools(ctx context.Context, mcpClient *client.Client, mcpTools []mcp.Tool, config MCPServerConfig) ([]tool.Tool, error) {
 	var tools []tool.Tool
 	logger := logger.GetLogger(ctx).With("fn", "mcp.convertAndFilterTools")
@@ -264,26 +174,46 @@ func (c *Client) shouldIncludeTool(toolName string, config MCPServerConfig) bool
 	return true
 }
 
-// GetTools returns all available tools from all configured MCP servers.
-// The tools implement the tool.Tool interface and can be used with trpc-agent-go agents.
-func (c *Client) GetTools() []tool.Tool {
-	return c.tools
-}
-
-// GetPromptRepository returns a skill.Repository adapter that allows
-// the agent to discover and read MCP Prompts as if they were Genie Skills.
-func (c *Client) GetPromptRepository() *PromptRepository {
-	return NewPromptRepository(c)
-}
-
-// Close closes all MCP server connections and releases resources.
-// This should be called when the client is no longer needed.
-func (c *Client) Close(ctx context.Context) {
-	for _, client := range c.clients {
-		if client != nil {
-			if err := client.Close(); err != nil {
-				logger.GetLogger(ctx).Warn("failed to close MCP client", "err", err)
-			}
-		}
+// GetTools connects to all configured MCP servers, lists their tools, and
+// returns the filtered set. Each call creates fresh connections so that
+// changes on the server side (e.g. user logged in, new tools available)
+// are reflected immediately.
+func (c *Client) GetTools(ctx context.Context) []tool.Tool {
+	if c == nil {
+		return nil
 	}
+	log := logger.GetLogger(ctx).With("fn", "mcp.GetTools")
+	var allTools []tool.Tool
+
+	for i := range c.config.Servers {
+		serverConfig := c.config.Servers[i]
+
+		tools, err := c.initializeServer(ctx, serverConfig)
+		if err != nil {
+			log.Warn("failed to fetch tools from MCP server, skipping", "server", serverConfig.Name, "error", err)
+			continue
+		}
+
+		allTools = append(allTools, tools...)
+	}
+
+	return allTools
+}
+
+// Close is a no-op for the JIT client. Since connections are established
+// and closed within each GetTools() call, there are no long-lived
+// connections to release at the client level. Retained for backward
+// compatibility with callers like doctor.go.
+func (c *Client) Close(_ context.Context) error {
+	return nil
+}
+
+// GetPromptRepositories returns a PromptRepository for each configured MCP
+// server so the agent can discover and read MCP Prompts as Genie Skills.
+func (c *Client) GetPromptRepositories() []*PromptRepository {
+	var repos []*PromptRepository
+	for _, server := range c.config.Servers {
+		repos = append(repos, NewPromptRepository(server, c.secretProvider))
+	}
+	return repos
 }

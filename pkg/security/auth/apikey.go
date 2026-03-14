@@ -30,7 +30,7 @@ type apiKeyAuth struct {
 
 // Authenticate verifies the presence of an API key in the Authorization: Bearer
 // header or X-API-Key header.
-func (a *apiKeyAuth) Authenticate(w http.ResponseWriter, r *http.Request) *identity.Sender {
+func (a *apiKeyAuth) Authenticate(w http.ResponseWriter, r *http.Request) (*http.Request, *identity.Sender) {
 	// Try Bearer token first
 	token := ""
 	authHeader := r.Header.Get("Authorization")
@@ -45,7 +45,7 @@ func (a *apiKeyAuth) Authenticate(w http.ResponseWriter, r *http.Request) *ident
 
 	if token == "" {
 		writeJSONWithIP(w, r, http.StatusUnauthorized, "missing_api_key", "API Key required (Authorization: Bearer <key> or X-API-Key: <key>)", "apikey")
-		return nil
+		return r, nil
 	}
 
 	tokenBytes := []byte(token)
@@ -56,7 +56,7 @@ func (a *apiKeyAuth) Authenticate(w http.ResponseWriter, r *http.Request) *ident
 			if len(abbr) > 8 {
 				abbr = abbr[:8] + "..."
 			}
-			return &identity.Sender{
+			return r, &identity.Sender{
 				ID:               "apikey:" + abbr,
 				DisplayName:      "API Key User",
 				Role:             "agent",
@@ -66,5 +66,5 @@ func (a *apiKeyAuth) Authenticate(w http.ResponseWriter, r *http.Request) *ident
 	}
 
 	writeJSONWithIP(w, r, http.StatusUnauthorized, "invalid_api_key", "Invalid API Key", "apikey")
-	return nil
+	return r, nil
 }

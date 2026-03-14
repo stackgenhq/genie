@@ -379,7 +379,8 @@
             connectionField,
             fieldText('Args (comma-separated)', (srv.args || []).join(', '), function (v) { srv.args = splitCSV(v); renderOutput(); }, '--port 9876', 'Extra arguments passed to the command (stdio only)'),
             fieldText('Include Tools (comma-sep)', (srv.include_tools || []).join(', '), function (v) { srv.include_tools = splitCSV(v); renderOutput(); }, null, 'Only use these specific tools from the server (leave empty for all)'),
-            fieldText('Exclude Tools (comma-sep)', (srv.exclude_tools || []).join(', '), function (v) { srv.exclude_tools = splitCSV(v); renderOutput(); }, null, 'Block these tools from being used — useful for restricting dangerous operations')
+            fieldText('Exclude Tools (comma-sep)', (srv.exclude_tools || []).join(', '), function (v) { srv.exclude_tools = splitCSV(v); renderOutput(); }, null, 'Block these tools from being used — useful for restricting dangerous operations'),
+            fieldText('Datasource Keyword Regex (comma-sep)', (srv.datasource_keyword_regex || []).join(', '), function (v) { srv.datasource_keyword_regex = splitCSV(v); renderOutput(); }, 'INCIDENT-.*, sprint-board', 'Only index MCP resources whose URI or name matches at least one regex pattern. Leave empty to index all resources.')
         ];
 
         if (srv.transport === 'stdio') {
@@ -412,7 +413,7 @@
     }
 
     function addMCPServer() {
-        state.mcp_servers.push({ name: '', transport: 'stdio', command: '', server_url: '', args: [], include_tools: [], exclude_tools: [], env: {}, headers: {} });
+        state.mcp_servers.push({ name: '', transport: 'stdio', command: '', server_url: '', args: [], include_tools: [], exclude_tools: [], datasource_keyword_regex: [], env: {}, headers: {} });
         renderAll();
     }
 
@@ -1203,6 +1204,7 @@
             }
             if (hasItems(srv.include_tools)) lines.push('include_tools = [' + srv.include_tools.filter(Boolean).map(q).join(', ') + ']');
             if (hasItems(srv.exclude_tools)) lines.push('exclude_tools = [' + srv.exclude_tools.filter(Boolean).map(q).join(', ') + ']');
+            if (hasItems(srv.datasource_keyword_regex)) lines.push('datasource_keyword_regex = [' + srv.datasource_keyword_regex.filter(Boolean).map(q).join(', ') + ']');
             lines.push('');
         });
     }
@@ -1926,6 +1928,10 @@
             if (hasItems(srv.exclude_tools)) {
                 lines.push('      exclude_tools:');
                 srv.exclude_tools.filter(Boolean).forEach(function (t) { lines.push('        - ' + t); });
+            }
+            if (hasItems(srv.datasource_keyword_regex)) {
+                lines.push('      datasource_keyword_regex:');
+                srv.datasource_keyword_regex.filter(Boolean).forEach(function (r) { lines.push('        - ' + yq(r)); });
             }
         });
         lines.push('');

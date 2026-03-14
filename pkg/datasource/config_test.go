@@ -10,6 +10,14 @@ import (
 	"github.com/stackgenhq/genie/pkg/datasource"
 )
 
+type stubSourceConfig struct {
+	enabled bool
+	scope   []string
+}
+
+func (s *stubSourceConfig) IsEnabled() bool       { return s.enabled }
+func (s *stubSourceConfig) ScopeValues() []string { return s.scope }
+
 var _ = Describe("Config", func() {
 	Describe("ScopeFromConfig", func() {
 		It("returns zero scope when config is nil", func() {
@@ -69,7 +77,7 @@ var _ = Describe("Config", func() {
 		It("returns scope for external sources (e.g. github via SCM)", func() {
 			c := &datasource.Config{
 				ExternalSources: map[string]datasource.SourceConfig{
-					"github": &datasource.CalendarSourceConfig{Enabled: true, CalendarIDs: []string{"owner/repo"}},
+					"github": &stubSourceConfig{enabled: true, scope: []string{"owner/repo"}},
 				},
 			}
 			scope := c.ScopeFromConfig("github")

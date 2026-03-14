@@ -301,7 +301,7 @@ func (t *tree) prepareGraph(req TreeRequest, ls *loopState) (*graph.Graph, error
 
 	baseTools := req.Tools
 	if req.ToolGetter != nil {
-		baseTools = req.ToolGetter()
+		baseTools = req.ToolGetter(context.TODO())
 	}
 	toolsToUse := ls.toolsForIteration(baseTools)
 

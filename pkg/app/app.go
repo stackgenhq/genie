@@ -84,13 +84,6 @@ import (
 	"github.com/stackgenhq/genie/pkg/tools/youtubetranscript"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
 
-	// Register MCP scope filters for jira, confluence, servicenow via init().
-	_ "github.com/stackgenhq/genie/pkg/datasource/confluence"
-	_ "github.com/stackgenhq/genie/pkg/datasource/jira"
-	_ "github.com/stackgenhq/genie/pkg/datasource/servicenow"
-
-	"github.com/stackgenhq/genie/pkg/datasource/mcpresource"
-
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/baggage"
 	oteltrace "go.opentelemetry.io/otel/trace"
@@ -496,7 +489,7 @@ func (a *Application) Start(ctx context.Context) error {
 			Workers:       []agui.BGWorker{cronScheduler},
 			ChatFunc:      chatHandler,
 			Capabilities: &messengeragui.CapabilitiesStance{
-				ToolNames:     a.toolRegistry.ToolNames(),
+				ToolNames:     a.toolRegistry.ToolNames(ctx),
 				AlwaysAllowed: a.cfg.HITL.AlwaysAllowed,
 				DeniedTools:   a.cfg.HITL.DeniedTools,
 			},
@@ -687,9 +680,6 @@ func (a *Application) Close(ctx context.Context) {
 			logger.Warn("failed to close code owner", "error", err)
 		}
 	}
-	if a.mcpClient != nil {
-		a.mcpClient.Close(context.Background())
-	}
 	if a.browser != nil {
 		a.browser.Close()
 	}
@@ -801,7 +791,10 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 // stored on Application so they can be released by Close().
 // Each tool group is constructed as a ToolProviders conformer and passed
 // to tools.NewRegistry, which simply collects and optionally filters them.
-func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.IStore, summarizer agentutils.Summarizer) *tools.Registry {
+func (a *Application) initToolRegistry(
+	ctx context.Context,
+	vectorStore vector.IStore,
+	summarizer agentutils.Summarizer) *tools.Registry {
 	log := logger.GetLogger(ctx).With("fn", "app.initToolRegistry")
 
 	// --- Secret provider (same as Bootstrap; audits lookups when [security.secrets] set) ---
@@ -844,21 +837,19 @@ func (a *Application) initToolRegistry(ctx context.Context, vectorStore vector.I
 	}
 
 	// --- MCP tools ---
-	mcpClient, err := mcp.NewClient(ctx, a.cfg.MCP, mcp.WithSecretProvider(sp))
+	var err error
+	a.mcpClient, err = mcp.NewClient(ctx, a.cfg.MCP, mcp.WithSecretProvider(sp))
 	if err != nil {
 		log.Warn("failed to initialize MCP client, skipping MCP tools", "error", err)
 	}
-	if mcpClient != nil {
-		a.mcpClient = mcpClient
-		providers = append(providers, mcpClient) // *mcp.Client already satisfies ToolProviders
-		log.Info("MCP client initialized", "server_count", len(a.cfg.MCP.Servers))
-	}
+	providers = append(providers, a.mcpClient) // *mcp.Client already satisfies ToolProviders
+	log.Info("MCP client initialized", "server_count", len(a.cfg.MCP.Servers))
 
 	// --- Skills ---
 	if len(a.cfg.SkillLoadConfig.SkillsRoots) != 0 {
 		var additionalRepos []skill.Repository
-		if mcpClient != nil {
-			additionalRepos = append(additionalRepos, mcpClient.GetPromptRepository())
+		for _, pr := range a.mcpClient.GetPromptRepositories() {
+			additionalRepos = append(additionalRepos, pr)
 		}
 
 		skillProvider, err := tools.NewSkillToolProvider(a.workingDir, a.cfg.SkillLoadConfig, additionalRepos...)
@@ -1208,18 +1199,9 @@ func (a *Application) runOneDataSourcesSync(ctx context.Context, cfg *datasource
 	}
 
 	// Build MCP-backed connectors for servers with DisableDataSource == false.
-	var mcpConnectors []datasource.DataSource
-	if a.mcpClient != nil {
-		for _, serverName := range a.mcpClient.DataSourceServerNames() {
-			reader, ok := a.mcpClient.GetResourceReader(serverName)
-			if !ok || reader == nil {
-				continue
-			}
-			mcpConnectors = append(mcpConnectors, mcpresource.NewFromServerName(reader, serverName))
-		}
-	}
+	a.mcpClient.RegisterDatasources()
 
-	connectors := datasource.BuildConnectors(ctx, cfg, opts, mcpConnectors...)
+	connectors := datasource.BuildConnectors(ctx, cfg, opts)
 
 	for name, conn := range connectors {
 		scope := cfg.ScopeFromConfig(name)

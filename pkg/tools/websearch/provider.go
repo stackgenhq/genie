@@ -4,6 +4,8 @@
 package websearch
 
 import (
+	"context"
+
 	"github.com/stackgenhq/genie/pkg/security"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
@@ -47,7 +49,7 @@ func NewToolProvider(cfg Config, opts ...ProviderOption) *ToolProvider {
 // as well as the separate wikipedia_search tool. When SerpAPI is the selected
 // provider, the google_news_search and google_scholar_search tools are also
 // included for specialised search workflows.
-func (p *ToolProvider) GetTools() []tool.Tool {
+func (p *ToolProvider) GetTools(_ context.Context) []tool.Tool {
 	tools := []tool.Tool{
 		NewTool(p.cfg, p.sp, p.opts...),
 		NewWikipediaTool(),

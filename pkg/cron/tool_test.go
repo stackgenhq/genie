@@ -525,7 +525,7 @@ var _ = Describe("ToolProvider", func() {
 
 	It("should provide 5 tools without dispatcher", func() {
 		p := cron.NewToolProvider(fakeStore)
-		tools := p.GetTools()
+		tools := p.GetTools(context.Background())
 		Expect(len(tools)).To(Equal(5))
 	})
 
@@ -534,7 +534,7 @@ var _ = Describe("ToolProvider", func() {
 		p.SetDispatcher(func(_ context.Context, _ agui.EventRequest) (string, error) {
 			return "", nil
 		})
-		tools := p.GetTools()
+		tools := p.GetTools(context.Background())
 		Expect(len(tools)).To(Equal(6))
 	})
 })

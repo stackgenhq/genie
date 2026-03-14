@@ -39,17 +39,24 @@ func newJWTValidator(cfg JWTConfig) *jwtValidator {
 }
 
 // Authenticate implements the Authenticator interface.
-func (v *jwtValidator) Authenticate(w http.ResponseWriter, r *http.Request) *identity.Sender {
+func (v *jwtValidator) Authenticate(w http.ResponseWriter, r *http.Request) (*http.Request, *identity.Sender) {
 	authHeader := r.Header.Get("Authorization")
 	if !strings.HasPrefix(authHeader, "Bearer ") {
 		writeJSONWithIP(w, r, http.StatusUnauthorized, "missing_token", "Authorization: Bearer <token> required", "jwt")
-		return nil
+		return r, nil
 	}
 	token := strings.TrimPrefix(authHeader, "Bearer ")
 	idToken, err := v.validate(r.Context(), token)
 	if err != nil {
 		writeJSONWithIP(w, r, http.StatusUnauthorized, "invalid_token", "Bearer token validation failed", "jwt")
-		return nil
+		return r, nil
+	}
+
+	// Extract raw claims and inject them into the request context
+	// so the IdentityResolvers can process custom keys later.
+	var rawClaims map[string]any
+	if err := idToken.Claims(&rawClaims); err == nil {
+		r = r.WithContext(WithClaims(r.Context(), rawClaims))
 	}
 
 	// Extract identity from token claims.
@@ -64,7 +71,7 @@ func (v *jwtValidator) Authenticate(w http.ResponseWriter, r *http.Request) *ide
 	if id == "" {
 		id = claims.Sub
 	}
-	return &identity.Sender{
+	return r, &identity.Sender{
 		ID:               id,
 		DisplayName:      claims.Name,
 		Role:             "user",

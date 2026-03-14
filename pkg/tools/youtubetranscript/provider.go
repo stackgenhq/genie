@@ -3,7 +3,11 @@
 
 package youtubetranscript
 
-import "trpc.group/trpc-go/trpc-agent-go/tool"
+import (
+	"context"
+
+	"trpc.group/trpc-go/trpc-agent-go/tool"
+)
 
 // ToolProvider satisfies the tools.ToolProviders interface for the
 // YouTube transcript tool.
@@ -15,6 +19,6 @@ func NewToolProvider() *ToolProvider {
 }
 
 // GetTools returns the YouTube transcript tool.
-func (p *ToolProvider) GetTools() []tool.Tool {
+func (p *ToolProvider) GetTools(_ context.Context) []tool.Tool {
 	return []tool.Tool{NewTool()}
 }

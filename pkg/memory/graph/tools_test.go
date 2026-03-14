@@ -75,7 +75,7 @@ var _ = Describe("graph_query tool", func() {
 		It("returns the root entity with all neighbors and relations", func(ctx context.Context) {
 			// Arrange: alice has 2 outgoing relations (WORKS_ON→proj-x, MENTORS→bob)
 			provider := graph.NewToolProvider(store)
-			tools := provider.GetTools()
+			tools := provider.GetTools(context.Background())
 			Expect(tools).To(HaveLen(2))
 
 			// We can't call the tool directly because it's generic, so we
@@ -428,7 +428,7 @@ var _ = Describe("graph_query tool error handling (FakeIStore)", func() {
 	Describe("ToolProvider tool declarations", func() {
 		It("graph_query tool has 'explore' and 'batch' in its description", func() {
 			provider := graph.NewToolProvider(fakeStore)
-			tools := provider.GetTools()
+			tools := provider.GetTools(context.Background())
 			Expect(tools).To(HaveLen(2))
 
 			var queryToolDesc string
@@ -448,7 +448,7 @@ var _ = Describe("graph_query tool error handling (FakeIStore)", func() {
 
 		It("graph_store tool description includes entity, relation, and batch", func() {
 			provider := graph.NewToolProvider(fakeStore)
-			tools := provider.GetTools()
+			tools := provider.GetTools(context.Background())
 
 			var storeToolDesc string
 			for _, t := range tools {

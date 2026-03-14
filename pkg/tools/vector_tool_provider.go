@@ -147,7 +147,7 @@ func NewVectorToolProvider(ctx context.Context, store vector.IStore, registry *R
 func (v *VectorToolProvider) indexTools(ctx context.Context, registry *Registry) error {
 	logr := logger.GetLogger(ctx).With("fn", "VectorToolProvider.indexTools")
 
-	allTools := registry.GetTools()
+	allTools := registry.GetTools(ctx)
 	if len(allTools) == 0 {
 		logr.Info("no tools to index")
 		return nil

@@ -3,7 +3,11 @@
 
 package codeskim
 
-import "trpc.group/trpc-go/trpc-agent-go/tool"
+import (
+	"context"
+
+	"trpc.group/trpc-go/trpc-agent-go/tool"
+)
 
 // ToolProvider wraps the code skim tool and satisfies the tools.ToolProviders interface.
 type ToolProvider struct{}
@@ -12,7 +16,7 @@ type ToolProvider struct{}
 func NewToolProvider() *ToolProvider { return &ToolProvider{} }
 
 // GetTools returns the code skim tool.
-func (p *ToolProvider) GetTools() []tool.Tool {
+func (p *ToolProvider) GetTools(_ context.Context) []tool.Tool {
 	s := newSkimTools()
 	return []tool.Tool{s.skimTool()}
 }

@@ -3,7 +3,11 @@
 
 package networking
 
-import "trpc.group/trpc-go/trpc-agent-go/tool"
+import (
+	"context"
+
+	"trpc.group/trpc-go/trpc-agent-go/tool"
+)
 
 // ToolProvider satisfies the tools.ToolProviders interface for the
 // HTTP networking tool. Without this, the networking tool would need
@@ -18,6 +22,6 @@ func NewToolProvider(cfg ...Config) *ToolProvider {
 }
 
 // GetTools returns the HTTP networking tool.
-func (p *ToolProvider) GetTools() []tool.Tool {
+func (p *ToolProvider) GetTools(_ context.Context) []tool.Tool {
 	return []tool.Tool{NewTool(p.cfg...)}
 }

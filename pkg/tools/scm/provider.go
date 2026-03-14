@@ -3,7 +3,11 @@
 
 package scm
 
-import "trpc.group/trpc-go/trpc-agent-go/tool"
+import (
+	"context"
+
+	"trpc.group/trpc-go/trpc-agent-go/tool"
+)
 
 // ToolProvider wraps an SCM Service and satisfies the tools.ToolProviders
 // interface so SCM tools can be passed directly to tools.NewRegistry.
@@ -19,6 +23,6 @@ func NewToolProvider(svc Service) *ToolProvider {
 }
 
 // GetTools returns all SCM tools wired to the underlying service.
-func (p *ToolProvider) GetTools() []tool.Tool {
+func (p *ToolProvider) GetTools(_ context.Context) []tool.Tool {
 	return AllTools(p.svc)
 }
