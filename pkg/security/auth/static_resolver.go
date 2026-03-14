@@ -50,10 +50,14 @@ func newStaticResolver(cfg map[string]string) *staticResolver {
 				eu.Department = v
 			case "groups":
 				groupList := strings.Split(v, "|")
+				var validGroups []string
 				for i := range groupList {
-					groupList[i] = strings.TrimSpace(groupList[i])
+					g := strings.TrimSpace(groupList[i])
+					if g != "" {
+						validGroups = append(validGroups, g)
+					}
 				}
-				eu.Groups = groupList
+				eu.Groups = validGroups
 			}
 		}
 		users[userID] = eu

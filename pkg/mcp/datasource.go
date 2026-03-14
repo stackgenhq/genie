@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -111,6 +112,9 @@ func (m *mcpDatasource) listItemsWithSince(ctx context.Context, scope datasource
 	// Compile keyword regex patterns (if configured) for resource filtering.
 	keywordPatterns := m.compileKeywordPatterns(ctx)
 
+	// Get scope filters for this source.
+	scopeFilters := scope.Get(m.cfg.Name)
+
 	var (
 		mu  sync.Mutex
 		out []datasource.NormalizedItem
@@ -121,6 +125,23 @@ func (m *mcpDatasource) listItemsWithSince(ctx context.Context, scope datasource
 	g.SetLimit(10)
 
 	for _, res := range resources {
+		// Apply scope filter: skip resources that don't match any scope value (if scope is configured).
+		if len(scopeFilters) > 0 {
+			matchedScope := false
+			resURI := strings.ToLower(res.URI)
+			resName := strings.ToLower(res.Name)
+			for _, filter := range scopeFilters {
+				fLower := strings.ToLower(filter)
+				if strings.Contains(resURI, fLower) || strings.Contains(resName, fLower) {
+					matchedScope = true
+					break
+				}
+			}
+			if !matchedScope {
+				continue
+			}
+		}
+
 		// Apply keyword regex filter: skip resources that don't match any pattern.
 		if len(keywordPatterns) > 0 && !m.matchesKeywordPatterns(res, keywordPatterns) {
 			continue

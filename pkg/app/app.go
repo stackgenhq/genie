@@ -841,15 +841,18 @@ func (a *Application) initToolRegistry(
 	a.mcpClient, err = mcp.NewClient(ctx, a.cfg.MCP, mcp.WithSecretProvider(sp))
 	if err != nil {
 		log.Warn("failed to initialize MCP client, skipping MCP tools", "error", err)
+	} else {
+		providers = append(providers, a.mcpClient) // *mcp.Client already satisfies ToolProviders
+		log.Info("MCP client initialized", "server_count", len(a.cfg.MCP.Servers))
 	}
-	providers = append(providers, a.mcpClient) // *mcp.Client already satisfies ToolProviders
-	log.Info("MCP client initialized", "server_count", len(a.cfg.MCP.Servers))
 
 	// --- Skills ---
 	if len(a.cfg.SkillLoadConfig.SkillsRoots) != 0 {
 		var additionalRepos []skill.Repository
-		for _, pr := range a.mcpClient.GetPromptRepositories() {
-			additionalRepos = append(additionalRepos, pr)
+		if a.mcpClient != nil {
+			for _, pr := range a.mcpClient.GetPromptRepositories() {
+				additionalRepos = append(additionalRepos, pr)
+			}
 		}
 
 		skillProvider, err := tools.NewSkillToolProvider(a.workingDir, a.cfg.SkillLoadConfig, additionalRepos...)
@@ -1199,7 +1202,9 @@ func (a *Application) runOneDataSourcesSync(ctx context.Context, cfg *datasource
 	}
 
 	// Build MCP-backed connectors for servers with DisableDataSource == false.
-	a.mcpClient.RegisterDatasources()
+	if a.mcpClient != nil {
+		a.mcpClient.RegisterDatasources()
+	}
 
 	connectors := datasource.BuildConnectors(ctx, cfg, opts)
 
