@@ -5,6 +5,7 @@ package mcp
 
 import (
 	"context"
+	"time"
 )
 
 // ShouldIncludeToolForTest exports shouldIncludeTool for tests only. Not part of the public API.
@@ -26,7 +27,8 @@ func (c *Client) ExpandEnvValueForTest(ctx context.Context, value string) string
 // It skips config validation and server initialization.
 func NewClientForTest(opts ...ClientOption) *Client {
 	c := &Client{
-		cacheTTL: defaultCacheTTL,
+		cacheTTL:      defaultCacheTTL,
+		failedServers: make(map[string]time.Time),
 	}
 	for _, opt := range opts {
 		opt(c)

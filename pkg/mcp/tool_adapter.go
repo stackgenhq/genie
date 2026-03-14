@@ -22,34 +22,58 @@ type MCPCaller interface {
 	CallTool(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
 }
 
-// ClientTool wraps an MCP Client and Tool to implement the trpc-agent-go tool.Tool interface.
+// toolDialer creates an ephemeral MCP connection for a single tool call and
+// returns a caller, a cleanup function, and any dial error. Production code
+// uses dialMCP; tests inject a fake via NewClientToolForTest.
+type toolDialer func(ctx context.Context) (MCPCaller, func(), error)
+
+// ClientTool wraps an MCP Tool definition to implement the trpc-agent-go
+// tool.Tool interface. Each Call() dials a fresh ephemeral MCP connection
+// via the dialer, executes the tool, and tears the connection down. This
+// eliminates the race where a shared cached connection could be closed by
+// a concurrent cache refresh while an in-flight tool call is still using it.
+//
 // Tools are namespaced by server name to avoid collisions when multiple MCP
 // servers expose tools with the same name (e.g. "search").
 type ClientTool struct {
-	client     MCPCaller
-	tool       mcp.Tool
+	mcpTool    mcp.Tool
 	serverName string
+	dialer     toolDialer
 }
 
-// NewClientTool creates a new ClientTool wrapper.
-// The serverName is used to prefix the tool name so that tools from different
-// MCP servers are disambiguated (e.g. "github_search" vs "jira_search").
+// newClientTool creates a ClientTool that dials the given MCP server for
+// every Call(). The serverName is used to prefix the tool name so that
+// tools from different MCP servers are disambiguated (e.g. "github_search"
+// vs "jira_search").
+func newClientTool(mcpTool mcp.Tool, serverName string, dialer toolDialer) *ClientTool {
+	return &ClientTool{
+		mcpTool:    mcpTool,
+		serverName: serverName,
+		dialer:     dialer,
+	}
+}
+
+// NewClientTool creates a ClientTool that uses a static MCPCaller for every
+// Call(). This constructor is kept for backward compatibility with code that
+// already holds a live MCPCaller (e.g. tests using counterfeiter fakes).
 func NewClientTool(caller MCPCaller, mcpTool mcp.Tool, serverName string) *ClientTool {
 	return &ClientTool{
-		client:     caller,
-		tool:       mcpTool,
+		mcpTool:    mcpTool,
 		serverName: serverName,
+		dialer: func(_ context.Context) (MCPCaller, func(), error) {
+			return caller, func() {}, nil
+		},
 	}
 }
 
 // Name returns the namespaced tool name (serverName_toolName).
 func (t *ClientTool) Name() string {
-	return t.serverName + "_" + t.tool.Name
+	return t.serverName + "_" + t.mcpTool.Name
 }
 
 // Description returns the tool description.
 func (t *ClientTool) Description() string {
-	return t.tool.Description
+	return t.mcpTool.Description
 }
 
 // Declaration returns the tool declaration.
@@ -57,12 +81,19 @@ func (t *ClientTool) Declaration() *tool.Declaration {
 	return &tool.Declaration{
 		Name:        t.Name(),
 		Description: t.Description(),
-		InputSchema: mcputils.ConvertMCPSchema(t.tool.InputSchema),
+		InputSchema: mcputils.ConvertMCPSchema(t.mcpTool.InputSchema),
 	}
 }
 
-// Call executes the tool using the MCP client.
+// Call dials a fresh MCP connection, executes the tool, and closes the
+// connection. Each invocation is fully independent — no shared state.
 func (t *ClientTool) Call(ctx context.Context, jsonArgs []byte) (any, error) {
+	caller, cleanup, err := t.dialer(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("dial MCP %s: %w", t.serverName, err)
+	}
+	defer cleanup()
+
 	var args map[string]interface{}
 	if len(jsonArgs) > 0 {
 		if err := json.Unmarshal(jsonArgs, &args); err != nil {
@@ -79,12 +110,12 @@ func (t *ClientTool) Call(ctx context.Context, jsonArgs []byte) (any, error) {
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
-			Name:      t.tool.Name, // Use the original MCP tool name, not the namespaced one
+			Name:      t.mcpTool.Name, // Use the original MCP tool name, not the namespaced one
 			Arguments: args,
 		},
 	}
 
-	resp, err := t.client.CallTool(ctx, req)
+	resp, err := caller.CallTool(ctx, req)
 	if err != nil {
 		return nil, err
 	}

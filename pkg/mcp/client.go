@@ -18,9 +18,10 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
-// defaultCacheTTL is how long cached tools remain valid before re-fetching.
-// 30 seconds balances JIT freshness against the cost of reconnecting to
-// MCP servers (each connection spawns a subprocess or HTTP session).
+// defaultCacheTTL is how long cached tool metadata remains valid before
+// re-fetching. 30 seconds balances JIT freshness against the cost of
+// reconnecting to MCP servers (each connection spawns a subprocess or HTTP
+// session) just to list tools.
 const defaultCacheTTL = 30 * time.Second
 
 // ClientOption configures an MCP Client (e.g. WithSecretProvider).
@@ -39,10 +40,10 @@ func WithSecretProvider(sp security.SecretProvider) ClientOption {
 // It uses mark3labs/mcp-go for MCP protocol communication and wraps tools
 // to be compatible with trpc-agent-go.
 //
-// Tools are fetched just-in-time via GetTools(ctx) and cached for a short
-// TTL (defaultCacheTTL). This balances freshness (e.g. new tools after
-// user login) with performance (avoiding reconnects on every Registry
-// lookup). Close() releases all live connections.
+// Tool metadata (names, descriptions, schemas) is fetched just-in-time via
+// GetTools(ctx) and cached for a short TTL (defaultCacheTTL). Each tool's
+// Call() method dials its own ephemeral MCP connection, so cache refreshes
+// never close connections that are still in use by in-flight tool calls.
 type Client struct {
 	config         MCPConfig
 	secretProvider security.SecretProvider
@@ -51,13 +52,12 @@ type Client struct {
 	cachedTools   []tool.Tool
 	cachedAt      time.Time
 	cacheTTL      time.Duration
-	liveClients   []*client.Client     // connections backing current cachedTools
 	failedServers map[string]time.Time // serverName → last failure time; skip retries within cacheTTL
 }
 
 // NewClient creates a new MCP client from the provided configuration.
 // It validates the configuration but does NOT connect to MCP servers at
-// startup. Tools are fetched just-in-time via GetTools(ctx).
+// startup. Tool metadata is fetched just-in-time via GetTools(ctx).
 //
 // Options (e.g. WithSecretProvider) can be used to enable secret lookup
 // for MCP server env values containing "${VAR}".
@@ -83,10 +83,29 @@ func NewClient(ctx context.Context, config MCPConfig, opts ...ClientOption) (*Cl
 	return mcpClient, nil
 }
 
-// initializeServer connects to a single MCP server, lists available tools,
-// and returns ClientTool adapters with a live connection for Call().
-// The live *client.Client is also returned so the caller can track and close it.
-func (c *Client) initializeServer(ctx context.Context, config MCPServerConfig) ([]tool.Tool, *client.Client, error) {
+// listServerTools connects to a single MCP server, lists available tools,
+// and returns ClientTool adapters with per-call dialers. The listing
+// connection is closed before returning — each tool Call() dials fresh.
+func (c *Client) listServerTools(ctx context.Context, config MCPServerConfig) ([]tool.Tool, error) {
+	mcpClient, err := c.dialServer(ctx, config)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = mcpClient.Close() }()
+
+	// List available tools
+	availableTools, err := mcpClient.ListTools(ctx, mcp.ListToolsRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tools: %w", err)
+	}
+
+	// Convert and filter tools — each tool gets its own dialer closure.
+	return c.convertAndFilterTools(ctx, availableTools.Tools, config)
+}
+
+// dialServer creates and initializes an MCP client connection. The caller is
+// responsible for closing it.
+func (c *Client) dialServer(ctx context.Context, config MCPServerConfig) (*client.Client, error) {
 	var trans transport.Interface
 	var err error
 
@@ -108,60 +127,53 @@ func (c *Client) initializeServer(ctx context.Context, config MCPServerConfig) (
 		}
 		trans, err = transport.NewSSE(config.ServerURL, opts...)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create SSE transport: %w", err)
+			return nil, fmt.Errorf("failed to create SSE transport: %w", err)
 		}
 	default:
-		return nil, nil, fmt.Errorf("unsupported transport: %s", config.Transport)
+		return nil, fmt.Errorf("unsupported transport: %s", config.Transport)
 	}
 
-	// Create MCP client
 	mcpClient := client.NewClient(trans)
 
-	// Start the transport (spawns the subprocess for stdio, opens the
-	// HTTP connection for SSE). Must happen before Initialize.
 	if err = mcpClient.Start(ctx); err != nil {
-		return nil, nil, fmt.Errorf("failed to start MCP transport: %w", err)
+		return nil, fmt.Errorf("failed to start MCP transport: %w", err)
 	}
 
-	// Initialize the client
-	_, err = mcpClient.Initialize(ctx, mcp.InitializeRequest{})
-	if err != nil {
+	if _, err = mcpClient.Initialize(ctx, mcp.InitializeRequest{}); err != nil {
 		_ = mcpClient.Close()
-		return nil, nil, fmt.Errorf("failed to initialize client: %w", err)
+		return nil, fmt.Errorf("failed to initialize client: %w", err)
 	}
 
-	// List available tools
-	availableTools, err := mcpClient.ListTools(ctx, mcp.ListToolsRequest{})
-	if err != nil {
-		_ = mcpClient.Close()
-		return nil, nil, fmt.Errorf("failed to list tools: %w", err)
-	}
-
-	// Convert and filter tools — the mcpClient stays open so Call() works
-	tools, filterErr := c.convertAndFilterTools(ctx, mcpClient, availableTools.Tools, config)
-	if filterErr != nil {
-		_ = mcpClient.Close()
-		return nil, nil, filterErr
-	}
-	return tools, mcpClient, nil
+	return mcpClient, nil
 }
 
-// convertAndFilterTools converts MCP tools to trpc-agent-go tools and applies filtering.
-// It wraps each MCP tool using ClientTool and filters based on include/exclude lists.
-func (c *Client) convertAndFilterTools(ctx context.Context, mcpClient *client.Client, mcpTools []mcp.Tool, config MCPServerConfig) ([]tool.Tool, error) {
+// convertAndFilterTools converts MCP tools to trpc-agent-go tools and applies
+// filtering. Each tool gets a per-call dialer that opens an ephemeral MCP
+// connection for every Call().
+func (c *Client) convertAndFilterTools(ctx context.Context, mcpTools []mcp.Tool, config MCPServerConfig) ([]tool.Tool, error) {
 	var tools []tool.Tool
-	logger := logger.GetLogger(ctx).With("fn", "mcp.convertAndFilterTools")
+	log := logger.GetLogger(ctx).With("fn", "mcp.convertAndFilterTools")
+
+	// Build a dialer closure that captures server config + secret provider.
+	// Each tool Call() will use this to dial a fresh connection.
+	serverConfig := config
+	sp := c.secretProvider
+	dialer := func(ctx context.Context) (MCPCaller, func(), error) {
+		conn, err := dialMCP(ctx, serverConfig, sp)
+		if err != nil {
+			return nil, nil, err
+		}
+		return conn, func() { _ = conn.Close() }, nil
+	}
 
 	for _, mcpTool := range mcpTools {
-		// Apply filtering
 		if !c.shouldIncludeTool(mcpTool.Name, config) {
-			logger.Debug("Filtering out tool", "tool", mcpTool.Name, "server", config.Name)
+			log.Debug("Filtering out tool", "tool", mcpTool.Name, "server", config.Name)
 			continue
 		}
 
-		logger.Debug("Found tool", "tool", mcpTool.Name, "server", config.Name)
-		// Wrap tool with ClientTool adapter
-		adapter := NewClientTool(mcpClient, mcpTool, config.Name)
+		log.Debug("Found tool", "tool", mcpTool.Name, "server", config.Name)
+		adapter := newClientTool(mcpTool, config.Name, dialer)
 		tools = append(tools, adapter)
 	}
 
@@ -198,9 +210,11 @@ func (c *Client) shouldIncludeTool(toolName string, config MCPServerConfig) bool
 }
 
 // GetTools returns all available tools from all configured MCP servers.
-// Results are cached for cacheTTL (default 30s) to avoid reconnecting on
-// every Registry lookup (GetTool, ToolNames, AllTools, etc.). After the
-// TTL expires, the next call opens fresh connections and closes stale ones.
+// Tool metadata (names, descriptions, schemas) is cached for cacheTTL
+// (default 30s) to avoid reconnecting on every Registry lookup (GetTool,
+// ToolNames, AllTools, etc.). Each returned tool dials its own ephemeral
+// connection per Call(), so cache refreshes never interfere with in-flight
+// tool calls.
 func (c *Client) GetTools(ctx context.Context) []tool.Tool {
 	if c == nil {
 		return nil
@@ -209,18 +223,14 @@ func (c *Client) GetTools(ctx context.Context) []tool.Tool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Return cached tools if still fresh.
+	// Return cached tool metadata if still fresh.
 	if c.cachedTools != nil && time.Since(c.cachedAt) < c.cacheTTL {
 		return c.cachedTools
 	}
 
 	log := logger.GetLogger(ctx).With("fn", "mcp.GetTools")
 
-	// Close stale connections before opening new ones.
-	c.closeClientsLocked(ctx)
-
 	var allTools []tool.Tool
-	var newClients []*client.Client
 
 	for i := range c.config.Servers {
 		serverConfig := c.config.Servers[i]
@@ -238,7 +248,7 @@ func (c *Client) GetTools(ctx context.Context) []tool.Tool {
 			delete(c.failedServers, serverConfig.Name)
 		}
 
-		tools, mcpClient, err := c.initializeServer(ctx, serverConfig)
+		tools, err := c.listServerTools(ctx, serverConfig)
 		if err != nil {
 			log.Warn("failed to fetch tools from MCP server, skipping", "server", serverConfig.Name, "error", err)
 			c.failedServers[serverConfig.Name] = time.Now()
@@ -248,42 +258,25 @@ func (c *Client) GetTools(ctx context.Context) []tool.Tool {
 		// Server recovered — clear any previous failure record.
 		delete(c.failedServers, serverConfig.Name)
 		allTools = append(allTools, tools...)
-		newClients = append(newClients, mcpClient)
 	}
 
 	c.cachedTools = allTools
 	c.cachedAt = time.Now()
-	c.liveClients = newClients
 
 	return allTools
 }
 
-// Close releases all live MCP connections and clears the tool cache.
-// Safe to call multiple times; subsequent calls are no-ops.
+// Close clears the tool metadata cache. No live connections are held, so
+// this is a lightweight operation. Safe to call multiple times.
 func (c *Client) Close(ctx context.Context) error {
 	if c == nil {
 		return nil
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.closeClientsLocked(ctx)
-	return nil
-}
-
-// closeClientsLocked closes all live MCP client connections and clears
-// the cache. Must be called with c.mu held.
-func (c *Client) closeClientsLocked(ctx context.Context) {
-	log := logger.GetLogger(ctx).With("fn", "mcp.closeClientsLocked")
-	for _, cl := range c.liveClients {
-		if cl != nil {
-			if err := cl.Close(); err != nil {
-				log.Warn("failed to close MCP client", "error", err)
-			}
-		}
-	}
-	c.liveClients = nil
 	c.cachedTools = nil
 	c.cachedAt = time.Time{}
+	return nil
 }
 
 // GetPromptRepositories returns a PromptRepository for each configured MCP
