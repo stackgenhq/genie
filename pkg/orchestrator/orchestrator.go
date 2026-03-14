@@ -34,6 +34,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider"
 	"github.com/stackgenhq/genie/pkg/halguard"
 	"github.com/stackgenhq/genie/pkg/hitl"
+	"github.com/stackgenhq/genie/pkg/learning"
 	"github.com/stackgenhq/genie/pkg/llmutil"
 	"github.com/stackgenhq/genie/pkg/logger"
 	memorygraph "github.com/stackgenhq/genie/pkg/memory/graph"
@@ -44,6 +45,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/reactree"
 	rtmemory "github.com/stackgenhq/genie/pkg/reactree/memory"
 	"github.com/stackgenhq/genie/pkg/semanticrouter"
+	"github.com/stackgenhq/genie/pkg/skills"
 	"github.com/stackgenhq/genie/pkg/tools"
 	"github.com/stackgenhq/genie/pkg/toolwrap"
 	"github.com/stackgenhq/genie/pkg/ttlcache"
@@ -129,6 +131,11 @@ type orchestrator struct {
 	// Used by recallAccomplishments to surface distilled lessons.
 	wisdomStore rtmemory.WisdomStore
 
+	// learner evaluates completed tasks and distills novel workflows
+	// into reusable skills, stored in both the skill filesystem and
+	// the vector store for semantic discovery.
+	learner *learning.Learner
+
 	disableResume                     bool
 	agentPersona                      string
 	accomplishmentConfidenceThreshold float64
@@ -155,6 +162,7 @@ type orchestratorOpts struct {
 	halGuardConfig                    halguard.Config
 	semanticRouter                    semanticrouter.IRouter
 	accomplishmentConfidenceThreshold float64
+	skillRepo                         *skills.MutableRepository
 }
 
 // WithToolwrapOptions passes per-agent middleware configuration to the
@@ -196,6 +204,15 @@ func WithSemanticRouter(router semanticrouter.IRouter) OrchestratorOption {
 func WithAccomplishmentConfidenceThreshold(threshold float64) OrchestratorOption {
 	return func(o *orchestratorOpts) {
 		o.accomplishmentConfidenceThreshold = threshold
+	}
+}
+
+// WithSkillRepo sets the writable skill repository. When set, the
+// orchestrator constructs a Learner that distills completed tasks into
+// skills and indexes them in the vector store for discovery.
+func WithSkillRepo(repo *skills.MutableRepository) OrchestratorOption {
+	return func(o *orchestratorOpts) {
+		o.skillRepo = repo
 	}
 }
 
@@ -376,6 +393,7 @@ func NewOrchestrator(
 		reactree.WithFailureReflector(failureReflector),
 		reactree.WithImportanceScorer(importanceScorer),
 		reactree.WithPlanAdvisor(planAdvisor),
+		reactree.WithSessionService(sessionSvc),
 	)
 	createAgentTool.SetHalGuardThreshold(oo.halGuardConfig.PreCheckThreshold)
 	// Log tool counts so operators can verify email, gmail, etc. are wired for sub-agents.
@@ -405,6 +423,12 @@ func NewOrchestrator(
 	orchestratorTools := tools.NewRegistry(ctx, orchestratorToolSlice)
 	logger.Info("Orchestrator tool registry initialized", "count", len(orchestratorTools.ToolNames(ctx)))
 
+	// Construct the learner when a skill repository is provided.
+	var learner *learning.Learner
+	if oo.skillRepo != nil {
+		learner = learning.NewLearner(exp, oo.skillRepo, vectorStore, auditor)
+	}
+
 	orchestrator := &orchestrator{
 		expert:                            exp,
 		treeExecutor:                      treeExec,
@@ -417,6 +441,7 @@ func NewOrchestrator(
 		episodicMemoryCfg:                 episodicMemoryCfg,
 		importanceScorer:                  importanceScorer,
 		wisdomStore:                       wisdomStore,
+		learner:                           learner,
 		toolIndex:                         toolIndex,
 		disableResume:                     oo.disableResume,
 		agentPersona:                      agentPersona,
@@ -852,6 +877,21 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	// Persist a concise accomplishment so the agent's resume can reference
 	// real work it has completed, boosting user confidence.
 	c.storeAccomplishment(ctx, req.Question, res)
+
+	// Async learning: evaluate the completed task and distil a skill if
+	// the task was novel enough. Runs in a detached goroutine so it
+	// never blocks the user-facing response.
+	if c.learner != nil {
+		bgCtx := context.WithoutCancel(ctx)
+		go func() {
+			if err := c.learner.Learn(bgCtx, learning.LearnRequest{
+				Goal:   req.Question,
+				Output: res.Output,
+			}); err != nil {
+				logger.GetLogger(bgCtx).Warn("background learning failed", "error", err)
+			}
+		}()
+	}
 
 	// Audit: log complete conversation turn
 	c.auditor.Log(ctx, audit.LogRequest{

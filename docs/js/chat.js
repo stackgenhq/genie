@@ -147,6 +147,10 @@
     // Every chat session gets a fresh threadId so the LLM never
     // sees memory/context from a previous chat.
     let threadId = crypto.randomUUID();
+    // activeThreadId is the "live" session threadId — preserved when viewing history.
+    let activeThreadId = threadId;
+    // Non-null when the user is viewing a past conversation (read-only display).
+    let viewingHistoryThreadId = null;
     let runCounter = 0;
     let currentAssistantBubble = null;
     let currentAssistantContent = '';
@@ -744,6 +748,8 @@
         fetchAndShowResume();
         fetchAndShowCapabilities();
         showNotificationPrompt();
+        activeThreadId = threadId;
+        viewingHistoryThreadId = null;
         currentConversation = {
             threadId: threadId,
             serverUrl: serverUrl,
@@ -1182,6 +1188,60 @@
     async function sendMessage() {
         const message = inputEl.value.replace(/\s*\[listening…\]\s*$/, '').trim();
         if ((!message && pendingFiles.length === 0) || !isConnected) return;
+
+        // If the user is viewing a historical conversation, switch back to the
+        // active (live) session before sending so the message is not appended
+        // to the old conversation.
+        if (viewingHistoryThreadId) {
+            viewingHistoryThreadId = null;
+            threadId = activeThreadId;
+            messagesEl.innerHTML = '';
+            currentAssistantBubble = null;
+            currentAssistantContent = '';
+            currentMessageId = null;
+            if (approvalsColumnListEl) {
+                approvalsColumnListEl.innerHTML = '';
+                updateApprovalsColumnVisibility();
+            }
+            // Restore or create a fresh conversation record for the active thread.
+            const existing = await genieDB.getConversation(activeThreadId);
+            if (existing) {
+                currentConversation = existing;
+                // Replay existing messages so the user sees the active session's history.
+                for (const msg of existing.messages) {
+                    if (msg.role === 'user') {
+                        addUserBubble(msg.content);
+                    } else if (msg.role === 'assistant') {
+                        const wrapper = document.createElement('div');
+                        wrapper.className = 'flex justify-start mb-4';
+                        const bubbleWrap = document.createElement('div');
+                        bubbleWrap.className = 'bubble-wrapper';
+                        const bubble = document.createElement('div');
+                        bubble.className = 'chat-bubble assistant';
+                        bubble.innerHTML = renderMarkdown(msg.content);
+                        bubbleWrap.appendChild(bubble);
+                        addCopyButton(bubble, msg.content);
+                        addSpeakButton(bubble, msg.content);
+                        wrapper.appendChild(bubbleWrap);
+                        messagesEl.appendChild(wrapper);
+                    } else if (msg.role === 'system') {
+                        addSystemMessage(msg.content);
+                    }
+                }
+            } else {
+                currentConversation = {
+                    threadId: activeThreadId,
+                    serverUrl: serverUrl,
+                    userId: userId,
+                    platform: PLATFORM_ID,
+                    title: 'New conversation',
+                    messages: [],
+                    updatedAt: Date.now(),
+                };
+            }
+            emptyState.style.display = 'none';
+            refreshSidebar().catch(console.warn);
+        }
 
         if (isListening) stopListening();
 
@@ -2707,7 +2767,8 @@
                 html += `<div class="sidebar-server-group">`;
                 html += `<div class="sidebar-server-label">${escapeHtml(label)}</div>`;
                 for (const c of convs) {
-                    const active = c.threadId === threadId ? ' active' : '';
+                    const highlightId = viewingHistoryThreadId || threadId;
+                    const active = c.threadId === highlightId ? ' active' : '';
                     const timeStr = formatTimeAgo(c.updatedAt);
                     html += `<div class="sidebar-conv${active}" onclick="genie.loadConversation('${escapeJsQuoted(c.threadId)}')">`;
                     html += `<div class="sidebar-conv-info">`;
@@ -2743,15 +2804,17 @@
             const conv = await genieDB.getConversation(convThreadId);
             if (!conv) return;
 
-            // Switch to this conversation
-            threadId = conv.threadId;
-            currentConversation = conv;
-            const prevServerUrl = serverUrl;
-            serverUrl = conv.serverUrl || serverUrl;
-            if (conv.serverUrl && conv.serverUrl !== prevServerUrl && aguiPasswordForSession) {
-                aguiPasswordForSession = '';
-                addSystemMessage('Switched to a different server. Re-enter the password in the connect area if this server requires one.');
+            // If this is the active thread, clear the history-view flag.
+            if (convThreadId === activeThreadId) {
+                viewingHistoryThreadId = null;
+            } else {
+                // Mark that we are viewing a past conversation (read-only).
+                // Do NOT overwrite threadId — keep it pointing at the live session
+                // so any subsequent sendMessage() goes to the right place.
+                viewingHistoryThreadId = conv.threadId;
             }
+
+            currentConversation = conv;
 
             // Clear messages area and pending approvals column
             messagesEl.innerHTML = '';
@@ -2813,7 +2876,7 @@
     async function deleteConversation(convThreadId) {
         try {
             await genieDB.deleteConversation(convThreadId);
-            if (convThreadId === threadId) {
+            if (convThreadId === activeThreadId || convThreadId === viewingHistoryThreadId) {
                 startNewChat();
             }
             await refreshSidebar();
@@ -2881,6 +2944,8 @@
         // Every new chat gets a completely fresh threadId so the
         // backend never carries over memory/context from a prior chat.
         threadId = crypto.randomUUID();
+        activeThreadId = threadId;
+        viewingHistoryThreadId = null;
         runCounter = 0;
         currentAssistantBubble = null;
         currentAssistantContent = '';

@@ -34,6 +34,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/event"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/runner"
+	"trpc.group/trpc-go/trpc-agent-go/session"
 	"trpc.group/trpc-go/trpc-agent-go/session/inmemory"
 	"trpc.group/trpc-go/trpc-agent-go/session/summary"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
@@ -82,6 +83,11 @@ type CreateAgentRequest struct {
 	//   fallback  — steps tried in order (first success wins)
 	// Defaults to sequence if not specified.
 	Flow string `json:"flow_type,omitempty" jsonschema:"description=How steps are coordinated: sequence (default) or parallel or fallback. Only used when steps is provided."`
+
+	// Background enables asynchronous execution. When true, the sub-agent is spawned in a
+	// goroutine and the tool immediately returns success, allowing the parent agent to
+	// continue without waiting. Output is not captured by the parent.
+	Background bool `json:"background,omitempty" jsonschema:"description=When true the sub-agent runs asynchronously in the background. The tool returns immediately. Output is not captured by the parent."`
 }
 
 func (req CreateAgentRequest) timeout() time.Duration {
@@ -267,6 +273,12 @@ type createAgentTool struct {
 	// multi-step plans. When set, each step's context is enriched with
 	// relevant past successes and failures.
 	planAdvisor memory.PlanAdvisor
+
+	// sessionSvc is the optional DB-backed session service. When set,
+	// sub-agent conversations are persisted so tools like the learning
+	// package can review what sub-agents did. When nil, an ephemeral
+	// inmemory session is used (backward compatible).
+	sessionSvc session.Service
 }
 
 // CreateAgentOption configures the create_agent tool.
@@ -302,6 +314,13 @@ func WithImportanceScorer(is memory.ImportanceScorer) CreateAgentOption {
 // with relevant past experiences before execution.
 func WithPlanAdvisor(pa memory.PlanAdvisor) CreateAgentOption {
 	return func(t *createAgentTool) { t.planAdvisor = pa }
+}
+
+// WithSessionService injects a DB-backed session service so sub-agent
+// conversations are persisted. This enables downstream consumers (e.g.
+// the learning package) to review sub-agent tool calls and outputs.
+func WithSessionService(svc session.Service) CreateAgentOption {
+	return func(t *createAgentTool) { t.sessionSvc = svc }
 }
 
 // NewCreateAgentTool creates a tool that spawns sub-agents with dynamic tool
@@ -395,10 +414,28 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 	}
 
 	logr := logger.GetLogger(ctx).With("fn", "createAgentTool.execute", "goal", toolwrap.TruncateForAudit(req.Goal, 80), "name", req.AgentName)
-	logr.Info("create_agent invoked", "tool_names", req.ToolNames, "task_type", req.TaskType, "steps", len(req.Steps))
+	logr.Info("create_agent invoked", "tool_names", req.ToolNames, "task_type", req.TaskType, "steps", len(req.Steps), "background", req.Background)
 
 	// Audit: record sub-agent creation as a delegation-of-authority event.
 	t.auditSubAgentCreation(ctx, req)
+
+	if req.Background {
+		// Run asynchronously in the background.
+		// Detach the context so the sub-agent isn't cancelled when the parent HTTP request ends.
+		bgCtx := context.WithoutCancel(ctx)
+		reqBgSafe := req
+		reqBgSafe.Background = false // prevent infinite loops if something weird happens
+
+		// Spawn without dedup (or we could dedup, but singleflight blocks the caller).
+		go func() {
+			_, _ = t.executeInner(bgCtx, reqBgSafe)
+		}()
+
+		return CreateAgentResponse{
+			Status: AgentStatusSuccess,
+			Output: fmt.Sprintf("Sub-agent %q successfully started in the background. Note: you will NOT receive its output. It will run asynchronously.", req.AgentName),
+		}, nil
+	}
 
 	// Dedup: identical parallel calls (same name+goal) are collapsed
 	// via singleflight so only one sub-agent runs.
@@ -574,19 +611,23 @@ func (t *createAgentTool) executeInner(ctx context.Context, req CreateAgentReque
 	)
 
 	// Run via a one-shot runner with isolated session.
-	// Wire session summarizer so framework handles context compression
-	// instead of genie's manual accumulateContext() truncation.
-	sessionSvc := inmemory.NewSessionService(
-		inmemory.WithSummarizer(summary.NewSummarizer(
-			modelToUse.GetAny(),
-			summary.WithTokenThreshold(2000),
-			summary.WithName("subagent-summarizer"),
-		)),
-	)
+	// Use the DB-backed session service if available so sub-agent
+	// conversations are persisted and reviewable; otherwise fall back
+	// to an ephemeral inmemory service with context compression.
+	runnerSessionSvc := t.sessionSvc
+	if runnerSessionSvc == nil {
+		runnerSessionSvc = inmemory.NewSessionService(
+			inmemory.WithSummarizer(summary.NewSummarizer(
+				modelToUse.GetAny(),
+				summary.WithTokenThreshold(2000),
+				summary.WithName("subagent-summarizer"),
+			)),
+		)
+	}
 	r := runner.NewRunner(
 		req.AgentName,
 		subAgent,
-		runner.WithSessionService(sessionSvc),
+		runner.WithSessionService(runnerSessionSvc),
 	)
 	defer func(startTime time.Time) {
 		_ = r.Close()

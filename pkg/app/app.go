@@ -60,6 +60,7 @@ import (
 	"github.com/stackgenhq/genie/pkg/identity"
 	"github.com/stackgenhq/genie/pkg/security"
 
+	"github.com/stackgenhq/genie/pkg/skills"
 	"github.com/stackgenhq/genie/pkg/tools"
 	"github.com/stackgenhq/genie/pkg/tools/codeskim"
 	"github.com/stackgenhq/genie/pkg/tools/datetime"
@@ -147,6 +148,12 @@ type Application struct {
 	// approveList is the in-memory temporary allowlist for "approve for X mins".
 	// Shared between the HITL middleware and the AG-UI server's /approve endpoint.
 	approveList *toolwrap.ApproveList
+
+	// skillMutableRepo is the writable skill repository created by
+	// initToolRegistry (always-on at ~/.genie/<agent>/dynamic_skills).
+	// Passed to the orchestrator via WithSkillRepo so the learning
+	// loop can persist distilled skills.
+	skillMutableRepo *skills.MutableRepository
 }
 
 // NewApplication creates a new Application with validated parameters.
@@ -361,7 +368,7 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 	}
 
 	// --- Tool Registry (centralized tool creation + denied-tool filtering) ---
-	a.toolRegistry = a.initToolRegistry(ctx, vectorStore, summarizer)
+	a.toolRegistry, a.skillMutableRepo = a.initToolRegistry(ctx, vectorStore, summarizer)
 
 	// --- Session store (persistent conversation history) ---
 	sessionStore := geniedb.NewSessionStore(ctx, a.db)
@@ -386,6 +393,7 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 		orchestrator.WithHalGuardConfig(a.cfg.HalGuard),
 		orchestrator.WithSemanticRouter(semRouter),
 		orchestrator.WithAccomplishmentConfidenceThreshold(a.cfg.Persona.AccomplishmentConfidenceThreshold),
+		orchestrator.WithSkillRepo(a.skillMutableRepo),
 	}
 
 	// If a skill provider exists, we allow dynamic skills
@@ -794,7 +802,7 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 func (a *Application) initToolRegistry(
 	ctx context.Context,
 	vectorStore vector.IStore,
-	summarizer agentutils.Summarizer) *tools.Registry {
+	summarizer agentutils.Summarizer) (*tools.Registry, *skills.MutableRepository) {
 	log := logger.GetLogger(ctx).With("fn", "app.initToolRegistry")
 
 	// --- Secret provider (same as Bootstrap; audits lookups when [security.secrets] set) ---
@@ -846,22 +854,24 @@ func (a *Application) initToolRegistry(
 		log.Info("MCP client initialized", "server_count", len(a.cfg.MCP.Servers))
 	}
 
-	// --- Skills ---
-	if len(a.cfg.SkillLoadConfig.SkillsRoots) != 0 {
-		var additionalRepos []skill.Repository
-		if a.mcpClient != nil {
-			for _, pr := range a.mcpClient.GetPromptRepositories() {
-				additionalRepos = append(additionalRepos, pr)
-			}
-		}
+	var skillMutableRepo *skills.MutableRepository
 
-		skillProvider, err := tools.NewSkillToolProvider(a.workingDir, a.cfg.SkillLoadConfig, additionalRepos...)
-		if err != nil {
-			log.Warn("failed to initialize skills tool provider", "error", err)
-		} else {
-			providers = append(providers, skillProvider)
-			log.Info("Skills tool provider added")
+	// --- Skills ---
+	log.Debug("skills config check", "skills_roots", a.cfg.SkillLoadConfig.SkillsRoots, "agent_name", a.cfg.AgentName)
+	var additionalRepos []skill.Repository
+	if a.mcpClient != nil {
+		for _, pr := range a.mcpClient.GetPromptRepositories() {
+			additionalRepos = append(additionalRepos, pr)
 		}
+	}
+
+	skillProvider, err := tools.NewSkillToolProvider(a.workingDir, a.cfg.AgentName, a.cfg.SkillLoadConfig, additionalRepos...)
+	if err != nil {
+		log.Warn("failed to initialize skills tool provider", "error", err)
+	} else {
+		providers = append(providers, skillProvider)
+		skillMutableRepo = skillProvider.MutableRepo()
+		log.Info("Skills tool provider added")
 	}
 
 	browserOpts := []browser.Option{
@@ -1051,7 +1061,7 @@ func (a *Application) initToolRegistry(
 	}
 
 	// --- Build registry and filter denied tools ---
-	return tools.NewRegistry(ctx, providers...).FilterDenied(ctx, a.cfg.HITL)
+	return tools.NewRegistry(ctx, providers...).FilterDenied(ctx, a.cfg.HITL), skillMutableRepo
 }
 
 // graphLearnPrompt is the internal prompt used for the one-time graph-learn
