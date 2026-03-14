@@ -29,7 +29,7 @@
         web_search: { provider: 'duckduckgo', google_api_key: 'GOOGLE_API_KEY', google_cx: 'GOOGLE_CSE_ID', bing_api_key: 'BING_API_KEY', serpapi: { api_key: 'SERPAPI_API_KEY', location: '', gl: '', hl: '' } },
         vector_memory: { persistence_dir: '', embedding_provider: 'dummy', api_key: 'OPENAI_API_KEY', ollama_url: '', ollama_model: '', huggingface_url: '', gemini_api_key: 'GOOGLE_API_KEY', gemini_model: '', vector_store_provider: 'inmemory', allowed_metadata_keys: [], qdrant: { host: '', port: 6334, api_key: 'QDRANT_API_KEY', use_tls: false, collection_name: '', dimension: 0 } },
         graph: { disabled: false, backend: 'inmemory', data_dir: '' },
-        data_sources: { enabled: false, sync_interval: '15m', search_keywords: [], gmail: { enabled: false, label_ids: [] }, gdrive: { enabled: false, folder_ids: [] }, github: { enabled: false, repos: [] }, gitlab: { enabled: false, repos: [] } },
+        data_sources: { enabled: false, sync_interval: '15m', search_keywords: [], gmail: { enabled: false, label_ids: [] }, gdrive: { enabled: false, folder_ids: [] }, github: { enabled: false, repos: [] }, gitlab: { enabled: false, repos: [] }, calendar: { enabled: false, calendar_ids: [] }, jira: { enabled: false, project_keys: [], mcp_server: '' }, confluence: { enabled: false, space_keys: [], mcp_server: '' }, servicenow: { enabled: false, table_names: [], mcp_server: '' } },
         doc_parser: { provider: '', docling: { base_url: '' }, gemini: { model: '' } },
         messenger: {
             platform: '', buffer_size: 100, allowed_senders: [],
@@ -539,6 +539,34 @@
         fields.push(el('div', { className: 'col-span-2 text-sm font-medium text-gray-600 mt-2' }, 'Google Drive'));
         fields.push(fieldToggle('Drive enabled', ds.gdrive.enabled, function (v) { ds.gdrive.enabled = v; renderAll(); }, 'Sync Drive files from the given folders'));
         fields.push(fieldText('Drive Folder IDs (comma-separated)', (ds.gdrive.folder_ids || []).join(', '), function (v) { ds.gdrive.folder_ids = splitCSV(v); renderOutput(); }, 'root', 'Drive folder IDs to sync (e.g. root)'));
+
+        fields.push(el('div', { className: 'col-span-2 text-sm font-medium text-gray-600 mt-2' }, 'GitHub'));
+        fields.push(fieldToggle('GitHub enabled', ds.github.enabled, function (v) { ds.github.enabled = v; renderAll(); }, 'Sync GitHub repositories'));
+        fields.push(fieldText('GitHub Repos (comma-separated)', (ds.github.repos || []).join(', '), function (v) { ds.github.repos = splitCSV(v); renderOutput(); }, 'stackgenhq/genie', 'GitHub repos to sync (e.g. org/repo)'));
+
+        fields.push(el('div', { className: 'col-span-2 text-sm font-medium text-gray-600 mt-2' }, 'GitLab'));
+        fields.push(fieldToggle('GitLab enabled', ds.gitlab.enabled, function (v) { ds.gitlab.enabled = v; renderAll(); }, 'Sync GitLab repositories'));
+        fields.push(fieldText('GitLab Repos (comma-separated)', (ds.gitlab.repos || []).join(', '), function (v) { ds.gitlab.repos = splitCSV(v); renderOutput(); }, 'stackgenhq/genie', 'GitLab repos to sync (e.g. org/repo)'));
+
+        fields.push(el('div', { className: 'col-span-2 text-sm font-medium text-gray-600 mt-2' }, 'Google Calendar'));
+        fields.push(fieldToggle('Calendar enabled', ds.calendar.enabled, function (v) { ds.calendar.enabled = v; renderAll(); }, 'Sync Google Calendar events'));
+        fields.push(fieldText('Calendar IDs (comma-separated)', (ds.calendar.calendar_ids || []).join(', '), function (v) { ds.calendar.calendar_ids = splitCSV(v); renderOutput(); }, 'primary', 'Calendar IDs to sync (e.g. primary)'));
+
+        fields.push(el('div', { className: 'col-span-2 text-sm font-medium text-gray-600 mt-2' }, 'Jira'));
+        fields.push(fieldToggle('Jira enabled', ds.jira.enabled, function (v) { ds.jira.enabled = v; renderAll(); }, 'Sync Jira issues'));
+        fields.push(fieldText('Jira Project Keys (comma-separated)', (ds.jira.project_keys || []).join(', '), function (v) { ds.jira.project_keys = splitCSV(v); renderOutput(); }, 'ENG, OPS', 'Jira project keys to sync (e.g. ENG)'));
+        fields.push(fieldText('Jira MCP Server Name', ds.jira.mcp_server, function (v) { ds.jira.mcp_server = v; renderOutput(); }, 'jira', 'Name of the MCP server that provides Jira access'));
+
+        fields.push(el('div', { className: 'col-span-2 text-sm font-medium text-gray-600 mt-2' }, 'Confluence'));
+        fields.push(fieldToggle('Confluence enabled', ds.confluence.enabled, function (v) { ds.confluence.enabled = v; renderAll(); }, 'Sync Confluence pages'));
+        fields.push(fieldText('Confluence Space Keys (comma-separated)', (ds.confluence.space_keys || []).join(', '), function (v) { ds.confluence.space_keys = splitCSV(v); renderOutput(); }, 'ENG, KB', 'Confluence space keys to sync (e.g. ENG)'));
+        fields.push(fieldText('Confluence MCP Server Name', ds.confluence.mcp_server, function (v) { ds.confluence.mcp_server = v; renderOutput(); }, 'confluence', 'Name of the MCP server that provides Confluence access'));
+
+        fields.push(el('div', { className: 'col-span-2 text-sm font-medium text-gray-600 mt-2' }, 'ServiceNow'));
+        fields.push(fieldToggle('ServiceNow enabled', ds.servicenow.enabled, function (v) { ds.servicenow.enabled = v; renderAll(); }, 'Sync ServiceNow records'));
+        fields.push(fieldText('ServiceNow Table Names (comma-separated)', (ds.servicenow.table_names || []).join(', '), function (v) { ds.servicenow.table_names = splitCSV(v); renderOutput(); }, 'incident, problem', 'ServiceNow tables to sync (e.g. incident)'));
+        fields.push(fieldText('ServiceNow MCP Server Name', ds.servicenow.mcp_server, function (v) { ds.servicenow.mcp_server = v; renderOutput(); }, 'servicenow', 'Name of the MCP server that provides ServiceNow access'));
+
         c.appendChild(el('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' }, fields));
     }
 
@@ -1311,7 +1339,7 @@
 
     function dataSourcesToToml(lines) {
         var ds = state.data_sources;
-        if (!ds.enabled && !ds.gmail.enabled && !ds.gdrive.enabled && !ds.github.enabled && !ds.gitlab.enabled) return;
+        if (!ds.enabled && !ds.gmail.enabled && !ds.gdrive.enabled && !ds.github.enabled && !ds.gitlab.enabled && !ds.calendar.enabled && !ds.jira.enabled && !ds.confluence.enabled && !ds.servicenow.enabled) return;
         lines.push('[data_sources]');
         lines.push('enabled = ' + (ds.enabled ? 'true' : 'false'));
         if (ds.sync_interval) lines.push('sync_interval = ' + q(ds.sync_interval));
@@ -1341,6 +1369,33 @@
             lines.push('[data_sources.gitlab]');
             lines.push('enabled = true');
             lines.push('repos = [' + ds.gitlab.repos.filter(Boolean).map(q).join(', ') + ']');
+        }
+        if (ds.calendar.enabled && hasItems(ds.calendar.calendar_ids)) {
+            lines.push('');
+            lines.push('[data_sources.calendar]');
+            lines.push('enabled = true');
+            lines.push('calendar_ids = [' + ds.calendar.calendar_ids.filter(Boolean).map(q).join(', ') + ']');
+        }
+        if (ds.jira.enabled && hasItems(ds.jira.project_keys)) {
+            lines.push('');
+            lines.push('[data_sources.jira]');
+            lines.push('enabled = true');
+            lines.push('project_keys = [' + ds.jira.project_keys.filter(Boolean).map(q).join(', ') + ']');
+            if (ds.jira.mcp_server) lines.push('mcp_server = ' + q(ds.jira.mcp_server));
+        }
+        if (ds.confluence.enabled && hasItems(ds.confluence.space_keys)) {
+            lines.push('');
+            lines.push('[data_sources.confluence]');
+            lines.push('enabled = true');
+            lines.push('space_keys = [' + ds.confluence.space_keys.filter(Boolean).map(q).join(', ') + ']');
+            if (ds.confluence.mcp_server) lines.push('mcp_server = ' + q(ds.confluence.mcp_server));
+        }
+        if (ds.servicenow.enabled && hasItems(ds.servicenow.table_names)) {
+            lines.push('');
+            lines.push('[data_sources.servicenow]');
+            lines.push('enabled = true');
+            lines.push('table_names = [' + ds.servicenow.table_names.filter(Boolean).map(q).join(', ') + ']');
+            if (ds.servicenow.mcp_server) lines.push('mcp_server = ' + q(ds.servicenow.mcp_server));
         }
         lines.push('');
     }
@@ -2055,7 +2110,7 @@
 
     function dataSourcesToYaml(lines) {
         var ds = state.data_sources;
-        if (!ds.enabled && !ds.gmail.enabled && !ds.gdrive.enabled && !ds.github.enabled && !ds.gitlab.enabled) return;
+        if (!ds.enabled && !ds.gmail.enabled && !ds.gdrive.enabled && !ds.github.enabled && !ds.gitlab.enabled && !ds.calendar.enabled && !ds.jira.enabled && !ds.confluence.enabled && !ds.servicenow.enabled) return;
         lines.push('data_sources:');
         lines.push('  enabled: ' + (ds.enabled ? 'true' : 'false'));
         if (ds.sync_interval) lines.push('  sync_interval: ' + yq(ds.sync_interval));
@@ -2086,6 +2141,33 @@
             lines.push('    enabled: true');
             lines.push('    repos:');
             ds.gitlab.repos.filter(Boolean).forEach(function (r) { lines.push('      - ' + yq(r)); });
+        }
+        if (ds.calendar.enabled && hasItems(ds.calendar.calendar_ids)) {
+            lines.push('  calendar:');
+            lines.push('    enabled: true');
+            lines.push('    calendar_ids:');
+            ds.calendar.calendar_ids.filter(Boolean).forEach(function (id) { lines.push('      - ' + yq(id)); });
+        }
+        if (ds.jira.enabled && hasItems(ds.jira.project_keys)) {
+            lines.push('  jira:');
+            lines.push('    enabled: true');
+            lines.push('    project_keys:');
+            ds.jira.project_keys.filter(Boolean).forEach(function (k) { lines.push('      - ' + yq(k)); });
+            if (ds.jira.mcp_server) lines.push('    mcp_server: ' + yq(ds.jira.mcp_server));
+        }
+        if (ds.confluence.enabled && hasItems(ds.confluence.space_keys)) {
+            lines.push('  confluence:');
+            lines.push('    enabled: true');
+            lines.push('    space_keys:');
+            ds.confluence.space_keys.filter(Boolean).forEach(function (k) { lines.push('      - ' + yq(k)); });
+            if (ds.confluence.mcp_server) lines.push('    mcp_server: ' + yq(ds.confluence.mcp_server));
+        }
+        if (ds.servicenow.enabled && hasItems(ds.servicenow.table_names)) {
+            lines.push('  servicenow:');
+            lines.push('    enabled: true');
+            lines.push('    table_names:');
+            ds.servicenow.table_names.filter(Boolean).forEach(function (n) { lines.push('      - ' + yq(n)); });
+            if (ds.servicenow.mcp_server) lines.push('    mcp_server: ' + yq(ds.servicenow.mcp_server));
         }
         lines.push('');
     }
