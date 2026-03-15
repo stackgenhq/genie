@@ -31,21 +31,23 @@ type distillationVars struct {
 // buildDistillationPrompt constructs the LLM prompt that asks the model
 // to evaluate a completed task and, if worthy, produce a structured skill
 // proposal in JSON format following the agentskills.io standard.
-func buildDistillationPrompt(req LearnRequest, existingSkills string) string {
+func buildDistillationPrompt(req LearnRequest, existingSkills string) (string, error) {
 	toolsList := "none"
 	if len(req.ToolsUsed) > 0 {
 		toolsList = strings.Join(req.ToolsUsed, ", ")
 	}
 
 	var buf bytes.Buffer
-	_ = distillationPromptTemplate.Execute(&buf, distillationVars{
+	if err := distillationPromptTemplate.Execute(&buf, distillationVars{
 		Goal:           req.Goal,
 		Result:         req.Output,
 		ToolsList:      toolsList,
 		ToolTrace:      req.ToolTrace,
 		ExistingSkills: existingSkills,
-	})
-	return buf.String()
+	}); err != nil {
+		return "", fmt.Errorf("distillation template execution: %w", err)
+	}
+	return buf.String(), nil
 }
 
 // buildRetryPrompt constructs a strict JSON-only re-prompt that includes

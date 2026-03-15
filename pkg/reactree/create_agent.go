@@ -426,9 +426,14 @@ func (t *createAgentTool) execute(ctx context.Context, req CreateAgentRequest) (
 		reqBgSafe := req
 		reqBgSafe.Background = false // prevent infinite loops if something weird happens
 
-		// Spawn without dedup (or we could dedup, but singleflight blocks the caller).
+		// Use singleflight inside the goroutine so identical concurrent
+		// background spawns are coalesced — prevents unbounded goroutine
+		// creation if the LLM accidentally issues repeated calls.
+		dedupKey := req.AgentName + ":" + req.Goal
 		go func() {
-			_, _ = t.executeInner(bgCtx, reqBgSafe)
+			_, _, _ = t.inflight.Do(dedupKey, func() (CreateAgentResponse, error) {
+				return t.executeInner(bgCtx, reqBgSafe)
+			})
 		}()
 
 		return CreateAgentResponse{

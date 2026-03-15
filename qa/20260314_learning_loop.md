@@ -163,15 +163,67 @@ sqlite3 .genie.db "SELECT count(*) FROM session_events;"
 2. **Expect**: The learner evaluates novelty and scores it below threshold:
    - `learning_started` → novelty ≤ 6 → `learning_skipped` with `reason: below_novelty_threshold`
 
-### Scenario 6: Sub-Agent Sessions Persisted
+### Scenario 7: Post-Synthesis Hallucination Guard (HalGuard)
 
-**Goal**: Verify that sub-agent conversations are stored in the database.
+**Goal**: Verify that the tree executor's synthesis output is checked by HalGuard before reaching the user, preventing fabricated data from appearing in responses.
 
-1. **After any complex task** that spawns sub-agents, query the DB:
+> **Context**: In real-world testing, the tree executor fabricated `payment-processor` in
+> `prod-cluster` when summarizing sub-agent findings that only contained `aiden-scheduler`
+> in `developer-eks`. The sub-agent output was accurate, but the synthesis layer invented
+> plausible-sounding data. The `verifySynthesis()` method intercepts `treeExecutor.Run()` output.
+
+1. **Run Scenario 1** (EKS health check prompt).
+2. **Verify the response uses only real data**:
+   - Cluster names should match what `aws eks list-clusters` actually returns
+   - Pod/deployment names should match `kubectl get pods` output
+   - No fabricated clusters (`prod-cluster`), pods (`payment-processor`), or namespaces (`payments`)
+3. **Check unit tests pass** for `verifySynthesis`:
    ```bash
-   sqlite3 .genie.db "SELECT app_name, session_id, created_at FROM sessions ORDER BY updated_at DESC LIMIT 10;"
+   go test -mod=mod -v -run "verifySynthesis" ./pkg/orchestrator/...
    ```
-2. **Expect**: Sub-agent names (e.g., `eks-health-checker`) appear as `app_name` entries with their own `session_id`.
+4. **Unit test coverage includes**:
+   - Nil guard (pass-through) — no halguard configured
+   - Short output below 200 chars (skip check for efficiency)
+   - Factual output (PostCheck returns `IsFactual: true`) — original returned
+   - Contradicted output (PostCheck returns `IsFactual: false`) — corrected text used
+   - PostCheck error (e.g., model unavailable) — fails open, returns original
+   - Audit logging when contradictions corrected
+
+### Scenario 8: Context Window Stress Test
+
+**Goal**: Verify that hallucination does not re-emerge as the conversation context grows with many follow-up messages.
+
+> **Context**: LLMs can hallucinate more under pressure from large contexts. This scenario
+> tests whether the system maintains data fidelity across 6+ turns in a single session,
+> including diverse query types that could tempt fabrication.
+
+1. **In a single chat session**, send the following prompts in order, waiting for each response:
+   ```
+   Turn 1: List all EKS clusters in AWS account 339712749745_AdministratorAccess
+           and check the health of each one.
+
+   Turn 2: Investigate the root cause of the aiden-scheduler crash. Check its pod
+           logs and describe the pod.
+
+   Turn 3: Check for similar issues on the other two clusters. List all pods with
+           more than 100 restarts across all clusters.
+
+   Turn 4: Analyze the resource utilization of the developer-eks cluster. Give me
+           right-sizing recommendations.
+
+   Turn 5: Search online for best practices on EKS cluster right-sizing and cost
+           optimization. What tools does AWS recommend?
+
+   Turn 6: Summarize all findings from this session: cluster health, failing pods,
+           resource utilization, and cost recommendations. Learn from this
+           investigation.
+   ```
+2. **After each response**, verify:
+   - All cluster names are real (e.g., `developer-eks`, `tooling-dev-eks`, `vibecode-deployments`)
+   - All pod/deployment names match actual `kubectl` output
+   - No new fabricated entities introduced in any turn
+   - The final summary accurately reflects earlier turns (no invented details)
+3. **Expected**: Zero hallucination across all 6 turns despite heavily bloated context window.
 
 ---
 
@@ -190,3 +242,7 @@ sqlite3 .genie.db "SELECT count(*) FROM session_events;"
 - [ ] Duplicate skill creation is handled gracefully (deduplication via novelty scoring).
 - [ ] Sub-agent sessions are persisted to the database.
 - [ ] All learner decisions are visible in the audit log (`~/.genie/*.ndjson`).
+- [ ] Post-synthesis HalGuard check prevents fabricated data from reaching the user.
+- [ ] `verifySynthesis` unit tests pass (nil guard, short output, factual, contradicted, error, audit).
+- [ ] Conversations with 6+ turns and bloated context maintain data fidelity (no hallucination).
+

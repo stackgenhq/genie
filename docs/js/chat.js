@@ -1224,6 +1224,22 @@
                         addSpeakButton(bubble, msg.content);
                         wrapper.appendChild(bubbleWrap);
                         messagesEl.appendChild(wrapper);
+                    } else if (msg.role === 'tool') {
+                        const div = document.createElement('div');
+                        div.className = 'flex justify-start mb-3';
+                        const friendly = friendlyToolName(msg.toolName || '');
+                        div.innerHTML = `
+                        <details class="tool-card">
+                            <summary>
+                                <span class="tool-label">${friendly}</span>
+                                <span class="tool-status done">Done ✓</span>
+                                <span class="tool-chevron">▶</span>
+                            </summary>
+                            <div class="tool-body">
+                                <div class="tool-result">${escapeHtml(msg.content || '')}</div>
+                            </div>
+                        </details>`;
+                        messagesEl.appendChild(div);
                     } else if (msg.role === 'system') {
                         addSystemMessage(msg.content);
                     }

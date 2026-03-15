@@ -313,7 +313,23 @@ func (l *Learner) callDistillationLLM(ctx context.Context, req LearnRequest, goa
 	logr := logger.GetLogger(ctx).With("fn", "learning.callDistillationLLM")
 	span := oteltrace.SpanFromContext(ctx)
 
-	prompt := buildDistillationPrompt(req, existingSkills)
+	prompt, err := buildDistillationPrompt(req, existingSkills)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "template_execution_failed")
+		logr.Warn("distillation prompt template failed", "error", err)
+		l.auditor.Log(ctx, audit.LogRequest{
+			EventType: audit.EventCommand,
+			Actor:     "learner",
+			Action:    "learning_failed",
+			Metadata: map[string]any{
+				"reason":       "template_execution_error",
+				"error":        err.Error(),
+				"goal_preview": goalPreview,
+			},
+		})
+		return "", fmt.Errorf("distillation prompt: %w", err)
+	}
 	resp, err := l.expert.Do(ctx, expert.Request{
 		Message:  prompt,
 		TaskType: modelprovider.TaskEfficiency,

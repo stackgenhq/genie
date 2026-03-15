@@ -134,12 +134,18 @@ type orchestrator struct {
 	// learner evaluates completed tasks and distills novel workflows
 	// into reusable skills, stored in both the skill filesystem and
 	// the vector store for semantic discovery.
-	learner *learning.Learner
+	learner learning.ILearner
 
 	// skillRepo provides access to the filesystem-backed skill repository
 	// so the orchestrator can load full skill instructions when a learned
 	// skill is discovered via vector search.
 	skillRepo *skills.MutableRepository
+
+	// halGuard verifies the orchestrator's synthesised output for
+	// hallucinations before it reaches the user. Sub-agent outputs are
+	// already checked inside create_agent; this covers the Phase-4 synthesis
+	// where the orchestrator summarises sub-agent results.
+	halGuard halguard.Guard
 
 	disableResume                     bool
 	agentPersona                      string
@@ -438,7 +444,7 @@ func NewOrchestrator(
 	logger.Info("Orchestrator tool registry initialized", "count", len(orchestratorTools.ToolNames(ctx)))
 
 	// Construct the learner when a skill repository is provided.
-	var learner *learning.Learner
+	var learner learning.ILearner
 	if oo.skillRepo != nil {
 		learner = learning.NewLearner(exp, oo.skillRepo, vectorStore, auditor, oo.learningConfig)
 	}
@@ -458,6 +464,7 @@ func NewOrchestrator(
 		learner:                           learner,
 		skillRepo:                         oo.skillRepo,
 		toolIndex:                         toolIndex,
+		halGuard:                          halGuard,
 		disableResume:                     oo.disableResume,
 		agentPersona:                      agentPersona,
 		accomplishmentConfidenceThreshold: oo.accomplishmentConfidenceThreshold,
@@ -579,13 +586,8 @@ Persona:
 // Close releases resources held by the orchestrator, including the conversation
 // history memory service. Callers should defer Close() after NewOrchestrator.
 func (c *orchestrator) Close() error {
-	if c.resumeCancel != nil {
-		c.resumeCancel()
-	}
-	if c.memorySvc != nil {
-		return c.memorySvc.Close()
-	}
-	return nil
+	c.resumeCancel()
+	return c.memorySvc.Close()
 }
 
 // bridgeBrowserTab creates a context that carries both the chromedp tab's
@@ -876,11 +878,16 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 		return err
 	}
 
+	// Verify the orchestrator's synthesis for hallucinations before
+	// sending it to the user. Sub-agent outputs are already checked
+	// inside create_agent; this guards the Phase-4 synthesis layer.
+	finalOutput := c.verifySynthesis(ctx, req.Question, res)
+
 	// Send the final result to the output channel
-	outputChan <- res.Output
+	outputChan <- finalOutput
 
 	// Store the conversation turn in memory for future recall (best-effort).
-	c.storeConversation(ctx, req.Question, res.Output)
+	c.storeConversation(ctx, req.Question, finalOutput)
 
 	// Store the Q&A turn as an episode in episodic memory so future turns
 	// can recall what was asked and how it was answered. Stored as "pending"
@@ -909,13 +916,15 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 		// Build a compressed tool trace from the output for the learner's
 		// distillation prompt. This enables the LLM to accurately capture
 		// what worked and what failed (SkillRL-inspired failure lessons).
-		toolTrace := toolwrap.TruncateForAudit(res.Output, 2000)
+		// NOTE: ToolTrace is left empty here because res.Output is already
+		// passed as the Output field. Duplicating content would inflate the
+		// distillation prompt without adding signal. When a real tool-event
+		// trace becomes available, it should be populated here instead.
 		go func() {
 			if err := c.learner.Learn(bgCtx, learning.LearnRequest{
 				Goal:      req.Question,
 				Output:    res.Output,
 				ToolsUsed: res.ToolsUsed,
-				ToolTrace: toolTrace,
 			}); err != nil {
 				logger.GetLogger(bgCtx).Warn("background learning failed", "error", err)
 			}
@@ -934,6 +943,58 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	})
 
 	return nil
+}
+
+// verifySynthesis runs the orchestrator's final output through halGuard.PostCheck
+// to detect hallucinations introduced during Phase-4 synthesis. Sub-agent outputs
+// are already verified inside create_agent; this guards the orchestrator's own
+// summarisation which can fabricate data (e.g. inventing cluster or pod names).
+//
+// ToolCallsMade is intentionally 0: the orchestrator's synthesis is pure LLM
+// generation over sub-agent results, not direct tool output. This causes
+// halguard.selectTier to pick TierFull for long outputs, enabling cross-model
+// consistency checks that can catch fabricated specifics.
+func (c *orchestrator) verifySynthesis(ctx context.Context, question string, res reactree.TreeResult) string {
+
+	logr := logger.GetLogger(ctx).With("fn", "orchestrator.verifySynthesis")
+
+	// Short outputs below the light threshold are unlikely to contain
+	// fabricated data and are not worth the extra LLM call.
+	if len(res.Output) < 200 {
+		return res.Output
+	}
+
+	result, err := c.halGuard.PostCheck(ctx, halguard.PostCheckRequest{
+		Goal:          question,
+		Output:        res.Output,
+		ToolCallsMade: 0, // synthesis is pure generation, not grounded in tool output
+	})
+	if err != nil {
+		logr.Warn("post-synthesis hallucination check failed (failing open)", "error", err)
+		return res.Output
+	}
+
+	if result.IsFactual {
+		logr.Info("post-synthesis check passed", "tier", result.Tier)
+		return res.Output
+	}
+
+	logr.Warn("post-synthesis hallucination detected, using corrected output",
+		"tier", result.Tier,
+		"contradictions", len(result.BlockScores))
+
+	c.auditor.Log(ctx, audit.LogRequest{
+		EventType: audit.EventToolCall,
+		Actor:     "halguard",
+		Action:    "synthesis_hallucination_corrected",
+		Metadata: map[string]interface{}{
+			"question":       question,
+			"tier":           string(result.Tier),
+			"contradictions": len(result.BlockScores),
+		},
+	})
+
+	return result.CorrectedText
 }
 
 // InjectFeedback injects a user message into the working memory of the current sender
@@ -1056,7 +1117,11 @@ func (c *orchestrator) recallLearnedSkills(ctx context.Context, question string)
 	}
 
 	// Only consider results with a decent similarity score.
+	// Cap total injected size to prevent skills from dominating the
+	// context window, similar to maxRecallSize for conversation recall.
 	const minSimilarity = 0.5
+	const maxSkillsContextSize = 3000
+	const maxPerSkillSize = 1500
 	var sb strings.Builder
 	loaded := 0
 
@@ -1083,10 +1148,25 @@ func (c *orchestrator) recallLearnedSkills(ctx context.Context, question string)
 		if result.Score >= 0.85 {
 			relevanceLabel = "high"
 		}
-		fmt.Fprintf(&sb, "### Skill: %s\n", skillName)
-		fmt.Fprintf(&sb, "**Relevance**: %s (%.2f) · **Description**: %s\n\n", relevanceLabel, result.Score, sk.Summary.Description)
-		sb.WriteString(sk.Body)
-		sb.WriteString("\n\n---\n\n")
+
+		// Build the skill entry and cap per-skill size.
+		var entry strings.Builder
+		fmt.Fprintf(&entry, "### Skill: %s\n", skillName)
+		fmt.Fprintf(&entry, "**Relevance**: %s (%.2f) · **Description**: %s\n\n", relevanceLabel, result.Score, sk.Summary.Description)
+		body := sk.Body
+		if len(body) > maxPerSkillSize {
+			body = body[:maxPerSkillSize] + "\n... [truncated]\n"
+		}
+		entry.WriteString(body)
+		entry.WriteString("\n\n---\n\n")
+
+		// Check total budget before adding.
+		if sb.Len()+entry.Len() > maxSkillsContextSize {
+			logr.Debug("skills context budget exhausted, skipping remaining skills",
+				"loaded", loaded, "remaining", len(results)-loaded)
+			break
+		}
+		sb.WriteString(entry.String())
 		loaded++
 	}
 
@@ -1272,13 +1352,11 @@ func (c *orchestrator) recallAccomplishments(ctx context.Context) string {
 	}
 
 	// 2. Append consolidated wisdom notes (distilled daily lessons).
-	if c.wisdomStore != nil {
-		notes := c.wisdomStore.RetrieveWisdom(ctx, 3)
-		for _, note := range notes {
-			sb.WriteString("- ")
-			sb.WriteString(note.Summary)
-			sb.WriteString("\n")
-		}
+	notes := c.wisdomStore.RetrieveWisdom(ctx, 3)
+	for _, note := range notes {
+		sb.WriteString("- ")
+		sb.WriteString(note.Summary)
+		sb.WriteString("\n")
 	}
 
 	// 3. Fallback: legacy vector store entries for backward compatibility.

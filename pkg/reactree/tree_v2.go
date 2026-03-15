@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"sort"
 	"strings"
 
 	"github.com/stackgenhq/genie/pkg/agui"
@@ -453,6 +454,7 @@ func (ls *loopState) toResult() TreeResult {
 	for name := range ls.toolCallCounts {
 		toolsUsed = append(toolsUsed, name)
 	}
+	sort.Strings(toolsUsed)
 	return TreeResult{
 		Status:        ls.lastStatus,
 		Output:        ls.lastOutput,

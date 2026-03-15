@@ -130,7 +130,7 @@ type SkillToolProvider struct {
 	repo        skill.Repository
 	exec        codeexecutor.CodeExecutor
 	loader      *dynamicskills.DynamicSkillLoader
-	mutableRepo *skills.MutableRepository // non-nil when create_skill is enabled
+	mutableRepo *skills.MutableRepository // always non-nil after construction
 }
 
 // NewSkillToolProvider creates a ToolProvider containing skill discovery tools.
@@ -138,11 +138,18 @@ type SkillToolProvider struct {
 // so learned skills can be persisted. The CreateSkillDir config overrides this
 // default path when set. The agentName scopes the skill directory per-agent.
 func NewSkillToolProvider(workingDir string, agentName string, config SkillLoadConfig, additionalRepos ...skill.Repository) (*SkillToolProvider, error) {
-	fsRepo, err := skill.NewFSRepository(config.SkillsRoots...)
-	if err != nil {
-		return nil, fmt.Errorf("error creating skill repository: %w", err)
+	// Only create fsRepo when skills roots are configured.
+	// When SkillsRoots is empty, we skip NewFSRepository to avoid
+	// depending on how it handles zero roots — matching the guard
+	// in LoadSkillsFromConfig (pkg/skills/loader.go).
+	var reposToMerge []skill.Repository
+	if len(config.SkillsRoots) > 0 {
+		fsRepo, err := skill.NewFSRepository(config.SkillsRoots...)
+		if err != nil {
+			return nil, fmt.Errorf("error creating skill repository: %w", err)
+		}
+		reposToMerge = append(reposToMerge, fsRepo)
 	}
-	reposToMerge := []skill.Repository{fsRepo}
 	reposToMerge = append(reposToMerge, additionalRepos...)
 
 	// Always create a MutableRepository so the learning loop and create_skill
@@ -201,7 +208,7 @@ func (p *SkillToolProvider) GetTools(_ context.Context) []tool.Tool {
 		dynamicskills.UnloadSkillTool(p.loader),
 	}
 
-	// Add skill management tools when enabled
+	// Add skill management tools (always available)
 	if p.mutableRepo != nil {
 		tools = append(tools,
 			createskill.NewCreateSkillTool(p.mutableRepo),
