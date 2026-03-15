@@ -133,6 +133,21 @@ type GenieConfig struct {
 	// Features holds opt-in feature toggles for enterprise capabilities
 	// such as dry-run simulation. Tool blocking is handled by HITL.
 	Features FeaturesConfig `yaml:"features,omitempty" toml:"features,omitempty"`
+
+	// Learning configures the post-session learning loop that distills
+	// completed tasks into reusable skills.
+	Learning LearningConfig `yaml:"learning,omitempty" toml:"learning,omitempty"`
+}
+
+// LearningConfig tunes the post-session skill distillation pipeline.
+// This is the config-file representation; it is converted to
+// learning.Config in the application layer to avoid import cycles.
+type LearningConfig struct {
+	// MinimumNoveltyScore is the LLM-assigned novelty score (1-10) above
+	// which a completed task is considered novel enough to distill into a
+	// reusable skill. Lower values create more skills; higher values are
+	// more selective. Default is 7.
+	MinimumNoveltyScore int `yaml:"minimum_novelty_score,omitempty" toml:"minimum_novelty_score,omitempty"`
 }
 
 // FeaturesConfig holds opt-in feature configurations that control enterprise

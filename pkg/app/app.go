@@ -36,6 +36,7 @@ import (
 	geniedb "github.com/stackgenhq/genie/pkg/db"
 	"github.com/stackgenhq/genie/pkg/hitl"
 	"github.com/stackgenhq/genie/pkg/httputil"
+	"github.com/stackgenhq/genie/pkg/learning"
 	"github.com/stackgenhq/genie/pkg/logger"
 	"github.com/stackgenhq/genie/pkg/mcp"
 	"github.com/stackgenhq/genie/pkg/memory/graph"
@@ -394,6 +395,9 @@ func (a *Application) Bootstrap(ctx context.Context) error {
 		orchestrator.WithSemanticRouter(semRouter),
 		orchestrator.WithAccomplishmentConfidenceThreshold(a.cfg.Persona.AccomplishmentConfidenceThreshold),
 		orchestrator.WithSkillRepo(a.skillMutableRepo),
+		orchestrator.WithLearningConfig(learning.Config{
+			MinimumNoveltyScore: a.cfg.Learning.MinimumNoveltyScore,
+		}),
 	}
 
 	// If a skill provider exists, we allow dynamic skills

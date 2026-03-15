@@ -50,6 +50,7 @@
         hitl: { always_allowed: [], denied_tools: [], cache_ttl: '', background_behavior: 'reject' },
         shell_tool: { allowed_env: [], timeout: '' },
         features: { dry_run: { enabled: false } },
+        learning: { minimum_novelty_score: 7 },
         toolwrap: {
             context_mode: { enabled: false, threshold: 20000, max_chunks: 10, chunk_size: 800, min_term_len: 3, per_tool: '' },
             timeout: { enabled: false, default_timeout: '30s', per_tool: '' },
@@ -235,6 +236,7 @@
         renderHITL();
         renderShellTool();
         renderFeatures();
+        renderLearning();
         renderToolwrap();
         renderSecurity();
         renderPII();
@@ -810,6 +812,17 @@
         var f = state.features;
         c.appendChild(el('div', { className: 'space-y-4' }, [
             fieldToggle('Dry-Run Simulation', f.dry_run.enabled, function (v) { f.dry_run.enabled = v; renderOutput(); }, 'If enabled, Genie runs as normal but wraps tools in a simulation layer: tool calls are logged and validated without performing real side effects (no files, network, or shell are actually touched).'),
+        ]));
+    }
+
+    // ── Learning ──
+    function renderLearning() {
+        var c = $('learning-body');
+        if (!c) return;
+        c.innerHTML = '';
+        var l = state.learning;
+        c.appendChild(el('div', { className: 'space-y-4' }, [
+            fieldNumber('Minimum Novelty Score', l.minimum_novelty_score, function (v) { l.minimum_novelty_score = v; renderOutput(); }, 'LLM-assigned novelty score (1-10) above which a completed task is distilled into a reusable skill. Lower values create more skills; higher values are more selective. Default is 7.'),
         ]));
     }
 
@@ -1481,6 +1494,7 @@
         hitlToToml(lines);
         shellToolToToml(lines);
         featuresToToml(lines);
+        learningToToml(lines);
         toolwrapToToml(lines);
         dbConfigToToml(lines);
 
@@ -1630,6 +1644,14 @@
         if (!f.dry_run.enabled) return;
         lines.push('[features.dry_run]');
         lines.push('enabled = true');
+        lines.push('');
+    }
+
+    function learningToToml(lines) {
+        var l = state.learning;
+        if (l.minimum_novelty_score === 7) return;
+        lines.push('[learning]');
+        lines.push('minimum_novelty_score = ' + l.minimum_novelty_score);
         lines.push('');
     }
 
@@ -2249,6 +2271,7 @@
         hitlToYaml(lines);
         shellToolToYaml(lines);
         featuresToYaml(lines);
+        learningToYaml(lines);
         toolwrapToYaml(lines);
         dbConfigToYaml(lines);
 
@@ -2494,6 +2517,14 @@
         lines.push('features:');
         lines.push('  dry_run:');
         lines.push('    enabled: true');
+        lines.push('');
+    }
+
+    function learningToYaml(lines) {
+        var l = state.learning;
+        if (l.minimum_novelty_score === 7) return;
+        lines.push('learning:');
+        lines.push('  minimum_novelty_score: ' + l.minimum_novelty_score);
         lines.push('');
     }
 

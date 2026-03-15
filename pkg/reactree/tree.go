@@ -134,6 +134,10 @@ type TreeResult struct {
 	NodeCount     int
 	ContextBudget hooks.ContextBudgetEvent
 
+	// ToolsUsed lists the unique tool names called during execution.
+	// Populated from the loop's per-tool call counters.
+	ToolsUsed []string
+
 	// Confidence is a heuristic score (0.0–1.0) derived from execution signals
 	// that indicates how reliable the output is. Used to gate accomplishment
 	// storage: outputs below the threshold are not persisted as accomplishments.

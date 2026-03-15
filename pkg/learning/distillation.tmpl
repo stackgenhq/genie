@@ -8,6 +8,20 @@ completed task and decide whether it should be turned into a reusable skill.
 **Result:** {{.Result}}
 
 **Tools Used:** {{.ToolsList}}
+{{- if .ToolTrace}}
+
+**Tool Execution Trace:**
+{{.ToolTrace}}
+{{- end}}
+{{- if .ExistingSkills}}
+
+## Existing Similar Skills
+
+The following learned skills already exist and are similar to this task.
+Consider whether this task adds NEW knowledge or should UPDATE an existing skill.
+
+{{.ExistingSkills}}
+{{- end}}
 
 ## Instructions
 
@@ -21,14 +35,20 @@ completed task and decide whether it should be turned into a reusable skill.
    - **What it can do**: One-paragraph capability summary
    - **How it did it**: Step-by-step recipe the agent followed
    - **What worked**: Techniques, tool combinations, or approaches that succeeded
-   - **What did not work**: Dead ends, errors encountered, or approaches abandoned
+   - **What did not work**: Dead ends, errors encountered, or approaches abandoned (use the Tool Execution Trace above if available)
 
 3. The skill name must be lowercase with hyphens only (e.g. "deploy-k8s-service").
 
-4. Respond with ONLY a JSON object (no markdown fences, no extra text):
+4. If an existing similar skill is listed above, set "update_existing" to that
+   skill's name instead of creating a duplicate. If no similar skill exists or
+   the task is sufficiently different, leave "update_existing" empty.
 
-{"should_create": true, "novelty_score": 8, "name": "skill-name", "description": "One-line description", "instructions": "Full markdown instructions with the four sections above"}
+5. Respond with ONLY a JSON object (no markdown, no explanation, no code fences):
+
+{"should_create": true, "novelty_score": 8, "name": "skill-name", "description": "One-line description", "instructions": "Full markdown instructions with the four sections above", "update_existing": ""}
 
 If the task is NOT worth distilling, respond with:
 
-{"should_create": false, "novelty_score": 3, "name": "", "description": "", "instructions": ""}
+{"should_create": false, "novelty_score": 3, "name": "", "description": "", "instructions": "", "update_existing": ""}
+
+CRITICAL: Your ENTIRE response must be a single valid JSON object. Do NOT wrap it in markdown code fences. Do NOT include any headers, analysis, reasoning, or explanation before or after the JSON. ONLY output the raw JSON object.

@@ -136,6 +136,11 @@ type orchestrator struct {
 	// the vector store for semantic discovery.
 	learner *learning.Learner
 
+	// skillRepo provides access to the filesystem-backed skill repository
+	// so the orchestrator can load full skill instructions when a learned
+	// skill is discovered via vector search.
+	skillRepo *skills.MutableRepository
+
 	disableResume                     bool
 	agentPersona                      string
 	accomplishmentConfidenceThreshold float64
@@ -163,6 +168,7 @@ type orchestratorOpts struct {
 	semanticRouter                    semanticrouter.IRouter
 	accomplishmentConfidenceThreshold float64
 	skillRepo                         *skills.MutableRepository
+	learningConfig                    learning.Config
 }
 
 // WithToolwrapOptions passes per-agent middleware configuration to the
@@ -213,6 +219,14 @@ func WithAccomplishmentConfidenceThreshold(threshold float64) OrchestratorOption
 func WithSkillRepo(repo *skills.MutableRepository) OrchestratorOption {
 	return func(o *orchestratorOpts) {
 		o.skillRepo = repo
+	}
+}
+
+// WithLearningConfig sets the learning pipeline configuration. When not
+// provided, learning.DefaultConfig() is used.
+func WithLearningConfig(cfg learning.Config) OrchestratorOption {
+	return func(o *orchestratorOpts) {
+		o.learningConfig = cfg
 	}
 }
 
@@ -426,7 +440,7 @@ func NewOrchestrator(
 	// Construct the learner when a skill repository is provided.
 	var learner *learning.Learner
 	if oo.skillRepo != nil {
-		learner = learning.NewLearner(exp, oo.skillRepo, vectorStore, auditor)
+		learner = learning.NewLearner(exp, oo.skillRepo, vectorStore, auditor, oo.learningConfig)
 	}
 
 	orchestrator := &orchestrator{
@@ -442,6 +456,7 @@ func NewOrchestrator(
 		importanceScorer:                  importanceScorer,
 		wisdomStore:                       wisdomStore,
 		learner:                           learner,
+		skillRepo:                         oo.skillRepo,
 		toolIndex:                         toolIndex,
 		disableResume:                     oo.disableResume,
 		agentPersona:                      agentPersona,
@@ -812,10 +827,18 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	// the agent to learn from its own history.
 	episodicContext := c.recallEpisodes(ctx, req.Question)
 
+	// Recall learned skills that match the user's question.
+	// This injects full skill instructions into the prompt so the
+	// orchestrator naturally incorporates them into sub-agent goals.
+	skillsContext := c.recallLearnedSkills(ctx, req.Question)
+
 	// Build the message with past conversation context injected.
 	message := req.Question
-	if pastContext != "" || episodicContext != "" {
+	if pastContext != "" || episodicContext != "" || skillsContext != "" {
 		var contextParts []string
+		if skillsContext != "" {
+			contextParts = append(contextParts, fmt.Sprintf("## Relevant Learned Skills\nThe following skills were learned from previous tasks and may help with this request. Use the instructions below to guide your sub-agent goals.\n\n%s", skillsContext))
+		}
 		if pastContext != "" {
 			contextParts = append(contextParts, fmt.Sprintf("## Relevant Past Conversations\n%s", pastContext))
 		}
@@ -883,10 +906,16 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	// never blocks the user-facing response.
 	if c.learner != nil {
 		bgCtx := context.WithoutCancel(ctx)
+		// Build a compressed tool trace from the output for the learner's
+		// distillation prompt. This enables the LLM to accurately capture
+		// what worked and what failed (SkillRL-inspired failure lessons).
+		toolTrace := toolwrap.TruncateForAudit(res.Output, 2000)
 		go func() {
 			if err := c.learner.Learn(bgCtx, learning.LearnRequest{
-				Goal:   req.Question,
-				Output: res.Output,
+				Goal:      req.Question,
+				Output:    res.Output,
+				ToolsUsed: res.ToolsUsed,
+				ToolTrace: toolTrace,
 			}); err != nil {
 				logger.GetLogger(bgCtx).Warn("background learning failed", "error", err)
 			}
@@ -995,6 +1024,87 @@ func (c *orchestrator) recallConversation(ctx context.Context, question string) 
 			"results": limit,
 		},
 	})
+
+	return sb.String()
+}
+
+// recallLearnedSkills searches the vector store for learned skills
+// relevant to the user's question and loads their full instructions
+// from the skill repository. The returned string contains the skill
+// instructions ready for injection into the orchestrator's context,
+// allowing the LLM to naturally incorporate them into sub-agent goals.
+func (c *orchestrator) recallLearnedSkills(ctx context.Context, question string) string {
+	if c.vectorStore == nil || c.skillRepo == nil {
+		return ""
+	}
+
+	logr := logger.GetLogger(ctx).With("fn", "recallLearnedSkills")
+
+	// Search vector store for learned skills matching the question.
+	results, err := c.vectorStore.Search(ctx, vector.SearchRequest{
+		Query:  question,
+		Limit:  3,
+		Filter: map[string]string{"type": "learned_skill"},
+	})
+	if err != nil {
+		logr.Debug("learned skill search failed", "error", err)
+		return ""
+	}
+
+	if len(results) == 0 {
+		return ""
+	}
+
+	// Only consider results with a decent similarity score.
+	const minSimilarity = 0.5
+	var sb strings.Builder
+	loaded := 0
+
+	for _, result := range results {
+		if result.Score < minSimilarity {
+			continue
+		}
+
+		skillName := result.Metadata["skill_name"]
+		if skillName == "" {
+			continue
+		}
+
+		// Load full skill instructions from the filesystem repository.
+		sk, err := c.skillRepo.Get(skillName)
+		if err != nil {
+			logr.Debug("failed to load learned skill", "name", skillName, "error", err)
+			continue
+		}
+
+		// Relevance scoring (Self-RAG inspired): label confidence
+		// so the LLM can weigh skill applicability.
+		relevanceLabel := "moderate"
+		if result.Score >= 0.85 {
+			relevanceLabel = "high"
+		}
+		fmt.Fprintf(&sb, "### Skill: %s\n", skillName)
+		fmt.Fprintf(&sb, "**Relevance**: %s (%.2f) · **Description**: %s\n\n", relevanceLabel, result.Score, sk.Summary.Description)
+		sb.WriteString(sk.Body)
+		sb.WriteString("\n\n---\n\n")
+		loaded++
+	}
+
+	if loaded > 0 {
+		logr.Info("injected learned skills into orchestrator context",
+			"skills_found", len(results),
+			"skills_loaded", loaded,
+		)
+		c.auditor.Log(ctx, audit.LogRequest{
+			EventType: audit.EventMemoryAccess,
+			Actor:     "orchestrator",
+			Action:    "recall_learned_skills",
+			Metadata: map[string]interface{}{
+				"skills_found":  len(results),
+				"skills_loaded": loaded,
+			},
+		})
+	}
 
 	return sb.String()
 }

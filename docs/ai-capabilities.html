@@ -162,6 +162,9 @@
                         system.</li>
                     <li><strong>PII redaction</strong> — Configurable redaction before data is stored so sensitive
                         content isn’t persisted in memory.</li>
+                    <li><strong>Autonomous skill learning</strong> — After each task, Genie's learning loop evaluates
+                        what happened and, when novel enough, distils reusable skills automatically — keeping the
+                        knowledge ecosystem growing without manual curation.</li>
                 </ul>
                 <p class="text-sm text-gray-600 bg-purple-50/50 border border-purple-100 rounded-lg px-3 py-2">
                     <strong class="text-gray-800">Where we’re evaluating:</strong> Framing skills and memory as the
@@ -191,6 +194,10 @@
                         Model Context Protocol.</li>
                     <li><strong>Persona and classification</strong> — System prompts and routing so the right context is
                         used for each request.</li>
+                    <li><strong>Learned skills in vector store</strong> — Genie automatically distils novel tasks into
+                        reusable skills, indexes them in the vector store, and discovers them via
+                        <code class="bg-gray-100 px-1 rounded">memory_search</code> — creating a self-improving
+                        knowledge loop with zero manual effort.</li>
                 </ul>
             </div>
 
@@ -291,8 +298,11 @@
                         (tracing, metrics), and security (HITL, audit, sanitization) on every tool call.</li>
                     <li><strong>Config-driven behavior</strong> — HITL, model routing, and tool policy are configured,
                         not hard-coded, so the same platform can serve different policies.</li>
-                    <li><strong>MCP and skills</strong> — Extend the “road” to new data sources and capabilities without
+                    <li><strong>MCP and skills</strong> — Extend the "road" to new data sources and capabilities without
                         changing core code.</li>
+                    <li><strong>Self-improving skill library</strong> — Genie's learning loop automatically grows the
+                        skill library over time. Novel workflows are distilled, persisted, and discovered on future
+                        tasks — turning ad-hoc solutions into reusable "paved roads" for the entire team.</li>
                 </ul>
             </div>
 

@@ -114,12 +114,8 @@ type SkillLoadConfig struct {
 	MaxLoadedSkills int      `yaml:"max_loaded_skills,omitempty" toml:"max_loaded_skills,omitempty"`
 	SkillsRoots     []string `yaml:"skills_roots,omitempty" toml:"skills_roots,omitempty"`
 
-	// EnableCreateSkill enables the create_skill tool for runtime skill creation.
-	// Disabled by default.
-	EnableCreateSkill bool `yaml:"enable_create_skill,omitempty" toml:"enable_create_skill,omitempty"`
-
-	// CreateSkillDir is the writable directory where user-created skills are stored.
-	// Defaults to <workingDir>/user-skills when EnableCreateSkill is true.
+	// CreateSkillDir is the writable directory where user-created and learned skills
+	// are stored. Defaults to ~/.genie/<agentName>/dynamic_skills.
 	CreateSkillDir string `yaml:"create_skill_dir,omitempty" toml:"create_skill_dir,omitempty"`
 }
 
@@ -191,8 +187,8 @@ func (p *SkillToolProvider) Clone() ToolProviders {
 	return cloned
 }
 
-// MutableRepo returns the writable skill repository, or nil if create_skill is
-// not enabled. Used by the learning package to persist distilled skills.
+// MutableRepo returns the writable skill repository used by the learning
+// package to persist distilled skills. Always non-nil after construction.
 func (p *SkillToolProvider) MutableRepo() *skills.MutableRepository {
 	return p.mutableRepo
 }

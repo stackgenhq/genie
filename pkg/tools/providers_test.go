@@ -183,7 +183,7 @@ var _ = Describe("Providers", func() {
 				Expect(provider).NotTo(BeNil())
 			})
 
-			It("returns exactly three skill tools", func() {
+			It("returns all six skill tools", func() {
 				// Arrange
 				provider, err := tools.NewSkillToolProvider("/tmp", "test-agent", tools.SkillLoadConfig{
 					MaxLoadedSkills: 3,
@@ -296,7 +296,8 @@ var _ = Describe("Providers", func() {
 				Expect(cloned).NotTo(BeNil())
 				Expect(cloned).NotTo(BeIdenticalTo(provider))
 
-				// Cloned provider should return the same base tools (discover_skills, load_skill, unload_skill)
+				// Cloned provider should return the same base tools
+				// (discover_skills, load_skill, unload_skill, create_skill, update_skill, delete_skill)
 				clonedTools := cloned.GetTools(context.Background())
 				Expect(clonedTools).To(HaveLen(6))
 			})

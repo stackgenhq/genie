@@ -319,6 +319,14 @@ func (r *MutableRepository) Count() int {
 	return len(r.index)
 }
 
+// Exists returns true if a skill with the given name already exists.
+func (r *MutableRepository) Exists(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.index[name]
+	return ok
+}
+
 // scanExisting walks baseDir and indexes any existing skill directories.
 func (r *MutableRepository) scanExisting() {
 	entries, err := os.ReadDir(r.baseDir)
