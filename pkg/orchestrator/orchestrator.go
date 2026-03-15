@@ -586,8 +586,13 @@ Persona:
 // Close releases resources held by the orchestrator, including the conversation
 // history memory service. Callers should defer Close() after NewOrchestrator.
 func (c *orchestrator) Close() error {
-	c.resumeCancel()
-	return c.memorySvc.Close()
+	if c.resumeCancel != nil {
+		c.resumeCancel()
+	}
+	if c.memorySvc != nil {
+		return c.memorySvc.Close()
+	}
+	return nil
 }
 
 // bridgeBrowserTab creates a context that carries both the chromedp tab's
@@ -892,21 +897,24 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	// Store the Q&A turn as an episode in episodic memory so future turns
 	// can recall what was asked and how it was answered. Stored as "pending"
 	// until a user reaction (👍/👎) upgrades or downgrades it.
-	c.storeEpisode(ctx, req.Question, res)
+	// Use a corrected copy so episodes reflect the user-visible output.
+	correctedRes := res
+	correctedRes.Output = finalOutput
+	c.storeEpisode(ctx, req.Question, correctedRes)
 
 	// Persist the result to semantic cache.
 	// Skip for internal tasks so cron/heartbeat results don't pollute
 	// the cache — they'd cause false cache hits for unrelated user queries
 	// that happen to be semantically similar.
 	if c.router != nil && !req.SkipClassification {
-		if err := c.router.SetCache(ctx, req.Question, res.Output); err != nil {
+		if err := c.router.SetCache(ctx, req.Question, finalOutput); err != nil {
 			logr.Warn("failed to set semantic cache", "error", err)
 		}
 	}
 
 	// Persist a concise accomplishment so the agent's resume can reference
 	// real work it has completed, boosting user confidence.
-	c.storeAccomplishment(ctx, req.Question, res)
+	c.storeAccomplishment(ctx, req.Question, correctedRes)
 
 	// Async learning: evaluate the completed task and distil a skill if
 	// the task was novel enough. Runs in a detached goroutine so it
@@ -923,7 +931,7 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 		go func() {
 			if err := c.learner.Learn(bgCtx, learning.LearnRequest{
 				Goal:      req.Question,
-				Output:    res.Output,
+				Output:    finalOutput,
 				ToolsUsed: res.ToolsUsed,
 			}); err != nil {
 				logger.GetLogger(bgCtx).Warn("background learning failed", "error", err)
@@ -938,7 +946,7 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 		Action:    "chat_turn_completed",
 		Metadata: map[string]interface{}{
 			"question": req.Question,
-			"answer":   res.Output,
+			"answer":   finalOutput,
 		},
 	})
 

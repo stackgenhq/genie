@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Always-On Skills Provider** — `MutableRepository` is now always created regardless of `skills_roots` config, stored at `~/.genie/<agent_name>/dynamic_skills/`. Skills initialization no longer gated by config — ensures the learning loop always has a write target.
 - **Learner Audit Trail** — Every learner decision is logged to the ndjson audit file (`learning_started`, `learning_skipped`, `learning_failed`, `skill_created`) with structured metadata (reason, novelty_score, goal_preview), enabling full observability of the learning pipeline.
 - **Orchestrator Persona Update** — Orchestrator persona now instructs the agent to search memory for available learned skills before starting work, mention available skills to the user, and incorporate their step-by-step instructions directly into sub-agent goals.
-- **QA Test Suite for Learning Loop** (`qa/20260314_learning_loop.md`) — 6 test scenarios covering skill distillation, vector indexing, skill discovery, user confirmation, routine task filtering, and sub-agent session persistence.
+- **QA Test Suite for Learning Loop** (`qa/20260314_learning_loop.md`) — 7 test scenarios covering skill distillation, vector indexing, skill discovery, user confirmation, routine task filtering, post-synthesis hallucination guard, and context window stress testing.
 - **Enhanced SCM DataSource** — SCM vectorization connector (GitHub/GitLab/Bitbucket) expanded to fetch open issues (excluding PRs) and extract recent commit authors, providing deeper repository context. Output includes generic `SourceRef` integration for UI source tracing.
 - **Datasource Connector Factory** — Unified datasource registration and initialization across all providers (Google Calendar, GDrive, SCM, Jira, Confluence, ServiceNow, Productboard) via centralized `pkg/datasource/builder.go`. Automatically wires datasources to the active sync loop based on tool/MCP configuration.
 - **`scm_commit_and_pr` tool** — uber tool that accepts multiple file changes, commits them to a branch, and optionally creates a Pull Request in a single LLM call. Resolves the repo's default branch dynamically via API, auto-creates the target branch if it doesn't exist, concurrently fetches existing file SHAs via `errgroup`, and sequentially commits each file.
@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Chat UI origin auto-detection** — When the chat page is served by a Genie instance (e.g. `http://localhost:9877/ui/chat.html` or `https://genie.dev.stackgen.com/ui/chat.html`), the endpoint input now defaults to the host origin and auto-connects. The hardcoded `localhost:9876` default is preserved only for the GitHub Pages docs site and local `file://` opens.
 - **Concurrent Data Source Fetching** — SCM and MCP datasources now fetch items concurrently using `errgroup.Group`, significantly drastically reducing initial connection sync times.
   - SCM datasource (`pkg/tools/scm`) fetches repo metadata, pull requests, issues, and recent commit authors in parallel for each repo.
   - MCP datasource (`pkg/datasource/mcpresource`) fetches resources in parallel with a bounded concurrency limit.
@@ -116,7 +117,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Post-Synthesis Hallucination Guard** — Added `verifySynthesis()` on the orchestrator that runs `halGuard.PostCheck` on the tree executor's output before it reaches the user. Catches fabricated data (e.g. invented cluster/pod names) during the synthesis phase. Uses `ToolCallsMade=0` to force `TierFull` cross-model verification, treating the synthesis as pure LLM generation. Fails open on errors to preserve availability. 6 Ginkgo/Gomega unit tests cover nil guard, short output, factual, contradicted, error, and audit scenarios.
+- **Post-Synthesis Hallucination Guard** — Added `verifySynthesis()` on the orchestrator that runs `halGuard.PostCheck` on the tree executor's output before it reaches the user. Catches fabricated data (e.g. invented cluster/pod names) during the synthesis phase. Uses `ToolCallsMade=0` to force `TierFull` cross-model verification, treating the synthesis as pure LLM generation. Fails open on errors to preserve availability. Ginkgo/Gomega unit tests cover short output bypass, factual pass-through, contradicted output correction, error fail-open, and audit logging scenarios.
 - **App Startup**: Guarded data-sources background sync against `nil` vector store initialization to prevent startup panics.
 - **Marketing Expert Example**: Cleaned up PostgreSQL DSN templating logic, added an optional Kubernetes namespace resource, and fixed Google Drive secret variable injection to use explicit vars.
 - MCP tool adapter now strips `_justification` field from tool call arguments before forwarding to MCP servers — LLMs inject this field based on sub-agent instructions, but MCP servers reject it as an unknown field (`"error converting arguments: input is invalid"`).
