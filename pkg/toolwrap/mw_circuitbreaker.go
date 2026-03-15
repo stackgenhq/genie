@@ -29,11 +29,23 @@ type CircuitBreakerConfig struct {
 	// state before deciding to close or re-open. Defaults to 1 if zero.
 	HalfOpenMaxCalls int `yaml:"half_open_max_calls,omitempty" toml:"half_open_max_calls,omitempty,omitzero"`
 	// ExemptTools lists tool names (or prefix patterns e.g. "google_*") to exempt
-	// from the circuit breaker completely.
+	// from the circuit breaker completely. These are merged with built-in
+	// defaults (create_agent).
 	ExemptTools []string `yaml:"exempt_tools,omitempty" toml:"exempt_tools,omitempty"`
 }
 
-// withDefaults fills zero-valued fields with sensible defaults.
+// defaultCircuitBreakerExemptTools lists tool names that are always exempt
+// from the circuit breaker. These are merged with user-configured ExemptTools.
+//   - create_agent: each call spawns a distinct sub-agent with a unique goal.
+//     Sub-agent failures are expected (wrong strategy, missing credentials)
+//     and the orchestrator retries with different approaches. Blocking
+//     create_agent prevents adaptive retry and kills the entire task.
+var defaultCircuitBreakerExemptTools = []string{
+	"create_agent",
+}
+
+// withDefaults fills zero-valued fields with sensible defaults and merges
+// built-in exempt tools with user-configured ones.
 func (c CircuitBreakerConfig) withDefaults() CircuitBreakerConfig {
 	if c.FailureThreshold <= 0 {
 		c.FailureThreshold = 5
@@ -44,6 +56,11 @@ func (c CircuitBreakerConfig) withDefaults() CircuitBreakerConfig {
 	if c.HalfOpenMaxCalls <= 0 {
 		c.HalfOpenMaxCalls = 1
 	}
+	// Merge built-in exempt tools with user-configured ones.
+	merged := make([]string, 0, len(defaultCircuitBreakerExemptTools)+len(c.ExemptTools))
+	merged = append(merged, defaultCircuitBreakerExemptTools...)
+	merged = append(merged, c.ExemptTools...)
+	c.ExemptTools = merged
 	return c
 }
 

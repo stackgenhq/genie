@@ -1,0 +1,131 @@
+# STRESS TEST CONFIG: Gemini Flash Only
+# Purpose: Force hallucination by using only weak/fast models for everything.
+# This tests whether HalGuard catches fabrications from cheaper models.
+
+skills_roots = ["./skills"]
+agent_name  = "devops-copilot-flash"
+[persona]
+file = "./persona.md"
+disable_resume = true
+
+[db_config]
+db_file = "${PWD}/.genie-flash.db"
+
+# ── ALL models set to gemini-flash ──────────────────────────────────
+# Using gemini-3-flash-preview for EVERY task type — planning, tool_calling,
+# terminal_calling, summarizer, general_task, frontdesk. This is intentionally
+# weaker to provoke hallucination in synthesis outputs.
+
+[model_config]
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "planning"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "tool_calling"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "summarizer"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "terminal_calling"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "frontdesk"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-3-flash-preview"
+token = "${GEMINI_API_KEY}"
+good_for_task = "general_task"
+
+# ── Efficiency models for halguard cross-model verification ──────────
+# Still using diverse providers so HalGuard can cross-check.
+# Without these, halguard has nothing to compare against.
+
+[[model_config.providers]]
+provider = "openai"
+model_name = "gpt-4.1-mini"
+token = "${OPENAI_API_KEY}"
+good_for_task = "efficiency"
+
+[[model_config.providers]]
+provider = "anthropic"
+model_name = "claude-haiku-4-5"
+token = "${ANTHROPIC_API_KEY}"
+good_for_task = "efficiency"
+
+[[model_config.providers]]
+provider = "gemini"
+model_name = "gemini-2.0-flash"
+token = "${GEMINI_API_KEY}"
+good_for_task = "efficiency"
+
+# ── Hallucination Guard ─────────────────────────────────────────────
+[halguard]
+enable_pre_check = true
+enable_post_check = true
+pre_check_threshold = 0.4
+cross_model_samples = 3
+
+# ── Vector Memory ───────────────────────────────────────────────────
+[vector_memory]
+embedding_provider = "ollama"
+ollama_url = "http://localhost:11434"
+ollama_model = "nomic-embed-text"
+persistence_dir = "${PWD}/.genie/vector_store_flash"
+
+# ── AG-UI Server ────────────────────────────────────────────────────
+[messenger.agui]
+port = 9877
+cors_origins = ["https://stackgenhq.github.io", "http://localhost:9877"]
+
+[hitl]
+always_allowed = ["run_shell"]
+
+# ── Loop Detection ──────────────────────────────────────────────────
+# Infrastructure sub-agents need many sequential run_shell calls with
+# different args (discover regions → list clusters → health check each).
+# The default consecutive-different-args threshold (4) is too aggressive.
+[toolwrap.loop_detection]
+exempt_tools = ["run_shell"]
+
+# ── Circuit Breaker ─────────────────────────────────────────────────
+# run_shell can fail transiently (auth, network); don't trip the circuit.
+[toolwrap.circuit_breaker]
+exempt_tools = ["run_shell"]
+
+[pii]
+entropy_threshold = 4.8
+min_secret_length = 16
+
+[[pii.safe_regexes]]
+name = "aws_profile"
+pattern = '\b[0-9]{12}_[A-Za-z0-9_-]+\b'
+
+[[pii.safe_regexes]]
+name = "aws_arn"
+pattern = '(?i)arn:aws:[a-z0-9-]+:[a-z0-9-]*:[0-9]{12}:[a-zA-Z0-9-/_]+'
+
+[[pii.safe_regexes]]
+name = "aws_resource_id"
+pattern = '(?i)(i|vol|snap|ami|subnet|vpc|igw|nat|eni|sg|rtb|eipalloc)-[0-9a-f]{8,17}'
+
+[[pii.safe_regexes]]
+name = "kubernetes_version"
+pattern = '(?i)\bv?[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.]+)?\b'

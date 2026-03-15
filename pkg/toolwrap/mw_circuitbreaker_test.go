@@ -153,4 +153,32 @@ var _ = Describe("CircuitBreakerMiddleware", func() {
 		_, err = handler(context.Background(), tc("other_tool"))
 		Expect(err.Error()).To(ContainSubstring("circuit"))
 	})
+
+	It("should exempt create_agent from circuit breaker by default", func() {
+		// No ExemptTools configured by user — create_agent should still be exempt
+		// via the built-in defaultCircuitBreakerExemptTools.
+		mw := toolwrap.CircuitBreakerMiddleware(toolwrap.CircuitBreakerConfig{
+			FailureThreshold: 1,
+			OpenDuration:     5 * time.Second,
+		})
+		handler := mw.Wrap(failing(errors.New("sub-agent failed")))
+
+		// First call fails with the underlying error.
+		_, err := handler(context.Background(), tc("create_agent"))
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("sub-agent failed"))
+
+		// Second call ALSO gets the underlying error (not "circuit") because
+		// create_agent is exempt — the circuit breaker never trips for it.
+		_, err = handler(context.Background(), tc("create_agent"))
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("sub-agent failed"))
+		Expect(err.Error()).NotTo(ContainSubstring("circuit"))
+
+		// Verify a non-exempt tool DOES trip after same number of failures.
+		_, _ = handler(context.Background(), tc("some_tool"))
+		_, err = handler(context.Background(), tc("some_tool"))
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("circuit"))
+	})
 })

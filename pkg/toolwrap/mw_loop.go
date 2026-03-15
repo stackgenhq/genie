@@ -63,6 +63,10 @@ func IsRetrievalTool(name string) bool {
 // by default. These are merged with any user-configured exempt tools.
 // Exempt categories:
 //   - note/read_notes: agent may call repeatedly to read/write parts of notes
+//   - create_agent: each call spawns a distinct sub-agent with its own goal
+//     and strategy. It is a delegation/orchestration tool, not a pagination
+//     or discovery tool. Blocking it prevents the orchestrator from retrying
+//     with different strategies after sub-agent failure.
 //   - google_drive_*: read-only, idempotent tools. Sub-agents reading multiple
 //     files sequentially trigger false-positive identical-args detection when
 //     a model re-emits the same file_id after receiving the first result (common
@@ -70,6 +74,7 @@ func IsRetrievalTool(name string) bool {
 var defaultLoopExemptTools = []string{
 	"read_notes",
 	"note",
+	"create_agent",
 }
 
 // LoopDetectionConfig controls loop detection behaviour.

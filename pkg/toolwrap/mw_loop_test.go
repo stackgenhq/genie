@@ -321,6 +321,37 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 		}
 		Expect(atomic.LoadInt32(count)).To(Equal(int32(6)))
 	})
+
+	It("should exempt create_agent from identical-args loop detection", func() {
+		mw := toolwrap.LoopDetectionMiddleware()
+		next, count := counting(passthrough(`{"output":"done"}`))
+		handler := mw.Wrap(next)
+		tc := &toolwrap.ToolCallContext{ToolName: "create_agent", Args: []byte(`{"goal":"check pods","tool_names":["run_shell"]}`)}
+
+		// Same create_agent call 5 times — should NOT trigger identical-args loop
+		for i := 0; i < 5; i++ {
+			_, err := handler(context.Background(), tc)
+			Expect(err).NotTo(HaveOccurred())
+		}
+		Expect(atomic.LoadInt32(count)).To(Equal(int32(5)))
+	})
+
+	It("should exempt create_agent from same-tool loop detection", func() {
+		mw := toolwrap.LoopDetectionMiddleware()
+		next, count := counting(passthrough(`{"output":"done"}`))
+		handler := mw.Wrap(next)
+
+		// 6 create_agent calls with different goals — should NOT trigger same-tool loop
+		for i := 0; i < 6; i++ {
+			tc := &toolwrap.ToolCallContext{
+				ToolName: "create_agent",
+				Args:     []byte(fmt.Sprintf(`{"goal":"strategy_%d","tool_names":["run_shell"]}`, i)),
+			}
+			_, err := handler(context.Background(), tc)
+			Expect(err).NotTo(HaveOccurred())
+		}
+		Expect(atomic.LoadInt32(count)).To(Equal(int32(6)))
+	})
 })
 
 var _ = Describe("FailureLimitMiddleware", func() {
