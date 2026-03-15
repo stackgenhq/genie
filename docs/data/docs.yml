@@ -197,6 +197,25 @@ config_sections:
         rows:
           - ["skills_roots", "string[]", '`["./skills"]`', "Directories or HTTPS URLs containing skill definitions"]
 
+  - id: learning
+    icon: "🎓"
+    name: learning
+    sidebar_desc: Post-Session Skill Distillation
+    detail_title: "🎓 learning"
+    detail_desc: >
+      <strong>Automatic Skill Creation.</strong><br>
+      After completing a task, Genie's learning loop evaluates the session and, when the task
+      is novel enough, distills it into a reusable
+      <a href="https://agentskills.io" target="_blank" class="text-purple-500 hover:text-purple-600">agentskills.io</a>
+      skill. Created skills are persisted to the skill repository and indexed in the vector
+      store for discovery via <code>memory_search</code>.<br><br>
+      Use <code>minimum_novelty_score</code> to tune how selective the distillation is.
+      Lower values create more skills; higher values are more selective.
+    tables:
+      - columns: [Key, Type, Default, Description]
+        rows:
+          - ["minimum_novelty_score", "int", "`7`", "LLM-assigned novelty score (1-10) above which a completed task is distilled into a reusable skill"]
+
   - id: mcp
     icon: "🔌"
     name: mcp

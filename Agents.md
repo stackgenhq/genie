@@ -960,6 +960,35 @@ func (s *Service) DoWork(ctx context.Context) error {
 }
 ```
 
+#### No Tests for Impossible Nil States
+
+Do not write tests that exercise nil-field scenarios when the constructor guarantees initialization. Such tests are purely defensive and create pressure to **add** nil guards just to pass them, which bloats the code with unnecessary `if` blocks.
+
+**Incorrect — test for an impossible state:**
+```go
+It("should return output when guard is nil", func() {
+    svc.guard = nil // ❌ Constructor always sets this
+    result := svc.Process(ctx, input)
+    Expect(result).To(Equal(input))
+})
+```
+
+**Correct — test the real behavior:**
+```go
+It("should verify output through guard", func() {
+    fakeGuard.CheckReturns(halguard.VerificationResult{IsFactual: true}, nil)
+    result := svc.Process(ctx, input)
+    Expect(result).To(Equal(input))
+})
+```
+
+#### Anti-Patterns to Avoid
+
+- ❌ Nil-checking struct fields that the constructor always initializes
+- ❌ Writing tests that set constructor-guaranteed fields to nil
+- ❌ Adding nil guards solely to prevent panics in tests that manually construct structs with missing fields
+- ❌ Checking `if result == nil` after a function that guarantees non-nil on success
+
 ### 2. Simplify Nested Property Access (MANDATORY)
 
 **Avoid deeply nested `if` blocks or repeated type assertions for navigating complex structures like JSON/YAML.**

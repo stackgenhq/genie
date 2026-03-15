@@ -21,7 +21,10 @@ import (
 	"github.com/stackgenhq/genie/pkg/audit/auditfakes"
 	"github.com/stackgenhq/genie/pkg/expert/expertfakes"
 	"github.com/stackgenhq/genie/pkg/expert/modelprovider/modelproviderfakes"
+	"github.com/stackgenhq/genie/pkg/halguard"
+	"github.com/stackgenhq/genie/pkg/halguard/halguardfakes"
 	"github.com/stackgenhq/genie/pkg/hitl/hitlfakes"
+	"github.com/stackgenhq/genie/pkg/learning/learningfakes"
 	"github.com/stackgenhq/genie/pkg/memory/graph/graphfakes"
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/memory/vector/vectorfakes"
@@ -68,6 +71,8 @@ var _ = Describe("CodeOwner", func() {
 			toolRegistry:      tools.NewRegistry(ctx),
 			importanceScorer:  rtmemory.NewNoOpImportanceScorer(),
 			episodicMemoryCfg: rtmemory.DefaultEpisodicMemoryConfig(),
+			wisdomStore:       &memoryfakes.FakeWisdomStore{},
+			halGuard:          &halguardfakes.FakeGuard{},
 			resume: ttlcache.NewItem(func(_ context.Context) (string, error) {
 				return "Kubernetes triage specialist with shell and kubectl tools.", nil
 			}, 5*time.Minute),
@@ -749,6 +754,170 @@ var _ = Describe("CodeOwner", func() {
 			result := co.mergeMemoryEntries(recents, nil)
 			Expect(result).To(HaveLen(1))
 			Expect(result[0].ID).To(Equal("valid"))
+		})
+	})
+
+	Describe("verifySynthesis", func() {
+		var fakeGuard *halguardfakes.FakeGuard
+
+		BeforeEach(func() {
+			fakeGuard = &halguardfakes.FakeGuard{}
+			co.halGuard = fakeGuard
+		})
+
+		It("should skip check for short outputs below 200 chars", func() {
+			res := reactree.TreeResult{Output: "short answer"}
+
+			result := co.verifySynthesis(ctx, "question", res)
+			Expect(result).To(Equal("short answer"))
+			Expect(fakeGuard.PostCheckCallCount()).To(Equal(0))
+		})
+
+		It("should return original output when PostCheck says factual", func() {
+			longOutput := strings.Repeat("EKS cluster developer-eks is healthy. ", 10)
+			fakeGuard.PostCheckReturns(halguard.VerificationResult{
+				IsFactual:     true,
+				CorrectedText: longOutput,
+				Tier:          halguard.TierFull,
+			}, nil)
+
+			res := reactree.TreeResult{Output: longOutput}
+			result := co.verifySynthesis(ctx, "check EKS health", res)
+			Expect(result).To(Equal(longOutput))
+
+			Expect(fakeGuard.PostCheckCallCount()).To(Equal(1))
+			_, req := fakeGuard.PostCheckArgsForCall(0)
+			Expect(req.Goal).To(Equal("check EKS health"))
+			Expect(req.Output).To(Equal(longOutput))
+			Expect(req.ToolCallsMade).To(Equal(0))
+		})
+
+		It("should return corrected text when PostCheck finds contradictions", func() {
+			original := strings.Repeat("prod-cluster has payment-processor failing. ", 10)
+			corrected := strings.Repeat("developer-eks has aiden-scheduler failing. ", 10)
+			fakeGuard.PostCheckReturns(halguard.VerificationResult{
+				IsFactual:     false,
+				CorrectedText: corrected,
+				BlockScores: []halguard.BlockScore{
+					{Text: "prod-cluster", Label: halguard.BlockContradiction, Reason: "fabricated"},
+				},
+				Tier: halguard.TierFull,
+			}, nil)
+
+			res := reactree.TreeResult{Output: original}
+			result := co.verifySynthesis(ctx, "check EKS", res)
+			Expect(result).To(Equal(corrected))
+			Expect(result).NotTo(Equal(original))
+		})
+
+		It("should fail open and return original on PostCheck error", func() {
+			longOutput := strings.Repeat("some output data here. ", 15)
+			fakeGuard.PostCheckReturns(halguard.VerificationResult{}, errors.New("model unavailable"))
+
+			res := reactree.TreeResult{Output: longOutput}
+			result := co.verifySynthesis(ctx, "question", res)
+			Expect(result).To(Equal(longOutput))
+		})
+
+		It("should log audit event when contradictions are corrected", func() {
+			fakeAuditor := &auditfakes.FakeAuditor{}
+			co.auditor = fakeAuditor
+
+			original := strings.Repeat("fabricated cluster data here. ", 10)
+			fakeGuard.PostCheckReturns(halguard.VerificationResult{
+				IsFactual:     false,
+				CorrectedText: "corrected version",
+				BlockScores: []halguard.BlockScore{
+					{Text: "fabricated", Label: halguard.BlockContradiction},
+				},
+				Tier: halguard.TierFull,
+			}, nil)
+
+			res := reactree.TreeResult{Output: original}
+			_ = co.verifySynthesis(ctx, "query", res)
+
+			Expect(fakeAuditor.LogCallCount()).To(BeNumerically(">=", 1))
+		})
+	})
+
+	Describe("background learning via Chat", func() {
+		var (
+			fakeLearner *learningfakes.FakeILearner
+			fakeRouter  *semanticrouterfakes.FakeIRouter
+		)
+
+		BeforeEach(func() {
+			fakeRouter = &semanticrouterfakes.FakeIRouter{}
+			co.router = fakeRouter
+
+			fakeLearner = &learningfakes.FakeILearner{}
+			co.learner = fakeLearner
+			co.episodicMemoryCfg = rtmemory.DefaultEpisodicMemoryConfig()
+		})
+
+		It("should invoke learner.Learn asynchronously with correct fields", func() {
+			fakeRouter.ClassifyReturns(semanticrouter.ClassificationResult{
+				Category: semanticrouter.CategoryComplex,
+			}, nil)
+
+			fakeTreeExecutor.RunReturns(reactree.TreeResult{
+				Output:    "deployed successfully",
+				Status:    reactree.Success,
+				ToolsUsed: []string{"run_shell", "read_file"},
+			}, nil)
+
+			outChan := make(chan string, 10)
+			req := CodeQuestion{Question: "deploy the app to staging"}
+
+			err := co.Chat(ctx, req, outChan)
+			Expect(err).NotTo(HaveOccurred())
+
+			// The goroutine fires in the background, so use Eventually
+			// to wait for the fake to register the call.
+			Eventually(fakeLearner.LearnCallCount, 2*time.Second, 50*time.Millisecond).Should(Equal(1))
+
+			_, learnReq := fakeLearner.LearnArgsForCall(0)
+			Expect(learnReq.Goal).To(Equal("deploy the app to staging"))
+			Expect(learnReq.Output).To(Equal("deployed successfully"))
+			Expect(learnReq.ToolsUsed).To(ConsistOf("run_shell", "read_file"))
+			// ToolTrace should be empty — output is already in the Output field.
+			Expect(learnReq.ToolTrace).To(BeEmpty())
+		})
+
+		It("should NOT invoke learner.Learn when learner is nil", func() {
+			co.learner = nil
+
+			fakeRouter.ClassifyReturns(semanticrouter.ClassificationResult{
+				Category: semanticrouter.CategoryComplex,
+			}, nil)
+			fakeTreeExecutor.RunReturns(reactree.TreeResult{
+				Output: "done",
+				Status: reactree.Success,
+			}, nil)
+
+			outChan := make(chan string, 10)
+			err := co.Chat(ctx, CodeQuestion{Question: "do something"}, outChan)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Give the goroutine time to fire if it were to — it should not.
+			Consistently(fakeLearner.LearnCallCount, 200*time.Millisecond, 50*time.Millisecond).Should(Equal(0))
+		})
+
+		It("should not propagate learner errors to Chat caller", func() {
+			fakeRouter.ClassifyReturns(semanticrouter.ClassificationResult{
+				Category: semanticrouter.CategoryComplex,
+			}, nil)
+			fakeTreeExecutor.RunReturns(reactree.TreeResult{
+				Output: "result",
+				Status: reactree.Success,
+			}, nil)
+			fakeLearner.LearnReturns(fmt.Errorf("distillation failed"))
+
+			outChan := make(chan string, 10)
+			err := co.Chat(ctx, CodeQuestion{Question: "test error"}, outChan)
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(fakeLearner.LearnCallCount, 2*time.Second, 50*time.Millisecond).Should(Equal(1))
 		})
 	})
 })

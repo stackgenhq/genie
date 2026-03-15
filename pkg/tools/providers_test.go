@@ -132,7 +132,7 @@ var _ = Describe("Providers", func() {
 				bogusPath := "/tmp/nonexistent-skill-root-abc123"
 
 				// Act
-				provider, err := tools.NewSkillToolProvider("/tmp", tools.SkillLoadConfig{
+				provider, err := tools.NewSkillToolProvider("/tmp", "test-agent", tools.SkillLoadConfig{
 					MaxLoadedSkills: 3,
 					SkillsRoots:     []string{bogusPath},
 				})
@@ -173,7 +173,7 @@ var _ = Describe("Providers", func() {
 
 			It("creates a provider successfully", func() {
 				// Act
-				provider, err := tools.NewSkillToolProvider("/tmp", tools.SkillLoadConfig{
+				provider, err := tools.NewSkillToolProvider("/tmp", "test-agent", tools.SkillLoadConfig{
 					MaxLoadedSkills: 3,
 					SkillsRoots:     []string{skillDir},
 				})
@@ -183,9 +183,9 @@ var _ = Describe("Providers", func() {
 				Expect(provider).NotTo(BeNil())
 			})
 
-			It("returns exactly three skill tools", func() {
+			It("returns all six skill tools", func() {
 				// Arrange
-				provider, err := tools.NewSkillToolProvider("/tmp", tools.SkillLoadConfig{
+				provider, err := tools.NewSkillToolProvider("/tmp", "test-agent", tools.SkillLoadConfig{
 					MaxLoadedSkills: 3,
 					SkillsRoots:     []string{skillDir},
 				})
@@ -194,13 +194,13 @@ var _ = Describe("Providers", func() {
 				// Act
 				got := provider.GetTools(context.Background())
 
-				// Assert — discover_skills, load_skill, unload_skill
-				Expect(got).To(HaveLen(3))
+				// Assert — discover_skills, load_skill, unload_skill, create_skill, update_skill, delete_skill
+				Expect(got).To(HaveLen(6))
 			})
 
 			It("includes the expected skill tool names", func() {
 				// Arrange
-				provider, err := tools.NewSkillToolProvider("/tmp", tools.SkillLoadConfig{
+				provider, err := tools.NewSkillToolProvider("/tmp", "test-agent", tools.SkillLoadConfig{
 					MaxLoadedSkills: 3,
 					SkillsRoots:     []string{skillDir},
 				})
@@ -214,15 +214,18 @@ var _ = Describe("Providers", func() {
 				for _, t := range got {
 					names = append(names, t.Declaration().Name)
 				}
-				Expect(names).To(ConsistOf(
+				Expect(names).To(ContainElements(
 					"discover_skills",
 					"load_skill",
 					"unload_skill",
+					"create_skill",
+					"update_skill",
+					"delete_skill",
 				))
 			})
 
 			It("supports Search to find dynamic skills", func() {
-				provider, err := tools.NewSkillToolProvider("/tmp", tools.SkillLoadConfig{
+				provider, err := tools.NewSkillToolProvider("/tmp", "test-agent", tools.SkillLoadConfig{
 					MaxLoadedSkills: 3,
 					SkillsRoots:     []string{skillDir},
 				})
@@ -243,7 +246,7 @@ var _ = Describe("Providers", func() {
 			})
 
 			It("supports Get to retrieve a dynamic skill", func() {
-				provider, err := tools.NewSkillToolProvider("/tmp", tools.SkillLoadConfig{
+				provider, err := tools.NewSkillToolProvider("/tmp", "test-agent", tools.SkillLoadConfig{
 					MaxLoadedSkills: 3,
 					SkillsRoots:     []string{skillDir},
 				})
@@ -259,7 +262,7 @@ var _ = Describe("Providers", func() {
 			})
 
 			It("restrictedSkillRunTool prevents calling unloaded skills", func() {
-				provider, err := tools.NewSkillToolProvider("/tmp", tools.SkillLoadConfig{
+				provider, err := tools.NewSkillToolProvider("/tmp", "test-agent", tools.SkillLoadConfig{
 					MaxLoadedSkills: 3,
 					SkillsRoots:     []string{skillDir},
 				})
@@ -280,7 +283,7 @@ var _ = Describe("Providers", func() {
 			})
 
 			It("Clone returns a fresh provider with empty loader state", func() {
-				provider, err := tools.NewSkillToolProvider("/tmp", tools.SkillLoadConfig{
+				provider, err := tools.NewSkillToolProvider("/tmp", "test-agent", tools.SkillLoadConfig{
 					MaxLoadedSkills: 3,
 					SkillsRoots:     []string{skillDir},
 				})
@@ -293,9 +296,10 @@ var _ = Describe("Providers", func() {
 				Expect(cloned).NotTo(BeNil())
 				Expect(cloned).NotTo(BeIdenticalTo(provider))
 
-				// Cloned provider should return the same base tools (discover_skills, load_skill, unload_skill)
+				// Cloned provider should return the same base tools
+				// (discover_skills, load_skill, unload_skill, create_skill, update_skill, delete_skill)
 				clonedTools := cloned.GetTools(context.Background())
-				Expect(clonedTools).To(HaveLen(3))
+				Expect(clonedTools).To(HaveLen(6))
 			})
 		})
 	})

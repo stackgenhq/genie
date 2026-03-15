@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stackgenhq/genie/pkg/osutils"
 	"github.com/stackgenhq/genie/pkg/security"
 	"github.com/stackgenhq/genie/pkg/skills"
 	"github.com/stackgenhq/genie/pkg/tools/skills/createskill"
@@ -113,12 +114,8 @@ type SkillLoadConfig struct {
 	MaxLoadedSkills int      `yaml:"max_loaded_skills,omitempty" toml:"max_loaded_skills,omitempty"`
 	SkillsRoots     []string `yaml:"skills_roots,omitempty" toml:"skills_roots,omitempty"`
 
-	// EnableCreateSkill enables the create_skill tool for runtime skill creation.
-	// Disabled by default.
-	EnableCreateSkill bool `yaml:"enable_create_skill,omitempty" toml:"enable_create_skill,omitempty"`
-
-	// CreateSkillDir is the writable directory where user-created skills are stored.
-	// Defaults to <workingDir>/user-skills when EnableCreateSkill is true.
+	// CreateSkillDir is the writable directory where user-created and learned skills
+	// are stored. Defaults to ~/.genie/<agentName>/dynamic_skills.
 	CreateSkillDir string `yaml:"create_skill_dir,omitempty" toml:"create_skill_dir,omitempty"`
 }
 
@@ -133,31 +130,43 @@ type SkillToolProvider struct {
 	repo        skill.Repository
 	exec        codeexecutor.CodeExecutor
 	loader      *dynamicskills.DynamicSkillLoader
-	mutableRepo *skills.MutableRepository // non-nil when create_skill is enabled
+	mutableRepo *skills.MutableRepository // always non-nil after construction
 }
 
 // NewSkillToolProvider creates a ToolProvider containing skill discovery tools.
-func NewSkillToolProvider(workingDir string, config SkillLoadConfig, additionalRepos ...skill.Repository) (*SkillToolProvider, error) {
-	fsRepo, err := skill.NewFSRepository(config.SkillsRoots...)
-	if err != nil {
-		return nil, fmt.Errorf("error creating skill repository: %w", err)
+// A MutableRepository is always created at ~/.genie/<agentName>/dynamic_skills
+// so learned skills can be persisted. The CreateSkillDir config overrides this
+// default path when set. The agentName scopes the skill directory per-agent.
+func NewSkillToolProvider(workingDir string, agentName string, config SkillLoadConfig, additionalRepos ...skill.Repository) (*SkillToolProvider, error) {
+	// Only create fsRepo when skills roots are configured.
+	// When SkillsRoots is empty, we skip NewFSRepository to avoid
+	// depending on how it handles zero roots — matching the guard
+	// in LoadSkillsFromConfig (pkg/skills/loader.go).
+	var reposToMerge []skill.Repository
+	if len(config.SkillsRoots) > 0 {
+		fsRepo, err := skill.NewFSRepository(config.SkillsRoots...)
+		if err != nil {
+			return nil, fmt.Errorf("error creating skill repository: %w", err)
+		}
+		reposToMerge = append(reposToMerge, fsRepo)
 	}
-	reposToMerge := []skill.Repository{fsRepo}
 	reposToMerge = append(reposToMerge, additionalRepos...)
 
-	// When create_skill is enabled, add a MutableRepository for runtime skill creation.
-	var mutableRepo *skills.MutableRepository
-	if config.EnableCreateSkill {
-		createDir := config.CreateSkillDir
-		if createDir == "" {
-			createDir = filepath.Join(workingDir, "user-skills")
+	// Always create a MutableRepository so the learning loop and create_skill
+	// tool can persist skills. Default: ~/.genie/<agentName>/dynamic_skills.
+	createDir := config.CreateSkillDir
+	if createDir == "" {
+		safeAgent := osutils.SanitizeForFilename(agentName)
+		if safeAgent == "" {
+			safeAgent = "genie"
 		}
-		mutableRepo, err = skills.NewMutableRepository(createDir, 0)
-		if err != nil {
-			return nil, fmt.Errorf("error creating mutable skill repository: %w", err)
-		}
-		reposToMerge = append(reposToMerge, mutableRepo)
+		createDir = filepath.Join(osutils.GenieDir(), safeAgent, "dynamic_skills")
 	}
+	mutableRepo, err := skills.NewMutableRepository(createDir, 0)
+	if err != nil {
+		return nil, fmt.Errorf("error creating mutable skill repository: %w", err)
+	}
+	reposToMerge = append(reposToMerge, mutableRepo)
 
 	repo := skills.NewCompositeRepository(reposToMerge...)
 	exec := local.New(
@@ -185,6 +194,12 @@ func (p *SkillToolProvider) Clone() ToolProviders {
 	return cloned
 }
 
+// MutableRepo returns the writable skill repository used by the learning
+// package to persist distilled skills. Always non-nil after construction.
+func (p *SkillToolProvider) MutableRepo() *skills.MutableRepository {
+	return p.mutableRepo
+}
+
 // GetTools returns the tools needed for agents to dynamically discover and load skills.
 func (p *SkillToolProvider) GetTools(_ context.Context) []tool.Tool {
 	tools := []tool.Tool{
@@ -193,7 +208,7 @@ func (p *SkillToolProvider) GetTools(_ context.Context) []tool.Tool {
 		dynamicskills.UnloadSkillTool(p.loader),
 	}
 
-	// Add skill management tools when enabled
+	// Add skill management tools (always available)
 	if p.mutableRepo != nil {
 		tools = append(tools,
 			createskill.NewCreateSkillTool(p.mutableRepo),
