@@ -3,7 +3,7 @@
 # This tests whether HalGuard catches fabrications from cheaper models.
 
 skills_roots = ["./skills"]
-agent_name  = "devops-copilot-flash"
+agent_name = "devops-copilot-flash"
 [persona]
 file = "./persona.md"
 disable_resume = true
@@ -96,7 +96,7 @@ port = 9877
 cors_origins = ["https://stackgenhq.github.io", "http://localhost:9877"]
 
 [hitl]
-always_allowed = ["run_shell"]
+always_allowed = ["run_shell", "memory_store"]
 
 # ── Loop Detection ──────────────────────────────────────────────────
 # Infrastructure sub-agents need many sequential run_shell calls with

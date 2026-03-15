@@ -163,7 +163,7 @@ sqlite3 .genie.db "SELECT count(*) FROM session_events;"
 2. **Expect**: The learner evaluates novelty and scores it below threshold:
    - `learning_started` → novelty ≤ 6 → `learning_skipped` with `reason: below_novelty_threshold`
 
-### Scenario 7: Post-Synthesis Hallucination Guard (HalGuard)
+### Scenario 6: Post-Synthesis Hallucination Guard (HalGuard)
 
 **Goal**: Verify that the tree executor's synthesis output is checked by HalGuard before reaching the user, preventing fabricated data from appearing in responses.
 
@@ -189,7 +189,7 @@ sqlite3 .genie.db "SELECT count(*) FROM session_events;"
    - PostCheck error (e.g., model unavailable) — fails open, returns original
    - Audit logging when contradictions corrected
 
-### Scenario 8: Context Window Stress Test
+### Scenario 7: Context Window Stress Test
 
 **Goal**: Verify that hallucination does not re-emerge as the conversation context grows with many follow-up messages.
 

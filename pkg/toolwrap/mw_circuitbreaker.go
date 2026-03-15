@@ -40,8 +40,11 @@ type CircuitBreakerConfig struct {
 //     Sub-agent failures are expected (wrong strategy, missing credentials)
 //     and the orchestrator retries with different approaches. Blocking
 //     create_agent prevents adaptive retry and kills the entire task.
+//   - memory_*: memory operations can fail when the store is empty or
+//     the embedding service is temporarily unavailable. These are transient.
 var defaultCircuitBreakerExemptTools = []string{
 	"create_agent",
+	"memory_*",
 }
 
 // withDefaults fills zero-valued fields with sensible defaults and merges

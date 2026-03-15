@@ -63,17 +63,19 @@ func IsRetrievalTool(name string) bool {
 // by default. These are merged with any user-configured exempt tools.
 // Exempt categories:
 //   - note/read_notes: agent may call repeatedly to read/write parts of notes
+//   - memory_*: idempotent read/write operations on the vector memory store.
+//     Agents frequently re-search with the same query (e.g. checking for prior
+//     knowledge on a clean slate), and blocking those calls disrupts normal
+//     agent workflow. Includes memory_search, memory_store, memory_list,
+//     memory_delete, and memory_merge.
 //   - create_agent: each call spawns a distinct sub-agent with its own goal
 //     and strategy. It is a delegation/orchestration tool, not a pagination
 //     or discovery tool. Blocking it prevents the orchestrator from retrying
 //     with different strategies after sub-agent failure.
-//   - google_drive_*: read-only, idempotent tools. Sub-agents reading multiple
-//     files sequentially trigger false-positive identical-args detection when
-//     a model re-emits the same file_id after receiving the first result (common
-//     with gemini-2.0-flash). The aggressive threshold=2 kills agents mid-task.
 var defaultLoopExemptTools = []string{
 	"read_notes",
 	"note",
+	"memory_*",
 	"create_agent",
 }
 

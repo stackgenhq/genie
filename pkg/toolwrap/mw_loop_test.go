@@ -118,7 +118,7 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 		defer cancel(nil)
 		ctx = toolwrap.WithCancelCause(ctx, cancel)
 
-		tc := &toolwrap.ToolCallContext{ToolName: "run_shell", Args: []byte(`{"cmd":"kubectl get pods"}`)}
+		tc := &toolwrap.ToolCallContext{ToolName: "web_search", Args: []byte(`{"query":"kubectl pods"}`)}
 
 		_, err := handler(ctx, tc)
 		Expect(err).NotTo(HaveOccurred())
@@ -136,7 +136,7 @@ var _ = Describe("LoopDetectionMiddleware", func() {
 		handler := mw.Wrap(passthrough("ok"))
 
 		ctx := context.Background()
-		tc := &toolwrap.ToolCallContext{ToolName: "run_shell", Args: []byte(`{"cmd":"ls"}`)}
+		tc := &toolwrap.ToolCallContext{ToolName: "web_search", Args: []byte(`{"query":"list files"}`)}
 
 		_, err := handler(ctx, tc)
 		Expect(err).NotTo(HaveOccurred())
