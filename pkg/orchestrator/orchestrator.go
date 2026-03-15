@@ -837,7 +837,7 @@ func (c *orchestrator) Chat(ctx context.Context, req CodeQuestion, outputChan ch
 	if pastContext != "" || episodicContext != "" || skillsContext != "" {
 		var contextParts []string
 		if skillsContext != "" {
-			contextParts = append(contextParts, fmt.Sprintf("## Relevant Learned Skills\nThe following skills were learned from previous tasks and may help with this request. Use the instructions below to guide your sub-agent goals.\n\n%s", skillsContext))
+			contextParts = append(contextParts, fmt.Sprintf("## Relevant Learned Skills\nThe following skills were learned from previous tasks and may help with this request.\nIMPORTANT: When you create sub-agents for tasks covered by these skills, you MUST include the skill's step-by-step instructions (the \"How it did it\" and \"What did not work\" sections) directly in the sub-agent's goal text. The sub-agent cannot see these skills — only YOU can, so you must pass the knowledge through.\n\n%s", skillsContext))
 		}
 		if pastContext != "" {
 			contextParts = append(contextParts, fmt.Sprintf("## Relevant Past Conversations\n%s", pastContext))
