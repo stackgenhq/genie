@@ -208,14 +208,12 @@ func (p *SkillToolProvider) GetTools(_ context.Context) []tool.Tool {
 		dynamicskills.UnloadSkillTool(p.loader),
 	}
 
-	// Add skill management tools (always available)
-	if p.mutableRepo != nil {
-		tools = append(tools,
-			createskill.NewCreateSkillTool(p.mutableRepo),
-			createskill.NewUpdateSkillTool(p.mutableRepo),
-			createskill.NewDeleteSkillTool(p.mutableRepo),
-		)
-	}
+	// Skill management tools (always available — mutableRepo is non-nil after construction).
+	tools = append(tools,
+		createskill.NewCreateSkillTool(p.mutableRepo),
+		createskill.NewUpdateSkillTool(p.mutableRepo),
+		createskill.NewDeleteSkillTool(p.mutableRepo),
+	)
 
 	// Add currently loaded dynamic skills
 	tools = append(tools, p.loader.GetLoadedTools()...)

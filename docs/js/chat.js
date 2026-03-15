@@ -2892,8 +2892,14 @@
     async function deleteConversation(convThreadId) {
         try {
             await genieDB.deleteConversation(convThreadId);
-            if (convThreadId === activeThreadId || convThreadId === viewingHistoryThreadId) {
+            if (convThreadId === activeThreadId) {
+                // Deleted the live session — must start fresh.
                 startNewChat();
+            } else if (convThreadId === viewingHistoryThreadId) {
+                // Deleted the history thread we were viewing — switch back
+                // to the live session without discarding it.
+                viewingHistoryThreadId = null;
+                await loadConversation(activeThreadId);
             }
             await refreshSidebar();
         } catch (err) {
@@ -3024,35 +3030,58 @@
     // Initialize vibrate toggle label from localStorage on load
     updateVibrateToggleLabel();
 
+    // When the chat page is served by a Genie instance (not the docs site / local file),
+    // auto-detect the host origin as the default endpoint and connect.
+    (function detectOriginEndpoint() {
+        var loc = window.location;
+        // Keep the hardcoded default for the GitHub Pages docs site and local file:// opens.
+        if (loc.protocol === 'file:' || loc.hostname === 'stackgenhq.github.io') return;
+        var origin = loc.origin; // e.g. http://localhost:9877 or https://genie.dev.stackgen.com
+        if (!origin || origin === 'null') return;
+        var input = document.getElementById('endpoint-input');
+        if (input) {
+            input.value = origin;
+        }
+    })();
+
     // If page was opened with ?url=... or ?genie_url=..., connect to that Genie instance (one-click login).
     // Supports ?token=JWT for one-click JWT auth (e.g. ?url=https://genie.example.com&token=eyJhbG...).
     // Remove the query params from the address bar so the URL is not stored in history or sent in Referer.
-    (function tryConnectFromQueryParam() {
+    (function tryAutoConnect() {
         const params = new URLSearchParams(window.location.search);
         const genieUrl = params.get('url') || params.get('genie_url');
-        if (!genieUrl) return;
-        let decoded;
-        try {
-            decoded = decodeURIComponent(genieUrl.trim());
-        } catch (e) {
-            decoded = genieUrl.trim();
-        }
-        // Check for a JWT token in the query params.
-        const queryToken = params.get('token') || params.get('jwt');
-        if (queryToken) {
+        if (genieUrl) {
+            // Explicit ?url= or ?genie_url= query param — use that for one-click login.
+            let decoded;
             try {
-                aguiTokenForSession = decodeURIComponent(queryToken.trim());
+                decoded = decodeURIComponent(genieUrl.trim());
             } catch (e) {
-                aguiTokenForSession = queryToken.trim();
+                decoded = genieUrl.trim();
             }
+            // Check for a JWT token in the query params.
+            const queryToken = params.get('token') || params.get('jwt');
+            if (queryToken) {
+                try {
+                    aguiTokenForSession = decodeURIComponent(queryToken.trim());
+                } catch (e) {
+                    aguiTokenForSession = queryToken.trim();
+                }
+            }
+            const input = document.getElementById('endpoint-input');
+            if (input && decoded) {
+                input.value = decoded;
+                if (typeof history.replaceState === 'function') {
+                    const cleanUrl = window.location.pathname || '/';
+                    history.replaceState(null, '', cleanUrl);
+                }
+                connectToServer();
+            }
+            return;
         }
-        const input = document.getElementById('endpoint-input');
-        if (input && decoded) {
-            input.value = decoded;
-            if (typeof history.replaceState === 'function') {
-                const cleanUrl = window.location.pathname || '/';
-                history.replaceState(null, '', cleanUrl);
-            }
+        // No ?url= param — if the page is served by a Genie instance (origin was
+        // detected by detectOriginEndpoint above), auto-connect to that origin.
+        var loc = window.location;
+        if (loc.protocol !== 'file:' && loc.hostname !== 'stackgenhq.github.io') {
             connectToServer();
         }
     })();
