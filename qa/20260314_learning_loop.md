@@ -130,7 +130,7 @@ sqlite3 .genie.db "SELECT count(*) FROM session_events;"
 4. **Verify in logs**:
    ```bash
    grep "recallLearnedSkills" /tmp/devops-copilot.log
-   grep "skills_recalled" ~/.genie/devops_copilot.*.ndjson
+   grep "recall_learned_skills" ~/.genie/devops_copilot.*.ndjson
    ```
 
 ### Scenario 3: Skill Indexed in Vector Store
@@ -179,7 +179,7 @@ sqlite3 .genie.db "SELECT count(*) FROM session_events;"
    - No fabricated clusters (`prod-cluster`), pods (`payment-processor`), or namespaces (`payments`)
 3. **Check unit tests pass** for `verifySynthesis`:
    ```bash
-   go test -mod=mod -v ./pkg/orchestrator/... -- -ginkgo.focus=verifySynthesis
+   go test -mod=mod -v ./pkg/orchestrator/... -ginkgo.focus=verifySynthesis
    ```
 4. **Unit test coverage includes**:
    - Nil guard (pass-through) — no halguard configured

@@ -668,6 +668,54 @@ var _ = Describe("CodeOwner", func() {
 			// SetCache SHOULD have been called
 			Expect(fakeRouter.SetCacheCallCount()).To(Equal(1))
 		})
+
+		It("should cache the corrected output when verifySynthesis detects hallucinations", func() {
+			fakeRouter.CheckCacheReturns("", false)
+			fakeRouter.ClassifyReturns(semanticrouter.ClassificationResult{
+				Category: semanticrouter.CategoryComplex,
+			}, nil)
+
+			original := strings.Repeat("prod-cluster has payment-processor failing. ", 10)
+			corrected := strings.Repeat("developer-eks has aiden-scheduler failing. ", 10)
+
+			fakeTreeExecutor.RunReturns(reactree.TreeResult{
+				Output: original,
+				Status: reactree.Success,
+			}, nil)
+
+			// Configure halGuard to detect hallucination and return corrected text.
+			fakeGuard := &halguardfakes.FakeGuard{}
+			fakeGuard.PostCheckReturns(halguard.VerificationResult{
+				IsFactual:     false,
+				CorrectedText: corrected,
+				BlockScores: []halguard.BlockScore{
+					{Text: "prod-cluster", Label: halguard.BlockContradiction, Reason: "fabricated"},
+				},
+				Tier: halguard.TierFull,
+			}, nil)
+			co.halGuard = fakeGuard
+
+			outChan := make(chan string, 10)
+			req := CodeQuestion{
+				Question:           "check EKS cluster health",
+				SkipClassification: false,
+			}
+
+			err := co.Chat(ctx, req, outChan)
+			Expect(err).NotTo(HaveOccurred())
+
+			// SetCache must receive the corrected (post-verifySynthesis) output,
+			// not the original pre-correction text from the tree executor.
+			Expect(fakeRouter.SetCacheCallCount()).To(Equal(1))
+			_, _, cachedValue := fakeRouter.SetCacheArgsForCall(0)
+			Expect(cachedValue).To(Equal(corrected))
+			Expect(cachedValue).NotTo(Equal(original))
+
+			// The output channel should also receive the corrected version.
+			var received string
+			Eventually(outChan).Should(Receive(&received))
+			Expect(received).To(Equal(corrected))
+		})
 	})
 
 	Describe("recallConversation", func() {
