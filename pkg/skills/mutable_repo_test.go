@@ -406,4 +406,53 @@ var _ = Describe("MutableRepository", func() {
 			Expect(repo.Count()).To(Equal(1))
 		})
 	})
+
+	Describe("Exists", func() {
+		It("returns true for an existing skill", func() {
+			Expect(repo.Add(skills.AddSkillRequest{
+				Name: "check-me", Description: "exists test", Instructions: "here",
+			})).To(Succeed())
+			Expect(repo.Exists("check-me")).To(BeTrue())
+		})
+
+		It("returns false for a non-existent skill", func() {
+			Expect(repo.Exists("ghost")).To(BeFalse())
+		})
+
+		It("returns false after deletion", func() {
+			Expect(repo.Add(skills.AddSkillRequest{
+				Name: "temp", Description: "temporary", Instructions: "gone soon",
+			})).To(Succeed())
+			Expect(repo.Exists("temp")).To(BeTrue())
+			Expect(repo.Delete("temp")).To(Succeed())
+			Expect(repo.Exists("temp")).To(BeFalse())
+		})
+	})
+
+	Describe("Update with docs", func() {
+		It("replaces docs during update", func() {
+			Expect(repo.Add(skills.AddSkillRequest{
+				Name: "doc-update", Description: "original", Instructions: "v1",
+				Docs: map[string]string{
+					"old.pdf": base64.StdEncoding.EncodeToString([]byte("old")),
+				},
+			})).To(Succeed())
+
+			Expect(repo.Update(skills.AddSkillRequest{
+				Name: "doc-update", Description: "updated", Instructions: "v2",
+				Docs: map[string]string{
+					"new.pdf": base64.StdEncoding.EncodeToString([]byte("new")),
+				},
+			})).To(Succeed())
+
+			// Old doc gone
+			_, err := os.Stat(filepath.Join(baseDir, "doc-update", "docs", "old.pdf"))
+			Expect(os.IsNotExist(err)).To(BeTrue())
+
+			// New doc exists
+			data, err := os.ReadFile(filepath.Join(baseDir, "doc-update", "docs", "new.pdf"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(data)).To(Equal("new"))
+		})
+	})
 })
