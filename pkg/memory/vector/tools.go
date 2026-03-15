@@ -12,6 +12,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stackgenhq/genie/pkg/pii"
+	"go.opentelemetry.io/otel/attribute"
+	oteltrace "go.opentelemetry.io/otel/trace"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )
@@ -235,6 +237,17 @@ func (t *memorySearchTool) execute(ctx context.Context, req MemorySearchRequest)
 			Metadata:   r.Metadata,
 			Similarity: r.Score,
 		})
+	}
+
+	// When the search returns no results, tag the active span with
+	// "empty-retrieval" so Langfuse Automatic Evaluators can target these
+	// traces specifically and cost-effectively (e.g. to check whether the
+	// agent handles no-result conditions gracefully).
+	if len(items) == 0 {
+		span := oteltrace.SpanFromContext(ctx)
+		if span.IsRecording() {
+			span.SetAttributes(attribute.StringSlice("langfuse.trace.tags", []string{"empty-retrieval"}))
+		}
 	}
 
 	return MemorySearchResponse{

@@ -733,14 +733,19 @@ func (a *Application) buildChatHandler() func(ctx context.Context, message strin
 		// created downstream (including trpc-agent-go internal spans).
 		// Span attributes alone only work if this specific span happens to
 		// be the Langfuse trace root, which is often not the case.
+		threadID := agui.ThreadIDFromContext(ctx)
 		ctx = withLangfuseTraceBaggage(ctx, a.displayName(), "agui")
+		ctx = withSessionBaggage(ctx, threadID)
 		ctx = withPrincipalBaggage(ctx)
+		ctx = withInfrastructureBaggage(ctx)
 
 		sender := identity.GetSender(ctx)
 		ctx, aguiSpan := trace.Tracer.Start(ctx, a.displayName(), oteltrace.WithAttributes(
 			attribute.String("langfuse.trace.name", a.displayName()),
 			attribute.String("langfuse.trace.input", pii.Redact(message)),
 			attribute.String("langfuse.user.id", sender.ID),
+			attribute.String("langfuse.session.id", threadID),
+			attribute.String("langfuse.trace.release", config.Version),
 			attribute.StringSlice("langfuse.trace.tags", []string{
 				a.displayName(),
 				"agui",
@@ -1529,13 +1534,16 @@ func (a *Application) handleMessengerInput(ctx context.Context, msg messenger.In
 			Role:             "user",
 			AuthenticatedVia: string(msg.Platform),
 		})
+		messengerCtx = withSessionBaggage(messengerCtx, senderCtx)
 		messengerCtx = withPrincipalBaggage(messengerCtx)
+		messengerCtx = withInfrastructureBaggage(messengerCtx)
 
 		traceCtx, span := trace.Tracer.Start(messengerCtx, a.displayName(), oteltrace.WithAttributes(
 			attribute.String("langfuse.trace.name", a.displayName()),
 			attribute.String("langfuse.trace.input", pii.Redact(msg.Content.Text)),
 			attribute.String("langfuse.user.id", msg.Sender.ID),
 			attribute.String("langfuse.session.id", senderCtx),
+			attribute.String("langfuse.trace.release", config.Version),
 			attribute.StringSlice("langfuse.trace.tags", []string{
 				a.displayName(),
 				string(msg.Platform),
@@ -1987,6 +1995,75 @@ func withLangfuseTraceBaggage(ctx context.Context, tags ...string) context.Conte
 	if err != nil {
 		logger.GetLogger(ctx).Warn("failed to set langfuse trace baggage", "error", err, "tags", tags)
 		return ctx
+	}
+	return baggage.ContextWithBaggage(ctx, bag)
+}
+
+// withSessionBaggage injects the session ID into OTel Baggage so that every
+// child span (tool calls, LLM calls, vectorstore searches) automatically
+// inherits the session context. Without this, child observations are
+// "orphaned" from the session that triggered them, making it impossible to
+// group and filter traces by conversation session in the Langfuse dashboard.
+//
+// sessionID is URL-path-escaped (same approach used by withLangfuseTraceBaggage
+// and withPrincipalBaggage) because the W3C Baggage spec requires token-safe
+// values. Plain ASCII IDs such as Slack sender contexts round-trip unchanged;
+// values containing special characters are percent-encoded with %XX.
+func withSessionBaggage(ctx context.Context, sessionID string) context.Context {
+	if sessionID == "" {
+		return ctx
+	}
+	m, err := baggage.NewMember("langfuse.session.id", url.PathEscape(sessionID))
+	if err != nil {
+		logger.GetLogger(ctx).Warn("failed to create session baggage member", "error", err, "sessionID", sessionID)
+		return ctx
+	}
+	bag := baggage.FromContext(ctx)
+	bag, err = bag.SetMember(m)
+	if err != nil {
+		logger.GetLogger(ctx).Warn("failed to set session baggage member", "error", err, "sessionID", sessionID)
+		return ctx
+	}
+	return baggage.ContextWithBaggage(ctx, bag)
+}
+
+// withInfrastructureBaggage injects deployment infrastructure metadata into
+// OTel Baggage so that every child span carries environment context. This
+// allows the Langfuse Analytics Dashboard to filter performance metrics by
+// environment, cloud region, and Kubernetes cluster without cluttering the
+// trace tag list.
+//
+// Also propagates langfuse.trace.release from the compiled-in config.Version
+// so every child observation inherits the deployment release identifier,
+// enabling latency and error spikes to be correlated with specific releases.
+//
+// Reads the following environment variables:
+//   - GENIE_DEPLOYMENT_ENV      → langfuse.trace.metadata.deployment_environment
+//   - GENIE_CLOUD_REGION        → langfuse.trace.metadata.cloud_region
+//   - GENIE_K8S_CLUSTER_NAME    → langfuse.trace.metadata.k8s_cluster_name
+func withInfrastructureBaggage(ctx context.Context) context.Context {
+	pairs := []struct{ key, val string }{
+		{"langfuse.trace.release", config.Version},
+		{"langfuse.trace.metadata.deployment_environment", os.Getenv("GENIE_DEPLOYMENT_ENV")},
+		{"langfuse.trace.metadata.cloud_region", os.Getenv("GENIE_CLOUD_REGION")},
+		{"langfuse.trace.metadata.k8s_cluster_name", os.Getenv("GENIE_K8S_CLUSTER_NAME")},
+	}
+	bag := baggage.FromContext(ctx)
+	logr := logger.GetLogger(ctx)
+	for _, kv := range pairs {
+		if kv.val == "" {
+			continue
+		}
+		m, err := baggage.NewMember(kv.key, url.PathEscape(kv.val))
+		if err != nil {
+			logr.Warn("failed to create infrastructure baggage member", "key", kv.key, "error", err)
+			continue
+		}
+		bag, err = bag.SetMember(m)
+		if err != nil {
+			logr.Warn("failed to set infrastructure baggage member", "key", kv.key, "error", err)
+			continue
+		}
 	}
 	return baggage.ContextWithBaggage(ctx, bag)
 }

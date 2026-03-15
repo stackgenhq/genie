@@ -7,6 +7,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -22,6 +23,7 @@ import (
 	messengerhitl "github.com/stackgenhq/genie/pkg/messenger/hitl"
 	"github.com/stackgenhq/genie/pkg/messenger/messengerfakes"
 	"github.com/stackgenhq/genie/pkg/orchestrator/orchestratorfakes"
+	"go.opentelemetry.io/otel/baggage"
 )
 
 var _ = Describe("Application handleMessengerInput", func() {
@@ -482,5 +484,91 @@ var _ = Describe("parseApprovalTextReply", func() {
 		p := parseApprovalTextReply("YES, allow for 5 min")
 		Expect(p.IsApproval).To(BeTrue())
 		Expect(p.AllowForMins).To(Equal(5))
+	})
+})
+
+var _ = Describe("withSessionBaggage", func() {
+	It("should set langfuse.session.id in baggage when sessionID is non-empty", func(ctx context.Context) {
+		sessionID := "session-abc-123"
+		ctx = withSessionBaggage(ctx, sessionID)
+
+		bag := baggage.FromContext(ctx)
+		member := bag.Member("langfuse.session.id")
+		// Baggage values are URL-path-escaped; plain ASCII IDs are unchanged.
+		Expect(member.Value()).To(Equal(url.PathEscape(sessionID)))
+	})
+
+	It("should return context unchanged when sessionID is empty", func(ctx context.Context) {
+		bagBefore := baggage.FromContext(ctx)
+		ctx = withSessionBaggage(ctx, "")
+		bagAfter := baggage.FromContext(ctx)
+
+		Expect(bagAfter).To(Equal(bagBefore))
+	})
+})
+
+var _ = Describe("withInfrastructureBaggage", func() {
+	It("should set langfuse.trace.release in baggage from config.Version", func(ctx context.Context) {
+		config.Version = "v1.2.3-test"
+		ctx = withInfrastructureBaggage(ctx)
+
+		bag := baggage.FromContext(ctx)
+		member := bag.Member("langfuse.trace.release")
+		Expect(member.Value()).To(Equal("v1.2.3-test"))
+	})
+
+	It("should set deployment_environment metadata when GENIE_DEPLOYMENT_ENV is set", func(ctx context.Context) {
+		// Arrange
+		Expect(os.Setenv("GENIE_DEPLOYMENT_ENV", "staging")).To(Succeed())
+		DeferCleanup(func() { _ = os.Unsetenv("GENIE_DEPLOYMENT_ENV") })
+
+		// Act
+		ctx = withInfrastructureBaggage(ctx)
+
+		// Assert
+		bag := baggage.FromContext(ctx)
+		member := bag.Member("langfuse.trace.metadata.deployment_environment")
+		Expect(member.Value()).To(Equal("staging"))
+	})
+
+	It("should set cloud_region metadata when GENIE_CLOUD_REGION is set", func(ctx context.Context) {
+		// Arrange
+		Expect(os.Setenv("GENIE_CLOUD_REGION", "us-east-1")).To(Succeed())
+		DeferCleanup(func() { _ = os.Unsetenv("GENIE_CLOUD_REGION") })
+
+		// Act
+		ctx = withInfrastructureBaggage(ctx)
+
+		// Assert
+		bag := baggage.FromContext(ctx)
+		member := bag.Member("langfuse.trace.metadata.cloud_region")
+		Expect(member.Value()).To(Equal("us-east-1"))
+	})
+
+	It("should set k8s_cluster_name metadata when GENIE_K8S_CLUSTER_NAME is set", func(ctx context.Context) {
+		// Arrange
+		Expect(os.Setenv("GENIE_K8S_CLUSTER_NAME", "prod-cluster")).To(Succeed())
+		DeferCleanup(func() { _ = os.Unsetenv("GENIE_K8S_CLUSTER_NAME") })
+
+		// Act
+		ctx = withInfrastructureBaggage(ctx)
+
+		// Assert
+		bag := baggage.FromContext(ctx)
+		member := bag.Member("langfuse.trace.metadata.k8s_cluster_name")
+		Expect(member.Value()).To(Equal("prod-cluster"))
+	})
+
+	It("should skip empty env vars to avoid overwriting existing baggage with blanks", func(ctx context.Context) {
+		// Arrange: ensure env vars are not set
+		_ = os.Unsetenv("GENIE_CLOUD_REGION")
+
+		// Act
+		ctx = withInfrastructureBaggage(ctx)
+
+		// Assert: member value should be empty (key absent)
+		bag := baggage.FromContext(ctx)
+		member := bag.Member("langfuse.trace.metadata.cloud_region")
+		Expect(member.Value()).To(BeEmpty())
 	})
 })
