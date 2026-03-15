@@ -11,6 +11,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/stackgenhq/genie/pkg/memory/vector"
 	"github.com/stackgenhq/genie/pkg/memory/vector/qdrantstore"
@@ -233,6 +235,52 @@ var _ = Describe("NewMemorySearchTool", func() {
 		result, err := ct.Call(context.Background(), []byte(`{"query":"memory"}`))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result).NotTo(BeNil())
+	})
+
+	It("should return an empty result and set empty-retrieval span tag when no memories match", func(ctx context.Context) {
+		// Arrange: store is empty so any query yields 0 results.
+		cfg := vector.Config{EmbeddingProvider: "dummy"}
+		store, err := cfg.NewStore(ctx)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Set up a recording tracer so we can inspect span attributes.
+		original := otel.GetTracerProvider()
+		tp := sdktrace.NewTracerProvider(
+			sdktrace.WithSyncer(exporter),
+		)
+		otel.SetTracerProvider(tp)
+		DeferCleanup(func() { otel.SetTracerProvider(original) })
+
+		ctx, span := tp.Tracer("test").Start(ctx, "test-span")
+
+		// Act
+		t := vector.NewMemorySearchTool(store, nil)
+		ct := t.(tool.CallableTool)
+		result, err := ct.Call(ctx, []byte(`{"query":"something not stored"}`))
+
+		// Assert: no error and 0 results
+		Expect(err).NotTo(HaveOccurred())
+		// The response Count field should be 0 (empty results).
+		resp, ok := result.(vector.MemorySearchResponse)
+		Expect(ok).To(BeTrue(), "expected MemorySearchResponse type")
+		Expect(resp.Count).To(Equal(0))
+
+		// Assert: the "empty-retrieval" tag was set on the active span.
+		span.End()
+		spans := exporter.GetSpans()
+		Expect(spans).NotTo(BeEmpty())
+		lastSpan := spans[len(spans)-1]
+		var foundEmptyRetrieval bool
+		for _, attr := range lastSpan.Attributes {
+			if string(attr.Key) == "langfuse.trace.tags" {
+				for _, v := range attr.Value.AsStringSlice() {
+					if v == "empty-retrieval" {
+						foundEmptyRetrieval = true
+					}
+				}
+			}
+		}
+		Expect(foundEmptyRetrieval).To(BeTrue(), "expected 'empty-retrieval' tag on span")
 	})
 })
 
