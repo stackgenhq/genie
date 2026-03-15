@@ -252,7 +252,6 @@ var _ = Describe("NewMemorySearchTool", func() {
 		DeferCleanup(func() { otel.SetTracerProvider(original) })
 
 		ctx, span := tp.Tracer("test").Start(ctx, "test-span")
-		defer span.End()
 
 		// Act
 		t := vector.NewMemorySearchTool(store, nil)

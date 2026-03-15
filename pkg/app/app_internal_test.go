@@ -509,6 +509,8 @@ var _ = Describe("withSessionBaggage", func() {
 
 var _ = Describe("withInfrastructureBaggage", func() {
 	It("should set langfuse.trace.release in baggage from config.Version", func(ctx context.Context) {
+		originalVersion := config.Version
+		DeferCleanup(func() { config.Version = originalVersion })
 		config.Version = "v1.2.3-test"
 		ctx = withInfrastructureBaggage(ctx)
 
